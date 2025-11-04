@@ -11,7 +11,9 @@ return [
         'toast' => true,
         'text' => null,
         'showCancelButton' => false,
-        'showConfirmButton' => false
+        'showConfirmButton' => false,
+        // Avoid potential reflow on some mobile browsers and speed up rendering
+        'heightAuto' => false
     ],
     'confirm' => [
         'icon' => 'warning',
@@ -22,6 +24,8 @@ return [
         'showCancelButton' => true,
         'cancelButtonText' => 'No',
         'confirmButtonColor' => '#3085d6',
-        'cancelButtonColor' => '#d33'
+        'cancelButtonColor' => '#d33',
+        // Avoid potential reflow on some mobile browsers and speed up rendering
+        'heightAuto' => false
     ]
 ];
