@@ -49,15 +49,16 @@ class FortifyServiceProvider extends ServiceProvider
                             || !$onboardingSteps->add_menu_items_completed
                         )
                     ) {
-                        return redirect(RouteServiceProvider::ONBOARDING_STEPS);
+                        return redirect(url(RouteServiceProvider::ONBOARDING_STEPS));
                     }
                 }
 
                 if (user()->hasRole('Super Admin')) {
-                    return redirect(RouteServiceProvider::SUPERADMIN_HOME);
+                    return redirect(url(RouteServiceProvider::SUPERADMIN_HOME));
                 }
 
-                return redirect(session()->has('url.intended') ? session()->get('url.intended') : RouteServiceProvider::HOME);
+                return redirect(session()->has('url.intended') ? session()->get('url.intended') :
+url(RouteServiceProvider::HOME));
             }
         });
     }

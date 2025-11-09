@@ -589,10 +589,68 @@ if (!function_exists('currency_format')) {
                 $currency_symbol = '';
             } else {
                 $settings = $formats->restaurant ?? Restaurant::find($formats->restaurant_id);
-                $currency_symbol = $currencyId == null ? $settings->currency->currency_symbol : $formats->currency_symbol;
+                $currency_symbol = $currencyId == null ? $settings->currency->currency_symbol :
+$formats->currency_symbol;
             }
         }
 
+
+        $currency_position = $formats->currency_position ?? 'left';
+        $no_of_decimal = !is_null($formats->no_of_decimal) ? $formats->no_of_decimal : '0';
+        $thousand_separator = !is_null($formats->thousand_separator) ? $formats->thousand_separator : '';
+        $decimal_separator = !is_null($formats->decimal_separator) ? $formats->decimal_separator : '0';
+
+        $amount = number_format(floatval($amount), $no_of_decimal, $decimal_separator, $thousand_separator);
+
+        $amount = match ($currency_position) {
+            'right' => $amount . $currency_symbol,
+            'left_with_space' => $currency_symbol . ' ' . $amount,
+            'right_with_space' => $amount . ' ' . $currency_symbol,
+            default => $currency_symbol . $amount,
+        };
+
+        return $amount;
+    }
+}
+
+if (!function_exists('currency_format_for_receipt_item')) {
+
+    // @codingStandardsIgnoreLine
+    // Format currency for receipt items - respects show_currency_prefix setting
+    function currency_format_for_receipt_item($amount, $currencyId = null, $showCode = false)
+    {
+        $formats = currency_format_setting($currencyId);
+        $settings = $formats->restaurant ?? Restaurant::find($formats->restaurant_id);
+
+        // Check if currency prefix should be hidden for ITEMS based on receipt setting
+        $currentRestaurant = null;
+        try {
+            $currentRestaurant = restaurant();
+        } catch (\Exception $e) {
+            // If restaurant() helper fails, use the restaurant from currency
+        }
+        
+        $restaurantToCheck = $currentRestaurant ?? $settings;
+        
+        // Load the receiptSetting relationship if not already loaded
+        if ($restaurantToCheck && !$restaurantToCheck->relationLoaded('receiptSetting')) {
+            $restaurantToCheck->load('receiptSetting');
+        }
+        
+        $receiptSetting = $restaurantToCheck?->receiptSetting;
+        $hideCurrencyPrefix = $receiptSetting && isset($receiptSetting->show_currency_prefix) && !$receiptSetting->show_currency_prefix;
+
+        if ($showCode) {
+            $currency_symbol = $formats->currency_code ?? '';
+        }
+        else{
+            if ($hideCurrencyPrefix) {
+                $currency_symbol = '';
+            } else {
+                $currency_symbol = $currencyId == null ? $settings->currency->currency_symbol :
+$formats->currency_symbol;
+            }
+        }
 
         $currency_position = $formats->currency_position ?? 'left';
         $no_of_decimal = !is_null($formats->no_of_decimal) ? $formats->no_of_decimal : '0';

@@ -38,7 +38,7 @@ class ChangeBranch extends Component
                 || !$onboardingSteps->add_menu_items_completed
             )
         ) {
-            return $this->redirect(RouteServiceProvider::ONBOARDING_STEPS, navigate: true);
+            return $this->redirect(url(RouteServiceProvider::ONBOARDING_STEPS), navigate: true);
         } else {
             $this->js('window.location.reload()');
         }

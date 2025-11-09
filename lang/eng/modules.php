@@ -620,6 +620,7 @@ return [
         'totalGuest' => 'Show Total guest',
         'restaurantLogo' => 'Show Restaurant Logo',
         'restaurantTax' => 'Show Restaurant Tax',
+        'showCurrencyPrefix' => 'Show Currency Prefix (Rs, $, etc.)',
         'noTaxFound' => 'No Tax Found',
         'selectEnvironment' => 'Select Environment',
         'enablePushNotification' => 'Enable Push Notifications',

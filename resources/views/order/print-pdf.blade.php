@@ -288,8 +288,18 @@
                 <tr>
                     <th class="qty">@lang('modules.order.qty')</th>
                     <th class="description">@lang('modules.menu.itemName')</th>
-                    <th class="price">@lang('modules.order.price') ({{ restaurant()->currency->currency_code }})</th>
-                    <th class="amount">@lang('modules.order.amount') ({{ restaurant()->currency->currency_code }})</th>
+                    <th class="price">
+                        @lang('modules.order.price')
+                        @if($receiptSettings->show_currency_prefix)
+                            ({{ restaurant()->currency->currency_code }})
+                        @endif
+                    </th>
+                    <th class="amount">
+                        @lang('modules.order.amount')
+                        @if($receiptSettings->show_currency_prefix)
+                            ({{ restaurant()->currency->currency_code }})
+                        @endif
+                    </th>
                 </tr>
             </thead>
             <tbody>
@@ -312,8 +322,8 @@
                                 <div class="modifiers"><em>@lang('modules.order.note'): {{ $item->note }}</em></div>
                             @endif
                         </td>
-                        <td class="price">{{ currency_format($item->price, restaurant()->currency_id, false, false) }}</td>
-                        <td class="amount">{{ currency_format($item->amount, restaurant()->currency_id, false, false) }}</td>
+                    <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
+                    <td class="amount">{{ currency_format_for_receipt_item($item->amount, restaurant()->currency_id) }}</td>
                     </tr>
                 @endforeach
             </tbody>
