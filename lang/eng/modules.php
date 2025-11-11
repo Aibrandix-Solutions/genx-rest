@@ -635,6 +635,7 @@ return [
         'disableLandingSiteHelp' => 'Disable the landing site or set your custom landing site.',
         'disableLandingSiteHelpDescription' => 'When enabled, this will disable the front website and redirect all visitors directly to the login page.',
         'landingSiteType' => 'Landing Site Type',
+        'kitchen' => 'Select Kitchen',
         'landingSiteUrl' => 'Landing Site URL',
         'theme' => 'Theme',
         'custom' => 'Custom',

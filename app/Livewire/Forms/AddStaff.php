@@ -65,10 +65,10 @@ class AddStaff extends Component
         $this->validate([
             'memberName' => 'required',
             'restaurantPhoneNumber' => [
-                'required',
+                'nullable',
                 'regex:/^[0-9\s]{8,20}$/',
             ],
-            'restaurantPhoneCode' => 'required',
+            'restaurantPhoneCode' => 'nullable',
             'memberPassword' => 'required',
             'memberEmail' => 'required|unique:users,email'
         ]);

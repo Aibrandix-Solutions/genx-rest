@@ -70,10 +70,10 @@ class EditStaff extends Component
             'memberName' => 'required',
             'memberEmail' => 'required|unique:users,email,' . $this->member->id,
             'restaurantPhoneNumber' => [
-                'required',
+                'nullable',
                 'regex:/^[0-9\s]{8,20}$/',
             ],
-            'restaurantPhoneCode' => 'required',
+            'restaurantPhoneCode' => 'nullable',
         ]);
 
         $user = User::withoutGlobalScopes()->where('restaurant_id', restaurant()->id)->find($this->member->id);
