@@ -1802,6 +1802,20 @@ class Pos extends Component
 
     public function printOrder($order)
     {
+        // Handle if $order is just an ID instead of an Order object
+        if (!is_object($order)) {
+            $order = Order::find($order);
+            if (!$order) {
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close')
+                ]);
+                return;
+            }
+        }
+
         Log::info("printOrder called with Order ID: {$order->id}, Order Number: {$order->order_number}");
 
         $orderPlace = \App\Models\MultipleOrder::with('printerSetting')->first();
@@ -1814,7 +1828,7 @@ class Pos extends Component
                 $this->handleOrderPrint($order->id);
                 break;
             default:
-                $url = route('orders.print', $order);
+                $url = route('orders.print', $order->id);
                 $this->dispatch('print_location', $url);
                 break;
         }

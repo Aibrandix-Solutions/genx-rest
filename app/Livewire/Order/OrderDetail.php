@@ -78,24 +78,35 @@ class OrderDetail extends Component
 
     public function printOrder($orderId)
     {
-
+        // Validate orderId
+        if (!$orderId) {
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
 
         $orderPlaces = \App\Models\MultipleOrder::with('printerSetting')->get();
 
+        $printerSetting = null;
         foreach ($orderPlaces as $orderPlace) {
-            $printerSetting = $orderPlace->printerSetting;
+            if ($orderPlace->printerSetting) {
+                $printerSetting = $orderPlace->printerSetting;
+                break;
+            }
         }
 
         try {
-
             switch ($printerSetting?->printing_choice) {
-            case 'directPrint':
-
-                $this->handleOrderPrint($orderId);
+                case 'directPrint':
+                    $this->handleOrderPrint($orderId);
                     break;
-            default:
-                $url = route('orders.print', $orderId);
-                $this->dispatch('print_location', $url);
+                default:
+                    $url = route('orders.print', $orderId);
+                    $this->dispatch('print_location', $url);
                     break;
             }
         } catch (\Throwable $e) {
