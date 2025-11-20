@@ -87,11 +87,11 @@
                             <td class="py-2 pr-4">{{ $s->closed_at?->timezone(timezone())?->format('d M Y, h:i A') }}</td>
                             <td class="py-2 pr-4">{{ $s->register?->name ?? '—' }}</td>
                             <td class="py-2 pr-4">{{ $s->cashier?->name ?? '—' }}</td>
-                            <td class="py-2 pr-4 text-right">₹{{ number_format($s->expected_cash ?? 0, 2) }}</td>
-                            <td class="py-2 pr-4 text-right">₹{{ number_format($s->counted_cash ?? 0, 2) }}</td>
+                            <td class="py-2 pr-4 text-right">{{ currency_format($s->expected_cash ?? 0) }}</td>
+                            <td class="py-2 pr-4 text-right">{{ currency_format($s->counted_cash ?? 0) }}</td>
                             @php $diff = ($s->counted_cash ?? 0) - ($s->expected_cash ?? 0); @endphp
                             <td class="py-2 pr-4 text-right @if(abs($diff)>=200) text-red-600 @elseif(abs($diff)>=50) text-amber-600 @else text-green-600 @endif">
-                                {{ $diff >= 0 ? '+' : '' }}₹{{ number_format($diff, 2) }}
+                                {{ $diff > 0 ? '+' : '' }}{{ currency_format($diff) }}
                             </td>
                             <td class="py-2 pr-4 max-w-xs truncate" title="{{ $s->closing_note }}">{{ $s->closing_note }}</td>
                             <td class="py-2">

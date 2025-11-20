@@ -175,6 +175,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
         Route::get('expense-summary-report', [ReportController::class, 'expenseSummaryReport'])->name('reports.expensesummaryreport');
         Route::get('print-log', [ReportController::class, 'printLog'])->name('reports.printLog');
         Route::get('delivery-report', [ReportController::class, 'deliveryReport'])->name('reports.delivery');
+        Route::get('kot-adjustments', [ReportController::class, 'kotAdjustmentReport'])->name('reports.kotAdjustments');
     });
 
     Route::resource('staff', StaffController::class);

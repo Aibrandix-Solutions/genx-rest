@@ -364,6 +364,7 @@ return [
         'deleteOrderMessage' => 'Are you sure you want to delete the order?',
         'deleteOrderItem' => 'Delete Order Item',
         'deleteOrderItemMessage' => 'Are you sure you want to delete this item from the order?',
+        'itemAdjustmentNote' => 'Provide a reason for removing or reducing KOT items',
         'deliveryExecutive' => 'Delivery Executive',
         'selectOrderTypes' => 'Select Order Types',
         'extraCharges' => 'Charges',

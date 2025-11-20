@@ -36,6 +36,7 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Models\Customer;
 use App\Models\Menu;
 use App\Models\DeliveryPlatform;
+use App\Support\KotAdjustmentLogger;
 
 class Pos extends Component
 {
@@ -113,6 +114,11 @@ class Pos extends Component
     public $orderItemTaxDetails = [];
     public $taxMode;
     public $pickupRange;
+    public $showRemovalReasonModal = false;
+    public $removalReason = '';
+    public $pendingRemovalItem = null;
+    public $pendingRemovalAction = null;
+    public $pendingRemovalNewQuantity = null;
     public $now;
     public $minDate;
     public $maxDate;
@@ -633,13 +639,6 @@ class Pos extends Component
             return;
         }
 
-        if ($this->orderID && $this->orderDetail && $this->orderDetail->status === 'kot') {
-            $this->addError('error', __('messages.errorWantToCreateNewKot'));
-            $this->showNewKotButton = true;
-            $this->showErrorModal = true;
-            return;
-        }
-
         $this->dispatch('play_beep');
         $this->menuItem = MenuItem::find($id);
         
@@ -791,82 +790,12 @@ class Pos extends Component
 
     public function deleteCartItems($id)
     {
-        // Update table activity when removing items
-        if ($this->tableId) {
-            $table = Table::find($this->tableId);
-            $table?->updateActivity(user()->id);
-        }
-
-        // Remove from session arrays
-        unset($this->orderItemList[$id]);
-        unset($this->orderItemQty[$id]);
-        unset($this->orderItemAmount[$id]);
-        unset($this->orderItemVariation[$id]);
-        unset($this->itemModifiersSelected[$id]);
-        unset($this->itemNotes[$id]);
-        unset($this->orderItemModifiersPrice[$id]);
-        unset($this->orderItemTaxDetails[$id]);
-
-        // Early return if no order detail or not a valid object
-        if (!$this->orderDetail || !is_object($this->orderDetail)) {
-            $this->calculateTotal();
+        if ($this->requiresRemovalReason($id)) {
+            $this->promptRemovalReason($id, 'delete');
             return;
         }
 
-        $parts = explode('_', str_replace('"', '', $id));
-
-        // Early return if not a KOT item
-        if (count($parts) < 3 || $parts[0] !== 'kot') {
-            $this->calculateTotal();
-            return;
-        }
-
-        $kotId = $parts[1];
-        $itemId = $parts[2];
-
-        KotItem::where('kot_id', $kotId)
-            ->where('id', $itemId)
-            ->delete();
-
-        // Early return if there are still items in the cart
-        if (!empty($this->orderItemList)) {
-            $this->calculateTotal();
-            return;
-        }
-
-        $kot = Kot::find($kotId);
-        if (!$kot) {
-            $this->calculateTotal();
-            return;
-        }
-
-        $order = $this->orderDetail;
-        $kot->delete();
-
-        // Early return if order is not valid
-        if (!$order || !($order instanceof Order)) {
-            $this->calculateTotal();
-            return;
-        }
-
-        // Free up table and delete order
-        if ($order->table_id) {
-            Table::where('id', $order->table_id)->update(['available_status' => 'available']);
-        }
-
-        $order->delete();
-
-        $this->orderDetail = null;
-        $this->orderID = null;
-
-        $this->alert('success', __('messages.orderDeleted'), [
-            'toast' => true,
-            'position' => 'top-end',
-            'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
-        ]);
-
-        $this->redirect(route('pos.index'), navigate: true);
+        $this->executeDeleteCartItems($id);
     }
 
     public function deleteOrderItems($id)
@@ -992,6 +921,26 @@ class Pos extends Component
     public function subQty($id)
     {
         if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        if ($this->requiresRemovalReason($id)) {
+            $context = $this->parseKotContext($id);
+            if (!$context) {
+                return;
+            }
+
+            $kotItem = KotItem::find($context['kot_item_id']);
+
+            if (!$kotItem) {
+                return;
+            }
+
+            if ($kotItem->quantity <= 1) {
+                $this->promptRemovalReason($id, 'delete');
+            } else {
+                $this->promptRemovalReason($id, 'decrement', $kotItem->quantity - 1);
+            }
             return;
         }
 
@@ -2028,6 +1977,253 @@ class Pos extends Component
             'discount' => 0,
             'total' => 0,
         ]);
+    }
+
+    protected function promptRemovalReason(string $itemId, string $action, ?int $newQuantity = null): void
+    {
+        $this->pendingRemovalItem = $itemId;
+        $this->pendingRemovalAction = $action;
+        $this->pendingRemovalNewQuantity = $newQuantity;
+        $this->removalReason = '';
+        $this->showRemovalReasonModal = true;
+    }
+
+    protected function resetRemovalReasonState(): void
+    {
+        $this->showRemovalReasonModal = false;
+        $this->removalReason = '';
+        $this->pendingRemovalItem = null;
+        $this->pendingRemovalAction = null;
+        $this->pendingRemovalNewQuantity = null;
+    }
+
+    public function cancelRemovalReason(): void
+    {
+        $this->resetRemovalReasonState();
+    }
+
+    public function confirmRemovalReason(): void
+    {
+        $this->validate([
+            'removalReason' => 'required|string|min:3',
+        ]);
+
+        if (!$this->pendingRemovalItem || !$this->pendingRemovalAction) {
+            $this->resetRemovalReasonState();
+            return;
+        }
+
+        if ($this->pendingRemovalAction === 'delete') {
+            $this->executeDeleteCartItems($this->pendingRemovalItem, $this->removalReason);
+        } elseif ($this->pendingRemovalAction === 'decrement') {
+            $this->applyKotQuantityChange(
+                $this->pendingRemovalItem,
+                $this->pendingRemovalNewQuantity ?? 0,
+                $this->removalReason
+            );
+        }
+
+        $this->resetRemovalReasonState();
+    }
+
+    protected function requiresRemovalReason($id): bool
+    {
+        if (!$this->orderID) {
+            return false;
+        }
+
+        $context = $this->parseKotContext($id);
+
+        return !is_null($context);
+    }
+
+    protected function parseKotContext($id): ?array
+    {
+        $parts = explode('_', str_replace('"', '', $id));
+
+        if (count($parts) < 3 || $parts[0] !== 'kot') {
+            return null;
+        }
+
+        return [
+            'kot_id' => $parts[1],
+            'kot_item_id' => $parts[2],
+        ];
+    }
+
+    protected function applyKotQuantityChange(string $itemId, int $newQuantity, ?string $note = null): void
+    {
+        $context = $this->parseKotContext($itemId);
+        if (!$context) {
+            return;
+        }
+
+        $kotItem = KotItem::with('kot')->find($context['kot_item_id']);
+
+        if (!$kotItem) {
+            return;
+        }
+
+        $previousQuantity = $kotItem->quantity;
+
+        if ($newQuantity <= 0) {
+            $this->executeDeleteCartItems($itemId, $note);
+            return;
+        }
+
+        $kotItem->update(['quantity' => $newQuantity]);
+
+        if ($note) {
+            $this->logKotItemAdjustment($kotItem, 'quantity_updated', $note, $previousQuantity, $newQuantity);
+        }
+
+        $this->orderItemQty[$itemId] = $newQuantity;
+        $basePrice = $this->orderItemVariation[$itemId]->price ?? $this->orderItemList[$itemId]->price ?? 0;
+        $this->orderItemAmount[$itemId] = $newQuantity * ($basePrice + ($this->orderItemModifiersPrice[$itemId] ?? 0));
+        $this->calculateTotal();
+
+        if ($this->orderID) {
+            Order::where('id', $this->orderID)->update([
+                'sub_total' => $this->subTotal,
+                'total' => $this->total,
+                'discount_amount' => $this->discountAmount,
+                'total_tax_amount' => $this->totalTaxAmount,
+            ]);
+        }
+    }
+
+    protected function executeDeleteCartItems($id, ?string $note = null): void
+    {
+        if ($this->tableId) {
+            $table = Table::find($this->tableId);
+            $table?->updateActivity(user()->id);
+        }
+
+        unset($this->orderItemList[$id]);
+        unset($this->orderItemQty[$id]);
+        unset($this->orderItemAmount[$id]);
+        unset($this->orderItemVariation[$id]);
+        unset($this->itemModifiersSelected[$id]);
+        unset($this->itemNotes[$id]);
+        unset($this->orderItemModifiersPrice[$id]);
+        unset($this->orderItemTaxDetails[$id]);
+
+        if (!$this->orderDetail || !is_object($this->orderDetail)) {
+            $this->calculateTotal();
+            return;
+        }
+
+        $context = $this->parseKotContext($id);
+
+        if (!$context) {
+            $this->calculateTotal();
+            return;
+        }
+
+        $kotItem = KotItem::with('kot')->where('kot_id', $context['kot_id'])
+            ->where('id', $context['kot_item_id'])
+            ->first();
+
+        if ($kotItem) {
+            if ($note) {
+                $this->logKotItemAdjustment($kotItem, 'deleted', $note, $kotItem->quantity, 0);
+            }
+            $kotItem->modifierOptions()->detach();
+            $kotItem->delete();
+        }
+
+        if (!empty($this->orderItemList)) {
+            $this->calculateTotal();
+
+            if ($this->orderID) {
+                Order::where('id', $this->orderID)->update([
+                    'sub_total' => $this->subTotal,
+                    'total' => $this->total,
+                    'discount_amount' => $this->discountAmount,
+                    'total_tax_amount' => $this->totalTaxAmount,
+                ]);
+            }
+
+            return;
+        }
+
+        $kot = Kot::find($context['kot_id']);
+        if (!$kot) {
+            $this->calculateTotal();
+            return;
+        }
+
+        $order = $this->orderDetail;
+        $kot->delete();
+
+        if (!$order || !($order instanceof Order)) {
+            $this->calculateTotal();
+            return;
+        }
+
+        if ($order->table_id) {
+            Table::where('id', $order->table_id)->update(['available_status' => 'available']);
+        }
+
+        // Check if order has audit logs (adjustments)
+        // If yes, we CANCEL it instead of DELETE to preserve the order number sequence and audit trail.
+        $hasAdjustments = \App\Models\KotItemAdjustment::where('order_id', $order->id)->exists();
+
+        if ($hasAdjustments) {
+            $order->update([
+                'status' => 'canceled',
+                'order_status' => \App\Enums\OrderStatus::CANCELLED,
+                'sub_total' => 0,
+                'total' => 0,
+                'discount_amount' => 0,
+                'total_tax_amount' => 0,
+            ]);
+
+            $this->alert('success', __('messages.orderCanceled'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+        } else {
+            $order->delete();
+
+            $this->alert('success', __('messages.orderDeleted'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+        }
+
+        $this->orderDetail = null;
+        $this->orderID = null;
+
+        $this->redirect(route('pos.index'), navigate: true);
+    }
+
+    protected function logKotItemAdjustment(
+        KotItem $kotItem,
+        string $action,
+        string $note,
+        int $quantityBefore,
+        int $quantityAfter = 0
+    ): void {
+        $kotItem->loadMissing([
+            'menuItem',
+            'menuItemVariation.menuItem',
+            'kot.order.table',
+            'kot.table',
+        ]);
+
+        $order = $kotItem->kot?->order;
+        $tableCode = $order?->table?->table_code ?? $kotItem->kot?->table?->table_code;
+        $menuItemName = $kotItem->menuItem?->item_name
+            ?? $kotItem->menuItemVariation?->menuItem?->item_name
+            ?? __('messages.menuItemDeleted');
+        $variationName = $kotItem->menuItemVariation?->variation;
+
+        KotAdjustmentLogger::log($kotItem, $action, $note, $quantityBefore, $quantityAfter);
     }
 
     public function showAddDiscount()

@@ -18,6 +18,18 @@ class GlobalCurrencySeeder extends Seeder
     public function addCurrencies()
     {
         GlobalCurrency::firstOrCreate([
+            'currency_code' => 'LKR'
+        ], [
+            'currency_name' => 'Sri Lankan Rupee',
+            'currency_symbol' => 'Rs',
+            'currency_code' => 'LKR',
+            'currency_position' => 'left',
+            'no_of_decimal' => 2,
+            'thousand_separator' => ',',
+            'decimal_separator' => '.',
+        ]);
+
+        GlobalCurrency::firstOrCreate([
             'currency_code' => 'USD'
         ], [
             'currency_name' => 'Dollars',

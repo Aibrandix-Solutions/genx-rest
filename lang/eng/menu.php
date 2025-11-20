@@ -56,4 +56,5 @@ return array(
     'adminPaymentSetting' => 'Restaurant Payment Settings',
     'customerDisplay' => 'Customer Display',
     'deliveryAppReport' => 'Delivery App Report',
+    'kotAdjustmentLog' => 'KOT Adjustment Log',
 );

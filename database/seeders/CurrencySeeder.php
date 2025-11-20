@@ -80,13 +80,13 @@ class CurrencySeeder extends Seeder
 
         Currency::insert($currencies);
 
-        // Set the restaurant's currency_id to the USD currency
-        $usdCurrency = Currency::where('restaurant_id', $restaurant->id)
-            ->where('currency_code', 'USD')
+        // Set the restaurant's currency_id to the LKR currency by default
+        $defaultCurrency = Currency::where('restaurant_id', $restaurant->id)
+            ->where('currency_code', 'LKR')
             ->first();
 
-        if ($usdCurrency) {
-            $restaurant->currency_id = $usdCurrency->id;
+        if ($defaultCurrency) {
+            $restaurant->currency_id = $defaultCurrency->id;
             $restaurant->save();
         }
     }

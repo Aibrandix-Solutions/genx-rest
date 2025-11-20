@@ -36,6 +36,27 @@
         </x-slot>
     </x-dialog-modal>
 
+    <x-dialog-modal wire:model.live="showRemovalReasonModal" maxWidth="xl">
+        <x-slot name="title">
+            @lang('modules.order.itemAdjustmentNote')
+        </x-slot>
+
+        <x-slot name="content">
+            <div>
+                <x-label for="removalNote" :value="__('app.note')" />
+                <x-textarea id="removalNote" class="block mt-1 w-full" wire:model.defer="removalReason" rows="3" />
+                <x-input-error for="removalReason" class="mt-2" />
+            </div>
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-button-cancel wire:click="cancelRemovalReason" wire:loading.attr="disabled" />
+            <x-button class="ms-2" wire:click="confirmRemovalReason" wire:loading.attr="disabled">
+                @lang('app.save')
+            </x-button>
+        </x-slot>
+    </x-dialog-modal>
+
     <x-dialog-modal wire:model.live="showKotNote" maxWidth="xl">
         <x-slot name="title">
             @lang('modules.order.addNote')

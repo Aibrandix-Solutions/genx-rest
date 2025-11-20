@@ -553,10 +553,12 @@ class CreateDatabaseBackup extends Command
 
             case 'mysql8_fix':
                 // This method is for fixing MySQL 8.0 authentication issues.
-                // It creates a temporary user with mysql_native_password.
-                $tempUser = 'temp_user_' . uniqid();
-                $tempPassword = 'temp_pass_' . uniqid();
-                $command = "{$mysqldumpPath} --user={$username} --password={$password} --host={$host} --port={$port} --single-transaction --routines --triggers --add-drop-database --databases {$database} > {$filePath}";
+                // Note: Temporary user creation logic is currently incomplete.
+                // Using standard credentials to ensure valid command syntax.
+                $command .= " --user={$username} --host={$host} --port={$port}";
+                if (!empty($password)) {
+                    $command .= " --password={$password}";
+                }
                 break;
         }
 

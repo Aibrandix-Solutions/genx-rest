@@ -186,14 +186,7 @@ if (!function_exists('check_migrate_status')) {
         // }
 
         if (!session()->has('check_migrate_status')) {
-            $status = Artisan::call('migrate:check');
-
-            if ($status && !request()->ajax()) {
-                Artisan::call('migrate', ['--force' => true, '--schema-path' => 'do not run schema path']); // Migrate database
-                Artisan::call('optimize:clear');
-            }
-
-            session(['check_migrate_status' => 'Good']);
+            session(['check_migrate_status' => 'skipped_in_http']);
         }
 
         return session('check_migrate_status');
