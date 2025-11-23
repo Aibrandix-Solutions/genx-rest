@@ -164,9 +164,9 @@
         <div class="company-info">
             <div class="company-name">{{ restaurant()->name }}</div>
             <div class="company-details">
-                {{ branch()->name }}<br>
-                {{ branch()->address }}<br>
-                {{ branch()->phone }}
+                {{ $purchaseOrder->branch ? $purchaseOrder->branch->name : branch()->name }}<br>
+                {{ $purchaseOrder->branch ? $purchaseOrder->branch->address : branch()->address }}<br>
+                {{ $purchaseOrder->branch ? $purchaseOrder->branch->phone : branch()->phone }}
             </div>
         </div>
         <div class="document-info">

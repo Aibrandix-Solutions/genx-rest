@@ -41,6 +41,17 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
         Route::get('purchase-orders/{purchase_order}/pdf', 'generatePdf')->name('purchase-orders.pdf');
     });
 
+    // Payment Accounts & Reports
+    Route::resource('payment-accounts', \Modules\Inventory\Http\Controllers\PaymentAccountController::class);
+    Route::prefix('payment-accounts')->name('payment-accounts.')->group(function () {
+        Route::get('reports/account-report', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'report'])->name('report');
+        Route::get('reports/balance-sheet', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'balanceSheet'])->name('balance-sheet');
+        Route::get('reports/trial-balance', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'trialBalance'])->name('trial-balance');
+        Route::get('reports/cash-flow', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'cashFlow'])->name('cash-flow');
+        // Export Route
+        Route::get('reports/export', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'exportReport'])->name('export');
+    });
+
     // New Reports Section
     Route::prefix('reports')->name('inventory.reports.')->group(function () {
         Route::get('usage', [ReportController::class, 'usage'])->name('usage');

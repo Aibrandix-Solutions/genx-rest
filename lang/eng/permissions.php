@@ -27,6 +27,7 @@ return [
         'Update Reservation' => 'Update Reservation',
         'Delete Reservation' => 'Delete Reservation',
         'Manage KOT' => 'Manage KOT',
+        'Delete KOT Item' => 'Delete KOT Item',
         'Create Order' => 'Create Order',
         'Show Order' => 'Show Order',
         'Update Order' => 'Update Order',

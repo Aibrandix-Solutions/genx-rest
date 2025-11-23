@@ -196,6 +196,16 @@ class OrderDetail extends Component
 
     public function promptOrderItemRemoval($id): void
     {
+        if (!user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->pendingOrderItemId = $id;
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
@@ -638,12 +648,12 @@ class OrderDetail extends Component
         } else {
             $order->delete();
 
-            $this->alert('success', __('messages.orderDeleted'), [
-                'toast' => true,
-                'position' => 'top-end',
-                'showCancelButton' => false,
-                'cancelButtonText' => __('app.close')
-            ]);
+        $this->alert('success', __('messages.orderDeleted'), [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close')
+        ]);
         }
 
 

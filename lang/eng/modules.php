@@ -202,6 +202,8 @@ return [
         'realTimeUpdates' => 'Real-time Updates',
         'refreshInterval' => 'Refresh Interval',
         'refresh' => 'Refresh',
+        'waiter' => 'Waiter',
+        'staff' => 'Staff',
     ],
 
     'order' => [
@@ -1874,6 +1876,7 @@ return [
         'totalCharges' => 'Total Charges',
         'itemReportMessage' => 'View detailed sales and performance of items',
         'salesReportMessage' => 'Check and track your restaurant\'s earnings',
+        'detailedSalesReportMessage' => 'View individual sales transactions and details',
         'categoryReportMessage' => 'See sales by category to understand performance',
         'printLogMessage' => 'View print job history and status from :startDate to :endDate',
         'totalPrintJobs' => 'Total Print Jobs',

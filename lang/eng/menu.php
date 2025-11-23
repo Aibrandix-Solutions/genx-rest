@@ -25,6 +25,7 @@ return array(
     'itemReport' => 'Item Report',
     'categoryReport' => 'Category Report',
     'salesReport' => 'Sales Report',
+    'detailedSalesReport' => 'Detailed Sales Report',
     'deliveryAppReport' => 'Delivery App Report',
     'settings' => 'Settings',
     'signOut' => 'Sign Out',

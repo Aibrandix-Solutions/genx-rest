@@ -168,11 +168,11 @@
         <script>
             var currentUserId = "{{ Str::slug(global_setting()->name) }}-{{ auth()->id() }}"; // Get this from your auth system
 
-            const beamsClient = new PusherPushNotifications.Client({
+            var beamsClient = new PusherPushNotifications.Client({
                 instanceId: "{{ pusherSettings()->instance_id }}",
             });
 
-            const beamsTokenProvider = new PusherPushNotifications.TokenProvider({
+            var beamsTokenProvider = new PusherPushNotifications.TokenProvider({
                 url: "{{ route('beam_auth') }}",
             });
 

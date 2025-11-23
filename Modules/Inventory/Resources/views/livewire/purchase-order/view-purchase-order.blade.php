@@ -32,6 +32,12 @@
                         <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->supplier->name }}</p>
                     </div>
                     <div>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Branch</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white">
+                            {{ $purchaseOrder->branch ? $purchaseOrder->branch->name : 'All Branches' }}
+                        </p>
+                    </div>
+                    <div>
                         <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{{ trans('inventory::modules.purchaseOrder.order_date') }}</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->order_date->translatedFormat('M d, Y') }}</p>
                     </div>
@@ -60,7 +66,7 @@
                                 @foreach($purchaseOrder->items as $item)
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                            {{ $item->inventoryItem->name }}
+                                            {{ $item->inventoryItem->name ?? 'Item Deleted' }}
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                             {{ currency_format($item->unit_price, restaurant()->currency_id) }}
@@ -69,13 +75,13 @@
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                             {{ number_format($item->quantity, 2) }}
                                             <span class="text-gray-500 dark:text-gray-400">
-                                                ({{ $item->inventoryItem->unit->symbol }})
+                                                ({{ optional($item->inventoryItem?->unit)->symbol ?? '-' }})
                                             </span>
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
                                             {{ number_format($item->received_quantity, 2) }}
                                             <span class="text-gray-500 dark:text-gray-400">
-                                                ({{ $item->inventoryItem->unit->symbol }})
+                                                ({{ optional($item->inventoryItem?->unit)->symbol ?? '-' }})
                                             </span>
                                         </td>
                                     </tr>

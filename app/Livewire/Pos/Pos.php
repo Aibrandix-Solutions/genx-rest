@@ -791,6 +791,16 @@ class Pos extends Component
     public function deleteCartItems($id)
     {
         if ($this->requiresRemovalReason($id)) {
+            if (!user_can('Delete KOT Item')) {
+                $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close')
+        ]);
+                return;
+            }
+
             $this->promptRemovalReason($id, 'delete');
             return;
         }
@@ -925,6 +935,16 @@ class Pos extends Component
         }
 
         if ($this->requiresRemovalReason($id)) {
+            if (!user_can('Delete KOT Item')) {
+                $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close')
+                ]);
+                return;
+            }
+
             $context = $this->parseKotContext($id);
             if (!$context) {
                 return;

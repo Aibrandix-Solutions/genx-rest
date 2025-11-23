@@ -170,6 +170,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
         Route::get('item-report', [ReportController::class, 'itemReport'])->name('reports.item');
         Route::get('category-report', [ReportController::class, 'categoryReport'])->name('reports.category');
         Route::get('sales-report', [ReportController::class, 'salesReport'])->name('reports.sales');
+        Route::get('detailed-sales-report', [ReportController::class, 'detailedSalesReport'])->name('reports.detailedSales');
         Route::get('expense-report', [ReportController::class, 'expenseReport'])->name('reports.expenseReports');
         Route::get('outstanding-payment-report', [ReportController::class, 'outstandingPaymentReport'])->name('reports.outstandingPayment');
         Route::get('expense-summary-report', [ReportController::class, 'expenseSummaryReport'])->name('reports.expensesummaryreport');

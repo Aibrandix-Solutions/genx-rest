@@ -15,12 +15,33 @@ class ViewPurchaseOrder extends Component
 
     public function show(PurchaseOrder $purchaseOrder)
     {
-        $this->purchaseOrder = $purchaseOrder->load(['supplier', 'items.inventoryItem.unit']);
+        $this->purchaseOrder = $purchaseOrder->load([
+            'supplier',
+            'branch', // Load branch relationship
+            'items.inventoryItem' => function($q) {
+                $q->withoutGlobalScopes();
+            },
+            'items.inventoryItem.unit' => function($q) {
+                $q->withoutGlobalScopes();
+            }
+        ]);
         $this->showModal = true;
     }
 
     public function downloadPdf()
     {
+        // Reload with withoutGlobalScopes just in case
+        $this->purchaseOrder->load([
+            'supplier',
+            'branch',
+            'items.inventoryItem' => function($q) {
+                $q->withoutGlobalScopes();
+            },
+            'items.inventoryItem.unit' => function($q) {
+                $q->withoutGlobalScopes();
+            }
+        ]);
+
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [
             'purchaseOrder' => $this->purchaseOrder
         ]);
@@ -34,4 +55,4 @@ class ViewPurchaseOrder extends Component
     {
         return view('inventory::livewire.purchase-order.view-purchase-order');
     }
-} 
+}

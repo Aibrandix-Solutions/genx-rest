@@ -68,6 +68,7 @@ class PermissionSeeder extends Seeder
             ['guard_name' => 'web', 'name' => 'Delete Reservation', 'module_id' => $reservationModule->id],
 
             ['guard_name' => 'web', 'name' => 'Manage KOT', 'module_id' => $kotModule->id],
+            ['guard_name' => 'web', 'name' => 'Delete KOT Item', 'module_id' => $kotModule->id],
 
             ['guard_name' => 'web', 'name' => 'Create Order', 'module_id' => $orderModule->id],
             ['guard_name' => 'web', 'name' => 'Show Order', 'module_id' => $orderModule->id],

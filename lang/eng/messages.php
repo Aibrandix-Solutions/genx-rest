@@ -309,4 +309,5 @@ return array(
     'tableUnlockFailed' => 'Could not unlock table.',
     'menuItemCreationFailed' => 'Failed to create menu item. Please fill in all required fields.',
     'logoRemoved' => 'Image Removed Successfully',
+    'kotDeletePermissionDenied' => 'You do not have permission to deduct items from KOT.',
 );

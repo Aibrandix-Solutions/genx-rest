@@ -150,10 +150,23 @@
                                 </x-sidebar-dropdown-menu>
                             @endif
                         @endif
+
+                        {{-- Payment Accounts (Inventory) --}}
+                        @if ($this->hasModule('Inventory'))
+                            <x-sidebar-dropdown-menu name='Payment Accounts' icon='payments' :active='request()->routeIs(["payment-accounts.*"])'>
+                                @livewire('sidebar-dropdown-menu', ['name' => 'Accounts', 'link' => route('payment-accounts.index'), 'active' => request()->routeIs('payment-accounts.index')])
+                                @livewire('sidebar-dropdown-menu', ['name' => 'Payment Account Report', 'link' => route('payment-accounts.report'), 'active' => request()->routeIs('payment-accounts.report')])
+                                @livewire('sidebar-dropdown-menu', ['name' => 'Balance Sheet', 'link' => route('payment-accounts.balance-sheet'), 'active' => request()->routeIs('payment-accounts.balance-sheet')])
+                                @livewire('sidebar-dropdown-menu', ['name' => 'Trial Balance', 'link' => route('payment-accounts.trial-balance'), 'active' => request()->routeIs('payment-accounts.trial-balance')])
+                                @livewire('sidebar-dropdown-menu', ['name' => 'Cash Flow', 'link' => route('payment-accounts.cash-flow'), 'active' => request()->routeIs('payment-accounts.cash-flow')])
+                            </x-sidebar-dropdown-menu>
+                        @endif
+
                         @if ($this->hasModule('Report'))
                             @if (user_can('Show Reports'))
                                 <x-sidebar-dropdown-menu :name='__("menu.reports")' icon='reports' :active='request()->routeIs(["reports.*"])'>
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.salesReport'), 'link' => route('reports.sales'), 'active' => request()->routeIs('reports.sales')])
+                                    @livewire('sidebar-dropdown-menu', ['name' => __('menu.detailedSalesReport'), 'link' => route('reports.detailedSales'), 'active' => request()->routeIs('reports.detailedSales')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.itemReport'), 'link' => route('reports.item'), 'active' => request()->routeIs('reports.item')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.categoryReport'), 'link' => route('reports.category'), 'active' => request()->routeIs('reports.category')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.deliveryAppReport'), 'link' => route('reports.delivery'), 'active' => request()->routeIs('reports.delivery')])
