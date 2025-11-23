@@ -87,13 +87,13 @@ class DetailedSalesReport extends Component
         $offset = Carbon::now($timezone)->format('P');
 
         $startDateTime = Carbon::createFromFormat('m/d/Y H:i', $this->startDate . ' ' . $this->startTime, $timezone)
-            ->setTimezone('UTC')->toDateTimeString();
+            ->toDateTimeString();
 
         $endDateTime = Carbon::createFromFormat('m/d/Y H:i', $this->endDate . ' ' . $this->endTime, $timezone)
-            ->setTimezone('UTC')->toDateTimeString();
+            ->toDateTimeString();
 
-        $startTime = Carbon::parse($this->startTime, $timezone)->setTimezone('UTC')->format('H:i');
-        $endTime = Carbon::parse($this->endTime, $timezone)->setTimezone('UTC')->format('H:i');
+        $startTime = Carbon::parse($this->startTime, $timezone)->format('H:i');
+        $endTime = Carbon::parse($this->endTime, $timezone)->format('H:i');
 
         return compact('timezone', 'offset', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
     }
