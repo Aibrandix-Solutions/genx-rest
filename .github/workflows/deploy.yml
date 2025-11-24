@@ -116,12 +116,7 @@ jobs:
           # UPDATE THIS PATH
           remote_path: 'domains/aibrandix.com/public_html/laravel/'
           delete_remote_files: false
-          sftp_only_changed: true
-          exclude: |
-            .env
-            .env.*
-            **/.env
-            **/.env.*
+          sftp_only: true
 
       - name: Upload public via SFTP (to /)
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
