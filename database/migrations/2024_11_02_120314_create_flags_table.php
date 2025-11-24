@@ -24,26 +24,28 @@ return new class extends Migration
             });
 
 
-            $url = public_path('country.json');
-            $responses = file_get_contents($url);
-            $responses = json_decode($responses);
+            $url = database_path('data/country.json');
 
-            $values = [];
+            if (file_exists($url)) {
+                $responses = file_get_contents($url);
+                $responses = json_decode($responses);
 
-            foreach ($responses as $response) {
+                $values = [];
 
-                $data = get_object_vars($response);
+                foreach ($responses as $response) {
 
-                $values[] = [
-                    'capital' => $data['capital'] ?? '',
-                    'code' => $data['code'],
-                    'continent' => $data['continent'] ?? '',
-                    'name' => $data['name'],
-                ];
+                    $data = get_object_vars($response);
 
+                    $values[] = [
+                        'capital' => $data['capital'] ?? '',
+                        'code' => $data['code'],
+                        'continent' => $data['continent'] ?? '',
+                        'name' => $data['name'],
+                    ];
+                }
+
+                Flag::insert($values);
             }
-
-            Flag::insert($values);
         }
     }
 

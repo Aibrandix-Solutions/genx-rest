@@ -129,14 +129,7 @@ jobs:
           # UPDATE THIS PATH
           remote_path: 'domains/aibrandix.com/public_html/'
           delete_remote_files: false
-          sftp_only_changed: true
-          exclude: |
-            uploads/**
-            user-uploads/**
-            files/**
-            storage/**
-            .well-known/**
-            hot
+          sftp_only: true
 
       # --- SSH: composer install & caches on the server ---
       - name: SSH - composer install & caches
