@@ -236,9 +236,23 @@ if (!function_exists('restaurant_modules')) {
             return [];
         }
 
+        $filterModules = static function (array $modules) {
+            if (!class_exists(\Nwidart\Modules\Facades\Module::class)) {
+                return $modules;
+            }
+
+            return array_values(array_filter($modules, function ($moduleName) {
+                if (Module::has($moduleName)) {
+                    return Module::isEnabled($moduleName);
+                }
+
+                return true;
+            }));
+        };
+
         $cacheKey = 'restaurant_modules_' . $restaurant->id;
         if (cache()->has($cacheKey)) {
-            return cache($cacheKey);
+            return $filterModules(cache($cacheKey) ?? []);
         }
 
         $user = user();
@@ -258,7 +272,7 @@ if (!function_exists('restaurant_modules')) {
 
         cache([$cacheKey => $allModules]);
 
-        return cache($cacheKey);
+        return $filterModules($allModules);
     }
 }
 
