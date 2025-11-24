@@ -35,88 +35,135 @@ class PermissionSeeder extends Seeder
         $vendorModule = Module::where('name', 'Vendor')->first();
         $expenseCategoryModule = Module::where('name', 'Expense Category')->first();
         $inventoryModule = Module::where('name', 'Inventory')->first();
+
+        // Check if modules exist before accessing their IDs
+        if (!$menuModule || !$menuItemModule || !$itemCategoryModule || !$areaModule || !$tableModule || 
+            !$reservationModule || !$kotModule || !$orderModule || !$customerModule || !$staffModule || 
+            !$paymentModule || !$reportModule || !$settingsModule || !$deliveryExecutiveModule || 
+            !$waiterRequestModule || !$expenseModule || !$vendorModule || !$expenseCategoryModule || !$inventoryModule) {
+            
+            // Log error or handle missing modules gracefully
+            // For now, we will skip seeding permissions for missing modules or you might want to run ModuleSeeder
+            // echo "Some modules are missing. Please run ModuleSeeder first.\n";
+            // return;
+        }
+
         // Define permissions to insert
-        $permissions = [
-            ['guard_name' => 'web', 'name' => 'Create Menu', 'module_id' => $menuModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Menu', 'module_id' => $menuModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Menu', 'module_id' => $menuModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Menu', 'module_id' => $menuModule->id],
+        $permissions = [];
 
-            ['guard_name' => 'web', 'name' => 'Create Menu Item', 'module_id' => $menuItemModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Menu Item', 'module_id' => $menuItemModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Menu Item', 'module_id' => $menuItemModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Menu Item', 'module_id' => $menuItemModule->id],
+        if ($menuModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Menu', 'module_id' => $menuModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Menu', 'module_id' => $menuModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Menu', 'module_id' => $menuModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Menu', 'module_id' => $menuModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Item Category', 'module_id' => $itemCategoryModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Item Category', 'module_id' => $itemCategoryModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Item Category', 'module_id' => $itemCategoryModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Item Category', 'module_id' => $itemCategoryModule->id],
+        if ($menuItemModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Menu Item', 'module_id' => $menuItemModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Menu Item', 'module_id' => $menuItemModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Menu Item', 'module_id' => $menuItemModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Menu Item', 'module_id' => $menuItemModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Area', 'module_id' => $areaModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Area', 'module_id' => $areaModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Area', 'module_id' => $areaModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Area', 'module_id' => $areaModule->id],
+        if ($itemCategoryModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Item Category', 'module_id' => $itemCategoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Item Category', 'module_id' => $itemCategoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Item Category', 'module_id' => $itemCategoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Item Category', 'module_id' => $itemCategoryModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Table', 'module_id' => $tableModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Table', 'module_id' => $tableModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Table', 'module_id' => $tableModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Table', 'module_id' => $tableModule->id],
+        if ($areaModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Area', 'module_id' => $areaModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Area', 'module_id' => $areaModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Area', 'module_id' => $areaModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Area', 'module_id' => $areaModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Reservation', 'module_id' => $reservationModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Reservation', 'module_id' => $reservationModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Reservation', 'module_id' => $reservationModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Reservation', 'module_id' => $reservationModule->id],
+        if ($tableModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Table', 'module_id' => $tableModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Table', 'module_id' => $tableModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Table', 'module_id' => $tableModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Table', 'module_id' => $tableModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Manage KOT', 'module_id' => $kotModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete KOT Item', 'module_id' => $kotModule->id],
+        if ($reservationModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Reservation', 'module_id' => $reservationModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Reservation', 'module_id' => $reservationModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Reservation', 'module_id' => $reservationModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Reservation', 'module_id' => $reservationModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Order', 'module_id' => $orderModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Order', 'module_id' => $orderModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Order', 'module_id' => $orderModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Order', 'module_id' => $orderModule->id],
+        if ($kotModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage KOT', 'module_id' => $kotModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete KOT Item', 'module_id' => $kotModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Customer', 'module_id' => $customerModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Customer', 'module_id' => $customerModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Customer', 'module_id' => $customerModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Customer', 'module_id' => $customerModule->id],
+        if ($orderModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Order', 'module_id' => $orderModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Order', 'module_id' => $orderModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Order', 'module_id' => $orderModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Order', 'module_id' => $orderModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Staff Member', 'module_id' => $staffModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Staff Member', 'module_id' => $staffModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Staff Member', 'module_id' => $staffModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Staff Member', 'module_id' => $staffModule->id],
+        if ($customerModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Customer', 'module_id' => $customerModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Customer', 'module_id' => $customerModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Customer', 'module_id' => $customerModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Customer', 'module_id' => $customerModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Delivery Executive', 'module_id' => $deliveryExecutiveModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Delivery Executive', 'module_id' => $deliveryExecutiveModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Delivery Executive', 'module_id' => $deliveryExecutiveModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Delivery Executive', 'module_id' => $deliveryExecutiveModule->id],
+        if ($staffModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Staff Member', 'module_id' => $staffModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Staff Member', 'module_id' => $staffModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Staff Member', 'module_id' => $staffModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Staff Member', 'module_id' => $staffModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Show Payments', 'module_id' => $paymentModule->id],
+        if ($deliveryExecutiveModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Delivery Executive', 'module_id' => $deliveryExecutiveModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Delivery Executive', 'module_id' => $deliveryExecutiveModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Delivery Executive', 'module_id' => $deliveryExecutiveModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Delivery Executive', 'module_id' => $deliveryExecutiveModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Show Reports', 'module_id' => $reportModule->id],
+        if ($paymentModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Payments', 'module_id' => $paymentModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Manage Settings', 'module_id' => $settingsModule->id],
+        if ($reportModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Reports', 'module_id' => $reportModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Manage Waiter Request', 'module_id' => $waiterRequestModule->id],
+        if ($settingsModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Settings', 'module_id' => $settingsModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Expense', 'module_id' => $expenseModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Expense', 'module_id' => $expenseModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Expense', 'module_id' => $expenseModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Expense', 'module_id' => $expenseModule->id],
+        if ($waiterRequestModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Waiter Request', 'module_id' => $waiterRequestModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Expense Category', 'module_id' => $expenseModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Expense Category', 'module_id' => $expenseModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Expense Category', 'module_id' => $expenseModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Expense Category', 'module_id' => $expenseModule->id],
+        if ($expenseModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Expense', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Expense', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Expense', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Expense', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Expense Category', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Expense Category', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Expense Category', 'module_id' => $expenseModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Expense Category', 'module_id' => $expenseModule->id];
+        }
 
-            ['guard_name' => 'web', 'name' => 'Create Inventory Items', 'module_id' => $inventoryModule->id],
-            ['guard_name' => 'web', 'name' => 'Show Inventory Items', 'module_id' => $inventoryModule->id],
-            ['guard_name' => 'web', 'name' => 'Update Inventory Items', 'module_id' => $inventoryModule->id],
-            ['guard_name' => 'web', 'name' => 'Delete Inventory Items', 'module_id' => $inventoryModule->id],
+        if ($inventoryModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Inventory Items', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Inventory Items', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Inventory Items', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Inventory Items', 'module_id' => $inventoryModule->id];
+        }
 
-        ];
-
-        // Insert permissions into the database
-        Permission::insert($permissions);
+        if (!empty($permissions)) {
+            // Insert permissions into the database
+            Permission::insert($permissions);
+        }
     }
 
 }
