@@ -22,7 +22,7 @@ class PackageSeeder extends Seeder
         $modules = Module::all();
 
         // Create the Default package
-        $package = new Package();
+        $package = Package::firstOrNew(['package_type' => PackageType::DEFAULT]);
         $package->package_name = 'Default';
         $package->description = 'Its a default package and cannot be deleted';
         $package->currency_id = $currencyID;
@@ -43,7 +43,7 @@ class PackageSeeder extends Seeder
         $package->modules()->sync($modules->pluck('id')->toArray());
 
         // Create a Subscription package
-        $subscriptionPackage = new Package();
+        $subscriptionPackage = Package::firstOrNew(['package_name' => 'Subscription Package']);
         $subscriptionPackage->package_name = 'Subscription Package';
         $subscriptionPackage->description = 'This is a subscription package';
         $subscriptionPackage->currency_id = $currencyID;
@@ -64,7 +64,7 @@ class PackageSeeder extends Seeder
         $subscriptionPackage->modules()->sync($modules->pluck('id')->toArray());
 
         // Create a Lifetime package
-        $lifetimePackage = new Package();
+        $lifetimePackage = Package::firstOrNew(['package_type' => PackageType::LIFETIME]);
         $lifetimePackage->package_name = 'Life Time';
         $lifetimePackage->description = 'This is a lifetime access package';
         $lifetimePackage->currency_id = $currencyID;
@@ -86,7 +86,7 @@ class PackageSeeder extends Seeder
         $lifetimePackage->modules()->sync($modules->pluck('id')->toArray());
 
         // Create a Private package
-        $privatePackage = new Package();
+        $privatePackage = Package::firstOrNew(['package_name' => 'Private Package']);
         $privatePackage->package_name = 'Private Package';
         $privatePackage->description = 'This is a private package';
         $privatePackage->price = 0;
@@ -108,7 +108,7 @@ class PackageSeeder extends Seeder
 
 
         // Create a Trial package
-        $trialPackage = new Package();
+        $trialPackage = Package::firstOrNew(['package_type' => PackageType::TRIAL]);
         $trialPackage->package_name = 'Trial Package';
         $trialPackage->description = 'This is a trial package';
         $trialPackage->currency_id = $currencyID;

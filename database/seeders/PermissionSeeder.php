@@ -162,7 +162,12 @@ class PermissionSeeder extends Seeder
 
         if (!empty($permissions)) {
             // Insert permissions into the database
-            Permission::insert($permissions);
+            foreach ($permissions as $permission) {
+                Permission::firstOrCreate(
+                    ['name' => $permission['name'], 'guard_name' => $permission['guard_name']],
+                    ['module_id' => $permission['module_id']]
+                );
+            }
         }
     }
 

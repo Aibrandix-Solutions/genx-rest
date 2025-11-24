@@ -36,7 +36,9 @@ class ModuleSeeder extends Seeder
             ['name' => 'Inventory'],
         ];
 
-        Module::insert($modules);
+        foreach ($modules as $module) {
+            Module::firstOrCreate($module);
+        }
     }
 
 }
