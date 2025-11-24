@@ -70,6 +70,11 @@ jobs:
 
           # Public contents
           rsync -a public/ deploy_public/
+          # Add public/build to deploy_public
+          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
+          # Ensure public/build is also in deploy_app so backend can find manifest.json
+          mkdir -p deploy_app/public/build
+          if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
 
           # ✅ Ensure .htaccess is included explicitly
           if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
