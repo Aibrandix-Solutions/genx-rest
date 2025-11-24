@@ -117,7 +117,7 @@ jobs:
           port: ${{ secrets.GENX_SSH_PORT }}
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: 'deploy_app/*'
+          local_path: 'deploy_app/'
           # UPDATE THIS PATH
           remote_path: 'domains/aibrandix.com/public_html/laravel/'
           delete_remote_files: false
@@ -130,7 +130,7 @@ jobs:
           port: ${{ secrets.GENX_SSH_PORT }}
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: 'deploy_public/*'
+          local_path: 'deploy_public/'
           # UPDATE THIS PATH
           remote_path: 'domains/aibrandix.com/public_html/'
           delete_remote_files: false
