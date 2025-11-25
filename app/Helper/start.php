@@ -250,29 +250,39 @@ if (!function_exists('restaurant_modules')) {
             }));
         };
 
-        $cacheKey = 'restaurant_modules_' . $restaurant->id;
-        if (cache()->has($cacheKey)) {
-            return $filterModules(cache($cacheKey) ?? []);
-        }
-
         $user = user();
-        if (is_null($user->restaurant_id) && is_null($user->branch_id)) {
+
+        if (!$user || (is_null($user->restaurant_id) && is_null($user->branch_id))) {
             return [];
         }
 
-        $restaurant = Restaurant::with('package.modules')->find($restaurant->id);
-        session(['restaurant' => $restaurant]);
+        $restaurantModel = Restaurant::with('package.modules')->find($restaurant->id);
 
-        $package = $restaurant->package;
+        if (!$restaurantModel || !$restaurantModel->package) {
+            return [];
+        }
 
-        $packageModules = $package->modules->pluck('name')->toArray();
-        $additionalFeatures = json_decode($package->additional_features ?? '[]', true);
+        session(['restaurant' => $restaurantModel]);
 
-        $allModules = array_unique(array_merge($packageModules, $additionalFeatures));
+        $modulesStatusPath = storage_path('app/modules_statuses.json');
+        $modulesStatusVersion = file_exists($modulesStatusPath) ? md5_file($modulesStatusPath) : 'no-module-status';
+        $packageVersion = optional($restaurantModel->package->updated_at)->timestamp ?? 'no-package-version';
 
-        cache([$cacheKey => $allModules]);
+        $cacheKey = implode('_', [
+            'restaurant_modules',
+            $restaurantModel->id,
+            $restaurantModel->package_id,
+            $packageVersion,
+            $modulesStatusVersion,
+        ]);
 
-        return $filterModules($allModules);
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($restaurantModel, $filterModules) {
+            $packageModules = $restaurantModel->package->modules->pluck('name')->toArray();
+            $additionalFeatures = json_decode($restaurantModel->package->additional_features ?? '[]', true);
+            $allModules = array_unique(array_merge($packageModules, $additionalFeatures));
+
+            return $filterModules($allModules);
+        });
     }
 }
 

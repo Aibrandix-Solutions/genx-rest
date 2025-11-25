@@ -2,136 +2,160 @@
 
 namespace Database\Seeders;
 
+use App\Enums\PackageType;
+use App\Models\GlobalCurrency;
 use App\Models\Module;
 use App\Models\Package;
-use App\Models\GlobalCurrency;
+use App\Models\Restaurant;
 use Illuminate\Database\Seeder;
-use App\Enums\PackageType;
 
 class PackageSeeder extends Seeder
 {
-
     /**
      * Run the database seeds.
      */
     public function run(): void
     {
+        $currency = GlobalCurrency::first();
 
-        // Fetch the currency ID
-        $currencyID = GlobalCurrency::first()->id;
-        $modules = Module::all();
+        if (!$currency) {
+            return;
+        }
 
-        // Create the Default package
-        $package = Package::firstOrNew(['package_type' => PackageType::DEFAULT]);
-        $package->package_name = 'Default';
-        $package->description = 'Its a default package and cannot be deleted';
-        $package->currency_id = $currencyID;
-        $package->monthly_status = 0;
-        $package->annual_status = 0;
-        $package->annual_price = null;
-        $package->monthly_price = null;
-        $package->price = 0;
-        $package->is_free = 1;
-        $package->billing_cycle = 12;
-        $package->sort_order = 1;
-        $package->is_private = 0;
-        $package->is_recommended = 0;
-        $package->package_type = PackageType::DEFAULT;
-        $package->save();
+        $currencyId = $currency->id;
+        $moduleIds = Module::pluck('id')->toArray();
 
-        // Assign all modules to the default package
-        $package->modules()->sync($modules->pluck('id')->toArray());
+        $this->syncPackage(
+            ['package_type' => PackageType::DEFAULT->value],
+            [
+                'package_name' => 'Default',
+                'description' => 'Its a default package and cannot be deleted',
+                'currency_id' => $currencyId,
+                'monthly_status' => 0,
+                'annual_status' => 0,
+                'annual_price' => null,
+                'monthly_price' => null,
+                'price' => 0,
+                'is_free' => 1,
+                'billing_cycle' => 12,
+                'sort_order' => 1,
+                'is_private' => 0,
+                'is_recommended' => 0,
+                'package_type' => PackageType::DEFAULT,
+            ],
+            $moduleIds
+        );
 
-        // Create a Subscription package
-        $subscriptionPackage = Package::firstOrNew(['package_name' => 'Subscription Package']);
-        $subscriptionPackage->package_name = 'Subscription Package';
-        $subscriptionPackage->description = 'This is a subscription package';
-        $subscriptionPackage->currency_id = $currencyID;
-        $subscriptionPackage->monthly_status = 1;
-        $subscriptionPackage->annual_status = 1;
-        $subscriptionPackage->annual_price = 100;
-        $subscriptionPackage->monthly_price = 10;
-        $subscriptionPackage->price = 0;
-        $subscriptionPackage->is_free = 0;
-        $subscriptionPackage->billing_cycle = 10;
-        $subscriptionPackage->sort_order = 2;
-        $subscriptionPackage->is_private = 0;
-        $subscriptionPackage->is_recommended = 1;
-        $subscriptionPackage->package_type = PackageType::STANDARD;
-        $subscriptionPackage->save();
+        $this->syncPackage(
+            ['package_name' => 'Subscription Package'],
+            [
+                'package_name' => 'Subscription Package',
+                'description' => 'This is a subscription package',
+                'currency_id' => $currencyId,
+                'monthly_status' => 1,
+                'annual_status' => 1,
+                'annual_price' => 100,
+                'monthly_price' => 10,
+                'price' => 0,
+                'is_free' => 0,
+                'billing_cycle' => 10,
+                'sort_order' => 2,
+                'is_private' => 0,
+                'is_recommended' => 1,
+                'package_type' => PackageType::STANDARD,
+            ],
+            $moduleIds
+        );
 
-        // Assign all modules to the subscription package
-        $subscriptionPackage->modules()->sync($modules->pluck('id')->toArray());
+        $this->syncPackage(
+            ['package_type' => PackageType::LIFETIME->value],
+            [
+                'package_name' => 'Life Time',
+                'description' => 'This is a lifetime access package',
+                'currency_id' => $currencyId,
+                'monthly_status' => 0,
+                'annual_status' => 0,
+                'annual_price' => null,
+                'monthly_price' => null,
+                'price' => 199,
+                'is_free' => 0,
+                'billing_cycle' => 0,
+                'sort_order' => 3,
+                'is_private' => 0,
+                'is_recommended' => 1,
+                'additional_features' => json_encode(Package::ADDITIONAL_FEATURES),
+                'package_type' => PackageType::LIFETIME,
+            ],
+            $moduleIds
+        );
 
-        // Create a Lifetime package
-        $lifetimePackage = Package::firstOrNew(['package_type' => PackageType::LIFETIME]);
-        $lifetimePackage->package_name = 'Life Time';
-        $lifetimePackage->description = 'This is a lifetime access package';
-        $lifetimePackage->currency_id = $currencyID;
-        $lifetimePackage->monthly_status = 0;
-        $lifetimePackage->annual_status = 0;
-        $lifetimePackage->annual_price = null;
-        $lifetimePackage->monthly_price = null;
-        $lifetimePackage->price = 199;
-        $lifetimePackage->is_free = 0;
-        $lifetimePackage->billing_cycle = 0;
-        $lifetimePackage->sort_order = 3;
-        $lifetimePackage->is_private = 0;
-        $lifetimePackage->is_recommended = 1;
-        $lifetimePackage->additional_features = json_encode(Package::ADDITIONAL_FEATURES);
-        $lifetimePackage->package_type = PackageType::LIFETIME;
-        $lifetimePackage->save();
+        $this->syncPackage(
+            ['package_name' => 'Private Package'],
+            [
+                'package_name' => 'Private Package',
+                'description' => 'This is a private package',
+                'price' => 0,
+                'currency_id' => $currencyId,
+                'monthly_status' => 1,
+                'annual_status' => 1,
+                'annual_price' => 50,
+                'monthly_price' => 5,
+                'is_free' => 0,
+                'billing_cycle' => 12,
+                'sort_order' => 4,
+                'is_private' => 1,
+                'is_recommended' => 0,
+                'package_type' => PackageType::STANDARD,
+            ],
+            $moduleIds
+        );
 
-        // Assign all modules to the lifetime package
-        $lifetimePackage->modules()->sync($modules->pluck('id')->toArray());
-
-        // Create a Private package
-        $privatePackage = Package::firstOrNew(['package_name' => 'Private Package']);
-        $privatePackage->package_name = 'Private Package';
-        $privatePackage->description = 'This is a private package';
-        $privatePackage->price = 0;
-        $privatePackage->currency_id = $currencyID;
-        $privatePackage->monthly_status = 1;
-        $privatePackage->annual_status = 1;
-        $privatePackage->annual_price = 50;
-        $privatePackage->monthly_price = 5;
-        $privatePackage->is_free = 0;
-        $privatePackage->billing_cycle = 12;
-        $privatePackage->sort_order = 4;
-        $privatePackage->is_private = 1;
-        $privatePackage->is_recommended = 0;
-        $privatePackage->package_type = PackageType::STANDARD;
-        $privatePackage->save();
-
-        // Assign all modules to the private package
-        $privatePackage->modules()->sync($modules->pluck('id')->toArray());
-
-
-        // Create a Trial package
-        $trialPackage = Package::firstOrNew(['package_type' => PackageType::TRIAL]);
-        $trialPackage->package_name = 'Trial Package';
-        $trialPackage->description = 'This is a trial package';
-        $trialPackage->currency_id = $currencyID;
-        $trialPackage->monthly_status = 0;
-        $trialPackage->annual_status = 0;
-        $trialPackage->annual_price = null;
-        $trialPackage->monthly_price = null;
-        $trialPackage->price = 0;
-        $trialPackage->is_free = 1;
-        $trialPackage->billing_cycle = 0;
-        $trialPackage->sort_order = null;
-        $trialPackage->is_private = 0;
-        $trialPackage->is_recommended = 0;
-        $trialPackage->package_type = PackageType::TRIAL;
-        $trialPackage->additional_features = json_encode(Package::ADDITIONAL_FEATURES);
-        $trialPackage->trial_days = 30;
-        $trialPackage->trial_status = 1;
-        $trialPackage->trial_notification_before_days = 5;
-        $trialPackage->trial_message = '30 Days Free Trial';
-        $trialPackage->save();
-
-        // Assign all modules to the trial package
-        $trialPackage->modules()->sync($modules->pluck('id')->toArray());
+        $this->syncPackage(
+            ['package_type' => PackageType::TRIAL->value],
+            [
+                'package_name' => 'Trial Package',
+                'description' => 'This is a trial package',
+                'currency_id' => $currencyId,
+                'monthly_status' => 0,
+                'annual_status' => 0,
+                'annual_price' => null,
+                'monthly_price' => null,
+                'price' => 0,
+                'is_free' => 1,
+                'billing_cycle' => 0,
+                'sort_order' => null,
+                'is_private' => 0,
+                'is_recommended' => 0,
+                'package_type' => PackageType::TRIAL,
+                'additional_features' => json_encode(Package::ADDITIONAL_FEATURES),
+                'trial_days' => 30,
+                'trial_status' => 1,
+                'trial_notification_before_days' => 5,
+                'trial_message' => '30 Days Free Trial',
+            ],
+            $moduleIds
+        );
     }
 
+    protected function syncPackage(array $lookup, array $data, array $moduleIds): void
+    {
+        $package = Package::updateOrCreate($lookup, $data);
+
+        $package->modules()->sync($moduleIds);
+
+        $this->cleanupDuplicates($lookup, $package->id);
+    }
+
+    protected function cleanupDuplicates(array $lookup, int $keepId): void
+    {
+        $duplicates = Package::where($lookup)
+            ->where('id', '!=', $keepId)
+            ->get();
+
+        foreach ($duplicates as $duplicate) {
+            Restaurant::where('package_id', $duplicate->id)->update(['package_id' => $keepId]);
+            $duplicate->modules()->detach();
+            $duplicate->delete();
+        }
+    }
 }
