@@ -156,6 +156,6 @@ class PackageSeeder extends Seeder
             Restaurant::where('package_id', $duplicate->id)->update(['package_id' => $keepId]);
             $duplicate->modules()->detach();
             $duplicate->delete();
-        }
+    }
     }
 }

@@ -310,4 +310,8 @@ return array(
     'menuItemCreationFailed' => 'Failed to create menu item. Please fill in all required fields.',
     'logoRemoved' => 'Image Removed Successfully',
     'kotDeletePermissionDenied' => 'You do not have permission to deduct items from KOT.',
+    'somethingWentWrong' => 'Something went wrong. Please try again.',
+    'noOrderPlaceConfigured' => 'No order place printer configured.',
+    'noActiveOrderPrinterConfigured' => 'No active order printer configured.',
+    'modifierGroupAlreadyAssociatedWithMenuItem' => 'This modifier group is already associated with this menu item.',
 );

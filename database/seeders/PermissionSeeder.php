@@ -154,10 +154,10 @@ class PermissionSeeder extends Seeder
         }
 
         if ($inventoryModule) {
-            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Inventory Items', 'module_id' => $inventoryModule->id];
-            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Inventory Items', 'module_id' => $inventoryModule->id];
-            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Inventory Items', 'module_id' => $inventoryModule->id];
-            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Inventory Items', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Inventory Item', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Inventory Item', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Inventory Item', 'module_id' => $inventoryModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Inventory Item', 'module_id' => $inventoryModule->id];
         }
 
         if (!empty($permissions)) {

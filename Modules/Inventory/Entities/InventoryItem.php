@@ -35,12 +35,12 @@ class InventoryItem extends Model
 
     public function category()
     {
-        return $this->belongsTo(InventoryItemCategory::class, 'inventory_item_category_id');
+        return $this->belongsTo(InventoryItemCategory::class, 'inventory_item_category_id')->withoutGlobalScopes();
     }
 
     public function unit()
     {
-        return $this->belongsTo(Unit::class);
+        return $this->belongsTo(Unit::class)->withoutGlobalScopes();
     }
 
     public function stocks(): HasMany

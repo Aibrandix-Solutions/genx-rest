@@ -17,7 +17,7 @@ return new class extends Migration
             $table->string('reference_no')->nullable();
             $table->decimal('total_amount', 16, 2)->default(0);
             $table->text('note')->nullable();
-            $table->string('status')->default('completed'); // pending, completed
+            $table->string('status')->default('pending'); // pending, completed
             $table->unsignedBigInteger('added_by')->nullable();
             $table->timestamps();
 

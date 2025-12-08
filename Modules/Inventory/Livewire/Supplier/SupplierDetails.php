@@ -7,6 +7,8 @@ use Livewire\WithFileUploads;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
+use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Notifications\SendPurchaseOrder;
 use App\Models\Branch;
 use Illuminate\Support\Facades\Auth;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -39,6 +41,20 @@ class SupplierDetails extends Component
 
     // Stock Data
     public $stockItems = [];
+
+    // Purchase Order Actions
+    public $confirmingDeletion = false;
+    public $purchaseOrderToDelete;
+    public $confirmingSend = false;
+    public $purchaseOrderToSend;
+    public $confirmingCancel = false;
+    public $purchaseOrderToCancel;
+
+    protected $listeners = [
+        'sendPurchaseOrder' => 'handleSendPurchaseOrder',
+        'cancelPurchaseOrder' => 'handleCancelPurchaseOrder',
+        'deletePurchaseOrder' => 'handleDeletePurchaseOrder',
+    ];
 
     protected $rules = [
         'paymentAmount' => 'required|numeric|min:0.01',
@@ -273,6 +289,67 @@ class SupplierDetails extends Component
         $this->supplier->is_active = !$this->supplier->is_active;
         $this->supplier->save();
         $this->alert('success', 'Supplier status updated');
+    }
+
+    public function handleSendPurchaseOrder($data)
+    {
+        $purchaseOrder = PurchaseOrder::find($data['purchaseOrder']);
+        if ($purchaseOrder && $purchaseOrder->status === 'draft') {
+            $this->purchaseOrderToSend = $purchaseOrder;
+            $this->confirmingSend = true;
+        }
+    }
+
+    public function sendPurchaseOrder()
+    {
+        if ($this->purchaseOrderToSend) {
+            $this->purchaseOrderToSend->update(['status' => 'sent']);
+            $this->purchaseOrderToSend->supplier->notify(new SendPurchaseOrder($this->purchaseOrderToSend));
+            $this->alert('success', trans('inventory::modules.purchaseOrder.sent_successfully'));
+            $this->supplier->refresh();
+        }
+        $this->confirmingSend = false;
+        $this->purchaseOrderToSend = null;
+    }
+
+    public function handleCancelPurchaseOrder($data)
+    {
+        $purchaseOrder = PurchaseOrder::find($data['purchaseOrder']);
+        if ($purchaseOrder && in_array($purchaseOrder->status, ['draft', 'sent'])) {
+            $this->purchaseOrderToCancel = $purchaseOrder;
+            $this->confirmingCancel = true;
+        }
+    }
+
+    public function cancelPurchaseOrder()
+    {
+        if ($this->purchaseOrderToCancel) {
+            $this->purchaseOrderToCancel->update(['status' => 'cancelled']);
+            $this->alert('success', trans('inventory::modules.purchaseOrder.cancelled_successfully'));
+            $this->supplier->refresh();
+        }
+        $this->confirmingCancel = false;
+        $this->purchaseOrderToCancel = null;
+    }
+
+    public function handleDeletePurchaseOrder($data)
+    {
+        $purchaseOrder = PurchaseOrder::find($data['purchaseOrder']);
+        if ($purchaseOrder && !in_array($purchaseOrder->status, ['received', 'cancelled'])) {
+            $this->purchaseOrderToDelete = $purchaseOrder;
+            $this->confirmingDeletion = true;
+        }
+    }
+
+    public function deletePurchaseOrder()
+    {
+        if ($this->purchaseOrderToDelete) {
+            $this->purchaseOrderToDelete->delete();
+            $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
+            $this->supplier->refresh();
+        }
+        $this->confirmingDeletion = false;
+        $this->purchaseOrderToDelete = null;
     }
 
     public function render()

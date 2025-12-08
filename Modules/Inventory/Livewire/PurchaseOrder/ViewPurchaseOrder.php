@@ -10,22 +10,37 @@ class ViewPurchaseOrder extends Component
 {
     public $showModal = false;
     public $purchaseOrder;
+    public $activeTab = 'details'; // details, payments
 
-    protected $listeners = ['viewPurchaseOrder' => 'show'];
+    protected $listeners = [
+        'viewPurchaseOrder' => 'show',
+        'purchaseOrderPaymentSaved' => '$refresh',
+    ];
 
     public function show(PurchaseOrder $purchaseOrder)
     {
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
-            'branch', // Load branch relationship
+            'branch',
             'items.inventoryItem' => function($q) {
                 $q->withoutGlobalScopes();
             },
             'items.inventoryItem.unit' => function($q) {
                 $q->withoutGlobalScopes();
-            }
+            },
+            'payments.account',
+            'payments.addedBy',
         ]);
+        $this->activeTab = 'details';
         $this->showModal = true;
+    }
+
+    public function setTab($tab)
+    {
+        $this->activeTab = $tab;
+        if ($tab === 'payments') {
+            $this->purchaseOrder->load(['payments.account', 'payments.addedBy']);
+        }
     }
 
     public function downloadPdf()
@@ -55,4 +70,4 @@ class ViewPurchaseOrder extends Component
     {
         return view('inventory::livewire.purchase-order.view-purchase-order');
     }
-}
+} 

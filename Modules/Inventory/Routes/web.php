@@ -10,6 +10,7 @@ use Modules\Inventory\Http\Controllers\InventoryMovementController;
 use Modules\Inventory\Http\Controllers\InventoryRecipeController;
 use Modules\Inventory\Http\Controllers\InventorySettingController;
 use Modules\Inventory\Http\Controllers\PurchaseOrderController;
+use Modules\Inventory\Http\Controllers\PurchaseReturnController;
 use Modules\Inventory\Http\Controllers\ReportController;
 use Modules\Inventory\Livewire\PurchaseOrder\PurchaseOrderList;
 use Modules\Inventory\Http\Controllers\InventoryDashboardController;
@@ -35,6 +36,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('inventory-movements', InventoryMovementController::class);
     Route::resource('recipes', InventoryRecipeController::class);
     Route::resource('purchase-orders', PurchaseOrderController::class);
+    Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
     Route::resource('inventory-settings', InventorySettingController::class);
     Route::controller(PurchaseOrderController::class)->group(function () {

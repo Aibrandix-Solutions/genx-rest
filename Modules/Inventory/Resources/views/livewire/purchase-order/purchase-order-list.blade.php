@@ -110,8 +110,17 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.expected_delivery_date') }}
                         </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.purchaseOrder.total_amount') }}
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.purchaseOrder.due_amount') }}
+                        </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('app.status') }}
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.purchaseOrder.payment_status_label') }}
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.actions') }}
@@ -135,6 +144,12 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 {{ $purchaseOrder->expected_delivery_date?->translatedFormat('M d, Y') ?? '-' }}
                             </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold text-gray-900 dark:text-white">
+                                {{ currency_format($purchaseOrder->total_amount, restaurant()->currency_id) }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-semibold {{ $purchaseOrder->due_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}">
+                                {{ currency_format($purchaseOrder->due_amount, restaurant()->currency_id) }}
+                            </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
                                     {{ $purchaseOrder->status === 'draft' ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300' : '' }}
@@ -143,6 +158,23 @@
                                     {{ $purchaseOrder->status === 'partially_received' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
                                     {{ $purchaseOrder->status === 'cancelled' ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-300' : '' }}">
                                     {{ $statuses[$purchaseOrder->status] }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                @php
+                                    $paymentStatus = $purchaseOrder->payment_status;
+                                @endphp
+                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                    {{ $paymentStatus === 'paid' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300' : '' }}
+                                    {{ $paymentStatus === 'partial' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
+                                    {{ $paymentStatus === 'due' ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-300' : '' }}">
+                                    @if($paymentStatus === 'paid')
+                                        {{ trans('inventory::modules.purchaseOrder.payment_status.paid') }}
+                                    @elseif($paymentStatus === 'partial')
+                                        {{ trans('inventory::modules.purchaseOrder.payment_status.partial') }}
+                                    @else
+                                        {{ trans('inventory::modules.purchaseOrder.payment_status.due') }}
+                                    @endif
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
@@ -248,7 +280,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="6" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                            <td colspan="8" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
                                 {{ trans('inventory::modules.purchaseOrder.no_records') }}
                             </td>
                         </tr>
@@ -327,4 +359,5 @@
     <livewire:inventory::purchase-order.manage-purchase-order />
     <livewire:inventory::purchase-order.receive-purchase-order />
     <livewire:inventory::purchase-order.view-purchase-order />
+    <livewire:inventory::purchase-order.purchase-order-payment />
 </div> 

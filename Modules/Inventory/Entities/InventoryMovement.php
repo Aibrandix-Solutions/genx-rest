@@ -28,7 +28,8 @@ class InventoryMovement extends Model
         'added_by',
         'unit_purchase_price',
         'expiration_date',
-        'supplier_id'
+        'supplier_id',
+        'transfer_branch_id'
     ];
 
     protected $casts = [
@@ -40,7 +41,7 @@ class InventoryMovement extends Model
 
     public function item()
     {
-        return $this->belongsTo(InventoryItem::class, 'inventory_item_id');
+        return $this->belongsTo(InventoryItem::class, 'inventory_item_id')->withoutGlobalScopes();
     }
 
     public function branch(): BelongsTo

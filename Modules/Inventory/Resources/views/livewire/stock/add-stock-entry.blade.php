@@ -22,7 +22,7 @@
             </label>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
-                    <input type="radio" id="typeIn" name="transactionType" value="IN" class="hidden peer" wire:model.live='transactionType' />
+                    <input type="radio" id="typeIn" name="transactionType" value="in" class="hidden peer" wire:model.live='transactionType' />
                     <label for="typeIn"  class="flex flex-col items-center space-y-2 justify-center p-4 text-gray-600 bg-white border-2 border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-skin-base peer-checked:border-skin-base peer-checked:text-gray-900 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium">
                         <svg class="w-6 h-6 text-green-500 peer-checked:text-indigo-600"
                                 fill="none" 
@@ -37,7 +37,7 @@
                 </div>
 
                 <div>
-                    <input type="radio" wire:model.live="transactionType" value="OUT" id="typeOut" class="hidden peer" wire:model='transactionType' />
+                    <input type="radio" wire:model.live="transactionType" value="out" id="typeOut" class="hidden peer" wire:model='transactionType' />
                     <label class="flex flex-col items-center space-y-2 justify-center p-4 text-gray-600 bg-white border-2 border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-skin-base peer-checked:border-skin-base peer-checked:text-gray-900 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium" for="typeOut">
                         <svg class="w-6 h-6 text-red-500 peer-checked:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13l-3 3m0 0l-3-3m3 3V8m0 13a9 9 0 110-18 9 9 0 010 18z"/>
@@ -47,7 +47,7 @@
                 </div>
 
                 <div>
-                    <input type="radio" wire:model.live="transactionType" value="WASTE" id="typeWaste" class="hidden peer" wire:model='transactionType' />
+                    <input type="radio" wire:model.live="transactionType" value="waste" id="typeWaste" class="hidden peer" wire:model='transactionType' />
                     <label class="flex flex-col items-center space-y-2 justify-center p-4 text-gray-600 bg-white border-2 border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-skin-base peer-checked:border-skin-base peer-checked:text-gray-900 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium" for="typeWaste">
                         <svg class="w-6 h-6 text-yellow-500 peer-checked:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
@@ -57,7 +57,7 @@
                 </div>
 
                 <div>
-                    <input type="radio" wire:model.live="transactionType" value="TRANSFER" id="typeTransfer" class="hidden peer" wire:model='transactionType' />
+                    <input type="radio" wire:model.live="transactionType" value="transfer" id="typeTransfer" class="hidden peer" wire:model='transactionType' />
                     <label class="flex flex-col items-center space-y-2 justify-center p-4 text-gray-600 bg-white border-2 border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-skin-base peer-checked:border-skin-base peer-checked:text-gray-900 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium" for="typeTransfer">
                         <svg class="w-6 h-6 text-blue-500 peer-checked:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
@@ -127,7 +127,7 @@
             </div>
 
 
-            @if ($transactionType == 'IN')
+            @if ($transactionType == 'in')
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     <!-- Supplier Selection -->
@@ -175,7 +175,7 @@
 
 
 
-            @if ($transactionType == 'IN')
+            @if ($transactionType == 'in')
                 <!-- Supplier Selection -->
                 <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                     <label for="supplier-search" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -204,7 +204,7 @@
             @endif
 
 
-            @if ($transactionType == 'WASTE')
+            @if ($transactionType == 'waste')
                 <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                     <label for="waste_reason" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         <div class="flex items-center space-x-2">
@@ -230,7 +230,7 @@
                 </div>
             @endif
 
-            @if ($transactionType == 'TRANSFER')
+            @if ($transactionType == 'transfer')
                 <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                     <label for="branch_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         <div class="flex items-center space-x-2">

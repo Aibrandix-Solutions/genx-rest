@@ -10,6 +10,7 @@ return [
         'inventoryMovements' => 'Inventory Movements',
         'recipes' => 'Recipes',
         'purchaseOrders' => 'Purchase Orders',
+        'purchaseReturns' => 'Purchase Returns',
         'reports' => 'Reports',
         'settings' => 'Settings',
         'purchaseOrderSettings' => 'Purchase Order Settings',
@@ -137,6 +138,7 @@ return [
         'totalCost' => 'Total Cost',
         'targetInventoryItem' => 'Target Inventory Item',
         'selectTargetBranch' => 'Select Target Branch',
+        'insufficientStock' => 'Insufficient stock available for transfer. Available: :available, Required: :required',
     ],
     'movements' => [
         'viewMovement' => 'View Movement',
@@ -316,6 +318,8 @@ return [
         'pending_orders' => 'Pending Orders',
         'completed_orders' => 'Completed Orders',
         'total_amount' => 'Total Amount',
+        'due_amount' => 'Due Amount',
+        'payment_status_label' => 'Payment Status',
 
         // Status
         'status' => [
@@ -324,6 +328,13 @@ return [
             'received' => 'Received',
             'partially_received' => 'Partially Received',
             'cancelled' => 'Cancelled'
+        ],
+
+        // Payment Status
+        'payment_status' => [
+            'paid' => 'Paid',
+            'partial' => 'Partial',
+            'due' => 'Due'
         ],
 
         // Actions

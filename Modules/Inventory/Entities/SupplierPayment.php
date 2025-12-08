@@ -27,7 +27,17 @@ class SupplierPayment extends Model
 
     public function addedBy(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'added_by');
+        return $this->belongsTo(User::class, 'added_by')->withoutGlobalScopes();
+    }
+
+    public function purchaseOrder(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseOrder::class);
+    }
+
+    public function purchaseReturn(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseReturn::class);
     }
 }
 

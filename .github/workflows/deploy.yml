@@ -185,3 +185,10 @@ jobs:
             # Storage link
             php artisan storage:link || true
 
+            # Create symlink for user-uploads (from public_html to laravel/public/user-uploads)
+            cd /home/u158663215/domains/aibrandix.com/public_html
+            rm -rf user-uploads 2>/dev/null || true
+            ln -sf /home/u158663215/domains/aibrandix.com/public_html/laravel/public/user-uploads user-uploads
+            echo "✅ user-uploads symlink created"
+            ls -la user-uploads
+

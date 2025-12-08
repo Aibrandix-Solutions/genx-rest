@@ -27,24 +27,24 @@ return new class extends Migration
             $url = database_path('data/country.json');
 
             if (file_exists($url)) {
-                $responses = file_get_contents($url);
-                $responses = json_decode($responses);
+            $responses = file_get_contents($url);
+            $responses = json_decode($responses);
 
-                $values = [];
+            $values = [];
 
-                foreach ($responses as $response) {
+            foreach ($responses as $response) {
 
-                    $data = get_object_vars($response);
+                $data = get_object_vars($response);
 
-                    $values[] = [
-                        'capital' => $data['capital'] ?? '',
-                        'code' => $data['code'],
-                        'continent' => $data['continent'] ?? '',
-                        'name' => $data['name'],
-                    ];
-                }
+                $values[] = [
+                    'capital' => $data['capital'] ?? '',
+                    'code' => $data['code'],
+                    'continent' => $data['continent'] ?? '',
+                    'name' => $data['name'],
+                ];
+            }
 
-                Flag::insert($values);
+            Flag::insert($values);
             }
         }
     }

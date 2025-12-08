@@ -21,13 +21,13 @@ class SuperadminSeeder extends Seeder
         $user = User::firstOrCreate(
             ['email' => 'superadmin@example.com'],
             [
-                'name' => 'Emma Holden',
-                'password' => bcrypt(123456)
+            'name' => 'Emma Holden',
+            'password' => bcrypt(123456)
             ]
         );
 
         if (!$user->hasRole('Super Admin')) {
-            $user->assignRole('Super Admin');
+        $user->assignRole('Super Admin');
         }
 
     }
