@@ -5,6 +5,8 @@ namespace Modules\Inventory\Livewire\Stock;
 use Livewire\Component;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryMovement;
+use Modules\Inventory\Entities\InventoryTransfer;
+use Modules\Inventory\Entities\InventoryTransferItem;
 use Modules\Inventory\Entities\Supplier;
 use App\Models\Branch;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -132,7 +134,7 @@ class AddStockEntry extends Component
                     }
                 }
 
-                // Create source movement
+                // Create source movement (for transfers, this is just a record - stock not deducted yet)
                 Log::info('[TRANSFER DEBUG] Creating source movement', [
                     'branch_id' => branch()->id,
                     'inventory_item_id' => $this->inventoryItem,
@@ -152,11 +154,15 @@ class AddStockEntry extends Component
                 $stockEntry->unit_purchase_price = $this->unitPurchasePrice;
                 $stockEntry->added_by = user()->id;
                 $stockEntry->expiration_date = ($this->transactionType == 'in' && !empty($this->expirationDate)) ? $this->expirationDate : null;
-                $stockEntry->save();
                 
-                Log::info('[TRANSFER DEBUG] Source movement created', [
-                    'movement_id' => $stockEntry->id,
-                    'saved_transfer_branch_id' => $stockEntry->transfer_branch_id,
+                // For transfers, don't save yet - will be linked to transfer and saved later
+                if ($this->transactionType != 'transfer') {
+                    $stockEntry->save();
+                }
+                
+                Log::info('[TRANSFER DEBUG] Source movement object created', [
+                    'transaction_type' => $stockEntry->transaction_type,
+                    'is_transfer' => $this->transactionType == 'transfer',
                 ]);
 
                 // Get or create source stock BEFORE handling transaction
@@ -188,109 +194,46 @@ class AddStockEntry extends Component
                         ]);
                     }
                 } elseif ($this->transactionType == 'transfer') {
-                    Log::info('[TRANSFER DEBUG] Processing transfer - updating source stock');
+                    Log::info('[TRANSFER DEBUG] Creating pending transfer record');
                     
-                    // Validate and decrease source stock
-                    if ($updatedStock->quantity < $this->quantity) {
-                        Log::error('[TRANSFER DEBUG] Insufficient stock after second check', [
-                            'available' => $updatedStock->quantity,
-                            'required' => $this->quantity
-                        ]);
-                        throw new \Exception(__('inventory::modules.stock.insufficientStock', [
-                            'available' => $updatedStock->quantity,
-                            'required' => $this->quantity
-                        ]));
-                    }
+                    // Get source item to set unit purchase price
+                    $sourceItem = InventoryItem::withoutGlobalScopes()->find($this->inventoryItem);
+                    $sourceUnitPrice = $sourceItem ? ($sourceItem->unit_purchase_price ?? 0) : 0;
                     
-                    $oldQuantity = $updatedStock->quantity;
-                    $updatedStock->quantity -= $this->quantity;
-                    $updatedStock->save();
-                    
-                    Log::info('[TRANSFER DEBUG] Source stock updated', [
-                        'old_quantity' => $oldQuantity,
-                        'new_quantity' => $updatedStock->quantity,
-                        'decreased_by' => $this->quantity
-                    ]);
-
-                    // Create destination stock (use converted integer values)
-                    Log::info('[TRANSFER DEBUG] Creating destination stock', [
-                        'destination_inventory_item_id' => $destinationItemId,
-                        'destination_branch_id' => $destinationBranchId,
-                        'transfer_quantity' => $this->quantity
-                    ]);
-                    
-                    $destinationStock = InventoryStock::where('inventory_item_id', $destinationItemId)
-                        ->where('branch_id', $destinationBranchId)
-                        ->firstOrCreate([
-                            'inventory_item_id' => $destinationItemId,
-                            'branch_id' => $destinationBranchId
-                        ], [
-                            'quantity' => 0
-                        ]);
-                    
-                    Log::info('[TRANSFER DEBUG] Destination stock retrieved', [
-                        'stock_id' => $destinationStock->id,
-                        'old_quantity' => $destinationStock->quantity,
-                        'was_created' => $destinationStock->wasRecentlyCreated
-                    ]);
-                    
-                    $oldDestQuantity = $destinationStock->quantity;
-                    $destinationStock->quantity += $this->quantity;
-                    $destinationStock->save();
-                    
-                    Log::info('[TRANSFER DEBUG] Destination stock updated', [
-                        'old_quantity' => $oldDestQuantity,
-                        'new_quantity' => $destinationStock->quantity,
-                        'increased_by' => $this->quantity
-                    ]);
-
-                    // Create destination movement
-                    // Use withoutEvents to prevent observer from overriding branch_id for destination branch
-                    Log::info('[TRANSFER DEBUG] Creating destination movement', [
-                        'destination_branch_id' => $destinationBranchId,
-                        'destination_inventory_item_id' => $destinationItemId,
+                    // Create pending transfer record (same workflow as bulk transfers)
+                    $transfer = InventoryTransfer::create([
+                        'restaurant_id' => restaurant()->id,
+                        'transfer_number' => InventoryTransfer::generateTransferNumber(),
                         'source_branch_id' => branch()->id,
-                        'quantity' => $this->quantity
+                        'destination_branch_id' => $destinationBranchId,
+                        'status' => 'pending', // Pending status - must be initiated
+                        'created_by' => user()->id,
                     ]);
                     
-                    $destinationStockEntry = InventoryMovement::withoutEvents(function () use ($destinationBranchId, $destinationItemId) {
-                        $movement = new InventoryMovement();
-                        $movement->branch_id = $destinationBranchId; // Destination branch (as integer)
-                        $movement->inventory_item_id = $destinationItemId;
-                        $movement->quantity = $this->quantity;
-                        $movement->transaction_type = 'in';
-                        $movement->supplier_id = null;
-                        $movement->waste_reason = null;
-                        $movement->transfer_branch_id = branch()->id; // Source branch
-                        $movement->unit_purchase_price = $this->unitPurchasePrice ?? 0;
-                        $movement->added_by = user()->id;
-                        $movement->expiration_date = null; // Destination transfers don't need expiration dates
-                        
-                        Log::info('[TRANSFER DEBUG] Destination movement object before save', [
-                            'branch_id' => $movement->branch_id,
-                            'inventory_item_id' => $movement->inventory_item_id,
-                            'transfer_branch_id' => $movement->transfer_branch_id,
-                            'transaction_type' => $movement->transaction_type,
-                        ]);
-                        
-                        $movement->save();
-                        
-                        Log::info('[TRANSFER DEBUG] Destination movement saved', [
-                            'movement_id' => $movement->id,
-                            'saved_branch_id' => $movement->branch_id,
-                            'saved_transfer_branch_id' => $movement->transfer_branch_id,
-                        ]);
-                        
-                        return $movement;
-                    });
-
-                    // Update destination item menu status if applicable
-                    $destinationItem = InventoryItem::where('id', $destinationItemId)->first();
-                    if ($destinationItem) {
-                        $destinationItem->menuItems()->update([
-                            'in_stock' => 1
-                        ]);
-                    }
+                    // Create transfer item
+                    $transferItem = InventoryTransferItem::create([
+                        'inventory_transfer_id' => $transfer->id,
+                        'source_inventory_item_id' => $this->inventoryItem,
+                        'destination_inventory_item_id' => $destinationItemId,
+                        'requested_quantity' => $this->quantity,
+                        'status' => 'pending',
+                    ]);
+                    
+                    // Link source movement to transfer and save
+                    // Set unit purchase price from source item
+                    $stockEntry->unit_purchase_price = $sourceUnitPrice;
+                    $stockEntry->inventory_transfer_id = $transfer->id;
+                    $stockEntry->inventory_transfer_item_id = $transferItem->id;
+                    $stockEntry->save();
+                    
+                    Log::info('[TRANSFER DEBUG] Transfer created and linked', [
+                        'transfer_id' => $transfer->id,
+                        'transfer_item_id' => $transferItem->id,
+                        'movement_id' => $stockEntry->id,
+                    ]);
+                    
+                    // Note: Stock is NOT deducted at this point
+                    // Stock will be deducted when transfer is initiated from Stock Transfers page
                 } else {
                     // For 'out' and 'waste'
                     // Validate stock availability first
@@ -306,7 +249,14 @@ class AddStockEntry extends Component
             });
 
             Log::info('[TRANSFER DEBUG] Transaction completed successfully');
-            $this->alert('success', __('inventory::modules.stock.stockEntryAddedSuccessfully'));
+            
+            if ($this->transactionType == 'transfer') {
+                $this->alert('success', __('inventory::modules.transfers.transfer_created_successfully') . '. ' . __('inventory::modules.transfers.initiate_transfer_message'));
+                $this->dispatch('transferCreated'); // Notify transfer list to refresh
+            } else {
+                $this->alert('success', __('inventory::modules.stock.stockEntryAddedSuccessfully'));
+            }
+            
             $this->dispatch('hideAddStockEntryModal');
             $this->reset(['inventoryItem', 'quantity', 'supplier', 'wasteReason', 'branch', 'destinationInventoryItem', 'unitPurchasePrice', 'expirationDate']);
         } catch (\Exception $e) {
@@ -367,30 +317,35 @@ class AddStockEntry extends Component
         ]);
         
         if ($this->transactionType === 'transfer' && $branchId) {
-            // Show all inventory items from all branches in the restaurant for transfer
-            // This allows transferring to any item that exists in any branch
-            $restaurantBranchIds = Branch::where('restaurant_id', restaurant()->id)->pluck('id');
-            
-            Log::info('[TRANSFER DEBUG] Loading destination items', [
-                'restaurant_id' => restaurant()->id,
-                'branch_ids' => $restaurantBranchIds->toArray()
+            // Load items only from the selected destination branch (same as stock transfers page)
+            // This prevents confusion when items have the same name across branches
+            Log::info('[TRANSFER DEBUG] Loading destination items from selected branch', [
+                'destination_branch_id' => $branchId
             ]);
             
             $this->destinationInventoryItems = InventoryItem::withoutGlobalScopes()
-                ->whereIn('branch_id', $restaurantBranchIds)
+                ->where('branch_id', $branchId)
+                ->with(['category', 'unit'])
                 ->orderBy('name')
                 ->get();
             
             Log::info('[TRANSFER DEBUG] Destination items loaded', [
                 'count' => $this->destinationInventoryItems->count(),
+                'branch_id' => $branchId,
                 'items' => $this->destinationInventoryItems->map(fn($item) => [
                     'id' => $item->id,
                     'name' => $item->name,
-                    'branch_id' => $item->branch_id
+                    'branch_id' => $item->branch_id,
+                    'category' => $item->category?->name,
+                    'unit' => $item->unit?->symbol
                 ])->toArray()
             ]);
+            
+            // Clear destination item selection when branch changes
+            $this->destinationInventoryItem = null;
         } else {
             $this->destinationInventoryItems = [];
+            $this->destinationInventoryItem = null;
             Log::info('[TRANSFER DEBUG] Cleared destination items');
         }
     }

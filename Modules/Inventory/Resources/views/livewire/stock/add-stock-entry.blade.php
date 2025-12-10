@@ -262,14 +262,28 @@
                             <span>@lang("inventory::modules.stock.targetInventoryItem")</span>
                         </div>
                     </label>
-                    <select wire:model.live="destinationInventoryItem"
-                            id="destination_inventory_item_id"
-                            class="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2.5 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm transition-colors duration-200">
-                            <option value="">--</option>
-                            @foreach ($destinationInventoryItems as $inventoryItem)
-                                <option value="{{ $inventoryItem->id }}">{{ $inventoryItem->name }}</option>
-                            @endforeach
-                    </select>
+                    @if(empty($destinationInventoryItems) && $branch)
+                        <div class="text-amber-600 dark:text-amber-400 text-sm py-2">
+                            @lang('inventory::modules.transfers.no_items_in_destination')
+                        </div>
+                    @else
+                        <select wire:model.live="destinationInventoryItem"
+                                id="destination_inventory_item_id"
+                                class="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2.5 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm transition-colors duration-200">
+                                <option value="">-- @lang('inventory::modules.transfers.select_item') --</option>
+                                @foreach ($destinationInventoryItems as $destItem)
+                                    <option value="{{ $destItem->id }}">
+                                        {{ $destItem->name }}
+                                        @if($destItem->unit && $destItem->unit->symbol)
+                                            ({{ $destItem->unit->symbol }})
+                                        @endif
+                                        @if($destItem->category)
+                                            - {{ $destItem->category->name }}
+                                        @endif
+                                    </option>
+                                @endforeach
+                        </select>
+                    @endif
                     @error('destinationInventoryItem')
                         <span class="text-red-500">{{ $message }}</span>
                     @enderror

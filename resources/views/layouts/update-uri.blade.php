@@ -28,6 +28,21 @@
     document.addEventListener('livewire:navigated', () => {
             // Your function to be called on every route change
         updateLivewireScript();
+        
+        // Scroll to page title (h1 or h2) after navigation
+        setTimeout(() => {
+            const mainContent = document.getElementById('main-content');
+            if (mainContent) {
+                // Find the first h1 or h2 in the main content
+                const pageTitle = mainContent.querySelector('h1, h2');
+                if (pageTitle) {
+                    pageTitle.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else {
+                    // If no title found, scroll to top
+                    mainContent.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+            }
+        }, 100);
 
     });
 </script>

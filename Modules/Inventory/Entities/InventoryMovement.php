@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\InventoryTransfer;
+use Modules\Inventory\Entities\InventoryTransferItem;
 use App\Models\Branch;
 use App\Models\User;
 // use Modules\Inventory\Database\Factories\InventoryMovementFactory;
@@ -29,7 +31,9 @@ class InventoryMovement extends Model
         'unit_purchase_price',
         'expiration_date',
         'supplier_id',
-        'transfer_branch_id'
+        'transfer_branch_id',
+        'inventory_transfer_id',
+        'inventory_transfer_item_id'
     ];
 
     protected $casts = [
@@ -67,6 +71,16 @@ class InventoryMovement extends Model
     public function transferBranch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'transfer_branch_id');
+    }
+
+    public function inventoryTransfer(): BelongsTo
+    {
+        return $this->belongsTo(InventoryTransfer::class, 'inventory_transfer_id');
+    }
+
+    public function inventoryTransferItem(): BelongsTo
+    {
+        return $this->belongsTo(InventoryTransferItem::class, 'inventory_transfer_item_id');
     }
 
     // Add constants for transaction types

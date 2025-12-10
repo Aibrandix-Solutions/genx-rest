@@ -38,6 +38,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('purchase-orders', PurchaseOrderController::class);
     Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
+    Route::resource('stock-transfers', \Modules\Inventory\Http\Controllers\StockTransferController::class);
     Route::resource('inventory-settings', InventorySettingController::class);
     Route::controller(PurchaseOrderController::class)->group(function () {
         Route::get('purchase-orders/{purchase_order}/pdf', 'generatePdf')->name('purchase-orders.pdf');

@@ -121,6 +121,33 @@ document.addEventListener("livewire:navigated", () => {
     // Ensure theme toggle initializes even if later blocks fail
     observeThemeToggleMount();
 
+    // Scroll sidebar to active menu item
+    setTimeout(() => {
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) {
+            // Find active menu items (both dropdown items and regular menu items)
+            const activeDropdownItem = sidebar.querySelector('li[x-data] a.text-gray-900.font-bold, li[x-data] a.text-white.font-bold');
+            const activeMenuItem = sidebar.querySelector('li:not([x-data]) a.text-white.font-bold');
+            const activeItem = activeDropdownItem || activeMenuItem;
+            
+            if (activeItem) {
+                const scrollableContainer = activeItem.closest('.overflow-y-auto');
+                if (scrollableContainer) {
+                    // Scroll the active item into view within the scrollable container
+                    const containerRect = scrollableContainer.getBoundingClientRect();
+                    const itemRect = activeItem.getBoundingClientRect();
+                    const scrollTop = scrollableContainer.scrollTop;
+                    const itemOffsetTop = itemRect.top - containerRect.top + scrollTop;
+                    
+                    scrollableContainer.scrollTo({
+                        top: itemOffsetTop - (containerRect.height / 2),
+                        behavior: 'smooth'
+                    });
+                }
+            }
+        }
+    }, 600);
+
     // Check initial state on page load
     const sidebar = document.getElementById('sidebar');
     const mainContent = document.getElementById('main-content');
