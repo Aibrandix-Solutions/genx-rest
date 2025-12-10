@@ -119,7 +119,7 @@
                     @empty
                         <tr>
                             <td colspan="6" class="px-4 py-8 text-sm text-center text-gray-500 dark:text-gray-300">
-                                @lang('messages.noDataFound')
+                                @lang('kitchen::messages.noDataFound')
                             </td>
                         </tr>
                     @endforelse

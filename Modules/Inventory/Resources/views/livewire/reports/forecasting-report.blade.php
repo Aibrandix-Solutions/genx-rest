@@ -22,7 +22,7 @@
                         {{ __('inventory::modules.reports.filters.search_items') }}
                     </label>
                     <input type="text" 
-                        wire:model.live="searchTerm" 
+                        wire:model.live.debounce.300ms="searchTerm" 
                         class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" 
                         placeholder="{{ __('inventory::modules.reports.filters.search_placeholder') }}">
                 </div>

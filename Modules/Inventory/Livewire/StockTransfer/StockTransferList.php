@@ -8,6 +8,7 @@ use Modules\Inventory\Entities\InventoryTransfer;
 use Modules\Inventory\Entities\InventoryTransferItem;
 use Modules\Inventory\Entities\InventoryStock;
 use Modules\Inventory\Entities\InventoryMovement;
+use Modules\Inventory\Entities\InventoryItem;
 use App\Models\Branch;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;

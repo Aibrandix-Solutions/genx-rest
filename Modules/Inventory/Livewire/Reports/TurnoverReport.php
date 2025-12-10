@@ -41,43 +41,29 @@ class TurnoverReport extends Component
         };
         
         $this->endDate = Carbon::now()->endOfDay()->format('Y-m-d H:i:s');
-        
-        return $this->redirect(route('inventory.reports.turnover', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when period changes
+        $this->loadReportData();
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedStartDate()
     {
-        return $this->redirect(route('inventory.reports.turnover', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when date changes
+        $this->loadReportData();
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedEndDate()
     {
-        return $this->redirect(route('inventory.reports.turnover', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when date changes
+        $this->loadReportData();
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedSearchTerm()
     {
-        return $this->redirect(route('inventory.reports.turnover', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when searching
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function loadReportData()

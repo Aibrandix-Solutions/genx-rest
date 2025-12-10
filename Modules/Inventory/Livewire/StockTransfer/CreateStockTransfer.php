@@ -91,12 +91,28 @@ class CreateStockTransfer extends Component
                     // Get source item details
                     $sourceItem = InventoryItem::withoutGlobalScopes()->find($itemId);
                     
-                    // Check available stock
+                    // Get available stock from InventoryStock table
+                    // This should match what's shown in the Inventory Stocks list
                     $stock = InventoryStock::where('inventory_item_id', $itemId)
                         ->where('branch_id', branch()->id)
                         ->first();
                     
-                    $this->transferItems[$index]['available_stock'] = $stock ? $stock->quantity : 0;
+                    $currentStock = $stock ? (float)$stock->quantity : 0;
+                    
+                    // Calculate pending transfers (transfers that haven't been initiated yet)
+                    // Stock is only deducted when transfer is initiated, so pending transfers should be excluded
+                    $pendingTransfersQuantity = (float)InventoryTransferItem::whereHas('transfer', function($query) {
+                            $query->where('source_branch_id', branch()->id)
+                                  ->where('status', 'pending');
+                        })
+                        ->where('source_inventory_item_id', $itemId)
+                        ->sum('requested_quantity');
+                    
+                    // Available stock = current stock from InventoryStock - pending transfers
+                    // Note: in_transit/completed transfers don't affect this as stock is already deducted
+                    $availableStock = max(0, $currentStock - $pendingTransfersQuantity);
+                    
+                    $this->transferItems[$index]['available_stock'] = $availableStock;
                     
                     // Auto-suggest matching destination item by name (if destination branch is selected)
                     if ($this->destinationBranch && $sourceItem && count($this->destinationItems) > 0) {
@@ -144,13 +160,26 @@ class CreateStockTransfer extends Component
     {
         $this->validate();
 
-        // Validate stock availability
+        // Validate stock availability (considering pending transfers)
         foreach ($this->transferItems as $index => $item) {
             $stock = InventoryStock::where('inventory_item_id', $item['source_item_id'])
                 ->where('branch_id', branch()->id)
                 ->first();
             
-            $available = $stock ? $stock->quantity : 0;
+            $currentStock = $stock ? (float)$stock->quantity : 0;
+            
+            // Calculate pending transfers (transfers that haven't been initiated yet)
+            // Stock is only deducted when transfer is initiated, so pending transfers should be excluded
+            $pendingTransfersQuantity = (float)InventoryTransferItem::whereHas('transfer', function($query) {
+                    $query->where('source_branch_id', branch()->id)
+                          ->where('status', 'pending');
+                })
+                ->where('source_inventory_item_id', $item['source_item_id'])
+                ->sum('requested_quantity');
+            
+            // Available stock = current stock from InventoryStock - pending transfers
+            // Note: in_transit/completed transfers don't affect this as stock is already deducted
+            $available = max(0, $currentStock - $pendingTransfersQuantity);
             
             if ($available < $item['quantity']) {
                 $this->addError("transferItems.{$index}.quantity", 

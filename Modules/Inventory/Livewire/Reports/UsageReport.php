@@ -41,43 +41,29 @@ class UsageReport extends Component
         };
         
         $this->endDate = Carbon::now()->endOfDay()->format('Y-m-d H:i:s');
-        
-        return $this->redirect(route('inventory.reports.usage', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when period changes
+        $this->loadReportData(); // Update chart data
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedStartDate()
     {
-        return $this->redirect(route('inventory.reports.usage', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when date changes
+        $this->loadReportData(); // Update chart data
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedEndDate()
     {
-        return $this->redirect(route('inventory.reports.usage', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when date changes
+        $this->loadReportData(); // Update chart data
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedSearchTerm()
     {
-        return $this->redirect(route('inventory.reports.usage', [
-            'period' => $this->period,
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when searching
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function loadReportData()

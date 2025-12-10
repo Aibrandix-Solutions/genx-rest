@@ -6,6 +6,7 @@ return [
     'KitchenPlacesRestored' => 'Kitchen restored successfully',
     'KitchenPlacesForceDeleted' => 'Kitchen force deleted successfully',
     'kitchenPlacesAdded' => 'Kitchen added successfully',
+    'noDataFound' => 'No Data Found',
     'cannotDeleteDefaultKitchen' => 'You cannot delete the default kitchen.',
     'ItemAddedToKitchen' => 'Item added to kitchen successfully',
     'itemRemovedFromKitchen' => 'Item removed from kitchen successfully',
