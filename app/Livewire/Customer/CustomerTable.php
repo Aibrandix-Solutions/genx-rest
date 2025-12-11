@@ -20,6 +20,9 @@ class CustomerTable extends Component
     public $showEditCustomerModal = false;
     public $confirmDeleteCustomerModal = false;
     public $showCustomerOrderModal = false;
+    public $showPaymentModal = false;
+    public $showLedgerModal = false;
+    public $showSalesModal = false;
 
     protected $listeners = ['refreshCustomers' => '$refresh', 'reloadPage' => '$refresh'];
 
@@ -47,6 +50,24 @@ class CustomerTable extends Component
     {
         $this->customer = Customer::findOrFail($id);
         $this->showCustomerOrderModal = true;
+    }
+
+    public function showCustomerPayment($id)
+    {
+        $this->customer = Customer::findOrFail($id);
+        $this->showPaymentModal = true;
+    }
+
+    public function showCustomerLedger($id)
+    {
+        $this->customer = Customer::findOrFail($id);
+        $this->showLedgerModal = true;
+    }
+
+    public function showCustomerSales($id)
+    {
+        $this->customer = Customer::findOrFail($id);
+        $this->showSalesModal = true;
     }
 
     public function deleteCustomer($id, $deleteOrder = false)
@@ -78,7 +99,10 @@ class CustomerTable extends Component
     public function render()
     {
         $query = Customer::withCount('orders')
-            ->with('orders')
+            ->with(['orders' => function($q) {
+                $q->where('status', 'payment_due')
+                  ->select('id', 'customer_id', 'total', 'amount_paid', 'status', 'date_time');
+            }])
             ->where(function($q) {
                 $q->where('name', 'like', '%' . $this->search . '%')
                   ->orWhere('email', 'like', '%' . $this->search . '%')

@@ -1600,7 +1600,10 @@ class Cart extends Component
             ->orderBy('sort_order')
             ->get()
             ->groupBy(function ($item) use ($locale) {
-                return $item->category->getTranslation('category_name', $locale);
+                if ($item->category) {
+                    return $item->category->getTranslation('category_name', $locale) ?: __('app.uncategorized');
+                }
+                return __('app.uncategorized');
             });
 
 

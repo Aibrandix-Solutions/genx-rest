@@ -45,6 +45,7 @@ return [
         'Update Delivery Executive' => 'Update Delivery Executive',
         'Delete Delivery Executive' => 'Delete Delivery Executive',
         'Show Payments' => 'Show Payments',
+        'Create Payment' => 'Create Payment',
         'Show Reports' => 'Show Reports',
         'Manage Settings' => 'Manage Settings',
         'Manage Waiter Request' => 'Manage Waiter Request',

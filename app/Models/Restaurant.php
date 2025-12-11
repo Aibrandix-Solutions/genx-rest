@@ -118,6 +118,11 @@ class Restaurant extends BaseModel
         return $this->hasOne(ReceiptSetting::class);
     }
 
+    public function rewardSetting(): HasOne
+    {
+        return $this->hasOne(RewardSetting::class);
+    }
+
     public function printerSettings(): HasMany
     {
         return $this->hasMany(Printer::class);

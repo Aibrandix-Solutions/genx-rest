@@ -23,6 +23,14 @@
                                     @lang('modules.order.totalOrder')
                                 </th>
                                 <th scope="col"
+                                    class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                    @lang('modules.customer.outstanding_balance')
+                                </th>
+                                <th scope="col"
+                                    class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                    @lang('modules.customer.total_sales')
+                                </th>
+                                <th scope="col"
                                     class="py-2.5 px-4 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-right">
                                     @lang('app.action')
                                 </th>
@@ -51,7 +59,57 @@
                                     </span>
                                  </td>
 
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    @php
+                                        $outstandingBalance = $item->outstanding_balance;
+                                    @endphp
+                                    @if($outstandingBalance > 0)
+                                        <span class="text-xs font-medium px-2 py-1 rounded uppercase tracking-wide whitespace-nowrap bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300 border border-red-200 dark:border-red-800">
+                                            {{ currency_format($outstandingBalance, restaurant()->currency_id) }}
+                                        </span>
+                                    @else
+                                        <span class="text-xs text-gray-500 dark:text-gray-400">—</span>
+                                    @endif
+                                </td>
+
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    {{ currency_format($item->total_sales, restaurant()->currency_id) }}
+                                </td>
+
                                 <td class="py-2.5 px-4 space-x-2 whitespace-nowrap text-right rtl:space-x-reverse">
+                                    @if(user_can('Create Payment') || user_can('Update Order'))
+                                    <button wire:click='showCustomerPayment({{ $item->id }})' 
+                                        class="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-green-700 bg-green-100 border border-green-300 rounded hover:bg-green-200 dark:bg-green-800/50 dark:text-green-300 dark:border-green-700 dark:hover:bg-green-700"
+                                        title="@lang('modules.customer.pay')">
+                                        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+                                        </svg>
+                                        @lang('modules.customer.pay')
+                                    </button>
+                                    @endif
+
+                                    @if(user_can('Show Order'))
+                                    <button wire:click='showCustomerLedger({{ $item->id }})' 
+                                        class="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-blue-700 bg-blue-100 border border-blue-300 rounded hover:bg-blue-200 dark:bg-blue-800/50 dark:text-blue-300 dark:border-blue-700 dark:hover:bg-blue-700"
+                                        title="@lang('modules.customer.ledger')">
+                                        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                        </svg>
+                                        @lang('modules.customer.ledger')
+                                    </button>
+                                    @endif
+
+                                    @if(user_can('Show Order'))
+                                    <button wire:click='showCustomerSales({{ $item->id }})' 
+                                        class="inline-flex items-center px-2.5 py-1.5 text-xs font-medium text-purple-700 bg-purple-100 border border-purple-300 rounded hover:bg-purple-200 dark:bg-purple-800/50 dark:text-purple-300 dark:border-purple-700 dark:hover:bg-purple-700"
+                                        title="@lang('modules.customer.sales')">
+                                        <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                                        </svg>
+                                        @lang('modules.customer.sales')
+                                    </button>
+                                    @endif
+
                                     @if(user_can('Update Customer'))
                                     <x-secondary-button-table wire:click='showEditCustomer({{ $item->id }})' wire:key='customer-edit-{{ $item->id . microtime() }}'
                                         wire:key='editmenu-item-button-{{ $item->id }}'>
@@ -83,7 +141,7 @@
                             </tr>
                             @empty
                             <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
-                                <td class="py-2.5 px-4 space-x-6 text-gray-500" colspan="5">
+                                <td class="py-2.5 px-4 space-x-6 text-gray-500" colspan="7">
                                     @lang('messages.noCustomerFound')
                                 </td>
                             </tr>
@@ -165,6 +223,60 @@
             @endif
          </x-slot>
     </x-confirmation-modal>
+
+    <x-right-modal wire:model.live="showPaymentModal" maxWidth="3xl">
+        <x-slot name="title">
+            @lang('modules.customer.pay_for_customer'): {{ $customer->name ?? '' }}
+        </x-slot>
+
+        <x-slot name="content">
+            @if ($customer)
+                @livewire('customer.customer-payment', ['customer' => $customer], key('customer-payment-' . $customer->id))
+            @endif
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-secondary-button wire:click="$set('showPaymentModal', false)" wire:loading.attr="disabled">
+                {{ __('app.close') }}
+            </x-secondary-button>
+        </x-slot>
+    </x-right-modal>
+
+    <x-right-modal wire:model.live="showLedgerModal" maxWidth="3xl">
+        <x-slot name="title">
+            @lang('modules.customer.ledger_for_customer'): {{ $customer->name ?? '' }}
+        </x-slot>
+
+        <x-slot name="content">
+            @if ($customer)
+                @livewire('customer.customer-ledger', ['customer' => $customer], key('customer-ledger-' . $customer->id))
+            @endif
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-secondary-button wire:click="$set('showLedgerModal', false)" wire:loading.attr="disabled">
+                {{ __('app.close') }}
+            </x-secondary-button>
+        </x-slot>
+    </x-right-modal>
+
+    <x-right-modal wire:model.live="showSalesModal" maxWidth="3xl">
+        <x-slot name="title">
+            @lang('modules.customer.sales_for_customer'): {{ $customer->name ?? '' }}
+        </x-slot>
+
+        <x-slot name="content">
+            @if ($customer)
+                @livewire('customer.customer-sales', ['customer' => $customer], key('customer-sales-' . $customer->id))
+            @endif
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-secondary-button wire:click="$set('showSalesModal', false)" wire:loading.attr="disabled">
+                {{ __('app.close') }}
+            </x-secondary-button>
+        </x-slot>
+    </x-right-modal>
 
 
 </div>

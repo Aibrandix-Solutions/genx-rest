@@ -90,7 +90,12 @@
 
             <li class="me-2">
                 <a href="{{ route('settings.index').'?tab=orderSettings' }}" wire:navigate
-                @class(["inline-block p-4 border-b-2 rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300", 'border-transparent' => ($activeSetting != 'orderSettings'), 'active border-skin-base dark:text-skin-base dark:border-skin-base text-skin-base' => ($activeSetting == 'orderSettings')])>@lang('modules.settings.orderSetting')</a>
+                    @class(["inline-block p-4 border-b-2 rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300", 'border-transparent' => ($activeSetting != 'orderSettings'), 'active border-skin-base dark:text-skin-base dark:border-skin-base text-skin-base' => ($activeSetting == 'orderSettings')])>@lang('modules.settings.orderSetting')</a>
+            </li>
+
+            <li class="me-2">
+                <a href="{{ route('settings.index').'?tab=rewardPoints' }}" wire:navigate
+                    @class(["inline-block p-4 border-b-2 rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300", 'border-transparent' => ($activeSetting != 'rewardPoints'), 'active border-skin-base dark:text-skin-base dark:border-skin-base text-skin-base' => ($activeSetting == 'rewardPoints')])>@lang('modules.settings.rewardPointsSettings')</a>
             </li>
 
             <!-- NAV ITEM - CUSTOM MODULES  -->
@@ -177,6 +182,10 @@
 
                 @case('orderSettings')
                 @livewire('settings.OrderSettings', ['settings' => $settings])
+                @break
+
+                @case('rewardPoints')
+                @livewire('settings.reward-points-settings')
                 @break
 
                 @default
