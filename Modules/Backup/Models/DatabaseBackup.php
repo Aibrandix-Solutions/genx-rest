@@ -5,6 +5,7 @@ namespace Modules\Backup\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Carbon\Carbon;
+use Illuminate\Support\Str;
 
 class DatabaseBackup extends Model
 {
@@ -237,5 +238,26 @@ class DatabaseBackup extends Model
             default:
                 return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300';
         }
+    }
+
+    /**
+     * Get formatted error message (truncated for display)
+     */
+    public function getFormattedErrorMessageAttribute()
+    {
+        if (!$this->error_message) {
+            return null;
+        }
+        
+        // Truncate long error messages for display
+        return Str::limit($this->error_message, 100);
+    }
+
+    /**
+     * Get full error message
+     */
+    public function getFullErrorMessageAttribute()
+    {
+        return $this->error_message;
     }
 }

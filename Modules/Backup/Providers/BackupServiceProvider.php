@@ -13,6 +13,7 @@ use Modules\Backup\Console\Commands\ManualMysqlTest;
 use Modules\Backup\Console\Commands\VerifyEnvConfig;
 use Modules\Backup\Console\Commands\UbuntuTroubleshoot;
 use Modules\Backup\Console\Commands\FixMySQLAuth;
+use Modules\Backup\Console\Commands\DiagnoseBackupIssues;
 use Livewire\Livewire;
 use Modules\Backup\Livewire\SuperAdmin\DatabaseBackupSettings;
 use Illuminate\Console\Scheduling\Schedule;
@@ -63,6 +64,7 @@ class BackupServiceProvider extends ServiceProvider
             VerifyEnvConfig::class,
             UbuntuTroubleshoot::class,
             FixMySQLAuth::class,
+            DiagnoseBackupIssues::class,
         ]);
     }
     /**

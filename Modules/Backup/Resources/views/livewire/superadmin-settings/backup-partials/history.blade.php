@@ -173,7 +173,34 @@
                                     {!! $backup->type_badge !!}
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                    {!! $backup->status_badge !!}
+                                    <div>
+                                        {!! $backup->status_badge !!}
+                                        @if($backup->status === 'failed' && $backup->error_message)
+                                            <div class="mt-2">
+                                                <div class="flex items-start text-xs text-red-600 dark:text-red-400" 
+                                                     x-data="{ open: false }"
+                                                     x-on:click="open = !open"
+                                                     style="cursor: pointer;">
+                                                    <svg class="w-4 h-4 mr-1 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                                                    </svg>
+                                                    <span class="font-medium">Error: {{ $backup->formatted_error_message }}</span>
+                                                    <svg class="w-3 h-3 ml-1 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-show="!open">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                                    </svg>
+                                                    <svg class="w-3 h-3 ml-1 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" x-show="open" style="display: none;">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+                                                    </svg>
+                                                </div>
+                                                <div x-show="open" 
+                                                     x-transition
+                                                     class="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-300"
+                                                     style="display: none;">
+                                                    {{ $backup->full_error_message }}
+                                                </div>
+                                            </div>
+                                        @endif
+                                    </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                     {{ $backup->formatted_file_size }}

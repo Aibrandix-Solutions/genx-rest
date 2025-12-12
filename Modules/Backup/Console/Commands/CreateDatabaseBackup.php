@@ -116,17 +116,18 @@ class CreateDatabaseBackup extends Command
             $config = config("database.connections.{$connection}");
 
             // Create backup directory based on storage location
-            if ($storageLocation === 'local') {
-                $backupDir = storage_path('app/backups');
-                if (!file_exists($backupDir)) {
-                    mkdir($backupDir, 0755, true);
+            $backupDir = storage_path('app/backups');
+            
+            // Verify directory exists and is writable
+            if (!file_exists($backupDir)) {
+                if (!mkdir($backupDir, 0755, true)) {
+                    throw new \Exception("Failed to create backup directory: {$backupDir}. Please check directory permissions.");
                 }
-            } else {
-                // For cloud storage, we'll use the configured storage
-                $backupDir = storage_path('app/backups');
-                if (!file_exists($backupDir)) {
-                    mkdir($backupDir, 0755, true);
-                }
+            }
+            
+            // Verify write permissions
+            if (!is_writable($backupDir)) {
+                throw new \Exception("Backup directory is not writable: {$backupDir}. Please check directory permissions (chmod 755).");
             }
 
             // Generate backup filename
@@ -183,8 +184,16 @@ class CreateDatabaseBackup extends Command
                 $this->info('File backup is disabled');
             }
 
-            // Get file size
-            $fileSize = file_exists($filePath) ? filesize($filePath) : 0;
+            // Verify backup file was created
+            if (!file_exists($filePath)) {
+                throw new \Exception("Backup file was not created: {$filePath}. Please check file system permissions and disk space.");
+            }
+            
+            // Get file size and verify it's not empty
+            $fileSize = filesize($filePath);
+            if ($fileSize === 0 || $fileSize === false) {
+                throw new \Exception("Backup file is empty (0 bytes). Backup creation may have failed. Please check logs for details.");
+            }
 
             // If using cloud storage, move file to cloud storage
             if ($storageLocation !== 'local') {
@@ -229,14 +238,39 @@ class CreateDatabaseBackup extends Command
             }
         } catch (\Exception $e) {
             $errorMessage = $e->getMessage();
-            Log::error('Database backup failed: ' . $errorMessage);
+            $errorTrace = $e->getTraceAsString();
+            
+            // Log detailed error information
+            Log::error('Database backup failed', [
+                'error' => $errorMessage,
+                'backup_id' => $backup->id,
+                'filename' => $backup->filename ?? 'N/A',
+                'file_path' => $filePath ?? 'N/A',
+                'trace' => substr($errorTrace, 0, 500), // Limit trace length
+            ]);
 
+            // Clean up empty or invalid backup files
+            if (isset($filePath) && file_exists($filePath)) {
+                $tempFileSize = filesize($filePath);
+                if ($tempFileSize === 0 || $tempFileSize === false) {
+                    try {
+                        unlink($filePath);
+                        $this->warn("Removed empty backup file: {$filePath}");
+                    } catch (\Exception $cleanupException) {
+                        Log::warning("Failed to clean up empty backup file: " . $cleanupException->getMessage());
+                    }
+                }
+            }
+
+            // Update backup record with error
             $backup->update([
                 'status' => 'failed',
                 'error_message' => $errorMessage,
+                'file_size' => 0,
             ]);
 
             $this->error('Backup failed: ' . $errorMessage);
+            $this->error('Check the error message above for details. Error has been logged.');
 
             return Command::FAILURE;
         }
@@ -284,14 +318,6 @@ class CreateDatabaseBackup extends Command
         $username = $config['username'];
         $password = $config['password'];
 
-        // Find mysqldump executable
-        $mysqldumpPath = $this->findMysqldump();
-
-        if (!$mysqldumpPath) {
-            throw new \Exception("mysqldump command not found. Please ensure MySQL is installed and mysqldump is in your PATH.");
-        }
-
-        $this->info("Using mysqldump at: {$mysqldumpPath}");
         $this->info("Database: {$database}");
         $this->info("Host: {$host}:{$port}");
         $this->info("Username: {$username}");
@@ -307,16 +333,35 @@ class CreateDatabaseBackup extends Command
             mkdir($backupDir, 0755, true);
         }
 
-        // Try Laravel-native backup first (most reliable)
+        // Try Laravel-native backup first (most reliable, works without mysqldump)
         $this->info("Trying Laravel-native database backup...");
+        $laravelNativeError = null;
         try {
             $this->createLaravelNativeBackup($config, $filePath);
             $this->info("✓ Laravel-native backup completed successfully");
             return;
         } catch (\Exception $e) {
-            $this->warn("Laravel-native backup failed: " . $e->getMessage());
+            $laravelNativeError = $e->getMessage();
+            $this->warn("Laravel-native backup failed: " . $laravelNativeError);
             $this->info("Falling back to mysqldump methods...");
         }
+
+        // Only look for mysqldump if Laravel-native backup failed
+        $mysqldumpPath = $this->findMysqldump();
+
+        if (!$mysqldumpPath) {
+            // If mysqldump is not found, provide helpful error message
+            $errorMsg = "mysqldump command not found and Laravel-native backup failed.\n";
+            $errorMsg .= "Please ensure MySQL is installed and mysqldump is in your PATH.\n";
+            $errorMsg .= "For Windows/XAMPP, mysqldump is typically located at: C:\\xampp\\mysql\\bin\\mysqldump.exe\n";
+            $errorMsg .= "You can add it to your PATH or fix the Laravel-native backup issue.\n";
+            if ($laravelNativeError) {
+                $errorMsg .= "Original Laravel-native backup error: " . $laravelNativeError;
+            }
+            throw new \Exception($errorMsg);
+        }
+
+        $this->info("Using mysqldump at: {$mysqldumpPath}");
 
         // Try different authentication methods for Ubuntu
         $methods = [
@@ -572,23 +617,44 @@ class CreateDatabaseBackup extends Command
      */
     private function findMysqldump()
     {
-        // Common paths for mysqldump (including Ubuntu paths)
-        $possiblePaths = [
-            '/usr/bin/mysqldump',           // Ubuntu/Debian default
-            '/usr/local/bin/mysqldump',     // Common installation
-            '/opt/homebrew/opt/mysql@8.0/bin/mysqldump', // macOS Homebrew
-            '/opt/homebrew/bin/mysqldump',  // macOS Homebrew
-            '/opt/mysql/bin/mysqldump',     // Custom installation
-            '/usr/local/mysql/bin/mysqldump', // Custom installation
-            'mysqldump', // Try PATH as fallback
-        ];
+        // Common paths for mysqldump (including Windows/XAMPP paths)
+        $possiblePaths = [];
+        
+        // Windows/XAMPP paths
+        if (PHP_OS_FAMILY === 'Windows') {
+            $xamppPath = getenv('XAMPP_HOME') ?: 'C:\\xampp';
+            $possiblePaths = array_merge($possiblePaths, [
+                $xamppPath . '\\mysql\\bin\\mysqldump.exe',
+                'C:\\xampp\\mysql\\bin\\mysqldump.exe',
+                'C:\\wamp64\\bin\\mysql\\mysql8.0.27\\bin\\mysqldump.exe',
+                'C:\\wamp64\\bin\\mysql\\mysql8.0.26\\bin\\mysqldump.exe',
+                'C:\\Program Files\\MySQL\\MySQL Server 8.0\\bin\\mysqldump.exe',
+                'C:\\Program Files\\MySQL\\MySQL Server 8.1\\bin\\mysqldump.exe',
+                'C:\\Program Files\\MySQL\\MySQL Server 8.2\\bin\\mysqldump.exe',
+                'C:\\Program Files\\MySQL\\MySQL Server 8.3\\bin\\mysqldump.exe',
+                'C:\\Program Files\\MySQL\\MySQL Server 8.4\\bin\\mysqldump.exe',
+                'C:\\Program Files (x86)\\MySQL\\MySQL Server 8.0\\bin\\mysqldump.exe',
+                'mysqldump.exe', // Try PATH as fallback
+            ]);
+        } else {
+            // Linux/macOS paths
+            $possiblePaths = array_merge($possiblePaths, [
+                '/usr/bin/mysqldump',           // Ubuntu/Debian default
+                '/usr/local/bin/mysqldump',     // Common installation
+                '/opt/homebrew/opt/mysql@8.0/bin/mysqldump', // macOS Homebrew
+                '/opt/homebrew/bin/mysqldump',  // macOS Homebrew
+                '/opt/mysql/bin/mysqldump',     // Custom installation
+                '/usr/local/mysql/bin/mysqldump', // Custom installation
+                'mysqldump', // Try PATH as fallback
+            ]);
+        }
 
         $this->info("Searching for mysqldump executable...");
 
         foreach ($possiblePaths as $path) {
             $this->info("Checking: {$path}");
 
-            if (is_executable($path)) {
+            if (file_exists($path) && is_executable($path)) {
                 $this->info("Found executable mysqldump at: {$path}");
                 return $path;
             }
@@ -599,15 +665,21 @@ class CreateDatabaseBackup extends Command
             }
         }
 
-        // Try to find it using 'which' command
-        $output = [];
-        $returnCode = 0;
-        exec('which mysqldump 2>/dev/null', $output, $returnCode);
+        // Try to find it using system commands
+        if (PHP_OS_FAMILY === 'Windows') {
+            $output = [];
+            $returnCode = 0;
+            exec('where mysqldump.exe 2>nul', $output, $returnCode);
+        } else {
+            $output = [];
+            $returnCode = 0;
+            exec('which mysqldump 2>/dev/null', $output, $returnCode);
+        }
 
         if ($returnCode === 0 && !empty($output)) {
             $mysqldumpPath = trim($output[0]);
-            if (is_executable($mysqldumpPath)) {
-                $this->info("Found mysqldump using 'which' command: {$mysqldumpPath}");
+            if (file_exists($mysqldumpPath) && is_executable($mysqldumpPath)) {
+                $this->info("Found mysqldump using system command: {$mysqldumpPath}");
                 return $mysqldumpPath;
             }
         }

@@ -138,4 +138,8 @@ return [
     'updating' => 'Updating...',
     'saving' => 'Saving...',
     'storage' => 'Stored On',
+
+    // Backup Scope Warning
+    'backupScopeWarning' => 'Backup Scope',
+    'backupScopeWarningDescription' => 'Backups include the entire database with all restaurants and branches. Individual restaurant or branch-specific backups are not currently supported.',
 ];
