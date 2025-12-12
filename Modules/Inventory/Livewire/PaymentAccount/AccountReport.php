@@ -88,6 +88,7 @@ class AccountReport extends Component
                     return $this->formatUnlinkedItem($item, 'expense');
                 });
             
+            // Get payments without payment_account_id (truly unlinked)
             $payments = Payment::whereNull('payment_account_id')
                 ->when($this->search, function($q) {
                     $q->whereHas('order', function($q) {
@@ -106,13 +107,63 @@ class AccountReport extends Component
                     return $this->formatUnlinkedItem($item, 'payment');
                 });
             
-            $unlinkedCollection = $expenses->concat($payments);
+            // Also get payments with payment_account_id but no AccountTransaction (backward compatibility)
+            // These are payments that were linked but don't have transaction records yet
+            $paymentsWithAccountButNoTransaction = Payment::whereNotNull('payment_account_id')
+                ->where('payment_method', '!=', 'due') // Skip due payments
+                ->whereDoesntHave('accountTransaction') // No AccountTransaction exists
+                ->when($this->accountId && $this->accountId !== 'unlinked', function($q) {
+                    // Filter by account if specific account is selected
+                    $q->where('payment_account_id', $this->accountId);
+                })
+                ->when($this->search, function($q) {
+                    $q->whereHas('order', function($q) {
+                        $q->where('order_number', 'like', '%' . $this->search . '%');
+                    });
+                })
+                ->when($this->startDate, function($q) {
+                    $q->whereDate('created_at', '>=', $this->startDate);
+                })
+                ->when($this->endDate, function($q) {
+                    $q->whereDate('created_at', '<=', $this->endDate);
+                })
+                ->with('order', 'paymentAccount')
+                ->get()
+                ->map(function($item) {
+                    return $this->formatLinkedPaymentWithoutTransaction($item);
+                });
+            
+            $unlinkedCollection = $expenses->concat($payments)->concat($paymentsWithAccountButNoTransaction);
         }
 
         // 2. Fetch Linked Transactions
         // We fetch linked transactions unless we are strictly in 'unlinked' view
         
         $linkedCollection = collect();
+        
+        // Also fetch payments with account but no transaction when viewing specific account
+        $paymentsWithAccountButNoTransactionForAccount = collect();
+        if ($this->type !== 'unlinked' && $this->accountId && $this->accountId !== 'unlinked') {
+            $paymentsWithAccountButNoTransactionForAccount = Payment::where('payment_account_id', $this->accountId)
+                ->where('payment_method', '!=', 'due')
+                ->whereDoesntHave('accountTransaction')
+                ->when($this->search, function($q) {
+                    $q->whereHas('order', function($q) {
+                        $q->where('order_number', 'like', '%' . $this->search . '%');
+                    });
+                })
+                ->when($this->startDate, function($q) {
+                    $q->whereDate('created_at', '>=', $this->startDate);
+                })
+                ->when($this->endDate, function($q) {
+                    $q->whereDate('created_at', '<=', $this->endDate);
+                })
+                ->with('order', 'paymentAccount')
+                ->get()
+                ->map(function($item) {
+                    return $this->formatLinkedPaymentWithoutTransaction($item);
+                });
+        }
 
         if ($this->type !== 'unlinked') {
             $query = AccountTransaction::query()
@@ -143,7 +194,10 @@ class AccountReport extends Component
         }
 
         // 3. Merge and Sort
-        $mergedCollection = $linkedCollection->concat($unlinkedCollection)->sortByDesc('transaction_date');
+        $mergedCollection = $linkedCollection
+            ->concat($unlinkedCollection)
+            ->concat($paymentsWithAccountButNoTransactionForAccount)
+            ->sortByDesc('transaction_date');
         $totalItems = $mergedCollection->count();
 
         // 4. Paginate
@@ -236,6 +290,29 @@ class AccountReport extends Component
         return $obj;
     }
 
+    private function formatLinkedPaymentWithoutTransaction($payment)
+    {
+        // Format payment that has payment_account_id but no AccountTransaction
+        $obj = new \stdClass();
+        $obj->id = 'payment_no_trans_' . $payment->id;
+        $obj->original_id = $payment->id;
+        $obj->transaction_date = \Carbon\Carbon::parse($payment->created_at ?? now());
+        $obj->account_name = $payment->paymentAccount->name ?? 'Unknown Account';
+        $obj->account_id = $payment->payment_account_id;
+        $obj->description = 'Order Payment #' . ($payment->order->order_number ?? $payment->order_id) . ' (' . ucfirst($payment->payment_method) . ')';
+        $obj->type = 'debit'; // Payments are money in
+        $obj->amount = $payment->amount;
+        $obj->is_linked = true; // It has an account, just missing transaction
+        $obj->can_relink = true;
+        $obj->link_type = 'payment';
+        $obj->link_id = $payment->id;
+        $obj->reference_type = 'App\Models\Payment';
+        $obj->reference_id = $payment->id;
+        $obj->needs_transaction = true; // Flag to indicate missing transaction
+        
+        return $obj;
+    }
+
     public function calculateTotal($type)
     {
         // Calculate totals based on CURRENT FILTERS
@@ -285,6 +362,7 @@ class AccountReport extends Component
             
             // Payments (Debit)
             if ($type === 'debit') {
+                 // Unlinked payments
                  $query = Payment::whereNull('payment_account_id');
                  if ($this->startDate) $query->whereDate('created_at', '>=', $this->startDate);
                  if ($this->endDate) $query->whereDate('created_at', '<=', $this->endDate);
@@ -294,6 +372,22 @@ class AccountReport extends Component
                      });
                  }
                  $total += $query->sum('amount');
+                 
+                 // Payments with account but no transaction
+                 $query2 = Payment::whereNotNull('payment_account_id')
+                     ->where('payment_method', '!=', 'due')
+                     ->whereDoesntHave('accountTransaction');
+                 if ($this->accountId && $this->accountId !== 'unlinked') {
+                     $query2->where('payment_account_id', $this->accountId);
+                 }
+                 if ($this->startDate) $query2->whereDate('created_at', '>=', $this->startDate);
+                 if ($this->endDate) $query2->whereDate('created_at', '<=', $this->endDate);
+                 if ($this->search) {
+                     $query2->whereHas('order', function($q) {
+                        $q->where('order_number', 'like', '%' . $this->search . '%');
+                     });
+                 }
+                 $total += $query2->sum('amount');
             }
         }
 
@@ -385,12 +479,12 @@ class AccountReport extends Component
                 $oldAccountId = $item->payment_account_id;
 
                 if ($oldAccountId != $newAccount->id) {
-                    // Revert old account
+                    // Revert old account if it exists
                     if ($oldAccountId) {
                         $oldAccount = PaymentAccount::find($oldAccountId);
-                        if ($oldAccount) {
+                        if ($oldAccount && $item->payment_method !== 'due') {
                             $oldAccount->decrement('current_balance', $item->amount); // Revert payment (remove money)
-                             // Delete old transaction
+                             // Delete old transaction if it exists
                             AccountTransaction::where('payment_account_id', $oldAccountId)
                                 ->where('reference_type', 'App\Models\Payment')
                                 ->where('reference_id', $item->id)
@@ -402,19 +496,51 @@ class AccountReport extends Component
                     $item->payment_account_id = $newAccount->id;
                     $item->save();
 
-                    // Update new account
-                    $newAccount->increment('current_balance', $item->amount);
-                    
-                    // Create new transaction
-                    AccountTransaction::create([
-                        'payment_account_id' => $newAccount->id,
-                        'amount' => $item->amount,
-                        'type' => 'debit',
-                        'reference_type' => get_class($item),
-                        'reference_id' => $item->id,
-                        'description' => 'Order Payment #' . ($item->order->order_number ?? $item->order_id),
-                        'transaction_date' => now(),
-                    ]);
+                    // Update new account (only if not a 'due' payment)
+                    if ($item->payment_method !== 'due') {
+                        $newAccount->increment('current_balance', $item->amount);
+                        
+                        // Check if transaction already exists (shouldn't, but just in case)
+                        $existingTransaction = AccountTransaction::where('payment_account_id', $newAccount->id)
+                            ->where('reference_type', 'App\Models\Payment')
+                            ->where('reference_id', $item->id)
+                            ->first();
+                        
+                        if (!$existingTransaction) {
+                            // Create new transaction
+                            AccountTransaction::create([
+                                'payment_account_id' => $newAccount->id,
+                                'amount' => $item->amount,
+                                'type' => 'debit',
+                                'reference_type' => get_class($item),
+                                'reference_id' => $item->id,
+                                'description' => 'Order Payment #' . ($item->order->order_number ?? $item->order_id) . ' (' . ucfirst($item->payment_method) . ')',
+                                'transaction_date' => $item->created_at ?? now(),
+                            ]);
+                        }
+                    }
+                } else {
+                    // Same account, but might need to create transaction if missing
+                    if ($item->payment_method !== 'due') {
+                        $existingTransaction = AccountTransaction::where('payment_account_id', $newAccount->id)
+                            ->where('reference_type', 'App\Models\Payment')
+                            ->where('reference_id', $item->id)
+                            ->first();
+                        
+                        if (!$existingTransaction) {
+                            // Create missing transaction
+                            $newAccount->increment('current_balance', $item->amount);
+                            AccountTransaction::create([
+                                'payment_account_id' => $newAccount->id,
+                                'amount' => $item->amount,
+                                'type' => 'debit',
+                                'reference_type' => get_class($item),
+                                'reference_id' => $item->id,
+                                'description' => 'Order Payment #' . ($item->order->order_number ?? $item->order_id) . ' (' . ucfirst($item->payment_method) . ')',
+                                'transaction_date' => $item->created_at ?? now(),
+                            ]);
+                        }
+                    }
                 }
             }
         });

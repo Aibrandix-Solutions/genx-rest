@@ -19,4 +19,14 @@ class Payment extends BaseModel
     {
         return $this->belongsTo(Order::class);
     }
+
+    public function paymentAccount(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Inventory\Entities\PaymentAccount::class, 'payment_account_id');
+    }
+
+    public function accountTransaction()
+    {
+        return $this->morphOne(\Modules\Inventory\Entities\AccountTransaction::class, 'reference');
+    }
 }
