@@ -16,6 +16,7 @@ class RoleSeeder extends Seeder
         $branchHeadRole = Role::create(['name' => 'Branch Head_'.$restaurant->id, 'display_name' => 'Branch Head', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
         $waiterRole = Role::create(['name' => 'Waiter_'.$restaurant->id, 'display_name' => 'Waiter', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
         $chefRole = Role::create(['name' => 'Chef_'.$restaurant->id, 'display_name' => 'Chef', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
+        $cashierRole = Role::create(['name' => 'Cashier_'.$restaurant->id, 'display_name' => 'Cashier', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
 
         $allPermissions = Permission::get()->pluck('name')->toArray();
         $adminRole->syncPermissions($allPermissions);
