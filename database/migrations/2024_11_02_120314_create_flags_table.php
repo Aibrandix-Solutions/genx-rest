@@ -24,7 +24,9 @@ return new class extends Migration
             });
 
 
-            $url = public_path('country.json');
+            $url = database_path('data/country.json');
+
+            if (file_exists($url)) {
             $responses = file_get_contents($url);
             $responses = json_decode($responses);
 
@@ -40,10 +42,10 @@ return new class extends Migration
                     'continent' => $data['continent'] ?? '',
                     'name' => $data['name'],
                 ];
-
             }
 
             Flag::insert($values);
+            }
         }
     }
 

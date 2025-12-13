@@ -8,6 +8,7 @@ use App\Events\TodayOrdersUpdated;
 use App\Models\Kot;
 use App\Events\OrderUpdated;
 use App\Events\OrderSuccessEvent;
+use App\Services\RewardPointsService;
 
 
 class OrderObserver
@@ -35,8 +36,25 @@ class OrderObserver
 
     public function updated(Order $order)
     {
-        if ($order->isDirty('status') && $order->status == 'canceled') {
+        $statusChanged = $order->isDirty('status');
+        $oldStatus = $order->getOriginal('status');
+        $newStatus = $order->status;
+
+        // Handle order cancellation - reverse reward points
+        if ($statusChanged && $newStatus == 'canceled') {
             OrderCancelled::dispatch($order);
+            
+            // Reverse reward points if order was previously paid
+            if ($oldStatus == 'paid' && $order->customer_id) {
+                $rewardService = app(RewardPointsService::class);
+                $rewardService->reverseOrderPoints($order);
+            }
+        }
+
+        // Award reward points when order is marked as paid
+        if ($statusChanged && $newStatus == 'paid' && $oldStatus != 'paid' && $order->customer_id) {
+            $rewardService = app(RewardPointsService::class);
+            $rewardService->awardPoints($order);
         }
 
         $todayKotCount = Kot::join('orders', 'kots.order_id', '=', 'orders.id')

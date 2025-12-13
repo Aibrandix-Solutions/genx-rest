@@ -446,7 +446,7 @@
                                     @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
                                         <td class="p-2 text-right whitespace-nowrap">
                                             <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20"
-                                                wire:click="showDeleteItemModal('{{ $item->id }}')">
+                                                wire:click="promptOrderItemRemoval({{ $item->id }})">
                                                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
                                                     xmlns="http://www.w3.org/2000/svg">
                                                     <path fill-rule="evenodd"
@@ -1008,28 +1008,26 @@
     </x-slot>
 </x-confirmation-modal>
 
-    <!-- Delete Order Item Confirmation Modal -->
-    <x-confirmation-modal wire:model="confirmDeleteItemModal">
+    <x-dialog-modal wire:model.live="showRemovalReasonModal" maxWidth="xl">
         <x-slot name="title">
-            @lang('modules.order.deleteOrderItem')?
+            @lang('modules.order.itemAdjustmentNote')
         </x-slot>
 
         <x-slot name="content">
-            @lang('modules.order.deleteOrderItemMessage')
+            <div class="space-y-3">
+                <x-label for="removalReason" :value="__('app.note')" />
+                <x-textarea id="removalReason" class="w-full mt-1" rows="3" wire:model.defer="removalReason" />
+                <x-input-error for="removalReason" class="mt-2" />
+            </div>
         </x-slot>
 
         <x-slot name="footer">
-            <x-secondary-button wire:click="$toggle('confirmDeleteItemModal')" wire:loading.attr="disabled">
-                {{ __('app.cancel') }}
-            </x-secondary-button>
-
-            @if ($itemToDelete)
-            <x-danger-button class="ml-3" wire:click='deleteOrderItems({{ $itemToDelete }})' wire:loading.attr="disabled" wire:key="delete-order-item-{{ $itemToDelete }}">
-                {{ __('Delete') }}
-            </x-danger-button>
-            @endif
+            <x-button-cancel wire:click="cancelOrderItemRemoval" wire:loading.attr="disabled" />
+            <x-button class="ms-2" wire:click="confirmOrderItemRemoval" wire:loading.attr="disabled">
+                @lang('app.save')
+            </x-button>
         </x-slot>
-    </x-confirmation-modal>
+    </x-dialog-modal>
 
  @endif
 

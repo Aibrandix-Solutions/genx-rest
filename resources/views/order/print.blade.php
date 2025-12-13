@@ -307,8 +307,18 @@
                 <tr>
                     <th class="qty">@lang('modules.order.qty')</th>
                     <th class="description">@lang('modules.menu.itemName')</th>
-                    <th class="price">@lang('modules.order.price')</th>
-                    <th class="amount">@lang('modules.order.amount')</th>
+                    <th class="price">
+                        @lang('modules.order.price')
+                        @if($receiptSettings->show_currency_prefix)
+                            ({{ restaurant()->currency->currency_symbol }})
+                        @endif
+                    </th>
+                    <th class="amount">
+                        @lang('modules.order.amount')
+                        @if($receiptSettings->show_currency_prefix)
+                            ({{ restaurant()->currency->currency_symbol }})
+                        @endif
+                    </th>
                 </tr>
             </thead>
             <tbody>
@@ -322,15 +332,15 @@
                                 <br><small>({{ $item->menuItemVariation->variation }})</small>
                             @endif
                             @foreach ($item->modifierOptions as $modifier)
-                                <div class="modifiers">• {{ $modifier->name }}
-                                    (+{{ currency_format($modifier->price, restaurant()->currency_id) }})
-                                </div>
-                            @endforeach
-                        </td>
-                        <td class="price">{{ currency_format($item->price, restaurant()->currency_id) }}</td>
-                        <td class="amount">
-                            {{ currency_format($item->amount, restaurant()->currency_id) }}
-                        </td>
+                            <div class="modifiers">• {{ $modifier->name }}
+                                (+{{ currency_format_for_receipt_item($modifier->price, restaurant()->currency_id) }})
+                            </div>
+                        @endforeach
+                    </td>
+                    <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
+                    <td class="amount">
+                        {{ currency_format_for_receipt_item($item->amount, restaurant()->currency_id) }}
+                    </td>
                     </tr>
                 @endforeach
             </tbody>

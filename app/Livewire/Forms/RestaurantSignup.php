@@ -324,7 +324,7 @@ class RestaurantSignup extends Component
 
         $this->authLogin($user);
 
-        return redirect(RouteServiceProvider::ONBOARDING_STEPS);
+        return redirect(url(RouteServiceProvider::ONBOARDING_STEPS));
     }
 
     public function updatedCountry($value)

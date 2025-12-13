@@ -99,12 +99,10 @@ class DeliveryAppReport extends Component
 
         $start = Carbon::createFromFormat('m/d/Y', $this->startDate, $tz)
             ->startOfDay()
-            ->setTimezone('UTC')
             ->toDateTimeString();
 
         $end = Carbon::createFromFormat('m/d/Y', $this->endDate, $tz)
             ->endOfDay()
-            ->setTimezone('UTC')
             ->toDateTimeString();
 
         // Get all delivery platforms

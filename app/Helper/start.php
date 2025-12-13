@@ -186,14 +186,7 @@ if (!function_exists('check_migrate_status')) {
         // }
 
         if (!session()->has('check_migrate_status')) {
-            $status = Artisan::call('migrate:check');
-
-            if ($status && !request()->ajax()) {
-                Artisan::call('migrate', ['--force' => true, '--schema-path' => 'do not run schema path']); // Migrate database
-                Artisan::call('optimize:clear');
-            }
-
-            session(['check_migrate_status' => 'Good']);
+            session(['check_migrate_status' => 'skipped_in_http']);
         }
 
         return session('check_migrate_status');
@@ -243,29 +236,53 @@ if (!function_exists('restaurant_modules')) {
             return [];
         }
 
-        $cacheKey = 'restaurant_modules_' . $restaurant->id;
-        if (cache()->has($cacheKey)) {
-            return cache($cacheKey);
-        }
+        $filterModules = static function (array $modules) {
+            if (!class_exists(\Nwidart\Modules\Facades\Module::class)) {
+                return $modules;
+            }
+
+            return array_values(array_filter($modules, function ($moduleName) {
+                if (Module::has($moduleName)) {
+                    return Module::isEnabled($moduleName);
+                }
+
+                return true;
+            }));
+        };
 
         $user = user();
-        if (is_null($user->restaurant_id) && is_null($user->branch_id)) {
+
+        if (!$user || (is_null($user->restaurant_id) && is_null($user->branch_id))) {
             return [];
         }
 
-        $restaurant = Restaurant::with('package.modules')->find($restaurant->id);
-        session(['restaurant' => $restaurant]);
+        $restaurantModel = Restaurant::with('package.modules')->find($restaurant->id);
 
-        $package = $restaurant->package;
+        if (!$restaurantModel || !$restaurantModel->package) {
+            return [];
+        }
 
-        $packageModules = $package->modules->pluck('name')->toArray();
-        $additionalFeatures = json_decode($package->additional_features ?? '[]', true);
+        session(['restaurant' => $restaurantModel]);
 
-        $allModules = array_unique(array_merge($packageModules, $additionalFeatures));
+        $modulesStatusPath = storage_path('app/modules_statuses.json');
+        $modulesStatusVersion = file_exists($modulesStatusPath) ? md5_file($modulesStatusPath) : 'no-module-status';
+        $packageVersion = optional($restaurantModel->package->updated_at)->timestamp ?? 'no-package-version';
 
-        cache([$cacheKey => $allModules]);
+        $cacheKey = implode('_', [
+            'restaurant_modules',
+            $restaurantModel->id,
+            $restaurantModel->package_id,
+            $packageVersion,
+            $modulesStatusVersion,
+        ]);
 
-        return cache($cacheKey);
+        return Cache::remember($cacheKey, now()->addMinutes(30), function () use ($restaurantModel, $filterModules) {
+            $packageModules = $restaurantModel->package->modules->pluck('name')->toArray();
+            $additionalFeatures = json_decode($restaurantModel->package->additional_features ?? '[]', true);
+            $allModules = array_unique(array_merge($packageModules, $additionalFeatures));
+
+            return $filterModules($allModules);
+        });
     }
 }
 
@@ -589,10 +606,68 @@ if (!function_exists('currency_format')) {
                 $currency_symbol = '';
             } else {
                 $settings = $formats->restaurant ?? Restaurant::find($formats->restaurant_id);
-                $currency_symbol = $currencyId == null ? $settings->currency->currency_symbol : $formats->currency_symbol;
+                $currency_symbol = $currencyId == null ? $settings->currency->currency_symbol :
+$formats->currency_symbol;
             }
         }
 
+
+        $currency_position = $formats->currency_position ?? 'left';
+        $no_of_decimal = !is_null($formats->no_of_decimal) ? $formats->no_of_decimal : '0';
+        $thousand_separator = !is_null($formats->thousand_separator) ? $formats->thousand_separator : '';
+        $decimal_separator = !is_null($formats->decimal_separator) ? $formats->decimal_separator : '0';
+
+        $amount = number_format(floatval($amount), $no_of_decimal, $decimal_separator, $thousand_separator);
+
+        $amount = match ($currency_position) {
+            'right' => $amount . $currency_symbol,
+            'left_with_space' => $currency_symbol . ' ' . $amount,
+            'right_with_space' => $amount . ' ' . $currency_symbol,
+            default => $currency_symbol . $amount,
+        };
+
+        return $amount;
+    }
+}
+
+if (!function_exists('currency_format_for_receipt_item')) {
+
+    // @codingStandardsIgnoreLine
+    // Format currency for receipt items - respects show_currency_prefix setting
+    function currency_format_for_receipt_item($amount, $currencyId = null, $showCode = false)
+    {
+        $formats = currency_format_setting($currencyId);
+        $settings = $formats->restaurant ?? Restaurant::find($formats->restaurant_id);
+
+        // Check if currency prefix should be hidden for ITEMS based on receipt setting
+        $currentRestaurant = null;
+        try {
+            $currentRestaurant = restaurant();
+        } catch (\Exception $e) {
+            // If restaurant() helper fails, use the restaurant from currency
+        }
+        
+        $restaurantToCheck = $currentRestaurant ?? $settings;
+        
+        // Load the receiptSetting relationship if not already loaded
+        if ($restaurantToCheck && !$restaurantToCheck->relationLoaded('receiptSetting')) {
+            $restaurantToCheck->load('receiptSetting');
+        }
+        
+        $receiptSetting = $restaurantToCheck?->receiptSetting;
+        $hideCurrencyPrefix = $receiptSetting && isset($receiptSetting->show_currency_prefix) && !$receiptSetting->show_currency_prefix;
+
+        if ($showCode) {
+            $currency_symbol = $formats->currency_code ?? '';
+        }
+        else{
+            if ($hideCurrencyPrefix) {
+                $currency_symbol = '';
+            } else {
+                $currency_symbol = $currencyId == null ? $settings->currency->currency_symbol :
+$formats->currency_symbol;
+            }
+        }
 
         $currency_position = $formats->currency_position ?? 'left';
         $no_of_decimal = !is_null($formats->no_of_decimal) ? $formats->no_of_decimal : '0';

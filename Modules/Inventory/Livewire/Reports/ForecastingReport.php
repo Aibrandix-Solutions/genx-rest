@@ -37,29 +37,25 @@ class ForecastingReport extends Component
 
     public function updatedPeriod()
     {
-        return $this->redirect(route('inventory.reports.forecasting', [
-            'period' => $this->period,
-            'item' => $this->selectedItem,
-            'search' => $this->searchTerm
-        ]));
+        // Calculate dates based on period
+        $this->endDate = Carbon::now()->endOfDay();
+        $this->startDate = $this->endDate->copy()->subDays($this->period);
+        $this->resetPage(); // Reset pagination when period changes
+        $this->loadReportData();
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedSelectedItem()
     {
-        return $this->redirect(route('inventory.reports.forecasting', [
-            'period' => $this->period,
-            'item' => $this->selectedItem,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when item changes
+        $this->loadReportData();
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function updatedSearchTerm()
     {
-        return $this->redirect(route('inventory.reports.forecasting', [
-            'period' => $this->period,
-            'item' => $this->selectedItem,
-            'search' => $this->searchTerm
-        ]));
+        $this->resetPage(); // Reset pagination when searching
+        // No redirect needed - Livewire will handle reactivity
     }
 
     public function loadReportData()

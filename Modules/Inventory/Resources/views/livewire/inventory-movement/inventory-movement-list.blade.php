@@ -156,8 +156,8 @@
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->created_at->timezone(timezone())->translatedFormat('h:i A') }}</div>
                             </td>
                             <td class="px-6 py-4">
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $movement->item->name }}</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->item->category ? $movement->item->category->name : '' }}</div>
+                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $movement->item->name ?? '--' }}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->item->category->name ?? '' }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span @class([
@@ -177,7 +177,7 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                                    {{ $movement->quantity }} {{ $movement->item->unit->symbol }}
+                                    {{ $movement->quantity }} {{ $movement->item && $movement->item->unit ? $movement->item->unit->symbol : '' }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">

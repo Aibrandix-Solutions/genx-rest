@@ -30,6 +30,7 @@ class PurchaseOrderList extends Component
         'purchaseOrderSaved' => '$refresh',
         'purchaseOrderSent' => '$refresh',
         'purchaseOrderCancelled' => '$refresh',
+        'purchaseOrderPaymentSaved' => '$refresh',
     ];
 
     public function mount()
@@ -147,7 +148,7 @@ class PurchaseOrderList extends Component
     {
         $query = PurchaseOrder::query()
             ->where('branch_id', branch()->id)
-            ->with(['supplier', 'items.inventoryItem'])
+            ->with(['supplier', 'items.inventoryItem', 'payments']) // Eager load payments for payment status
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
                     $query->where('po_number', 'like', '%' . $this->search . '%')

@@ -262,6 +262,19 @@ class UpdateMenuItem extends Component
                 $this->orderTypePrices[$orderType->id] = (string)$this->itemPrice;
             }
 
+        } else {
+            // Sync itemPrice with the first non-delivery order type price from menu_item_prices
+            // This ensures itemPrice reflects the actual stored price, not the outdated menu_items.price
+            $firstNonDeliveryPrice = $existingPrices->first(function ($price) {
+                $orderType = $this->orderTypes->firstWhere('id', $price->order_type_id);
+                return !$price->delivery_app_id && 
+                       $orderType && 
+                       strtolower($orderType->slug ?? $orderType->name) !== 'delivery';
+            });
+
+            if ($firstNonDeliveryPrice) {
+                $this->itemPrice = (string)$firstNonDeliveryPrice->final_price;
+            }
         }
 
         $this->calculateDeliveryPrices();
@@ -986,6 +999,23 @@ class UpdateMenuItem extends Component
     public function updatedOrderTypePrices(): void
     {
         if (!$this->hasVariations) {
+            // Sync itemPrice with the first non-delivery order type price
+            // This ensures menu_items.price stays in sync with menu_item_prices.final_price
+            $firstNonDeliveryPrice = null;
+            foreach ($this->orderTypePrices as $orderTypeId => $price) {
+                $orderType = $this->orderTypes->firstWhere('id', $orderTypeId);
+                if ($orderType && strtolower($orderType->slug ?? $orderType->name) !== 'delivery') {
+                    if ($price !== null && $price !== '' && is_numeric($price)) {
+                        $firstNonDeliveryPrice = (string)$price;
+                        break;
+                    }
+                }
+            }
+            
+            if ($firstNonDeliveryPrice !== null) {
+                $this->itemPrice = $firstNonDeliveryPrice;
+            }
+            
             // Find first non-empty price to use as base price
             // Only set baseDeliveryPrice once (don't overwrite if already set)
             $changed = false;

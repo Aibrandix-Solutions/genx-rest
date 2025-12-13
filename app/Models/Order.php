@@ -126,6 +126,11 @@ class Order extends BaseModel
         return $this->deliveryApp();
     }
 
+    public function rewardTransactions(): HasMany
+    {
+        return $this->hasMany(RewardTransaction::class);
+    }
+
     public static function generateOrderNumber($branch)
     {
         // Check if order number settings exist and feature is enabled

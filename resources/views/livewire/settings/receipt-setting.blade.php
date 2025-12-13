@@ -141,6 +141,18 @@
                                     <span class="font-medium text-gray-900 dark:text-white">@lang('modules.settings.restaurantTax')</span>
                                 </label>
                             </div>
+
+                            <div class="flex items-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <x-checkbox name="showCurrencyPrefix" id="showCurrencyPrefix" wire:model='showCurrencyPrefix' />
+                                <label for="showCurrencyPrefix" class="ms-3 flex items-center">
+                                    <svg class="w-5 h-5 text-gray-500 dark:text-gray-400 me-2" fill="none"
+                                        stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span class="font-medium text-gray-900 dark:text-white">@lang('modules.settings.showCurrencyPrefix')</span>
+                                </label>
+                            </div>
                         </div>
                     </div>
 
@@ -346,14 +358,38 @@
                                                         <tr>
                                                             <td class="qty">2</td>
                                                             <td class="description">Sample Item 1</td>
-                                                            <td class="price">{{ currency_format(10, restaurant()->currency_id) }}</td>
-                                                            <td class="amount">{{ currency_format(20, restaurant()->currency_id) }}</td>
+                                                            <td class="price">
+                                                                @if($showCurrencyPrefix)
+                                                                    {{ currency_format(10, restaurant()->currency_id) }}
+                                                                @else
+                                                                    {{ number_format(10, restaurant()->currency->no_of_decimal ?? 2) }}
+                                                                @endif
+                                                            </td>
+                                                            <td class="amount">
+                                                                @if($showCurrencyPrefix)
+                                                                    {{ currency_format(20, restaurant()->currency_id) }}
+                                                                @else
+                                                                    {{ number_format(20, restaurant()->currency->no_of_decimal ?? 2) }}
+                                                                @endif
+                                                            </td>
                                                         </tr>
                                                         <tr>
                                                             <td class="qty">1</td>
                                                             <td class="description">Sample Item 2</td>
-                                                            <td class="price">{{ currency_format(15, restaurant()->currency_id) }}</td>
-                                                            <td class="amount">{{ currency_format(15, restaurant()->currency_id) }}</td>
+                                                            <td class="price">
+                                                                @if($showCurrencyPrefix)
+                                                                    {{ currency_format(15, restaurant()->currency_id) }}
+                                                                @else
+                                                                    {{ number_format(15, restaurant()->currency->no_of_decimal ?? 2) }}
+                                                                @endif
+                                                            </td>
+                                                            <td class="amount">
+                                                                @if($showCurrencyPrefix)
+                                                                    {{ currency_format(15, restaurant()->currency_id) }}
+                                                                @else
+                                                                    {{ number_format(15, restaurant()->currency->no_of_decimal ?? 2) }}
+                                                                @endif
+                                                            </td>
                                                         </tr>
                                                     </tbody>
                                                 </table>

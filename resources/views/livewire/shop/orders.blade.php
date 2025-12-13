@@ -14,12 +14,12 @@
                                     {{ $order->show_formatted_order_number }}
 
                                 <div class="flex items-center flex-1 text-xs text-gray-500">
-                                    {{ $order->items->count() }} @lang('modules.menu.item') | {{ $order->date_time->timezone($restaurant->timezone)->translatedFormat('M d, Y h:i A') }}
+                                    {{ $order->items->count() }} @lang('modules.menu.item') | {{ $order->date_time->timezone($order->branch->restaurant->timezone)->translatedFormat('M d, Y h:i A') }}
                                 </div>
                             </div>
                         </div>
                         <div class="inline-flex flex-col text-right text-base font-semibold text-gray-900 dark:text-white">
-                            <div>{{ currency_format($order->total, $restaurant->currency_id) }}</div>
+                            <div>{{ currency_format($order->total, $order->branch->restaurant->currency_id) }}</div>
                             <div class="text-xs text-gray-500 font-light">@lang('modules.order.includeTax')</div>
                         </div>
                     </div>
@@ -36,7 +36,7 @@
                 </svg>
                 <h3 class="text-lg font-medium text-gray-900 dark:text-white">@lang('messages.noItemAdded')</h3>
                 <p class="text-sm text-gray-500 dark:text-gray-400">@lang('messages.startShoppingNow')</p>
-                <x-primary-link wire:navigate class="inline-flex items-center" href="{{ module_enabled('Subdomain')?url('/'):route('shop_restaurant',['hash' => $restaurant->hash]) }}">
+                <x-primary-link wire:navigate class="inline-flex items-center" href="{{ module_enabled('Subdomain')?url('/'):route('shop_restaurant',['hash' => shop()->hash]) }}">
                     @lang('modules.menu.browseMenu')
                     <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />

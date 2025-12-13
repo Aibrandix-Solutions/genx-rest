@@ -19,6 +19,7 @@ use App\Models\Kot;
 use App\Models\KotItem;
 use App\Models\User;
 use App\Scopes\BranchScope;
+use App\Support\KotAdjustmentLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class OrderDetail extends Component
@@ -52,8 +53,9 @@ class OrderDetail extends Component
     public $currencyId;
     public $users;
     public $selectWaiter;
-    public $confirmDeleteItemModal = false;
-    public $itemToDelete;
+    public $showRemovalReasonModal = false;
+    public $removalReason = '';
+    public $pendingOrderItemId = null;
 
     public function mount()
     {
@@ -78,24 +80,35 @@ class OrderDetail extends Component
 
     public function printOrder($orderId)
     {
-
+        // Validate orderId
+        if (!$orderId) {
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
 
         $orderPlaces = \App\Models\MultipleOrder::with('printerSetting')->get();
 
+        $printerSetting = null;
         foreach ($orderPlaces as $orderPlace) {
-            $printerSetting = $orderPlace->printerSetting;
+            if ($orderPlace->printerSetting) {
+                $printerSetting = $orderPlace->printerSetting;
+                break;
+            }
         }
 
         try {
-
             switch ($printerSetting?->printing_choice) {
-            case 'directPrint':
-
-                $this->handleOrderPrint($orderId);
+                case 'directPrint':
+                    $this->handleOrderPrint($orderId);
                     break;
-            default:
-                $url = route('orders.print', $orderId);
-                $this->dispatch('print_location', $url);
+                default:
+                    $url = route('orders.print', $orderId);
+                    $this->dispatch('print_location', $url);
                     break;
             }
         } catch (\Throwable $e) {
@@ -178,24 +191,79 @@ class OrderDetail extends Component
 
     public function showDeleteItemModal($id)
     {
-        $this->itemToDelete = $id;
-        $this->confirmDeleteItemModal = true;
+        $this->promptOrderItemRemoval($id);
+    }
+
+    public function promptOrderItemRemoval($id): void
+    {
+        if (!user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
+        $this->pendingOrderItemId = $id;
+        $this->removalReason = '';
+        $this->showRemovalReasonModal = true;
+    }
+
+    public function cancelOrderItemRemoval(): void
+    {
+        $this->showRemovalReasonModal = false;
+        $this->removalReason = '';
+        $this->pendingOrderItemId = null;
+    }
+
+    public function confirmOrderItemRemoval(): void
+    {
+        $this->validate([
+            'removalReason' => 'required|string|min:3',
+        ]);
+
+        if (!$this->pendingOrderItemId) {
+            return;
+        }
+
+        $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
+        $this->cancelOrderItemRemoval();
     }
 
     public function deleteOrderItems($id)
+    {
+        $this->performOrderItemDeletion($id);
+    }
+
+    protected function performOrderItemDeletion($id, ?string $note = null): void
     {
         $orderItem = OrderItem::find($id);
 
         if ($orderItem) {
             $kotItems = KotItem::where('menu_item_id', $orderItem->menu_item_id)
-                ->where('menu_item_variation_id', $orderItem->menu_item_variation_id)
-                ->where('quantity', $orderItem->quantity)
-                ->whereHas('kot', function($query) use ($orderItem) {
+                ->where(function ($query) use ($orderItem) {
+                    if ($orderItem->menu_item_variation_id) {
+                        $query->where('menu_item_variation_id', $orderItem->menu_item_variation_id);
+                    } else {
+                        $query->whereNull('menu_item_variation_id');
+                    }
+                })
+                ->whereHas('kot', function ($query) use ($orderItem) {
                     $query->where('order_id', $orderItem->order_id);
                 })
                 ->get();
 
             foreach ($kotItems as $kotItem) {
+                KotAdjustmentLogger::log(
+                    $kotItem,
+                    'deleted',
+                    $note ?: __('modules.order.deleteOrderItemMessage'),
+                    $kotItem->quantity,
+                    0
+                );
+
                 $kotItem->delete();
             }
         }
@@ -210,12 +278,8 @@ class OrderDetail extends Component
                 return;
             }
 
-            // Recalculate order totals properly
             $this->recalculateOrderTotals();
         }
-
-        $this->confirmDeleteItemModal = false;
-        $this->itemToDelete = null;
 
         $this->alert('success', __('messages.orderItemDeleted'), [
             'toast' => true,
@@ -563,13 +627,26 @@ class OrderDetail extends Component
         // Delete associated KOT records
         $order->kot()->delete();
 
-        $order->delete();
+        $hasAdjustments = \App\Models\KotItemAdjustment::where('order_id', $order->id)->exists();
 
+        if ($hasAdjustments) {
+            $order->update([
+                'status' => 'canceled',
+                'order_status' => \App\Enums\OrderStatus::CANCELLED,
+                'sub_total' => 0,
+                'total' => 0,
+                'discount_amount' => 0,
+                'total_tax_amount' => 0,
+            ]);
 
-        $this->deleteOrderModal = false;
-        $this->showOrderDetail = false;
-        $order = null;
-        $this->order = null;
+            $this->alert('success', __('messages.orderCanceled'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+        } else {
+            $order->delete();
 
         $this->alert('success', __('messages.orderDeleted'), [
             'toast' => true,
@@ -577,7 +654,13 @@ class OrderDetail extends Component
             'showCancelButton' => false,
             'cancelButtonText' => __('app.close')
         ]);
+        }
 
+
+        $this->deleteOrderModal = false;
+        $this->showOrderDetail = false;
+        $order = null;
+        $this->order = null;
 
         if ($this->fromPos) {
             return $this->redirect(route('pos.index'), navigate: true);

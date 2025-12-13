@@ -27,7 +27,7 @@
                     </p>
                     <div class="flex items-center flex-1 text-xs text-gray-500">
                         {{ $order->items->count() }} @lang('modules.menu.item') | {{
-                        $order->date_time->timezone(timezone())->translatedFormat('M d, Y h:i A') }}
+                        $order->date_time->timezone($order->branch->restaurant->timezone)->translatedFormat('M d, Y h:i A') }}
                     </div>
 
                     @php

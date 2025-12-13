@@ -1,6 +1,15 @@
 {
     "notosans": {
-        "normal": "\/Users\/abhinav\/htdocs\/tabletrack\/public\/fonts\/notosans_normal_3a78612ccee527414d2c92dcba5096ce",
-        "bold": "notosans_bold_4ff173a9add1504992e56e789e7439da"
+        "normal": "C:\\xampp\\htdocs\\genx-rest\\public\\fonts\/notosans_normal_275a4038805461f03744f048db7d0135",
+        "bold": "notosans_bold_71013d97da9c8cd6ca3befaa254f7f14"
+    },
+    "thsarabunnew": {
+        "bold": "C:\\xampp\\htdocs\\genx-rest\\public\\fonts\/thsarabunnew_bold_12d8a98009d71d5bba9591739efcb30d",
+        "bold_italic": "thsarabunnew_bold_italic_f57380a4d7e7d93620fc94f6d24f5316"
+    },
+    "bevietnampro": {
+        "normal": "C:\\xampp\\htdocs\\genx-rest\\public\\fonts\/bevietnampro_normal_46c7c714b638fa5afbd3c06359c4dfa7",
+        "italic": "C:\\xampp\\htdocs\\genx-rest\\public\\fonts\/bevietnampro_italic_eb166c9b152b7328059abb79ee42af29",
+        "bold_italic": "bevietnampro_bold_italic_cb310a991a7b31ffc39c8f04d69e1a7a"
     }
 }

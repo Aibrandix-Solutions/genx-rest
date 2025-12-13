@@ -142,4 +142,17 @@ class Branch extends BaseModel
         $baseString = $this->id . '_' . ($this->name ?? 'branch') . '_' . time();
         $this->unique_hash = substr(hash('sha256', $baseString), 0, 20);
     }
+
+    public function paymentAccountSettings(): HasMany
+    {
+        return $this->hasMany(BranchPaymentAccountSetting::class);
+    }
+
+    /**
+     * Get default payment account for a payment method
+     */
+    public function getDefaultPaymentAccount(string $paymentMethod): ?\Modules\Inventory\Entities\PaymentAccount
+    {
+        return BranchPaymentAccountSetting::getDefaultAccount($this->id, $paymentMethod);
+    }
 }

@@ -15,7 +15,12 @@ class LanguageSettingSeeder extends Seeder
      */
     public function run(): void
     {
-        LanguageSetting::insert(LanguageSetting::LANGUAGES);
+        foreach (LanguageSetting::LANGUAGES as $language) {
+            LanguageSetting::firstOrCreate(
+                ['language_code' => $language['language_code']],
+                $language
+            );
+        }
 
         new LanguageSettingObserver();
     }

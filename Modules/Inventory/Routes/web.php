@@ -10,6 +10,7 @@ use Modules\Inventory\Http\Controllers\InventoryMovementController;
 use Modules\Inventory\Http\Controllers\InventoryRecipeController;
 use Modules\Inventory\Http\Controllers\InventorySettingController;
 use Modules\Inventory\Http\Controllers\PurchaseOrderController;
+use Modules\Inventory\Http\Controllers\PurchaseReturnController;
 use Modules\Inventory\Http\Controllers\ReportController;
 use Modules\Inventory\Livewire\PurchaseOrder\PurchaseOrderList;
 use Modules\Inventory\Http\Controllers\InventoryDashboardController;
@@ -35,10 +36,23 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('inventory-movements', InventoryMovementController::class);
     Route::resource('recipes', InventoryRecipeController::class);
     Route::resource('purchase-orders', PurchaseOrderController::class);
+    Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
+    Route::resource('stock-transfers', \Modules\Inventory\Http\Controllers\StockTransferController::class);
     Route::resource('inventory-settings', InventorySettingController::class);
     Route::controller(PurchaseOrderController::class)->group(function () {
         Route::get('purchase-orders/{purchase_order}/pdf', 'generatePdf')->name('purchase-orders.pdf');
+    });
+
+    // Payment Accounts & Reports
+    Route::resource('payment-accounts', \Modules\Inventory\Http\Controllers\PaymentAccountController::class);
+    Route::prefix('payment-accounts')->name('payment-accounts.')->group(function () {
+        Route::get('reports/account-report', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'report'])->name('report');
+        Route::get('reports/balance-sheet', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'balanceSheet'])->name('balance-sheet');
+        Route::get('reports/trial-balance', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'trialBalance'])->name('trial-balance');
+        Route::get('reports/cash-flow', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'cashFlow'])->name('cash-flow');
+        // Export Route
+        Route::get('reports/export', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'exportReport'])->name('export');
     });
 
     // New Reports Section

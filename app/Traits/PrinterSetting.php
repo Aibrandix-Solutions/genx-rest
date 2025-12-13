@@ -123,17 +123,28 @@ trait PrinterSetting
 
         // Load the order to verify what we're actually printing
         $order = Order::find($orderId);
-        if ($order) {
-            Log::info("Order details - ID: {$order->id}, Order Number: {$order->order_number}, Created: {$order->created_at}");
-        } else {
+        if (!$order) {
             Log::error("Order with ID {$orderId} not found!");
+            throw new \Exception(__('messages.orderNotFound'));
         }
 
+        Log::info("Order details - ID: {$order->id}, Order Number: {$order->order_number}, Created: {$order->created_at}");
+
         $orderPlace = MultipleOrder::first();
+        
+        if (!$orderPlace) {
+            Log::error("No MultipleOrder configuration found!");
+            throw new \Exception(__('messages.noOrderPlaceConfigured'));
+        }
+
         $printerSetting = $this->getActivePrinter($orderPlace->printer_id);
 
-        $this->printerSetting = $printerSetting;
+        if (!$printerSetting) {
+            Log::error("No active printer found!");
+            throw new \Exception(__('messages.noActiveOrderPrinterConfigured'));
+        }
 
+        $this->printerSetting = $printerSetting;
 
         // First generate the Order image
         $this->generateOrderImage($orderId);

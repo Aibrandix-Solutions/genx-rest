@@ -28,7 +28,7 @@ class KotPlace extends Model
 
     public function kots()
     {
-        return $this->hasMany(Kot::class, 'kitchen_palace_id');
+        return $this->hasMany(Kot::class, 'kitchen_place_id');
     }
 
     public function branch()

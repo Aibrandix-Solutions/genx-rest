@@ -7,6 +7,7 @@ use App\Models\Payment;
 use App\Models\SplitOrder;
 use App\Models\Table;
 use App\Models\PredefinedAmount;
+use App\Models\BranchPaymentAccountSetting;
 use App\Notifications\SendOrderBill;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\On;
@@ -342,7 +343,8 @@ class AddPayment extends Component
                     Payment::create([
                         'order_id' => $this->order->id,
                         'payment_method' => $split['paymentMethod'],
-                        'amount' => $split['amount']
+                        'amount' => $split['amount'],
+                        'payment_account_id' => $this->getDefaultPaymentAccountId($split['paymentMethod'])
                     ]);
                 }
             }
@@ -366,7 +368,8 @@ class AddPayment extends Component
                         'order_id' => $this->order->id,
                         'payment_method' => $this->splits[$split]['paymentMethod'],
                         'amount' => $this->splits[$split]['amount'],
-                        'balance' => $lastIndex && $this->returnAmount ? $this->returnAmount : 0
+                        'balance' => $lastIndex && $this->returnAmount ? $this->returnAmount : 0,
+                        'payment_account_id' => $this->getDefaultPaymentAccountId($this->splits[$split]['paymentMethod'])
                     ]);
                 }
             }
@@ -396,7 +399,8 @@ class AddPayment extends Component
                         Payment::create([
                             'order_id' => $this->order->id,
                             'payment_method' => $split['paymentMethod'],
-                            'amount' => $splitTotal
+                            'amount' => $splitTotal,
+                            'payment_account_id' => $this->getDefaultPaymentAccountId($split['paymentMethod'])
                         ]);
 
                         // Link items to split order with quantities
@@ -443,7 +447,8 @@ class AddPayment extends Component
                 'order_id' => $this->order->id,
                 'payment_method' => $this->paymentMethod,
                 'amount' => $this->paymentAmount - $this->returnAmount,
-                'balance' => $this->returnAmount
+                'balance' => $this->returnAmount,
+                'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod)
                 ]);
             }
         }
@@ -473,7 +478,8 @@ class AddPayment extends Component
             Payment::create([
                 'order_id' => $this->order->id,
                 'payment_method' => 'due',
-                'amount' => $this->order->total - $orderPaidAmount
+                'amount' => $this->order->total - $orderPaidAmount,
+                'payment_account_id' => $this->getDefaultPaymentAccountId('due')
             ]);
         }
 
@@ -515,6 +521,23 @@ class AddPayment extends Component
             $this->splits[$splitId]['paymentMethod'] = $method;
             $this->splits = $this->splits; // Trigger Livewire update
         }
+    }
+
+    /**
+     * Get default payment account ID for a payment method
+     */
+    private function getDefaultPaymentAccountId(string $paymentMethod): ?int
+    {
+        if (!$this->order || !$this->order->branch_id) {
+            return null;
+        }
+
+        $defaultAccount = BranchPaymentAccountSetting::getDefaultAccount(
+            $this->order->branch_id,
+            $paymentMethod
+        );
+
+        return $defaultAccount?->id;
     }
 
     public function updateBalanceAmount()

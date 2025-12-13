@@ -1,0 +1,258 @@
+<?php
+
+namespace Modules\Inventory\Livewire\StockTransfer;
+
+use Livewire\Component;
+use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\InventoryTransfer;
+use Modules\Inventory\Entities\InventoryTransferItem;
+use Modules\Inventory\Entities\InventoryStock;
+use Modules\Inventory\Entities\InventoryMovement;
+use App\Models\Branch;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+class CreateStockTransfer extends Component
+{
+    use LivewireAlert;
+
+    public $destinationBranch;
+    public $expectedDeliveryDate;
+    public $notes;
+    public $transferItems = [];
+    public $availableBranches = [];
+    public $availableItems = [];
+    public $destinationItems = [];
+
+    protected $listeners = [
+        'transferCreated' => '$refresh',
+    ];
+
+    public function mount()
+    {
+        $this->availableBranches = Branch::where('restaurant_id', restaurant()->id)
+            ->where('id', '!=', branch()->id)
+            ->orderBy('name')
+            ->get();
+        // Load source items from current branch (BranchScope will filter automatically)
+        $this->availableItems = InventoryItem::with(['category', 'unit'])
+            ->orderBy('name')
+            ->get();
+        $this->resetForm();
+    }
+
+    public function updatedDestinationBranch()
+    {
+        if ($this->destinationBranch) {
+            // Use withoutGlobalScopes to bypass BranchScope filter
+            // Load items from the destination branch
+            $this->destinationItems = InventoryItem::withoutGlobalScopes()
+                ->where('branch_id', $this->destinationBranch)
+                ->with(['category', 'unit'])
+                ->orderBy('name')
+                ->get();
+        } else {
+            $this->destinationItems = [];
+        }
+        
+        // Reset destination item selections when branch changes
+        foreach ($this->transferItems as $index => $item) {
+            $this->transferItems[$index]['destination_item_id'] = null;
+        }
+    }
+
+    public function addTransferItem()
+    {
+        $this->transferItems[] = [
+            'source_item_id' => null,
+            'destination_item_id' => null,
+            'quantity' => null,
+            'available_stock' => 0,
+        ];
+    }
+
+    public function removeTransferItem($index)
+    {
+        unset($this->transferItems[$index]);
+        $this->transferItems = array_values($this->transferItems);
+    }
+
+    public function updatedTransferItems($value, $key)
+    {
+        // When source item is selected, check available stock and suggest matching destination item
+        if (str_contains($key, '.source_item_id')) {
+            $parts = explode('.', $key);
+            if (count($parts) >= 2 && is_numeric($parts[0])) {
+                $index = (int)$parts[0];
+                $itemId = $value;
+                
+                if ($itemId && isset($this->transferItems[$index])) {
+                    // Get source item details
+                    $sourceItem = InventoryItem::withoutGlobalScopes()->find($itemId);
+                    
+                    // Get available stock from InventoryStock table
+                    // This should match what's shown in the Inventory Stocks list
+                    $stock = InventoryStock::where('inventory_item_id', $itemId)
+                        ->where('branch_id', branch()->id)
+                        ->first();
+                    
+                    $currentStock = $stock ? (float)$stock->quantity : 0;
+                    
+                    // Calculate pending transfers (transfers that haven't been initiated yet)
+                    // Stock is only deducted when transfer is initiated, so pending transfers should be excluded
+                    $pendingTransfersQuantity = (float)InventoryTransferItem::whereHas('transfer', function($query) {
+                            $query->where('source_branch_id', branch()->id)
+                                  ->where('status', 'pending');
+                        })
+                        ->where('source_inventory_item_id', $itemId)
+                        ->sum('requested_quantity');
+                    
+                    // Available stock = current stock from InventoryStock - pending transfers
+                    // Note: in_transit/completed transfers don't affect this as stock is already deducted
+                    $availableStock = max(0, $currentStock - $pendingTransfersQuantity);
+                    
+                    $this->transferItems[$index]['available_stock'] = $availableStock;
+                    
+                    // Auto-suggest matching destination item by name (if destination branch is selected)
+                    if ($this->destinationBranch && $sourceItem && count($this->destinationItems) > 0) {
+                        $matchingItem = $this->destinationItems->first(function($item) use ($sourceItem) {
+                            return strtolower(trim($item->name)) === strtolower(trim($sourceItem->name));
+                        });
+                        
+                        if ($matchingItem && empty($this->transferItems[$index]['destination_item_id'])) {
+                            $this->transferItems[$index]['destination_item_id'] = $matchingItem->id;
+                        }
+                    }
+                } elseif (isset($this->transferItems[$index])) {
+                    $this->transferItems[$index]['available_stock'] = 0;
+                    $this->transferItems[$index]['destination_item_id'] = null;
+                }
+            }
+        }
+    }
+
+    public function rules()
+    {
+        return [
+            'destinationBranch' => 'required|exists:branches,id',
+            'expectedDeliveryDate' => 'nullable|date|after_or_equal:today',
+            'notes' => 'nullable|string|max:1000',
+            'transferItems' => 'required|array|min:1',
+            'transferItems.*.source_item_id' => 'required|exists:inventory_items,id',
+            'transferItems.*.destination_item_id' => 'required|exists:inventory_items,id',
+            'transferItems.*.quantity' => 'required|numeric|min:0.01',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'transferItems.required' => __('inventory::modules.transfers.at_least_one_item_required'),
+            'transferItems.*.source_item_id.required' => __('inventory::modules.transfers.source_item_required'),
+            'transferItems.*.destination_item_id.required' => __('inventory::modules.transfers.destination_item_required'),
+            'transferItems.*.quantity.required' => __('inventory::modules.transfers.quantity_required'),
+            'transferItems.*.quantity.min' => __('inventory::modules.transfers.quantity_min'),
+        ];
+    }
+
+    public function createTransfer()
+    {
+        $this->validate();
+
+        // Validate stock availability (considering pending transfers)
+        foreach ($this->transferItems as $index => $item) {
+            $stock = InventoryStock::where('inventory_item_id', $item['source_item_id'])
+                ->where('branch_id', branch()->id)
+                ->first();
+            
+            $currentStock = $stock ? (float)$stock->quantity : 0;
+            
+            // Calculate pending transfers (transfers that haven't been initiated yet)
+            // Stock is only deducted when transfer is initiated, so pending transfers should be excluded
+            $pendingTransfersQuantity = (float)InventoryTransferItem::whereHas('transfer', function($query) {
+                    $query->where('source_branch_id', branch()->id)
+                          ->where('status', 'pending');
+                })
+                ->where('source_inventory_item_id', $item['source_item_id'])
+                ->sum('requested_quantity');
+            
+            // Available stock = current stock from InventoryStock - pending transfers
+            // Note: in_transit/completed transfers don't affect this as stock is already deducted
+            $available = max(0, $currentStock - $pendingTransfersQuantity);
+            
+            if ($available < $item['quantity']) {
+                $this->addError("transferItems.{$index}.quantity", 
+                    __('inventory::modules.transfers.insufficient_stock', [
+                        'available' => $available,
+                        'requested' => $item['quantity']
+                    ])
+                );
+                return;
+            }
+        }
+
+        try {
+            DB::transaction(function () {
+                // Create transfer
+                $transfer = InventoryTransfer::create([
+                    'restaurant_id' => restaurant()->id,
+                    'transfer_number' => InventoryTransfer::generateTransferNumber(),
+                    'source_branch_id' => branch()->id,
+                    'destination_branch_id' => $this->destinationBranch,
+                    'status' => 'pending',
+                    'notes' => $this->notes,
+                    'expected_delivery_date' => $this->expectedDeliveryDate,
+                    'created_by' => user()->id,
+                ]);
+
+                // Create transfer items
+                foreach ($this->transferItems as $item) {
+                    InventoryTransferItem::create([
+                        'inventory_transfer_id' => $transfer->id,
+                        'source_inventory_item_id' => $item['source_item_id'],
+                        'destination_inventory_item_id' => $item['destination_item_id'],
+                        'requested_quantity' => $item['quantity'],
+                        'status' => 'pending',
+                    ]);
+                }
+            });
+
+            $this->alert('success', __('inventory::modules.transfers.transfer_created_successfully'));
+            $this->resetForm();
+            $this->dispatch('transferCreated');
+            $this->dispatch('closeCreateTransferModal');
+            
+        } catch (\Exception $e) {
+            Log::error('Error creating transfer: ' . $e->getMessage());
+            $this->alert('error', __('inventory::modules.transfers.transfer_creation_failed'));
+        }
+    }
+
+    public function openModal()
+    {
+        $this->resetForm();
+    }
+
+    public function closeModal()
+    {
+        $this->resetForm();
+        $this->dispatch('closeCreateTransferModal');
+    }
+
+    public function resetForm()
+    {
+        $this->destinationBranch = null;
+        $this->expectedDeliveryDate = null;
+        $this->notes = null;
+        $this->transferItems = [];
+        $this->destinationItems = [];
+        $this->resetValidation();
+    }
+
+    public function render()
+    {
+        return view('inventory::livewire.stock-transfer.create-stock-transfer');
+    }
+}
+

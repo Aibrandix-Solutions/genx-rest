@@ -7,13 +7,13 @@
                     <svg class="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
                     </svg>
-                    {{ $movement->item->name }}
+                    {{ $movement->item->name ?? '--' }}
                 </h3>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
                     </svg>
-                    {{ $movement->item->category->name }}
+                    {{ $movement->item->category->name ?? '--' }}
                 </p>
             </div>
             <div class="flex items-center gap-3">
@@ -61,7 +61,7 @@
                     {{ __('inventory::modules.movements.fields.quantity') }}
                 </dt>
                 <dd class="text-sm font-medium text-gray-900 dark:text-white col-span-2">
-                    {{ $movement->quantity }} {{ $movement->item->unit->symbol }}
+                    {{ $movement->quantity }} {{ ($movement->item && $movement->item->unit) ? $movement->item->unit->symbol : '' }}
                 </dd>
             </div>
 
@@ -73,7 +73,7 @@
                     {{ __('inventory::modules.stock.unitPurchasePrice') }}
                 </dt>
                 <dd class="text-sm font-medium text-gray-900 dark:text-white col-span-2">
-                    {{ $movement->unit_purchase_price }} {{ restaurant()->currency->currency_code }} / {{ $movement->item->unit->symbol }}
+                    {{ $movement->unit_purchase_price }} {{ restaurant()->currency->currency_code ?? '' }} / {{ ($movement->item && $movement->item->unit) ? $movement->item->unit->symbol : '' }}
                 </dd>
             </div>
 
@@ -148,7 +148,7 @@
                     {{ __('inventory::modules.movements.fields.source_branch') }}
                 </dt>
                 <dd class="text-sm text-gray-900 dark:text-white col-span-2">
-                    {{ $movement->sourceBranch->name }}
+                    {{ $movement->sourceBranch->name ?? '--' }}
                 </dd>
             </div>
 
@@ -161,7 +161,7 @@
                         {{ __('inventory::modules.movements.fields.transfer_branch') }}
                     </dt>
                     <dd class="text-sm text-gray-900 dark:text-white col-span-2">
-                        {{ $movement->transferBranch->name }}
+                        {{ $movement->transferBranch->name ?? '--' }}
                     </dd>
                 </div>
             @endif

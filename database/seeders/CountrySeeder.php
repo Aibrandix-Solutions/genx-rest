@@ -2,9 +2,9 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class CountrySeeder extends Seeder
 {
@@ -14,6 +14,12 @@ class CountrySeeder extends Seeder
      */
     public function run(): void
     {
+        if (Schema::hasTable('countries')) {
+            Schema::disableForeignKeyConstraints();
+            DB::table('countries')->truncate();
+            Schema::enableForeignKeyConstraints();
+        }
+
         DB::statement("INSERT INTO `countries` (`id`, `countries_code`, `countries_name`, `phonecode`) VALUES
 	(1,'AF','Afghanistan','93'),
 	(2,'AX','Åland Islands','358'),

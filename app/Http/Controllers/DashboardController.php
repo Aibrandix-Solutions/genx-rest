@@ -13,7 +13,7 @@ class DashboardController extends Controller
     public function index()
     {
         if (user()->hasRole('Super Admin')) {
-            return redirect(RouteServiceProvider::SUPERADMIN_HOME);
+            return redirect(url(RouteServiceProvider::SUPERADMIN_HOME));
         }
 
         return view('dashboard.index');

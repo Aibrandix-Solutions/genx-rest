@@ -18,7 +18,15 @@ class ViewMovement extends Component
 
     public function mount(InventoryMovement $movement)
     {
-        $this->movement = $movement;
+        // Eager load all necessary relationships, including nested relationships
+        $this->movement = InventoryMovement::with([
+            'item.unit',
+            'item.category',
+            'addedBy',
+            'sourceBranch',
+            'transferBranch',
+            'supplier'
+        ])->findOrFail($movement->id);
     }
 
     public function handleMovementUpdated()

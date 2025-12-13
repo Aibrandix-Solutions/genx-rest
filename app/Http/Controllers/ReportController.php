@@ -45,4 +45,14 @@ class ReportController extends Controller
     {
         return view('reports.delivery-app-report');
     }
+
+    public function kotAdjustmentReport()
+    {
+        return view('reports.kot-adjustments');
+    }
+
+    public function detailedSalesReport()
+    {
+        return view('reports.detailed-sales');
+    }
 }
