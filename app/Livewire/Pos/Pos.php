@@ -147,6 +147,20 @@ class Pos extends Component
         $this->maxDate = now()->addDays($this->pickupRange - 1)->endOfDay()->format('Y-m-d\TH:i');
         $this->defaultDate = old('deliveryDateTime', $this->deliveryDateTime ?? $this->minDate);
 
+        // Check if user has a default order type set and no order is being edited
+        if (!$this->orderID && !$this->tableOrderID) {
+            $user = auth()->user();
+            if ($user && $user->default_order_type_id) {
+                $defaultOrderType = OrderType::find($user->default_order_type_id);
+                if ($defaultOrderType && $defaultOrderType->is_active) {
+                    // Auto-set the default order type
+                    $this->orderTypeId = $defaultOrderType->id;
+                    $this->orderType = $defaultOrderType->type;
+                    $this->orderTypeSlug = $defaultOrderType->slug;
+                }
+            }
+        }
+
         $this->users = User::withoutGlobalScope(BranchScope::class)
             ->where(function ($q) {
                 return $q->where('branch_id', branch()->id)

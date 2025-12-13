@@ -53,6 +53,7 @@ class User extends Authenticatable
         'phone_code',
         'terms_and_privacy_accepted',
         'marketing_emails_accepted',
+        'default_order_type_id',
     ];
 
     /**
@@ -110,6 +111,11 @@ class User extends Authenticatable
     public function restaurant(): BelongsTo
     {
         return $this->belongsTo(Restaurant::class);
+    }
+
+    public function defaultOrderType(): BelongsTo
+    {
+        return $this->belongsTo(OrderType::class, 'default_order_type_id');
     }
 
     public function isRestaurantActive(): bool

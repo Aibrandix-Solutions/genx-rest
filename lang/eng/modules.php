@@ -242,6 +242,8 @@ return [
         'selectDeliveryPlatformDescription' => 'Select a delivery platform to continue',
         'backToOrderTypes' => 'Back to Order Types',
         'resetSelection' => 'Reset Selection',
+        'setAsDefault' => 'Set as default',
+        'skipSelectionNextTime' => 'Skip this selection next time',
         'standardDeliveryPricing' => 'Standard delivery pricing',
         'noOrderTypesAvailable' => 'No order types available',
         'changeOrderType' => 'Change Order Type?',

@@ -15,6 +15,7 @@ class OrderTypeSelection extends Component
     public $selectedOrderTypeSlug = null;
     public $selectedDeliveryPlatform = null;
     public $defaultDeliveryPlatform = null;
+    public $setAsDefault = false;
     
     // Keep track of selection stages
     public $selectionStage = 'order_type'; // order_type, delivery_platform
@@ -23,6 +24,23 @@ class OrderTypeSelection extends Component
     {
         $this->loadOrderTypes();
         $this->loadDeliveryPlatforms();
+        
+        // Pre-select user's default order type if set (but don't auto-proceed)
+        // The modal will still show, but with the default pre-selected
+        $user = auth()->user();
+        if ($user && $user->default_order_type_id) {
+            $defaultOrderType = \App\Models\OrderType::find($user->default_order_type_id);
+            if ($defaultOrderType && $defaultOrderType->is_active) {
+                // Pre-select the default order type
+                $this->selectedOrderTypeChoice = $defaultOrderType->id;
+                $this->selectedOrderTypeSlug = $defaultOrderType->slug;
+                
+                // If it's delivery, move to delivery platform selection stage
+                if ($defaultOrderType->slug === 'delivery') {
+                    $this->selectionStage = 'delivery_platform';
+                }
+            }
+        }
     }
 
     public function loadOrderTypes()
@@ -76,6 +94,14 @@ class OrderTypeSelection extends Component
     {
         if (!$this->selectedOrderTypeChoice) {
             return;
+        }
+
+        // Save as default if checkbox is checked
+        if ($this->setAsDefault) {
+            $user = auth()->user();
+            if ($user) {
+                $user->update(['default_order_type_id' => $this->selectedOrderTypeChoice]);
+            }
         }
 
         $params = [
