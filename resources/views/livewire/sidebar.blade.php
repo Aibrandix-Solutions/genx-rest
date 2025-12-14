@@ -33,7 +33,7 @@
 
                         @if ($this->hasModule('Menu') || $this->hasModule('Menu Item') || $this->hasModule('Item Category'))
                             @if (user_can('Show Menu') || user_can('Show Menu Item') || user_can('Show Item Category'))
-                                <x-sidebar-dropdown-menu :name='__("menu.menu")' icon='menu' :active='request()->routeIs(["menus.*", "menu-items.*", "item-categories.*", "item-modifiers.*", "modifier-groups.*"])'>
+                                <x-sidebar-dropdown-menu :name='__("menu.menu")' icon='menu' :active='request()->routeIs(["menus.*", "menu-items.*", "item-categories.*", "item-modifiers.*", "modifier-groups.*", "menu.combo-packs"])'>
                                     @if($this->hasModule('Menu'))
                                         @if(user_can('Show Menu'))
                                             @livewire('sidebar-dropdown-menu', ['name' => __('menu.menus'), 'link' => route('menus.index'), 'active' => request()->routeIs('menus.index')])
@@ -56,6 +56,7 @@
                                         @if(user_can('Show Menu Item'))
                                             @livewire('sidebar-dropdown-menu', ['name' => __('menu.modifierGroups'), 'link' => route('modifier-groups.index'), 'active' => request()->routeIs('modifier-groups.index', 'modifier-groups.create', 'modifier-groups.edit')])
                                             @livewire('sidebar-dropdown-menu', ['name' => __('menu.itemModifiers'), 'link' => route('item-modifiers.index'), 'active' => request()->routeIs('item-modifiers.index')])
+                                            @livewire('sidebar-dropdown-menu', ['name' => __('menu.comboPacks'), 'link' => route('menu.combo-packs'), 'active' => request()->routeIs('menu.combo-packs')])
                                         @endif
                                     @endif
                                 </x-sidebar-dropdown-menu>

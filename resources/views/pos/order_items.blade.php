@@ -303,15 +303,27 @@
                             $displayPrice = $this->getItemDisplayPrice($key);
                             // Total amount per line (what customer pays)
                             $totalAmount = $orderItemAmount[$key];
+                            $isComboItem = isset($orderItemComboPack[$key]) && !empty($orderItemComboPack[$key]);
                         @endphp
                         <tr class="hover:bg-gray-100 dark:hover:bg-gray-700" wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class.delay='opacity-10'>
                             <td class="flex flex-col p-2 mr-12 lg:min-w-28">
-                                <div class="inline-flex items-center text-xs text-gray-900 dark:text-white">
+                                <div class="inline-flex items-center gap-2 text-xs text-gray-900 dark:text-white">
                                     {{ $itemName }}
+                                    @if ($isComboItem)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                            COMBO
+                                        </span>
+                                    @endif
                                 </div>
                                 <div class="inline-flex items-center text-xs text-gray-600 dark:text-white">
                                     {{  $itemVariation }}
                                 </div>
+                                @if ($isComboItem && isset($orderItemOriginalPrice[$key]))
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                                        <span class="line-through">{{ currency_format($orderItemOriginalPrice[$key] / ($orderItemQty[$key] ?? 1), restaurant()->currency_id) }}</span>
+                                        <span class="text-green-600 dark:text-green-400 ml-1">{{ currency_format($displayPrice, restaurant()->currency_id) }}</span>
+                                    </div>
+                                @endif
                                 @if (!empty($itemModifiersSelected[$key]))
                                 <div class="text-xs text-gray-600 dark:text-white">
                                     @foreach ($itemModifiersSelected[$key] as $modifierOptionId)

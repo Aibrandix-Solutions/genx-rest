@@ -46,6 +46,7 @@ return array(
     'waiterRequest' => 'Waiter Requests',
     'itemModifiers' => 'Item Modifiers',
     'modifierGroups' => 'Modifier Groups',
+    'comboPacks' => 'Combo Packs',
     'goBackToCustomModules' => 'Go Back to Custom Modules',
     'expenses' => 'Expenses',
     'vendor' => 'Vendor',

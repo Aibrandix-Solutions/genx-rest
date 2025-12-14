@@ -94,6 +94,9 @@ class Pos extends Component
     public $showModifiersModal = false;
     public $itemModifiersSelected = [];
     public $orderItemModifiersPrice = [];
+    public $orderItemComboPack = [];
+    public $orderItemOriginalPrice = [];
+    public $orderItemComboDiscount = [];
     public $extraCharges;
     public $discountedTotal;
     public $tipAmount = 0;
@@ -448,6 +451,11 @@ class Pos extends Component
         
         // Recalculate prices for all items in cart when order type changes
         foreach ($this->orderItemList as $key => $item) {
+            // Skip combo items - their prices are fixed and shouldn't be recalculated
+            if (isset($this->orderItemComboPack[$key]) && !empty($this->orderItemComboPack[$key])) {
+                continue;
+            }
+            
             if ($this->orderTypeId) {
                 $item->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 if (isset($this->orderItemVariation[$key])) {
@@ -612,21 +620,104 @@ class Pos extends Component
                     $this->orderItemQty[$key] = $item->quantity;
                     $this->itemModifiersSelected[$key] = $item->modifierOptions->pluck('id')->toArray();
                     
-                    // Set price context before calculating amounts
-                    if ($this->orderTypeId) {
-                        $item->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
-                        if ($item->menuItemVariation) {
-                            $item->menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
-                        }
-                        // Set context on modifiers too
-                        foreach ($item->modifierOptions as $modifier) {
-                            $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                    // Check if this KOT item is from a combo pack
+                    // First check note for combo marker, then check order items
+                    $isComboItem = false;
+                    $comboPackId = null;
+                    $orderItem = null;
+                    
+                    if ($item->note && strpos($item->note, '[COMBO:') !== false) {
+                        // Extract combo pack ID from note
+                        preg_match('/\[COMBO:(\d+)\]/', $item->note, $matches);
+                        if (!empty($matches[1])) {
+                            $comboPackId = (int)$matches[1];
+                            $isComboItem = true;
                         }
                     }
                     
-                    $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum('price');
-                    $basePrice = $item->menuItemVariation ? $item->menuItemVariation->price : $item->menuItem->price;
-                    $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
+                    // Also check order items for combo pricing (more reliable)
+                    // Match by menu_item_id and variation_id, not quantity (since quantities might differ)
+                    if (!$isComboItem) {
+                        $orderItem = OrderItem::where('order_id', $this->orderDetail->id)
+                            ->where('menu_item_id', $item->menu_item_id)
+                            ->where('menu_item_variation_id', $item->menu_item_variation_id ?? null)
+                            ->where('is_combo_item', true)
+                            ->first(); // Get first matching combo item (quantities might differ in KOT vs order)
+                        
+                        if ($orderItem && $orderItem->is_combo_item) {
+                            $isComboItem = true;
+                            $comboPackId = $orderItem->combo_pack_id;
+                        }
+                    }
+                    
+                    if ($isComboItem && ($orderItem || $comboPackId)) {
+                        // Restore combo pricing from order item if available
+                        if ($orderItem) {
+                            $this->orderItemComboPack[$key] = $orderItem->combo_pack_id;
+                            
+                            // Calculate per-unit prices from order item
+                            // orderItem->original_price is stored as TOTAL (original_price × quantity)
+                            // orderItem->amount is the TOTAL discounted amount (what customer paid)
+                            // orderItem->combo_discount_amount is stored as TOTAL discount
+                            // Use amount/quantity as source of truth for per-unit discounted price
+                            $unitOriginalPrice = $orderItem->original_price && $orderItem->quantity > 0 
+                                ? $orderItem->original_price / $orderItem->quantity 
+                                : 0;
+                            $unitPrice = $orderItem->amount && $orderItem->quantity > 0 
+                                ? $orderItem->amount / $orderItem->quantity  // Use amount/quantity as source of truth
+                                : ($orderItem->price ?? 0); // Fallback to price field
+                            $unitDiscount = $orderItem->combo_discount_amount && $orderItem->quantity > 0 
+                                ? $orderItem->combo_discount_amount / $orderItem->quantity 
+                                : 0;
+                            
+                            // Scale to current KOT item quantity
+                            $this->orderItemOriginalPrice[$key] = $unitOriginalPrice * $item->quantity;
+                            $this->orderItemComboDiscount[$key] = $unitDiscount * $item->quantity;
+                            
+                            // Use the discounted price per unit, scaled to KOT item quantity
+                            $this->orderItemAmount[$key] = $unitPrice * $item->quantity;
+                        } else {
+                            // Fallback: recalculate combo price if order item not found
+                            $combo = \App\Models\ComboPack::with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])
+                                ->find($comboPackId);
+                            
+                            if ($combo) {
+                                $comboItemPrices = $combo->calculateComboItemPrices($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                
+                                // Find the matching combo item
+                                foreach ($comboItemPrices as $itemData) {
+                                    $comboItem = $itemData['combo_item'];
+                                    if ($comboItem->menu_item_id == $item->menu_item_id && 
+                                        $comboItem->menu_item_variation_id == $item->menu_item_variation_id) {
+                                        $this->orderItemComboPack[$key] = $combo->id;
+                                        $this->orderItemOriginalPrice[$key] = $itemData['original_price'] * $item->quantity;
+                                        $this->orderItemComboDiscount[$key] = $itemData['combo_discount_amount'];
+                                        $this->orderItemAmount[$key] = $itemData['price'] * $item->quantity;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        $this->orderItemModifiersPrice[$key] = 0; // Combo items don't have modifiers
+                    } else {
+                        // Regular item pricing
+                        // Set price context before calculating amounts
+                        if ($this->orderTypeId) {
+                            $item->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                            if ($item->menuItemVariation) {
+                                $item->menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                            }
+                            // Set context on modifiers too
+                            foreach ($item->modifierOptions as $modifier) {
+                                $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                            }
+                        }
+                        
+                        $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum('price');
+                        $basePrice = $item->menuItemVariation ? $item->menuItemVariation->price : $item->menuItem->price;
+                        $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
+                    }
 
                     if ($item->menuItemVariation) {
                         $this->orderItemVariation[$key] = $item->menuItemVariation;
@@ -674,6 +765,80 @@ class Pos extends Component
         } else {
             $this->syncCart($id);
         }
+    }
+
+    public function addComboToCart($comboId)
+    {
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        $this->dispatch('play_beep');
+        
+        $combo = \App\Models\ComboPack::with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])->findOrFail($comboId);
+        
+        // Check if combo is available
+        if (!$combo->isAvailable()) {
+            $this->alert('error', __('modules.combo.comboNotAvailable'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+            return;
+        }
+        
+        // Calculate combo item prices with discounts
+        $comboItemPrices = $combo->calculateComboItemPrices($this->orderTypeId, $this->normalizeDeliveryAppId());
+        
+        // Add each item from combo to cart
+        foreach ($comboItemPrices as $itemData) {
+            $comboItem = $itemData['combo_item'];
+            $menuItem = $comboItem->menuItem;
+            $variationId = $comboItem->menu_item_variation_id;
+            
+            // Create unique ID for this combo item
+            $itemId = $menuItem->id . ($variationId ? '_' . $variationId : '');
+            $comboItemKey = 'combo_' . $combo->id . '_' . $itemId;
+            
+            // Load menu item and set price context
+            if ($this->orderTypeId) {
+                $menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                if ($variationId) {
+                    $variation = $comboItem->menuItemVariation;
+                    if ($variation) {
+                        $variation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                        $this->orderItemVariation[$comboItemKey] = $variation;
+                    }
+                }
+            }
+            
+            // Store combo pack info
+            $this->orderItemList[$comboItemKey] = $menuItem;
+            $this->orderItemQty[$comboItemKey] = $comboItem->quantity;
+            
+            // Use the calculated combo price (already includes discount)
+            $comboPrice = $itemData['price'];
+            $originalPrice = $itemData['original_price'];
+            $comboDiscount = $itemData['combo_discount_amount'];
+            
+            // Store combo metadata
+            $this->orderItemAmount[$comboItemKey] = $comboPrice * $comboItem->quantity;
+            $this->orderItemComboPack[$comboItemKey] = $combo->id;
+            $this->orderItemOriginalPrice[$comboItemKey] = $originalPrice * $comboItem->quantity;
+            $this->orderItemComboDiscount[$comboItemKey] = $comboDiscount;
+            
+            // Initialize item note
+            if (!isset($this->itemNotes[$comboItemKey])) {
+                $this->itemNotes[$comboItemKey] = __('modules.combo.itemsAddedFromCombo');
+            }
+        }
+        
+        $this->calculateTotal();
+        
+        $this->alert('success', __('modules.combo.comboAdded'), [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 2000,
+        ]);
     }
 
     #[On('setTable')]
@@ -1420,6 +1585,10 @@ class Pos extends Component
                         'quantity' => $this->orderItemQty[$key],
                         'modifiers' => $this->itemModifiersSelected[$key] ?? [],
                         'note' => $this->itemNotes[$key] ?? null,
+                        'combo_pack_id' => $this->orderItemComboPack[$key] ?? null,
+                        'original_price' => $this->orderItemOriginalPrice[$key] ?? null,
+                        'combo_discount_amount' => $this->orderItemComboDiscount[$key] ?? null,
+                        'is_combo_item' => !empty($this->orderItemComboPack[$key]),
                     ];
                 }
 
@@ -1436,15 +1605,20 @@ class Pos extends Component
                     $kotIds[] = $kot->id;
 
                     foreach ($items as $item) {
+                        $note = $item['note'] ?? '';
+                        // Add combo marker to note if it's a combo item
+                        if (!empty($item['is_combo_item']) && !empty($item['combo_pack_id'])) {
+                            $note = ($note ? $note . ' ' : '') . '[COMBO:' . $item['combo_pack_id'] . ']';
+                        }
+                        
                         $kotItem = KotItem::create([
                             'kot_id' => $kot->id,
                             'menu_item_id' => $item['menu_item_id'],
                             'menu_item_variation_id' => $item['variation_id'],
                             'quantity' => $item['quantity'],
-                            'note' => $item['note'],
+                            'note' => $note,
                             'order_type_id' => $order->order_type_id ?? null,
                             'order_type' => $order->order_type ?? null,
-                            'note' => $item['note']
                         ]);
                         $kotItem->modifierOptions()->sync($item['modifiers']);
                     }
@@ -1460,12 +1634,18 @@ class Pos extends Component
                 ]);
 
                 foreach ($this->orderItemList as $key => $value) {
+                    $note = $this->itemNotes[$key] ?? null;
+                    // Add combo marker to note if it's a combo item (for later restoration)
+                    if (!empty($this->orderItemComboPack[$key])) {
+                        $note = ($note ? $note . ' ' : '') . '[COMBO:' . $this->orderItemComboPack[$key] . ']';
+                    }
+                    
                     $kotItem = KotItem::create([
                         'kot_id' => $kot->id,
                         'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $value->id,
                         'menu_item_variation_id' => $this->orderItemVariation[$key]->id ?? null,
                         'quantity' => $this->orderItemQty[$key],
-                        'note' => $this->itemNotes[$key] ?? null,
+                        'note' => $note,
                         'order_type_id' => $order->order_type_id ?? null,
                         'order_type' => $order->order_type ?? null,
                     ]);
@@ -1480,16 +1660,31 @@ class Pos extends Component
 
                 foreach ($order->kot as $kot) {
                     foreach ($kot->items as $item) {
-                        $menuItemPrice = $item->menuItem->price ?? 0;
-
-                        // Add modifier prices if any
-                        $modifierPrice = 0;
-                        if ($item->modifierOptions->isNotEmpty()) {
-                            $modifierPrice = $item->modifierOptions->sum('price');
+                        // Check if this item has an order item with saved pricing (for combo items)
+                        $orderItem = OrderItem::where('order_id', $order->id)
+                            ->where('menu_item_id', $item->menu_item_id)
+                            ->where('menu_item_variation_id', $item->menu_item_variation_id)
+                            ->where('quantity', $item->quantity)
+                            ->first();
+                        
+                        if ($orderItem) {
+                            // Use the saved price from order item (preserves combo discounts)
+                            $itemAmount = $orderItem->amount;
+                        } else {
+                            // Fallback to calculating from menu item
+                            $menuItemPrice = $item->menuItem->price ?? 0;
+                            
+                            // Add modifier prices if any
+                            $modifierPrice = 0;
+                            if ($item->modifierOptions->isNotEmpty()) {
+                                $modifierPrice = $item->modifierOptions->sum('price');
+                            }
+                            
+                            $itemAmount = ($menuItemPrice + $modifierPrice) * $item->quantity;
                         }
 
-                        $this->subTotal += ($menuItemPrice + $modifierPrice) * $item->quantity;
-                        $this->total += ($menuItemPrice + $modifierPrice) * $item->quantity;
+                        $this->subTotal += $itemAmount;
+                        $this->total += $itemAmount;
                     }
                 }
 
@@ -1547,12 +1742,28 @@ class Pos extends Component
                         }
                     }
                     
+                    // Check if this item is from a combo pack
+                    $comboPackId = $this->orderItemComboPack[$key] ?? null;
+                    $originalPrice = $this->orderItemOriginalPrice[$key] ?? null;
+                    $comboDiscountAmount = $this->orderItemComboDiscount[$key] ?? null;
+                    $isComboItem = !empty($comboPackId);
+                    
+                    // For combo items, calculate per-unit price from orderItemAmount
+                    // For regular items, use menu item price
+                    $itemPrice = $isComboItem && $this->orderItemQty[$key] > 0
+                        ? $this->orderItemAmount[$key] / $this->orderItemQty[$key] // Discounted per-unit price
+                        : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
+                    
                     $orderItem = OrderItem::create([
                         'order_id' => $order->id,
                         'menu_item_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $this->orderItemList[$key]->id),
                         'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                        'combo_pack_id' => $comboPackId,
                         'quantity' => $this->orderItemQty[$key],
-                        'price' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price),
+                        'price' => $itemPrice, // Use discounted per-unit price for combo items
+                        'original_price' => $originalPrice,
+                        'combo_discount_amount' => $comboDiscountAmount,
+                        'is_combo_item' => $isComboItem,
                         'amount' => $this->orderItemAmount[$key],
                     ]);
                     $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
@@ -1592,14 +1803,30 @@ class Pos extends Component
                 
                 $taxBreakup = isset($this->orderItemTaxDetails[$key]['tax_breakup']) ? json_encode($this->orderItemTaxDetails[$key]['tax_breakup']) : null;
 
+                // Check if this item is from a combo pack
+                $comboPackId = $this->orderItemComboPack[$key] ?? null;
+                $originalPrice = $this->orderItemOriginalPrice[$key] ?? null;
+                $comboDiscountAmount = $this->orderItemComboDiscount[$key] ?? null;
+                $isComboItem = !empty($comboPackId);
+                
+                // For combo items, calculate per-unit price from orderItemAmount
+                // For regular items, use menu item price
+                $itemPrice = $isComboItem && $this->orderItemQty[$key] > 0
+                    ? $this->orderItemAmount[$key] / $this->orderItemQty[$key] // Discounted per-unit price
+                    : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
+                
                 $orderItem = OrderItem::create([
                     'order_type' => $this->orderType,
                     'order_type_id' => $this->orderTypeId,
                     'order_id' => $order->id,
                     'menu_item_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $this->orderItemList[$key]->id),
                     'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                    'combo_pack_id' => $comboPackId,
                     'quantity' => $this->orderItemQty[$key],
-                    'price' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price),
+                    'price' => $itemPrice, // Use discounted per-unit price for combo items
+                    'original_price' => $originalPrice,
+                    'combo_discount_amount' => $comboDiscountAmount,
+                    'is_combo_item' => $isComboItem,
                     'amount' => $this->orderItemAmount[$key],
                     'note' => $this->itemNotes[$key] ?? null,
                     'tax_amount' => $this->orderItemTaxDetails[$key]['tax_amount'] ?? null,
@@ -2441,6 +2668,22 @@ class Pos extends Component
             }
         }
         
+        // Load combo packs
+        $branch = branch();
+        $comboPacks = collect([]);
+        if ($branch) {
+            $comboPacks = \App\Models\ComboPack::where('branch_id', $branch->id)
+                ->where('is_active', true)
+                ->with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])
+                ->orderBy('sort_order', 'asc')
+                ->orderBy('id', 'asc')
+                ->get()
+                ->filter(function($combo) {
+                    // Filter out combos that don't have items or aren't available
+                    return $combo->comboPackItems->isNotEmpty() && $combo->isAvailable();
+                });
+        }
+        
         $showCustomOrderTypes = restaurant()->show_order_type_options;
         $orderTypes = OrderType::where('branch_id', branch()->id)
             ->where('is_active', true)
@@ -2449,6 +2692,7 @@ class Pos extends Component
 
         return view('livewire.pos.pos', [
             'menuItems' => $query,
+            'comboPacks' => $comboPacks,
             'orderTypes' => $orderTypes
         ]);
     }
@@ -2517,12 +2761,50 @@ class Pos extends Component
      */
     public function getItemDisplayPrice($key)
     {
+        // For KOT items (keys like "kot_123_456"), check if we have combo pricing stored
+        if (str_starts_with($key, '"kot_') && isset($this->orderItemComboPack[$key])) {
+            // This is a combo item from KOT, calculate per-unit price
+            if (isset($this->orderItemOriginalPrice[$key]) && isset($this->orderItemQty[$key]) && $this->orderItemQty[$key] > 0) {
+                // Calculate unit price: (original - discount) / quantity
+                $totalDiscountedPrice = $this->orderItemOriginalPrice[$key] - ($this->orderItemComboDiscount[$key] ?? 0);
+                return $totalDiscountedPrice / $this->orderItemQty[$key];
+            }
+            // Fallback: use amount / quantity if available
+            if (isset($this->orderItemAmount[$key]) && isset($this->orderItemQty[$key]) && $this->orderItemQty[$key] > 0) {
+                return $this->orderItemAmount[$key] / $this->orderItemQty[$key];
+            }
+        }
+        
+        // For saved order items (viewing order detail), use the saved price from database
+        // The key format for saved orders is typically numeric (item index) or the item ID
+        if ($this->orderDetail && is_numeric($key)) {
+            // Try to find the order item by index
+            $items = $this->orderDetail->items->values();
+            if (isset($items[$key])) {
+                $orderItem = $items[$key];
+                // For combo items, show the discounted price (which is the saved price)
+                // The original_price is stored separately for reference
+                if ($orderItem->is_combo_item && $orderItem->original_price) {
+                    // Return the discounted price (price field) which is what was charged
+                    return $orderItem->price;
+                }
+                // For non-combo items, return the saved price
+                return $orderItem->price;
+            }
+        }
+
         if ($this->taxMode === 'item' && isset($this->orderItemTaxDetails[$key])) {
             return $this->orderItemTaxDetails[$key]['display_price'] ?? 0;
         }
 
         // Check if we have session data arrays (for active POS session)
         if (isset($this->orderItemList[$key])) {
+            // Check if this is a combo item and we have original price stored
+            if (str_starts_with($key, 'combo_') && isset($this->orderItemOriginalPrice[$key])) {
+                // For combo items in active session, return the discounted price
+                return ($this->orderItemOriginalPrice[$key] - ($this->orderItemComboDiscount[$key] ?? 0)) / ($this->orderItemQty[$key] ?? 1);
+            }
+            
             // Set price context before using price
             if ($this->orderTypeId) {
                 $this->orderItemList[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());

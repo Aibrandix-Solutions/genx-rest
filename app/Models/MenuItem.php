@@ -195,6 +195,13 @@ class MenuItem extends BaseModel
         return $this->belongsToMany(Tax::class, 'menu_item_tax', 'menu_item_id', 'tax_id');
     }
 
+    public function comboPacks(): BelongsToMany
+    {
+        return $this->belongsToMany(ComboPack::class, 'combo_pack_items', 'menu_item_id', 'combo_pack_id')
+            ->withPivot('quantity', 'menu_item_variation_id', 'sort_order')
+            ->withTimestamps();
+    }
+
     public function getTaxBreakdown($price, $selectedTaxIds = [], $isInclusive = null)
     {
         if (restaurant()->tax_mode !== 'item' || !$price) {

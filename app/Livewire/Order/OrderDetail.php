@@ -855,9 +855,18 @@ class OrderDetail extends Component
             return $basePrice + $modifierPrice;
         }
 
-        // For existing order items (when viewing order details), calculate from the order item itself
+        // For existing order items (when viewing order details), use the saved price from database
         if ($this->order && isset($this->order->items[$key])) {
             $orderItem = $this->order->items[$key];
+            
+            // For combo items, use the saved price (which is the discounted price)
+            // The price field in order_items already contains the final price after combo discount
+            if ($orderItem->is_combo_item) {
+                // Return the price per unit (price field contains the discounted price per unit)
+                return $orderItem->price;
+            }
+            
+            // For non-combo items, check if we need to calculate with tax
             $basePrice = !is_null($orderItem->menuItemVariation) ? $orderItem->menuItemVariation->price : $orderItem->menuItem->price;
             $modifierPrice = $orderItem->modifierOptions->sum('price');
 

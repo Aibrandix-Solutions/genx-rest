@@ -18,6 +18,10 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+/storage/framework/sessions/*
+/storage/framework/cache/*
+/storage/framework/views/*
+/storage/logs/*
 
 public/user-uploads/public/hot
 
