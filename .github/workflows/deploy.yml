@@ -173,10 +173,8 @@ jobs:
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
-            # Clear & rebuild caches
-            php artisan config:clear || true
-            php artisan route:clear || true
-            php artisan view:clear  || true
+            # Clear & rebuild caches (ensures Livewire routes are registered)
+            php artisan optimize:clear || true
             # php artisan optimize || true
 
             # Run migrations (optional, uncomment if needed)
