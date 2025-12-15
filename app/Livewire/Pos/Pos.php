@@ -1281,7 +1281,17 @@ class Pos extends Component
 
         // Broadcast customer display update if Pusher is enabled
         if (pusherSettings()->is_enabled_pusher_broadcast) {
-            broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
+            try {
+                broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
+            } catch (\Exception $e) {
+                // Log the error but don't break the request
+                // Common causes: network timeout, SSL issues, Pusher API down
+                \Log::warning('Pusher broadcast failed for CustomerDisplayUpdated', [
+                    'error' => $e->getMessage(),
+                    'user_id' => $userId,
+                    'exception_class' => get_class($e),
+                ]);
+            }
         }
 
         // Optionally, still dispatch browser event

@@ -669,11 +669,11 @@ class CreateDatabaseBackup extends Command
         if (PHP_OS_FAMILY === 'Windows') {
             $output = [];
             $returnCode = 0;
-            exec('where mysqldump.exe 2>nul', $output, $returnCode);
+            \exec('where mysqldump.exe 2>nul', $output, $returnCode);
         } else {
             $output = [];
             $returnCode = 0;
-            exec('which mysqldump 2>/dev/null', $output, $returnCode);
+            \exec('which mysqldump 2>/dev/null', $output, $returnCode);
         }
 
         if ($returnCode === 0 && !empty($output)) {
@@ -721,7 +721,7 @@ class CreateDatabaseBackup extends Command
         $output = [];
         $returnCode = 0;
 
-        exec("which {$command} 2>/dev/null", $output, $returnCode);
+        \exec("which {$command} 2>/dev/null", $output, $returnCode);
 
         return $returnCode === 0 && !empty($output);
     }
@@ -778,7 +778,12 @@ class CreateDatabaseBackup extends Command
 
         $this->info("Executing command: " . str_replace($this->getPasswordFromCommand($command), '***HIDDEN***', $command));
 
-        exec($command . ' 2>&1', $output, $returnCode);
+        // Check if exec() is available (may be disabled in shared hosting)
+        if (!function_exists('\exec')) {
+            throw new \Exception("exec() function is disabled on this server. Please contact your hosting provider to enable it, or use an alternative backup method.");
+        }
+
+        \exec($command . ' 2>&1', $output, $returnCode);
 
         if ($returnCode !== 0) {
             $errorOutput = implode("\n", $output);
