@@ -401,6 +401,8 @@ return [
         'Order Served' => 'Order Served',
         'Delivered' => 'Delivered',
         'moveTo' => 'Move to',
+        'readyForPickup' => 'Order is Ready for Pickup',
+        'foodIsReady' => 'Food is Ready',
         'info_placed' => 'Order Placed',
         'info_confirmed' => 'Order Confirmed',
         'info_preparing' => 'Order Preparing',

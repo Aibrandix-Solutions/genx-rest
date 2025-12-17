@@ -35,13 +35,37 @@ class KotCard extends Component
 
     public function changeKotStatus($status)
     {
-        Kot::where('id', $this->kot->id)->update([
-            'status' => $status
-        ]);
+        $kot = Kot::with('order')->find($this->kot->id);
+        
+        if (!$kot) {
+            return;
+        }
 
-        $kotItem = Kot::find($this->kot->id);
-        $kotItem->status = $status;
-        $kotItem->save();
+        $kot->status = $status;
+        $kot->save();
+
+        // Sync Order status based on KOT status
+        $order = $kot->order;
+        if ($order) {
+            if ($status === 'in_kitchen' && in_array($order->order_status?->value, ['placed', 'confirmed'])) {
+                $order->order_status = \App\Enums\OrderStatus::PREPARING;
+                $order->save();
+            } elseif ($status === 'food_ready' && $order->order_status?->value === 'preparing') {
+                $order->order_status = \App\Enums\OrderStatus::READY_FOR_PICKUP;
+                $order->save();
+            } elseif ($status === 'served') {
+                // Only mark served if ALL KOTs are served
+                $allServed = $order->kot()
+                    ->where('status', '!=', 'served')
+                    ->where('status', '!=', 'cancelled')
+                    ->doesntExist();
+                    
+                if ($allServed && $order->order_status?->value !== 'served') {
+                    $order->order_status = \App\Enums\OrderStatus::SERVED;
+                    $order->save();
+                }
+            }
+        }
 
         if ($status == 'food_ready') {
             KotItem::where('kot_id', $this->kot->id)->update([
@@ -56,6 +80,7 @@ class KotCard extends Component
         }
 
         $this->dispatch('refreshKots');
+        $this->dispatch('refreshOrders');
     }
 
     public function changeKotItemStatus($itemId, $status)
@@ -72,10 +97,14 @@ class KotCard extends Component
             $query->where('status', 'pending')->orWhere('status', null);
         })->count();
 
+        $previousKotStatus = $this->kot->status;
+        $newKotStatus = null;
+
         if ($totalItems > 0 && $pendingItems === $totalItems) {
             // All items are pending, set KOT status to 'pending_confirmation'
             $this->kot->status = 'pending_confirmation';
             $this->kot->save();
+            $newKotStatus = 'pending_confirmation';
         } else {
             // Check if all items are now 'cooking'
             $cookingItems = KotItem::where('kot_id', $this->kot->id)->where('status', 'cooking')->count();
@@ -84,6 +113,7 @@ class KotCard extends Component
                 // All items are cooking, set KOT status to 'in_kitchen'
                 $this->kot->status = 'in_kitchen';
                 $this->kot->save();
+                $newKotStatus = 'in_kitchen';
             } else {
                 // Check if all items are ready, set KOT to food_ready
                 $readyItems = KotItem::where('kot_id', $this->kot->id)->where('status', 'ready')->count();
@@ -91,11 +121,27 @@ class KotCard extends Component
                 if ($totalItems > 0 && $readyItems === $totalItems) {
                     $this->kot->status = 'food_ready';
                     $this->kot->save();
+                    $newKotStatus = 'food_ready';
+                }
+            }
+        }
+
+        // Sync Order status if KOT status changed
+        if ($newKotStatus && $newKotStatus !== $previousKotStatus) {
+            $order = $this->kot->order;
+            if ($order) {
+                if ($newKotStatus === 'in_kitchen' && in_array($order->order_status?->value, ['placed', 'confirmed'])) {
+                    $order->order_status = \App\Enums\OrderStatus::PREPARING;
+                    $order->save();
+                } elseif ($newKotStatus === 'food_ready' && $order->order_status?->value === 'preparing') {
+                    $order->order_status = \App\Enums\OrderStatus::READY_FOR_PICKUP;
+                    $order->save();
                 }
             }
         }
 
         $this->dispatch('refreshKots');
+        $this->dispatch('refreshOrders');
     }
 
     public function deleteKot($id)

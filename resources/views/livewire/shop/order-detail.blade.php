@@ -200,7 +200,7 @@
             <!-- Order Amount -->
             <div class="flex items-center gap-1 md:flex-col md:items-end">
                 <div class="text-lg font-bold text-gray-900 md:text-xl dark:text-white">
-                    {{ currency_format($order->total, $restaurant->currency_id) }}
+                    {{ currency_format($order->total, $restaurant->currency_id ?? ($order->branch->restaurant->currency_id ?? 1)) }}
                 </div>
                 <div class="text-xs text-gray-500 dark:text-gray-400 sm:ms-2">
                     @lang('modules.order.includeTax')
@@ -551,12 +551,13 @@
 
             @php
                 $isSubdomainEnabled = function_exists('module_enabled') && module_enabled('Subdomain');
+                $restaurantHash = $restaurant->hash ?? ($order->branch->restaurant->hash ?? null);
                 if ($order->order_type === 'delivery' || in_array($order->status, ['paid', 'pending_verification', 'canceled', 'delivered'])) {
-                    $newOrderLink = $order->table_id
+                    $newOrderLink = $order->table_id && $order->table?->hash
                         ? route('table_order', [$order->table->hash])
-                        : ($isSubdomainEnabled ? url('/') : route('shop_restaurant', ['hash' => $restaurant->hash]));
+                        : ($isSubdomainEnabled ? url('/') : ($restaurantHash ? route('shop_restaurant', ['hash' => $restaurantHash]) : url('/')));
                 } else {
-                    $newOrderLink = ($isSubdomainEnabled ? url('/') : route('shop_restaurant', ['hash' => $restaurant->hash])) . '?current_order=' . $order->id;
+                    $newOrderLink = ($isSubdomainEnabled ? url('/') : ($restaurantHash ? route('shop_restaurant', ['hash' => $restaurantHash]) : url('/'))) . '?current_order=' . $order->id;
                 }
             @endphp
 
@@ -617,13 +618,13 @@
                                 <!-- Payment Amount -->
                                 <div class="text-right">
                                     <span class="text-lg font-semibold text-gray-900 dark:text-white">
-                                        {{ currency_format($payment->amount, $restaurant->currency_id) }}
+                                        {{ currency_format($payment->amount, $restaurant->currency_id ?? ($order->branch->restaurant->currency_id ?? 1)) }}
                                     </span>
                                     @if($payment->balance > 0)
                                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                                             @lang('modules.order.balanceReturn'):
                                             <span class="font-medium">
-                                                {{ currency_format($payment->balance, $restaurant->currency_id) }}
+                                                {{ currency_format($payment->balance, $restaurant->currency_id ?? ($order->branch->restaurant->currency_id ?? 1)) }}
                                             </span>
                                         </p>
                                     @endif

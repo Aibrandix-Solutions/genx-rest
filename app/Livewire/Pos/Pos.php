@@ -397,7 +397,7 @@ class Pos extends Component
         // Handle new orders or table orders without active orders
         if ((!$this->orderID && !$this->tableOrderID) || ($this->tableOrderID && !$this->tableOrder->activeOrder)) {
             $this->extraCharges = $mainExtraCharges;
-            $this->orderStatus = 'preparing';
+            $this->orderStatus = 'confirmed';
 
             // Set default delivery fee for delivery orders
             if ($this->orderTypeSlug === 'delivery') {
@@ -1515,7 +1515,7 @@ class Pos extends Component
                 'delivery_fee' => ($this->orderType == 'delivery' ? $this->deliveryFee : 0),
                 'delivery_app_id' => ($this->orderType == 'delivery' ? $this->normalizeDeliveryAppId() : null),
                 'status' => $status,
-                'order_status' => $this->orderStatus ?? 'preparing',
+                'order_status' => $this->orderStatus ?? 'confirmed',
                 'placed_via' => 'pos',
                 'tax_mode' => $this->taxMode,
                 'reservation_id' => $this->isSameCustomer ? $this->reservationId : null,
@@ -1555,7 +1555,7 @@ class Pos extends Component
                 'delivery_fee' => ($this->orderType == 'delivery' ? $this->deliveryFee : 0),
                 'delivery_app_id' => ($this->orderType == 'delivery' ? $this->normalizeDeliveryAppId() : null),
                 'status' => $status,
-                'order_status' => $this->orderStatus ?? 'preparing'
+                'order_status' => $this->orderStatus ?? 'confirmed'
             ]);
 
             $order->items()->delete();

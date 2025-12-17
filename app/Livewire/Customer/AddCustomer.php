@@ -43,8 +43,8 @@ class AddCustomer extends Component
         $this->allPhoneCodes = collect(Country::pluck('phonecode')->unique()->filter()->values());
         $this->filteredPhoneCodes = $this->allPhoneCodes;
         
-        // Set default phone code from restaurant
-        $this->customerPhoneCode = restaurant()->phone_code ?? $this->allPhoneCodes->first();
+        // Set default phone code from restaurant, or use system default
+        $this->customerPhoneCode = restaurant()->phone_code ?? default_phone_code();
     }
     public function updatedPhoneCodeIsOpen($value)
     {
@@ -285,7 +285,7 @@ class AddCustomer extends Component
     {
         $this->customerName = '';
         $this->customerPhone = '';
-        $this->customerPhoneCode = restaurant()->phone_code ?? $this->allPhoneCodes->first();
+        $this->customerPhoneCode = restaurant()->phone_code ?? default_phone_code();
         $this->customerEmail = '';
         $this->customerAddress = '';
         $this->searchQuery = '';

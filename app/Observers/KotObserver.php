@@ -11,17 +11,13 @@ class KotObserver
 {
     public function creating(Kot $kot)
     {
-        $kotSettings = KotSetting::first();
-
         if (branch() && $kot->branch_id == null) {
             $kot->branch_id = branch()->id;
         }
 
-        if ($kot->order?->order_status->value === 'placed' || $kotSettings->default_status == 'pending') {
-            $kot->status = 'pending_confirmation';
-        } elseif ($kotSettings->default_status == 'cooking') {
-            $kot->status = 'in_kitchen';
-        }
+        // All KOTs start as pending_confirmation
+        // Kitchen staff must manually click "Start Cooking" to progress
+        $kot->status = 'pending_confirmation';
     }
 
     public function saved(Kot $kot)
@@ -39,10 +35,14 @@ class KotObserver
             return;
         }
 
+        // Note: 'in_kitchen' and 'food_ready' syncs are now handled by KotCard.php
+        // when kitchen staff manually changes status. This prevents auto-sync on KOT creation.
+        
         // Only mark the order as served when every KOT linked to it is served
         if ($kot->status === 'served') {
             $allServed = $order->kot()
                 ->where('status', '!=', 'served')
+                ->where('status', '!=', 'cancelled')
                 ->doesntExist();
 
             if ($allServed && $order->order_status?->value !== OrderStatus::SERVED->value) {

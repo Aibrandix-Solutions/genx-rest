@@ -52,6 +52,9 @@ class Cart extends Component
     use LivewireAlert;
     use PrinterSetting;
 
+    public $isSameCustomer = false;
+    public $reservationCustomer = null;
+    public $reservationId = null;
     public $search;
     public $tableID;
     public $filterCategories;
@@ -818,7 +821,8 @@ class Cart extends Component
                 'branch_id' => $this->shopBranch->id,
                 'table_id' => $table->id ?? null,
                 'date_time' => now(),
-                'customer_id' => $this->customer->id ?? null,
+                'customer_id' => $this->isSameCustomer ? $this->reservationCustomer->id : ($this->customer->id ?? null),
+                'reservation_id' => $this->isSameCustomer ? $this->reservationId : null,
                 'sub_total' => $this->subTotal,
                 'total' => $this->total,
                 'order_type' => $this->orderTypeSlug ?? $this->orderType,

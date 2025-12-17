@@ -34,7 +34,7 @@ class EditCustomer extends Component
         
         // Set default phone code if customer doesn't have one
         if (empty($this->customerPhoneCode)) {
-            $this->customerPhoneCode = restaurant()->phone_code ?? $this->allPhoneCodes->first();
+            $this->customerPhoneCode = restaurant()->phone_code ?? default_phone_code();
         }
     }
 

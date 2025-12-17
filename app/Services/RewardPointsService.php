@@ -18,7 +18,19 @@ class RewardPointsService
      */
     public function calculatePointsEarned(Order $order): int
     {
-        $settings = RewardSetting::getForRestaurant($order->restaurant_id);
+        $restaurantId = $order->restaurant_id;
+        
+        if (is_null($restaurantId) && $order->branch_id) {
+             // Fallback to branch's restaurant_id if direct restaurant_id is null
+             $restaurantId = $order->branch->restaurant_id;
+        }
+
+        // If still null, return 0 as we can't find settings
+        if (is_null($restaurantId)) {
+            return 0;
+        }
+
+        $settings = RewardSetting::getForRestaurant($restaurantId);
 
         if (!$settings->enable_reward_point) {
             return 0;
@@ -49,7 +61,17 @@ class RewardPointsService
             return null;
         }
 
-        $settings = RewardSetting::getForRestaurant($order->restaurant_id);
+        $restaurantId = $order->restaurant_id;
+        
+        if (is_null($restaurantId) && $order->branch_id) {
+             $restaurantId = $order->branch->restaurant_id;
+        }
+
+        if (is_null($restaurantId)) {
+            return null;
+        }
+
+        $settings = RewardSetting::getForRestaurant($restaurantId);
 
         if (!$settings->enable_reward_point) {
             return null;
@@ -71,9 +93,9 @@ class RewardPointsService
         }
 
         try {
-            DB::transaction(function () use ($order, $points, $settings) {
+            DB::transaction(function () use ($order, $points, $settings, $restaurantId) {
                 // Get or create balance
-                $balance = RewardBalance::getForCustomer($order->customer_id, $order->restaurant_id);
+                $balance = RewardBalance::getForCustomer($order->customer_id, $restaurantId);
 
                 // Calculate expiry date
                 $expiresAt = null;
@@ -89,7 +111,7 @@ class RewardPointsService
                 // Create transaction
                 $transaction = RewardTransaction::create([
                     'customer_id' => $order->customer_id,
-                    'restaurant_id' => $order->restaurant_id,
+                    'restaurant_id' => $restaurantId,
                     'order_id' => $order->id,
                     'type' => 'earn',
                     'points' => $points,

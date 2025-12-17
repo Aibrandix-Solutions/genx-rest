@@ -142,8 +142,8 @@ class Tables extends Component
         try {
             // First, clean up expired locks and get the result
             \App\Models\Table::cleanupExpiredLocks();
-            // Then refresh the data
-            $this->refreshData();
+            // Then refresh the component
+            $this->dispatch('$refresh');
 
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('SetTable: Error in refreshDataWithCleanup', [

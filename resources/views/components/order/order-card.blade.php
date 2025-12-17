@@ -149,7 +149,16 @@
                     ]) viewBox="0 0 16 16">
                     <circle cx="8" cy="8" r="8" />
                 </svg>
-                @lang('modules.order.info_' . $order->order_status->value)
+                @if($order->order_status->value === 'ready_for_pickup')
+                    @php $baseOrderType = $order->orderType?->type ?? $order->order_type; @endphp
+                    @if($baseOrderType === 'pickup')
+                        @lang('modules.order.readyForPickup')
+                    @else
+                        @lang('modules.order.foodIsReady')
+                    @endif
+                @else
+                    @lang('modules.order.info_' . $order->order_status->value)
+                @endif
             </div>
 
             @if ($order->status == 'kot' && user_can('Create Order'))

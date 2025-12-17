@@ -138,10 +138,23 @@
         @else
             <div class="p-4 mb-4 bg-white rounded-lg shadow-sm dark:bg-gray-800">
                 @php
-                    $statuses = match ($orderType) {
-                        'delivery' => ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'],
+                    // Get the actual order type (dine_in, pickup, delivery) from the OrderType model
+                    $baseOrderType = $orderDetail->orderType?->type ?? $orderType;
+
+                    $statuses = match ($baseOrderType) {
+                        'delivery' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered'],
                         'pickup' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'delivered'],
-                        default => ['placed', 'confirmed', 'preparing', 'served'],
+                        default => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'served'],
+                    };
+
+                    // Custom label for ready_for_pickup based on order type
+                    $getStatusLabel = function($status) use ($baseOrderType) {
+                        if ($status === 'ready_for_pickup') {
+                            return $baseOrderType === 'pickup' 
+                                ? __('modules.order.readyForPickup') 
+                                : __('modules.order.foodIsReady');
+                        }
+                        return __('modules.order.' . \App\Enums\OrderStatus::from($status)->label());
                     };
 
                     $currentIndex = array_search($orderStatus->value, $statuses);
@@ -164,7 +177,7 @@
                                 $orderStatus->value !== 'served' &&
                                 $orderStatus->value !== 'placed',
                         ])>
-                            {{ __('modules.order.' . App\Enums\OrderStatus::from($orderStatus->value)->label()) }}
+                            {{ $getStatusLabel($orderStatus->value) }}
                         </span>
                     </div>
 
@@ -201,8 +214,15 @@
                                                 </svg>
                                             @break
 
-                                            @case('out_for_delivery')
                                             @case('ready_for_pickup')
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                                    viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        stroke-width="2" d="M12 8c-2.21 0-4 1.79-4 4h8c0-2.21-1.79-4-4-4zM4 16h16v2H4v-2z" />
+                                                </svg>
+                                            @break
+
+                                            @case('out_for_delivery')
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor"
                                                     viewBox="0 0 24 24">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -221,7 +241,7 @@
                                         @endswitch
                                     </div>
                                     <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                        {{ __('modules.order.' . App\Enums\OrderStatus::from($status)->label()) }}
+                                        {{ $getStatusLabel($status) }}
                                     </span>
                                 </div>
                             @endforeach
@@ -245,7 +265,7 @@
                                 <x-secondary-button class="inline-flex items-center gap-2"
                                     wire:click="$set('orderStatus', '{{ $statuses[$nextIndex] }}')">
                                     <span>{{ __('modules.order.moveTo') }}
-                                        {{ __('modules.order.' . App\Enums\OrderStatus::from($statuses[$nextIndex])->label()) }}</span>
+                                        {{ $getStatusLabel($statuses[$nextIndex]) }}</span>
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M13 7l5 5m0 0l-5 5m5-5H6" />

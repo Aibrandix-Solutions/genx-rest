@@ -52,7 +52,9 @@ class AddRestaurant extends Component
 
         $defaultCountry = Country::where('countries_code', $ipCountry)->first();
         if (!$defaultCountry) {
-            $defaultCountry = Country::first();
+            // Fallback to system default country code (+94) if IP detection fails
+            $defaultPhoneCode = default_phone_code();
+            $defaultCountry = Country::where('phonecode', $defaultPhoneCode)->first() ?? Country::first();
         }
         $this->country = $defaultCountry->id;
         $this->phoneCode = user()?->phone_code ?? $defaultCountry->phonecode;
