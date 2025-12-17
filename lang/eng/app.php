@@ -278,4 +278,6 @@ return array(
     'via_shop' => 'Shop',
     'via_kiosk' => 'Kiosk',
     'toggleDarkMode' => 'Toggle Dark Mode',
+    'urgent' => 'URGENT',
+    'attention' => 'Attention',
 );
