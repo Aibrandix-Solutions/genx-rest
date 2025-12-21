@@ -15,7 +15,13 @@
                                 @lang('inventory::modules.inventoryItem.unit')
                             </th>
                             <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                @lang('inventory::modules.inventoryItem.purchasePrice')
+                            </th>
+                            <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                                 @lang('inventory::modules.inventoryItem.thresholdQuantity')
+                            </th>
+                            <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                @lang('inventory::modules.inventoryItem.preferredSupplier')
                             </th>
                             <th scope="col" class="p-4 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-right">
                                 @lang('app.action')
@@ -35,7 +41,13 @@
                                     {{ $item->unit->name }} ({{ $item->unit->symbol }})
                                 </td>
                                 <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    {{ currency_format($item->unit_purchase_price, restaurant()->currency_id) }}
+                                </td>
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ $item->threshold_quantity }}
+                                </td>
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    {{ $item->supplier->name ?? '--' }}
                                 </td>
                                 <td class="p-4 space-x-2 whitespace-nowrap text-right rtl:space-x-reverse">
                                     @if(user_can('Update Inventory Item'))

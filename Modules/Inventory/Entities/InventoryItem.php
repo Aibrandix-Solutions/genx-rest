@@ -84,4 +84,9 @@ class InventoryItem extends Model
     {
         return $this->belongsToMany(MenuItem::class, 'recipes', 'inventory_item_id', 'menu_item_id');
     }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class, 'preferred_supplier_id')->withoutGlobalScopes();
+    }
 }

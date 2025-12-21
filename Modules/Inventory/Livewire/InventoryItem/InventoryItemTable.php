@@ -54,7 +54,7 @@ class InventoryItemTable extends Component
 
     public function render()
     {
-        $inventoryItems = InventoryItem::query()
+        $inventoryItems = InventoryItem::with(['category', 'unit', 'supplier'])
             ->when($this->search, function ($query) {
                 $query->where('name', 'like', '%' . $this->search . '%');
             })

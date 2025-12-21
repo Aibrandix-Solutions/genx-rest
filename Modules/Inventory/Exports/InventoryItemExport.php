@@ -35,10 +35,10 @@ class InventoryItemExport implements WithMapping, FromCollection, WithHeadings, 
         return [
             $item->name,
             $item->category->name ?? '--',
-            $item->unit->unit_name ?? '--',
+            $item->unit->name ?? '--',
             currency_format($item->unit_purchase_price, restaurant()->currency_id),
             $item->threshold_quantity,
-            $item->supplier->supplier_name ?? '--', // Assuming supplier relationship exists, if not I'll just skip or verify
+            $item->supplier->name ?? '--',
         ];
     }
 
@@ -61,7 +61,7 @@ class InventoryItemExport implements WithMapping, FromCollection, WithHeadings, 
 
     public function collection()
     {
-        return InventoryItem::with(['category', 'unit'])->get();
+        return InventoryItem::with(['category', 'unit', 'supplier'])->get();
     }
 
 }

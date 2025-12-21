@@ -151,6 +151,7 @@ class MenuItems extends Component
     }
 
 
+    #[On('exportMenuItems')]
     public function export()
     {
         return Excel::download(new MenuItemExport, 'menu-items.xlsx');
