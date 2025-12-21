@@ -25,10 +25,10 @@ class Addresses extends Component
     #[Rule('required|string')]
     public $address = '';
 
-    #[Rule('required|numeric')]
+    #[Rule('nullable|numeric')]
     public $lat = null;
 
-    #[Rule('required|numeric')]
+    #[Rule('nullable|numeric')]
     public $lng = null;
 
     public $confirmDeleteAddressModal = false;
