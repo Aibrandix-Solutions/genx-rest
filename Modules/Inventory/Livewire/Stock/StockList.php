@@ -8,6 +8,8 @@ use Livewire\Attributes\On;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryItemCategory;
 use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\StockExport;
 
 class StockList extends Component
 {
@@ -17,7 +19,7 @@ class StockList extends Component
     public $search = '';
     public $category = '';
     public $stockStatus = '';
-    public $perPage = 10;
+    public $perPage = 20;
 
     protected $queryString = [
         'search' => ['except' => ''],
@@ -121,6 +123,11 @@ class StockList extends Component
     {
         $this->reset(['search', 'category', 'stockStatus']);
         $this->resetPage();
+    }
+
+    public function export()
+    {
+        return Excel::download(new StockExport($this->search, $this->category, $this->stockStatus), 'stock-inventory.xlsx');
     }
 
     public function render()

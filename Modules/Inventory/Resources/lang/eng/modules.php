@@ -69,6 +69,7 @@ return [
         'preferredSupplierHelp' => 'Required to create a purchase order when the stock level is below the threshold.',
         'reorderQuantity' => 'Auto Reorder Quantity',
         'reorderQuantityPlaceholder' => 'Enter reorder quantity',
+        'purchasePrice' => 'Purchase Price',
     ],
     'itemCategory' => [
         'addItemCategory' => 'Add Item Category',
