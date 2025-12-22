@@ -59,6 +59,29 @@
                                             <label for="clone_modifiers_groups"
                                                 class="ml-2 text-sm text-gray-700 dark:text-gray-200">@lang('modules.modifier.modifierGroup')</label>
                                         </div>
+                                        <div>
+                                            <x-checkbox id="clone_inventory_items" wire:model="cloneInventoryItems" />
+                                            <label for="clone_inventory_items"
+                                                class="ml-2 text-sm text-gray-700 dark:text-gray-200">Inventory Items (includes Cats. & Units)</label>
+                                        </div>
+                                        <x-input-error for="cloneInventoryItems" class="mt-2" />
+
+                                        <div>
+                                            <x-checkbox id="clone_recipes" wire:model="cloneRecipes" wire:change="handleCloneRecipesChange" />
+                                            <label for="clone_recipes"
+                                                class="ml-2 text-sm text-gray-700 dark:text-gray-200">Recipes</label>
+                                        </div>
+                                        <x-input-error for="cloneRecipes" class="mt-2" />
+
+                                        <div>
+                                            <x-checkbox id="clone_payment_accounts" wire:model="clonePaymentAccounts" />
+                                            <label for="clone_payment_accounts"
+                                                class="ml-2 text-sm text-gray-700 dark:text-gray-200">Payment Accounts</label>
+                                        </div>
+
+                                        <div class="pt-2 text-xs text-gray-500">
+                                            * Suppliers and Customers are shared globally.
+                                        </div>
                                     </div>
                                 </div>
                                 <!-- Clone Settings -->

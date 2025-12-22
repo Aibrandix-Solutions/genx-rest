@@ -33,6 +33,19 @@ class Branch extends BaseModel
         'unique_hash',
         'lat',
         'lng',
+        'cloned_branch_name',
+        'cloned_branch_id',
+        'is_menu_clone',
+        'is_item_categories_clone',
+        'is_menu_items_clone',
+        'is_item_modifiers_clone',
+        'is_modifiers_groups_clone',
+        'is_clone_reservation_settings',
+        'is_clone_delivery_settings',
+        'is_clone_kot_setting',
+        'is_inventory_items_clone',
+        'is_recipes_clone',
+        'is_payment_accounts_clone',
     ];
 
     protected $casts = [
