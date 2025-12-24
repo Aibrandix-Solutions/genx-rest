@@ -11,7 +11,12 @@
     <!-- Content Card -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 md:p-6">
         <!-- Action Button -->
-        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <div class="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4 mb-6">
+            <div class="flex gap-2">
+                <x-secondary-button wire:click="export" wire:loading.attr="disabled">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    {{ __('app.export') }}
+                </x-secondary-button>
             @if(user_can('Create Stock Transfer'))
                 <x-button
                     wire:click="$set('showModal', true)"
@@ -22,12 +27,13 @@
                     {{ __('inventory::modules.transfers.create_transfer') }}
                 </x-button>
             @endif
+            </div>
         </div>
 
         <!-- Filters -->
     <div class="bg-gray-50 dark:bg-gray-900 rounded-lg shadow p-6 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div>
+        <div class="flex flex-col lg:flex-row flex-wrap gap-4 items-end">
+            <div class="flex-1 min-w-[200px]">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ __('inventory::modules.transfers.search') }}
                 </label>
@@ -36,7 +42,7 @@
                        placeholder="{{ __('inventory::modules.transfers.search_placeholder') }}">
             </div>
             
-            <div>
+            <div class="w-full sm:w-auto">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ __('inventory::modules.transfers.filter_type') }}
                 </label>
@@ -47,7 +53,7 @@
                 </select>
             </div>
             
-            <div>
+            <div class="w-full sm:w-auto">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ __('inventory::modules.transfers.status') }}
                 </label>
@@ -59,7 +65,68 @@
                     <option value="cancelled">{{ __('inventory::modules.transfers.cancelled') }}</option>
                 </select>
             </div>
-        </div>
+
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ __('app.date') }}
+                </label>
+                <div class="flex items-center gap-2">
+                     <x-input type="date" wire:model.live="startDate" class="block w-full sm:w-auto" />
+                     <span class="text-gray-500 font-medium">@lang('app.to')</span>
+                     <x-input type="date" wire:model.live="endDate" class="block w-full sm:w-auto" />
+                </div>
+            </div>
+
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ __('app.perPage') }}
+                </label>
+                <x-dropdown align="left">
+                    <x-slot name="trigger">
+                        <span class="inline-flex rounded-md">
+                            <button type="button"
+                                class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-500 hover:text-gray-700 focus:outline-none transition ease-in-out duration-150 bg-white dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                                @lang('app.perPage')
+                                @if ($perPage != 20)
+                                <div class="inline-flex items-center justify-center w-5 h-5 text-xs font-medium text-white bg-red-500 rounded-md dark:border-gray-900 ml-1">{{ $perPage }}</div>
+                                @endif
+                                <svg class="-mr-1 ml-1.5 w-5 h-5" fill="currentColor" viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path clip-rule="evenodd" fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                                </svg>
+                            </button>
+                        </span>
+                    </x-slot>
+
+                    <x-slot name="content">
+                        <div class="block px-4 py-2 text-sm font-medium text-gray-500">
+                            <h6 class="text-sm font-medium text-gray-900 dark:text-white">
+                                @lang('app.perPage')
+                            </h6>
+                        </div>
+                        
+                        @foreach ([20, 50, 100, 200] as $items)
+                        <x-dropdown-link class="flex items-center">
+                            <input id="per-page-{{ $items }}" type="radio" value="{{ $items }}" wire:model.live='perPage'
+                                class="w-4 h-4 bg-gray-100 border-gray-300 rounded text-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 dark:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500" />
+                            <label for="per-page-{{ $items }}" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {{ $items }} @lang('app.items')
+                            </label>
+                        </x-dropdown-link>
+                        @endforeach
+                    </x-slot>
+                </x-dropdown>
+            </div>
+
+            @if($search || $startDate || $endDate || $filterType !== 'all' || $statusFilter !== 'all')
+                <button
+                    wire:click="clearFilters"
+                    class="mb-1 inline-flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                    {{ __('inventory::modules.stock.clearFilters') }}
+                </button>
+            @endif
     </div>
 
     <!-- Transfers Table -->

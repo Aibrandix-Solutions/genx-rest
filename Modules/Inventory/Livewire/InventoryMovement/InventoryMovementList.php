@@ -20,6 +20,9 @@ class InventoryMovementList extends Component
     public $filterType = '';
     public $category = '';
     public $dateRange = 'month';
+    public $startDate = null;
+    public $endDate = null;
+    public $perPage = 20;
     public $sortField = 'created_at';
     public $sortDirection = 'desc';
     public $showAddStockEntry = false;
@@ -101,8 +104,13 @@ class InventoryMovementList extends Component
         $dateFilter = $this->getDateRangeFilter();
 
         $query = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch'])
-            ->where('branch_id', branch()->id)
-            ->where('created_at', '>=', $dateFilter);
+            ->where('branch_id', branch()->id);
+
+        if ($this->startDate && $this->endDate) {
+            $query->whereBetween('created_at', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+        } else {
+             $query->where('created_at', '>=', $dateFilter);
+        }
 
         if (!empty($this->search)) {
             $search = '%' . $this->search . '%';
@@ -148,7 +156,7 @@ class InventoryMovementList extends Component
         $query = $this->getMovementsQuery();
         $stats = $this->calculateStats($query);
         
-        $movements = $query->paginate(10);
+        $movements = $query->paginate($this->perPage);
         
         // Fetch categories for the current branch
         $categories = InventoryItemCategory::where('branch_id', branch()->id)->get();
@@ -181,8 +189,13 @@ class InventoryMovementList extends Component
 
     public function clearFilters()
     {
-        $this->reset(['search', 'filterType', 'category', 'dateRange']);
+        $this->reset(['search', 'filterType', 'category', 'dateRange', 'startDate', 'endDate']);
         $this->dateRange = 'month'; // Reset to default value
         $this->resetPage();
+    }
+
+    public function export()
+    {
+        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\InventoryMovementExport($this->search, $this->startDate, $this->endDate, $this->filterType, $this->category), 'inventory-movements.xlsx');
     }
 }

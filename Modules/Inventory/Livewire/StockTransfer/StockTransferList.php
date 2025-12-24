@@ -20,6 +20,9 @@ class StockTransferList extends Component
     public $filterType = 'all'; // all, outgoing, incoming
     public $statusFilter = 'all'; // all, pending, in_transit, completed, cancelled
     public $search = '';
+    public $startDate = null;
+    public $endDate = null;
+    public $perPage = 20;
     public $selectedTransfer = null;
     public $showViewModal = false;
     public $showReceiveModal = false;
@@ -408,12 +411,27 @@ class StockTransferList extends Component
             });
         }
 
+        if ($this->startDate && $this->endDate) {
+            $query->whereBetween('created_at', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+        }
+
         return $query->orderBy('created_at', 'desc');
+    }
+
+    public function clearFilters()
+    {
+        $this->reset(['search', 'filterType', 'statusFilter', 'startDate', 'endDate']);
+        $this->resetPage();
+    }
+
+    public function export()
+    {
+        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\StockTransferExport($this->search, $this->startDate, $this->endDate, $this->filterType, $this->statusFilter), 'stock-transfers.xlsx');
     }
 
     public function render()
     {
-        $transfers = $this->getTransfersQuery()->paginate(10);
+        $transfers = $this->getTransfersQuery()->paginate($this->perPage);
 
         return view('inventory::livewire.stock-transfer.stock-transfer-list', [
             'transfers' => $transfers,

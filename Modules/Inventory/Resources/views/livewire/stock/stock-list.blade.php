@@ -120,6 +120,11 @@
             </div>
         </div>
         <div class="flex flex-col sm:flex-row items-center gap-4">
+            <div class="flex items-center gap-2">
+                 <x-input type="date" wire:model.live="startDate" class="block w-full sm:w-auto" />
+                 <span class="text-gray-500 font-medium">@lang('app.to')</span>
+                 <x-input type="date" wire:model.live="endDate" class="block w-full sm:w-auto" />
+            </div>
             <div>
                 <x-dropdown align="left">
                     <x-slot name="trigger">
@@ -170,7 +175,7 @@
                 <option value="out_of_stock">@lang('inventory::modules.stock.outOfStock')</option>
             </select>
 
-            @if($search || $category || $stockStatus)
+            @if($search || $category || $stockStatus || $startDate || $endDate)
                 <button
                     wire:click="clearFilters"
                     class="inline-flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"

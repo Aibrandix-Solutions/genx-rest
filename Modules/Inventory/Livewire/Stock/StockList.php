@@ -17,6 +17,8 @@ class StockList extends Component
 
     public $showAddStockEntry = false;
     public $search = '';
+    public $startDate = null;
+    public $endDate = null;
     public $category = '';
     public $stockStatus = '';
     public $perPage = 20;
@@ -78,6 +80,13 @@ class StockList extends Component
             ->leftJoin('inventory_stocks', function($join) {
                 $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id')
                     ->where('inventory_stocks.branch_id', '=', branch()->id);
+
+                if ($this->startDate && $this->endDate) {
+                    $join->whereBetween('inventory_stocks.created_at', [
+                        $this->startDate . ' 00:00:00',
+                        $this->endDate . ' 23:59:59'
+                    ]);
+                }
             })
             ->groupBy('inventory_items.id');
 
@@ -121,13 +130,13 @@ class StockList extends Component
 
     public function clearFilters()
     {
-        $this->reset(['search', 'category', 'stockStatus']);
+        $this->reset(['search', 'category', 'stockStatus', 'startDate', 'endDate']);
         $this->resetPage();
     }
 
     public function export()
     {
-        return Excel::download(new StockExport($this->search, $this->category, $this->stockStatus), 'stock-inventory.xlsx');
+        return Excel::download(new StockExport($this->search, $this->category, $this->stockStatus, $this->startDate, $this->endDate), 'stock-inventory.xlsx');
     }
 
     public function render()

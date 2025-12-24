@@ -22,12 +22,16 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     private $search;
     private $category;
     private $stockStatus;
+    private $startDate;
+    private $endDate;
 
-    public function __construct($search, $category, $stockStatus)
+    public function __construct($search, $category, $stockStatus, $startDate = null, $endDate = null)
     {
         $this->search = $search;
         $this->category = $category;
         $this->stockStatus = $stockStatus;
+        $this->startDate = $startDate;
+        $this->endDate = $endDate;
     }
 
     public function headings(): array
@@ -83,6 +87,13 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
              ->leftJoin('inventory_stocks', function($join) {
                  $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id')
                      ->where('inventory_stocks.branch_id', '=', branch()->id);
+                 
+                 if ($this->startDate && $this->endDate) {
+                    $join->whereBetween('inventory_stocks.created_at', [
+                        $this->startDate . ' 00:00:00',
+                        $this->endDate . ' 23:59:59'
+                    ]);
+                 }
              })
              ->groupBy('inventory_items.id');
  

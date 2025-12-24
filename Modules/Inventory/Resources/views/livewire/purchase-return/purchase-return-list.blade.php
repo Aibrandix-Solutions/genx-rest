@@ -1,8 +1,9 @@
 <div class="p-4">
     <!-- Filters -->
+    <!-- Filters -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-6">
-            <div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div class="md:col-span-1">
                 <x-input type="text" wire:model.live.debounce.300ms="search" 
                        class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                        placeholder="Search by reference, supplier, PO..." />
@@ -34,20 +35,41 @@
                 </x-select>
             </div>
             <div>
-                <x-secondary-button wire:click="clearFilters">
-                    Clear Filters
-                </x-secondary-button>
+                 <x-input type="date" wire:model.live="startDate" class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" placeholder="Start Date" />
+            </div>
+            <div>
+                 <x-input type="date" wire:model.live="endDate" class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" placeholder="End Date" />
+            </div>
+            <div>
+                 <x-select wire:model.live="perPage" class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                     <option value="10">10 per page</option>
+                     <option value="20">20 per page</option>
+                     <option value="50">50 per page</option>
+                     <option value="100">100 per page</option>
+                 </x-select>
+            </div>
+            <div class="flex items-center">
+                @if($search || $supplierId || $purchaseOrderId || $status || $startDate || $endDate)
+                    <button wire:click="clearFilters" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline">
+                        Clear Filters
+                    </button>
+                @endif
             </div>
         </div>
     </div>
 
-    @if(user_can('Create Purchase Return'))
-    <div class="mb-6 flex justify-end">
+    <div class="mb-6 flex justify-end gap-2">
+        <x-secondary-button wire:click="export" wire:loading.attr="disabled">
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            Export
+        </x-secondary-button>
+
+        @if(user_can('Create Purchase Return'))
         <x-button wire:click="$dispatch('showPurchaseReturnModal')">
             Create Purchase Return
         </x-button>
+        @endif
     </div>
-    @endif
 
     <!-- Purchase Returns Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">

@@ -49,13 +49,19 @@
 
     <!-- Filters -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div>
+        <div class="flex flex-col lg:flex-row flex-wrap gap-4 items-end">
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ trans('inventory::modules.purchaseOrder.search_placeholder') }}
+                </label>
                 <x-input type="text" wire:model.live.debounce.300ms="search" 
                        class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                        placeholder="{{ trans('inventory::modules.purchaseOrder.search_placeholder') }}" />
             </div>
-            <div>
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ trans('inventory::modules.purchaseOrder.supplier') }}
+                </label>
                 <x-select wire:model.live="supplierId" 
                         class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                     <option value="">{{ trans('inventory::modules.purchaseOrder.all_suppliers') }}</option>
@@ -64,7 +70,10 @@
                     @endforeach
                 </x-select>
             </div>
-            <div>
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ trans('inventory::modules.purchaseOrder.status_label') }}
+                </label>
                 <x-select wire:model.live="status" 
                         class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                     <option value="">{{ trans('inventory::modules.purchaseOrder.all_status') }}</option>
@@ -74,18 +83,74 @@
                 </x-select>
             </div>
 
-            <div>
-                <x-secondary-button wire:click="clearFilters">
-                    {{ trans('inventory::modules.purchaseOrder.clear_filters') }}
-                </x-secondary-button>
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ __('app.date') }}
+                </label>
+                <div class="flex items-center gap-2">
+                     <x-input type="date" wire:model.live="startDate" class="block w-full sm:w-auto" />
+                     <span class="text-gray-500 font-medium">@lang('app.to')</span>
+                     <x-input type="date" wire:model.live="endDate" class="block w-full sm:w-auto" />
+                </div>
             </div>
 
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ __('app.perPage') }}
+                </label>
+                <x-dropdown align="left">
+                    <x-slot name="trigger">
+                        <span class="inline-flex rounded-md">
+                            <button type="button"
+                                class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-500 hover:text-gray-700 focus:outline-none transition ease-in-out duration-150 bg-white dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                                @lang('app.perPage')
+                                @if ($perPage != 20)
+                                <div class="inline-flex items-center justify-center w-5 h-5 text-xs font-medium text-white bg-red-500 rounded-md dark:border-gray-900 ml-1">{{ $perPage }}</div>
+                                @endif
+                                <svg class="-mr-1 ml-1.5 w-5 h-5" fill="currentColor" viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path clip-rule="evenodd" fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                                </svg>
+                            </button>
+                        </span>
+                    </x-slot>
+
+                    <x-slot name="content">
+                        <div class="block px-4 py-2 text-sm font-medium text-gray-500">
+                            <h6 class="text-sm font-medium text-gray-900 dark:text-white">
+                                @lang('app.perPage')
+                            </h6>
+                        </div>
+                        
+                        @foreach ([20, 50, 100, 200] as $items)
+                        <x-dropdown-link class="flex items-center">
+                            <input id="per-page-{{ $items }}" type="radio" value="{{ $items }}" wire:model.live='perPage'
+                                class="w-4 h-4 bg-gray-100 border-gray-300 rounded text-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 dark:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500" />
+                            <label for="per-page-{{ $items }}" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {{ $items }} @lang('app.items')
+                            </label>
+                        </x-dropdown-link>
+                        @endforeach
+                    </x-slot>
+                </x-dropdown>
+            </div>
+
+            @if($search || $startDate || $endDate || $supplierId || $status)
+                <div>
+                    <x-secondary-button wire:click="clearFilters" class="mb-1">
+                        {{ trans('inventory::modules.purchaseOrder.clear_filters') }}
+                    </x-secondary-button>
+                </div>
+            @endif
         </div>
        
     </div>
 
+    <div class="mb-6 flex justify-end gap-2">
+        <x-secondary-button wire:click="export" wire:loading.attr="disabled">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            {{ trans('app.export') }}
+        </x-secondary-button>
     @if(user_can('Create Purchase Order'))
-    <div class="mb-6 flex justify-end">
         <x-button wire:click="$dispatch('showPurchaseOrderModal')">
             {{ trans('inventory::modules.purchaseOrder.create_title') }}
         </x-button>

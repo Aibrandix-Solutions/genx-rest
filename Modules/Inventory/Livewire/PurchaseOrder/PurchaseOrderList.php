@@ -19,6 +19,9 @@ class PurchaseOrderList extends Component
     public $search = '';
     public $supplierId;
     public $status = '';
+    public $startDate = null;
+    public $endDate = null;
+    public $perPage = 20;
     public $confirmingDeletion = false;
     public $purchaseOrderToDelete;
     public $confirmingSend = false;
@@ -35,8 +38,6 @@ class PurchaseOrderList extends Component
 
     public function mount()
     {
-        // Initialize with last 30 days by default
-        $this->dateRange = now()->subDays(30)->format('Y-m-d') . ' to ' . now()->format('Y-m-d');
     }
 
     public function updatingSearch()
@@ -56,7 +57,7 @@ class PurchaseOrderList extends Component
 
     public function clearFilters()
     {
-        $this->reset(['search', 'supplierId', 'status']);
+        $this->reset(['search', 'supplierId', 'status', 'startDate', 'endDate']);
         $this->resetPage();
     }
 
@@ -163,10 +164,13 @@ class PurchaseOrderList extends Component
             ->when($this->status, function ($query) {
                 $query->where('status', $this->status);
             })
+            ->when($this->startDate && $this->endDate, function($query) {
+                $query->whereBetween('po_date', [$this->startDate, $this->endDate]);
+            })
             ->latest();
 
         return view('inventory::livewire.purchase-order.purchase-order-list', [
-            'purchaseOrders' => $query->paginate(10),
+            'purchaseOrders' => $query->paginate($this->perPage),
             'suppliers' => Supplier::where('restaurant_id', restaurant()->id)
                 ->orderBy('name')
                 ->get(),
@@ -179,5 +183,11 @@ class PurchaseOrderList extends Component
             ],
             'stats' => $this->getStats(),
         ]);
+    }
+
+
+    public function export()
+    {
+        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\PurchaseOrderExport($this->search, $this->startDate, $this->endDate, $this->supplierId, $this->status), 'purchase-orders.xlsx');
     }
 } 

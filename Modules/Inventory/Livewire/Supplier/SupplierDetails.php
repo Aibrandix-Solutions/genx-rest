@@ -4,6 +4,11 @@ namespace Modules\Inventory\Livewire\Supplier;
 
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\PurchaseOrderExport;
+use Modules\Inventory\Exports\SupplierPaymentExport;
+use Modules\Inventory\Exports\SupplierLedgerExport;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
@@ -15,13 +20,17 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class SupplierDetails extends Component
 {
-    use WithFileUploads, LivewireAlert;
+    use WithFileUploads, LivewireAlert, WithPagination;
 
     public $supplier;
     public $activeTab = 'overview'; // overview, ledger, purchases, stock, documents, settings
     
     // Filters
     public $branchId;
+    public $search = '';
+    public $startDate = null;
+    public $endDate = null;
+    public $perPage = 10;
 
     // Payment Modal Properties
     public $showPaymentModal = false;
@@ -82,6 +91,10 @@ class SupplierDetails extends Component
     public function setTab($tab)
     {
         $this->activeTab = $tab;
+        $this->reset(['search', 'startDate', 'endDate', 'perPage']);
+        $this->perPage = 10;
+        $this->resetPage();
+
         if ($tab === 'ledger') {
             $this->loadLedger();
         }
@@ -150,11 +163,32 @@ class SupplierDetails extends Component
 
         // 4. Calculate Running Balance
         $runningBalance = 0;
-        $this->ledgerEntries = $entries->map(function ($entry) use (&$runningBalance) {
+        $allEntries = $entries->map(function ($entry) use (&$runningBalance) {
             $runningBalance += $entry['debit'] - $entry['credit'];
             $entry['balance'] = $runningBalance;
             return $entry;
         });
+
+        // 5. Apply Filters
+        $this->ledgerEntries = $allEntries->filter(function ($entry) {
+            // Date Filter
+            if ($this->startDate && $this->endDate) {
+                 if ($entry['date'] < $this->startDate . ' 00:00:00' || $entry['date'] > $this->endDate . ' 23:59:59') {
+                     return false;
+                 }
+            }
+            
+            // Search Filter
+            if ($this->search) {
+                if (stripos($entry['description'], $this->search) === false && 
+                    stripos((string)$entry['debit'], $this->search) === false && 
+                    stripos((string)$entry['credit'], $this->search) === false) {
+                    return false;
+                }
+            }
+            
+            return true;
+        })->values();
     }
 
     public function loadStock()
@@ -352,6 +386,48 @@ class SupplierDetails extends Component
         $this->purchaseOrderToDelete = null;
     }
 
+    public function updatedSearch()
+    {
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+
+    public function updatedStartDate()
+    {
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+
+    public function updatedEndDate()
+    {
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+
+    public function updatedPerPage()
+    {
+        $this->resetPage();
+    }
+
+    public function clearFilters()
+    {
+        $this->reset(['search', 'startDate', 'endDate']);
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+    
+    public function export()
+    {
+        switch ($this->activeTab) {
+            case 'purchases':
+                return Excel::download(new PurchaseOrderExport($this->search, $this->startDate, $this->endDate, $this->supplier->id), 'supplier-purchases.xlsx');
+            case 'payments':
+                return Excel::download(new SupplierPaymentExport($this->supplier->id, $this->search, $this->startDate, $this->endDate), 'supplier-payments.xlsx');
+            case 'ledger':
+                return Excel::download(new SupplierLedgerExport($this->ledgerEntries), 'supplier-ledger.xlsx');
+        }
+    }
+
     public function render()
     {
         $accountQuery = PaymentAccount::query();
@@ -370,6 +446,41 @@ class SupplierDetails extends Component
                 'partially_received' => trans('inventory::modules.purchaseOrder.status.partially_received'),
                 'cancelled' => trans('inventory::modules.purchaseOrder.status.cancelled'),
             ],
+            'purchases' => $this->purchases,
+            'payments' => $this->payments,
         ]);
+    }
+
+    public function getPurchasesProperty()
+    {
+        return $this->supplier->orders()
+            ->when($this->search, function ($query) {
+                $query->where('po_number', 'like', '%' . $this->search . '%');
+            })
+            ->when($this->startDate && $this->endDate, function ($query) {
+                $query->whereBetween('order_date', [$this->startDate, $this->endDate]);
+            })
+            ->latest('order_date')
+            ->paginate($this->perPage, ['*'], 'purchasesPage');
+    }
+
+    public function getPaymentsProperty()
+    {
+        return $this->supplier->payments()
+            ->with('account')
+            ->when($this->search, function ($query) {
+                $query->where(function($q) {
+                    $q->where('payment_method', 'like', '%' . $this->search . '%')
+                      ->orWhere('note', 'like', '%' . $this->search . '%')
+                      ->orWhereHas('account', function($sq) {
+                          $sq->where('name', 'like', '%' . $this->search . '%');
+                      });
+                });
+            })
+            ->when($this->startDate && $this->endDate, function ($query) {
+                $query->whereBetween('paid_on', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+            })
+            ->latest('paid_on')
+            ->paginate($this->perPage, ['*'], 'paymentsPage');
     }
 }

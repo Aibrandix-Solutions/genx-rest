@@ -1,6 +1,12 @@
 <?php
 
 return [
+    'inventoryMovement' => [
+        'type' => 'Type',
+        'quantity' => 'Quantity',
+        'source' => 'Source',
+        'destination' => 'Destination',
+    ],
     'menu' => [
         'units' => 'Units',
         'inventory' => 'Inventory',
@@ -319,7 +325,9 @@ return [
         'pending_orders' => 'Pending Orders',
         'completed_orders' => 'Completed Orders',
         'total_amount' => 'Total Amount',
+        'totalCost' => 'Total Cost',
         'due_amount' => 'Due Amount',
+        'status_label' => 'Status',
         'payment_status_label' => 'Payment Status',
 
         // Status
@@ -361,6 +369,7 @@ return [
         'select_date_range' => 'Select date range',
         'clear_filters' => 'Clear Filters',
         'po_number' => 'PO Number',
+        'poNumber' => 'PO Number',
         'actions' => 'Actions',
         'edit' => 'Edit',
         'receive' => 'Receive',
@@ -375,6 +384,12 @@ return [
         'view_all_purchase_orders' => 'View all purchase orders for this supplier',
         'no_purchase_orders' => 'No purchase orders',
         'purchase_order_received' => 'Purchase Order Received: :po_number',
+    ],
+    'purchaseReturn' => [
+        'supplier' => 'Supplier',
+        'po_ref' => 'PO Reference',
+        'amount' => 'Amount',
+        'return_number' => 'Return Number',
     ],
     'dashboard' => [
         'title' => 'Inventory Dashboard',
@@ -653,6 +668,7 @@ return [
         'title' => 'Stock Transfers',
         'create_transfer' => 'Create Transfer',
         'transfer_number' => 'Transfer Number',
+        'source_branch' => 'Source Branch',
         'destination_branch' => 'Destination Branch',
         'select_destination_branch' => 'Select Destination Branch',
         'expected_delivery_date' => 'Expected Delivery Date',
@@ -737,5 +753,15 @@ return [
         'confirmed_quantity_min' => 'The confirmed quantity for :item must be at least 0.',
         'confirmed_quantity_max' => 'The confirmed quantity for :item must not be greater than :max.',
         'item' => 'this item',
+    ],
+    'payments' => [
+        'method' => 'Method',
+        'account' => 'Account',
+        'added_by' => 'Added By',
+    ],
+    'ledger' => [
+        'debit' => 'Debit',
+        'credit' => 'Credit',
+        'balance' => 'Balance',
     ],
 ];

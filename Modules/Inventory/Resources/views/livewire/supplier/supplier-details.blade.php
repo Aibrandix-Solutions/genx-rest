@@ -37,9 +37,68 @@
             </nav>
         </div>
 
-        <!-- Global Filter for Ledger and Stock -->
-        @if(in_array($activeTab, ['ledger', 'stock']))
-        <div class="mb-6 flex justify-end">
+        <!-- Filters for specific tabs -->
+        @if(in_array($activeTab, ['ledger', 'payments', 'purchases']))
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg shadow p-4 mb-6">
+            <div class="flex flex-col lg:flex-row flex-wrap gap-4 items-end">
+                <!-- Branch Filter (Only for Ledger currently as per original code logic, but maybe good for all?) -->
+                <!-- Keeping original logic where branch was only for ledger/stock, but user asked for these filters on these tabs. -->
+                @if(in_array($activeTab, ['ledger'])) <!-- Branch filter specifically mentioned for Ledger/Stock originally -->
+                <div class="w-full sm:w-auto min-w-[150px]">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Branch</label>
+                    <select wire:model.live="branchId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <option value="">All Branches</option>
+                        @foreach($branches as $branch)
+                            <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
+                
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Search</label>
+                    <input type="text" wire:model.live.debounce.300ms="search" 
+                           class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                           placeholder="Search...">
+                </div>
+
+                <div class="w-full sm:w-auto">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Date Range</label>
+                    <div class="flex items-center gap-2">
+                        <input type="date" wire:model.live="startDate" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <span class="text-gray-500">-</span>
+                        <input type="date" wire:model.live="endDate" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    </div>
+                </div>
+
+                <div class="w-full sm:w-auto">
+                     <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Per Page</label>
+                     <select wire:model.live="perPage" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                         <option value="10">10</option>
+                         <option value="20">20</option>
+                         <option value="50">50</option>
+                         <option value="100">100</option>
+                     </select>
+                </div>
+                
+                <div class="flex gap-2">
+                     <x-secondary-button wire:click="export" wire:loading.attr="disabled">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Export
+                    </x-secondary-button>
+                    
+                    @if($search || $startDate || $endDate)
+                        <button
+                            wire:click="clearFilters"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600">
+                            Clear
+                        </button>
+                    @endif
+                </div>
+            </div>
+        </div>
+        @elseif($activeTab === 'stock')
+         <div class="mb-6 flex justify-end">
             <div class="w-64">
                 <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Filter by Branch</label>
                 <select wire:model.live="branchId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -177,7 +236,7 @@
                             </tr>
                         </thead>
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            @forelse($supplier->payments()->latest('paid_on')->get() as $payment)
+                            @forelse($payments as $payment)
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
                                         {{ $payment->paid_on->format('M d, Y H:i') }}
@@ -211,6 +270,9 @@
                             @endforelse
                         </tbody>
                     </table>
+                    <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 sm:px-6">
+                        {{ $payments->links() }}
+                    </div>
                 </div>
             @endif
 
@@ -239,7 +301,7 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                @forelse($supplier->orders as $order)
+                                @forelse($purchases as $order)
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{{ $order->po_number }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $order->order_date->format('M d, Y') }}</td>
@@ -359,6 +421,9 @@
                                 @endforelse
                             </tbody>
                         </table>
+                        <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 sm:px-6">
+                            {{ $purchases->links() }}
+                        </div>
                     </div>
                 </div>
             @endif
