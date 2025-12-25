@@ -352,31 +352,31 @@ class UpdateModifierGroup extends Component
     public function updatedModifierOptions($value, $key): void
     {
         // When base price changes, recalculate delivery prices
-        $parts = explode('.', $key);
-        if (count($parts) >= 2 && $parts[1] === 'price') {
-            $optionIndex = (int)$parts[0];
-            $this->calculateOptionDeliveryPrices($optionIndex);
+        // Use regex to strictly obtain the integer index and ensure we are updating 'price'
+        if (preg_match('/^(\d+)\.price$/', $key, $matches)) {
+            $optionIndex = (int)$matches[1];
+            // Pass the new price value directly to avoid reading stale data from array
+            $this->calculateOptionDeliveryPrices($optionIndex, (float)$value);
         }
     }
 
     public function updatedOptionBaseDeliveryPrice($value, $key): void
     {
-        $this->calculateOptionDeliveryPrices($key);
+        // Key is strictly the index
+        $this->calculateOptionDeliveryPrices((int)$key, null, (float)$value);
     }
 
     public function updatedOptionOrderTypePrices($value, $key): void
     {
-        $parts = explode('.', $key);
-        if (count($parts) >= 1) {
-            $optionIndex = (int)$parts[0];
-            $this->calculateOptionDeliveryPrices($optionIndex);
-        }
+        // Order Type prices do not affect Delivery Platform prices, so no recalculation needed here.
+        // Delivery prices are calculated from Base Price + Commission or Base Delivery Price + Commission.
     }
 
-    private function calculateOptionDeliveryPrices(int $optionIndex): void
+    private function calculateOptionDeliveryPrices(int $optionIndex, ?float $basePrice = null, ?float $baseDeliveryPrice = null): void
     {
-        $basePrice = (float)($this->modifierOptions[$optionIndex]['price'] ?? 0);
-        $baseDeliveryPrice = (float)($this->optionBaseDeliveryPrice[$optionIndex] ?? 0);
+        // Use provided values or fall back to array values
+        $basePrice = $basePrice ?? (float)($this->modifierOptions[$optionIndex]['price'] ?? 0);
+        $baseDeliveryPrice = $baseDeliveryPrice ?? (float)($this->optionBaseDeliveryPrice[$optionIndex] ?? 0);
 
         foreach ($this->deliveryApps as $app) {
                 $commission = (float)$app->commission_value;
@@ -389,9 +389,9 @@ class UpdateModifierGroup extends Component
 
     public function updatedOptionPlatformAvailability($value, $key): void
     {
-        $parts = explode('.', $key);
-        if (count($parts) >= 2) {
-            $optionIndex = (int)$parts[0];
+        // Key structure: index.appId
+        if (preg_match('/^(\d+)\.(\d+)$/', $key, $matches)) {
+            $optionIndex = (int)$matches[1];
             $this->calculateOptionDeliveryPrices($optionIndex);
         }
     }
@@ -513,16 +513,19 @@ class UpdateModifierGroup extends Component
 
         // Ensure all modifier option names are arrays
         if (is_array($this->modifierOptions)) {
-            foreach ($this->modifierOptions as $index => &$option) {
-                $option['name'] = [];
+            foreach ($this->modifierOptions as $index => $option) {
+                $this->modifierOptions[$index]['name'] = [];
 
                 if (isset($this->modifierOptionInput[$index]) && is_array($this->modifierOptionInput[$index])) {
                     foreach (array_keys($this->languages) as $lang) {
-                        $option['name'][$lang] = $this->modifierOptionInput[$index][$lang] ?? '';
+                        $this->modifierOptions[$index]['name'][$lang] = $this->modifierOptionInput[$index][$lang] ?? '';
                     }
                 }
 
-                $option['name'] = array_filter($option['name'], fn($val) => !empty(trim($val)));
+                $this->modifierOptions[$index]['name'] = array_filter(
+                    $this->modifierOptions[$index]['name'], 
+                    fn($val) => !empty(trim($val))
+                );
             }
         }
 

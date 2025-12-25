@@ -2006,6 +2006,7 @@ return [
         'applyToBaseItem' => 'Apply To Base Item',
         'variationDescription' => 'Select Variation to which this modifier group should be applied',
         'addModifierGroupDescription' => 'Fill in the details below to add a new modifier group.',
+        'editModifierGroupDescription' => 'Update the details below to modify the modifier group.',
         'defaultPrice' => 'Default Price'
     ],
 
