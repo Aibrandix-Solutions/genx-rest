@@ -491,7 +491,11 @@ class AddPayment extends Component
             
             // Release table session lock if exists
             if ($table->tableSession) {
-                $table->tableSession->releaseLock();
+                if ($table->tableSession->isOrderLock() && $table->tableSession->order_id === $this->order->id) {
+                    $table->unlockFromOrder($this->order->id);
+                } else {
+                    $table->tableSession->releaseLock();
+                }
             }
         }
 

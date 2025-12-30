@@ -65,7 +65,7 @@
                                     {{ $option->name }}
                                 </td>
                                 <td class="py-2.5 px-4 text-sm text-gray-900 dark:text-white">
-                                    {{ $option->price ? currency_format($option->price, $selectedModifierItem->branch->restaurant->currency_id) : __('--') }}
+                                    {{ $option->contextual_price ? currency_format($option->contextual_price, $selectedModifierItem->branch->restaurant->currency_id) : __('--') }}
                                 </td>
                                 <td class="py-2.5 px-4 text-right">
                                     @if ($option->is_available)

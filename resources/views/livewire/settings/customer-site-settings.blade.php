@@ -250,6 +250,15 @@
                                 placeholder="{{ __('placeholders.tableLockTimeoutPlaceholder') }}" wire:model='tableLockTimeoutMinutes' />
                             <x-input-error for="tableLockTimeoutMinutes" class="mt-2" />
                         </div>
+
+                        <div class="flex items-center p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm">
+                            <div class="flex-1">
+                                <x-label for="disableTableLockTimeout" :value="__('modules.settings.disableTableLockTimeout')" class="!mb-1" />
+                                <p class="text-sm text-gray-500 dark:text-gray-400">@lang('modules.settings.disableTableLockTimeoutDescription')</p>
+                            </div>
+                            <x-checkbox name="disableTableLockTimeout" id="disableTableLockTimeout"
+                                wire:model.live='disableTableLockTimeout' class="ml-4" />
+                        </div>
                     </div>
 
                 </div>

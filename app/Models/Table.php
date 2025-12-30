@@ -105,9 +105,10 @@ class Table extends BaseModel
 
     public function getOrCreateSession(): TableSession
     {
-        return $this->tableSession()->firstOrCreate([
-            'table_id' => $this->id
-        ]);
+        return $this->tableSession()->firstOrCreate(
+            ['table_id' => $this->id],
+            ['branch_id' => $this->branch_id]
+        );
     }
 
     public function isLocked(): bool
@@ -122,17 +123,20 @@ class Table extends BaseModel
         return $session ? $session->isLockedByUser($userId) : false;
     }
 
-    public function canBeAccessedByUser(int $userId, int $lockTimeoutMinutes = 5): bool
+    public function canBeAccessedByUser(int $userId, ?int $lockTimeoutMinutes = null): bool
     {
         $session = $this->getOrCreateSession();
-        return $session->canBeAccessedByUser($userId, $lockTimeoutMinutes);
+        $timeout = $lockTimeoutMinutes ?? $this->resolveLockTimeoutMinutes();
+        return $session->canBeAccessedByUser($userId, $timeout);
     }
 
     public function lockForUser(int $userId): array
     {
         $session = $this->getOrCreateSession();
 
-        if (!$session->canBeAccessedByUser($userId)) {
+        $timeout = $this->resolveLockTimeoutMinutes();
+
+        if (!$session->canBeAccessedByUser($userId, $timeout)) {
             $lockedByUser = $session->lockedByUser;
             return [
                 'success' => false,
@@ -156,6 +160,28 @@ class Table extends BaseModel
         ];
     }
 
+    private function resolveLockTimeoutMinutes(): int
+    {
+        // Prefer the table's actual restaurant setting (works even when restaurant() helper is null).
+        $this->loadMissing('branch.restaurant');
+
+        if (($this->branch?->restaurant?->disable_table_lock_timeout ?? false) === true) {
+            return 0;
+        }
+
+        $timeout = $this->branch?->restaurant?->table_lock_timeout_minutes;
+        if (is_numeric($timeout) && (int) $timeout > 0) {
+            return (int) $timeout;
+        }
+
+        $timeout = restaurant()->table_lock_timeout_minutes ?? null;
+        if (is_numeric($timeout) && (int) $timeout > 0) {
+            return (int) $timeout;
+        }
+
+        return 10;
+    }
+
     public function updateActivity(int $userId): bool
     {
         $session = $this->tableSession;
@@ -175,6 +201,21 @@ class Table extends BaseModel
             return [
                 'success' => true,
                 'message' => 'Table is not locked',
+            ];
+        }
+
+        // Order locks are normally released via unlockFromOrder() (OrderObserver on status change).
+        // But allow force unlock (admin override) to recover from stuck locks.
+        if ($session->isOrderLock()) {
+            if ($forceUnlock) {
+                return $session->releaseOrderLock()
+                    ? ['success' => true, 'message' => 'Table unlocked successfully']
+                    : ['success' => false, 'message' => 'Failed to unlock table'];
+            }
+
+            return [
+                'success' => false,
+                'message' => 'This table is locked by an active order and cannot be unlocked manually.',
             ];
         }
 
@@ -204,18 +245,28 @@ class Table extends BaseModel
      */
     public static function cleanupExpiredLocks(): array
     {
-        $lockTimeoutMinutes = restaurant()->table_lock_timeout_minutes ?? 10;
+        $restaurant = restaurant();
+        if ($restaurant && ($restaurant->disable_table_lock_timeout ?? false)) {
+            return [
+                'affected_rows' => 0,
+                'expired_sessions' => [],
+            ];
+        }
+
+        $lockTimeoutMinutes = $restaurant?->table_lock_timeout_minutes ?? 10;
         $expiredTime = now()->subMinutes($lockTimeoutMinutes);
 
-        // Using the model instance to ensure branch scope is applied
+        // Only cleanup non-order locks
         $expiredSessions = TableSession::with(['table', 'lockedByUser'])
             ->where('last_activity_at', '<', $expiredTime)
             ->whereNotNull('locked_by_user_id')
+            ->where('locked_by_order', false) // Skip order locks
             ->get();
 
         // Cleanup expired locks - also respecting branch scope
         $affectedRows = TableSession::where('last_activity_at', '<', $expiredTime)
             ->whereNotNull('locked_by_user_id')
+            ->where('locked_by_order', false) // Skip order locks
             ->update([
                 'locked_by_user_id' => null,
                 'locked_at' => null,
@@ -239,11 +290,13 @@ class Table extends BaseModel
 
         $totalLocked = TableSession::whereNotNull('locked_by_user_id')->count();
 
-        $lockTimeout = restaurant()->table_lock_timeout_minutes ?? 10;
+        $restaurant = restaurant();
+        $lockTimeout = $restaurant?->table_lock_timeout_minutes ?? 10;
         $expiredTime = now()->subMinutes($lockTimeout);
 
         $expiredLocks = TableSession::whereNotNull('locked_by_user_id')
             ->where('last_activity_at', '<', $expiredTime)
+            ->where('locked_by_order', false) // Only count manual locks
             ->count();
 
         $lockedTables = TableSession::with(['table.area', 'lockedByUser'])
@@ -258,5 +311,69 @@ class Table extends BaseModel
             'expired_locks' => $expiredLocks,
             'locked_tables' => $lockedTables,
         ];
+    }
+
+    /**
+     * Lock table for an order
+     */
+    public function lockForOrder(int $userId, int $orderId): array
+    {
+        // Check if feature is enabled
+        $this->loadMissing('branch.restaurant');
+        $enabled = $this->branch?->restaurant?->enable_table_lock_on_order
+            ?? (restaurant()->enable_table_lock_on_order ?? false);
+
+        if (!$enabled) {
+            return [
+                'success' => true,
+                'message' => 'Table lock on order is disabled',
+            ];
+        }
+
+        $session = $this->getOrCreateSession();
+
+        // If already locked by another user (not by order), check if can access
+        if ($session->isLocked() && !$session->isOrderLock() && !$session->isLockedByUser($userId)) {
+            $lockedByUser = $session->lockedByUser;
+            return [
+                'success' => false,
+                'message' => "This table is currently being handled by {$lockedByUser->name}",
+                'locked_by' => $lockedByUser->name ?? 'Unknown User',
+            ];
+        }
+
+        if ($session->lockForOrder($userId, $orderId)) {
+            return [
+                'success' => true,
+                'message' => 'Table locked for order',
+                'session_token' => $session->session_token,
+            ];
+        }
+
+        return [
+            'success' => false,
+            'message' => 'Failed to lock table for order',
+        ];
+    }
+
+    /**
+     * Unlock table when order is billed/canceled (and on delete)
+     */
+    public function unlockFromOrder(int $orderId): array
+    {
+        $session = $this->tableSession;
+
+        if (!$session) {
+            return ['success' => true, 'message' => 'Table is not locked'];
+        }
+
+        // Only unlock if this session is locked by the specified order
+        if ($session->isOrderLock() && $session->order_id === $orderId) {
+            if ($session->releaseOrderLock()) {
+                return ['success' => true, 'message' => 'Table unlocked from order'];
+            }
+        }
+
+        return ['success' => false, 'message' => 'Table is not locked by this order'];
     }
 }

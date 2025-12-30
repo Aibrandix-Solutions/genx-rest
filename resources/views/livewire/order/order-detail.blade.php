@@ -241,18 +241,13 @@
                             $baseOrderType = $order->orderType?->type ?? $order->order_type;
 
                             $statuses = match ($baseOrderType) {
-                                'delivery' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'out_for_delivery', 'delivered'],
-                                'pickup' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'delivered'],
-                                default => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'served'],
+                                'delivery' => ['placed', 'confirmed', 'preparing', 'food_ready', 'out_for_delivery', 'delivered'],
+                                'pickup' => ['placed', 'confirmed', 'preparing', 'food_ready', 'ready_for_pickup', 'delivered'],
+                                default => ['placed', 'confirmed', 'preparing', 'food_ready', 'served'],
                             };
 
-                            // Custom label for ready_for_pickup based on order type
-                            $getStatusLabel = function($status) use ($baseOrderType) {
-                                if ($status === 'ready_for_pickup') {
-                                    return $baseOrderType === 'pickup' 
-                                        ? __('modules.order.readyForPickup') 
-                                        : __('modules.order.foodIsReady');
-                                }
+                            // Label function for statuses
+                            $getStatusLabel = function($status) {
                                 return __('modules.order.' . \App\Enums\OrderStatus::from($status)->label());
                             };
 
@@ -318,6 +313,12 @@
                                                                 d="M7.584 3.072 6.72 3.72v1.8a0.961 0.961 0 0 1 -0.96 0.96H1.92a0.961 0.961 0 0 1 -0.96 -0.96v-1.8L0.096 3.072a0.24 0.24 0 0 1 0.288 -0.384L0.96 3.12V2.64a0.481 0.481 0 0 1 0.48 -0.48h4.8a0.481 0.481 0 0 1 0.48 0.48v0.48l0.576 -0.432a0.24 0.24 0 0 1 0.288 0.384M4.8 1.68a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24m-0.96 0a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24m-0.96 0a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24"
                                                                 stroke-width="0.5" stroke-linecap="round"
                                                                 stroke-linejoin="round" />
+                                                        </svg>
+                                                    @break
+
+                                                    @case('food_ready')
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                                         </svg>
                                                     @break
 
@@ -832,7 +833,13 @@
                     </div>
                 @endif
 
-                @if ($order->order_type == 'delivery' && $order->delivery_address)
+                @php
+                    $displayDeliveryAddress = $order->delivery_address
+                        ?: ($order->customer_address ?? null)
+                        ?: (optional($order->customer)->delivery_address ?? null);
+                @endphp
+
+                @if ($order->order_type == 'delivery' && $displayDeliveryAddress)
                     <div class="p-3 mt-3 rounded-lg bg-gray-50 dark:bg-gray-700">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex gap-1.5 items-center font-semibold text-gray-800 dark:text-gray-200">
@@ -851,7 +858,7 @@
                         </div>
 
                         <div class="p-2 text-sm text-gray-600 bg-white border border-gray-200 rounded dark:text-gray-300 dark:bg-gray-800 dark:border-gray-600">
-                            {!! nl2br(e($order->delivery_address)) !!}
+                            {!! nl2br(e($displayDeliveryAddress)) !!}
                         </div>
                     </div>
                 @endif

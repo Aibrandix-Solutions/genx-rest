@@ -1456,7 +1456,8 @@ class Pos extends Component
             case 'bill':
                 $successMessage = __('messages.billedSuccess');
                 $status = 'billed';
-                $tableStatus = 'running';
+                // Billing closes the table (free it for new guests)
+                $tableStatus = 'available';
                 break;
 
             case 'kot':
@@ -1540,7 +1541,7 @@ class Pos extends Component
             }
 
             $order = ($this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail);
-            Order::where('id', $order->id)->update([
+            $order->update([
                 'date_time' => now(),
                 'order_type' => $this->orderType,
                 'order_type_id' => $this->orderTypeId,
@@ -1738,7 +1739,7 @@ class Pos extends Component
 
             if ($secondAction == 'bill' && $thirdAction == 'payment') {
                 // Update order status to billed
-                Order::where('id', $order->id)->update([
+                $order->update([
                     'status' => 'billed'
                 ]);
 

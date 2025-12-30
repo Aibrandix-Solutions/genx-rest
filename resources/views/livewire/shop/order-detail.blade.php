@@ -1,4 +1,4 @@
-<div class="mx-2 mb-4 space-y-6 md:mx-0" @if(pusherSettings()->is_enabled_pusher_broadcast) wire:poll.15s @endif>
+<div class="mx-2 mb-4 space-y-6 md:mx-0" wire:poll.15s>
     <x-banner/>
     <div class="flex items-center justify-between">
         <h2 class="text-2xl font-extrabold text-gray-900 dark:text-white">@lang('modules.settings.orderDetails')</h2>
@@ -33,11 +33,15 @@
             @else
                 @php
                     $steps = match($order->order_type) {
-                        'delivery' => ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'],
-                        'pickup' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'delivered'],
-                        default => ['placed', 'confirmed', 'preparing', 'served']
+                        'delivery' => ['placed', 'confirmed', 'preparing', 'food_ready', 'out_for_delivery', 'delivered'],
+                        'pickup' => ['placed', 'confirmed', 'preparing', 'food_ready', 'ready_for_pickup', 'delivered'],
+                        default => ['placed', 'confirmed', 'preparing', 'food_ready', 'served']
                     };
                     $currentStepIndex = array_search($order->order_status->value, $steps);
+                    // If status not found in steps, default to 0
+                    if ($currentStepIndex === false) {
+                        $currentStepIndex = 0;
+                    }
                 @endphp
 
                 <div>
@@ -86,6 +90,9 @@
                                             @break
                                             @case('preparing')
                                                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 7.68 7.68" xmlns="http://www.w3.org/2000/svg"><path d="M7.584 3.072 6.72 3.72v1.8a0.961 0.961 0 0 1 -0.96 0.96H1.92a0.961 0.961 0 0 1 -0.96 -0.96v-1.8L0.096 3.072a0.24 0.24 0 0 1 0.288 -0.384L0.96 3.12V2.64a0.481 0.481 0 0 1 0.48 -0.48h4.8a0.481 0.481 0 0 1 0.48 0.48v0.48l0.576 -0.432a0.24 0.24 0 0 1 0.288 0.384M4.8 1.68a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24m-0.96 0a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24m-0.96 0a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24"/></svg>
+                                            @break
+                                            @case('food_ready')
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                                             @break
                                             @case('out_for_delivery')
                                                 <svg class="w-4 h-4" fill="currentColor" height="24" width="24" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" xml:space="preserve"><g stroke-width="0"/><g stroke-linecap="round" stroke-linejoin="round"/><path d="M17.6 22c-1.8 0-3.2-1.3-3.5-3H9c-.2 1.7-1.7 3-3.5 3S2.3 20.7 2 19H0V3h16v4h3.4l4.6 4.6V19h-3c-.2 1.7-1.7 3-3.4 3m-1.5-3.5c0 .8.7 1.5 1.5 1.5s1.5-.7 1.5-1.5-.7-1.5-1.5-1.5-1.5.7-1.5 1.5M5.6 17c-.8 0-1.5.7-1.5 1.5S4.8 20 5.6 20s1.5-.7 1.5-1.5S6.4 17 5.6 17m15.1 0H22v-4.6L18.7 9h-2.6v6.3q.75-.3 1.5-.3c1.4 0 2.6.8 3.1 2m-12 0H14V5H2v12h.3c.6-1.2 1.8-2 3.2-2s2.7.8 3.2 2"/></svg>
@@ -209,16 +216,28 @@
         </div>
 
         <!-- Delivery Address -->
-        @if($order->order_type === 'delivery' && $order->delivery_address)
-            <div class="p-2 mt-3 rounded-lg bg-skin-base/5 dark:bg-gray-700/30" wire:key="delivery-address">
-                <div class="flex items-center gap-2">
-                    <svg class="flex-shrink-0 w-3.5 h-3.5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zm-2.657-5.657a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    <p class="text-xs text-gray-600 dark:text-gray-400">
-                        {{ $order->delivery_address }}
-                    </p>
-                </div>
+        @if($order->order_type === 'delivery' && ($order->delivery_address || $order->customer_phone))
+            <div class="p-2 mt-3 space-y-2 rounded-lg bg-skin-base/5 dark:bg-gray-700/30" wire:key="delivery-info">
+                @if($order->customer_phone)
+                    <div class="flex items-center gap-2">
+                        <svg class="flex-shrink-0 w-3.5 h-3.5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                        <p class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                            {{ $order->customer_phone }}
+                        </p>
+                    </div>
+                @endif
+                @if($order->delivery_address)
+                    <div class="flex items-center gap-2">
+                        <svg class="flex-shrink-0 w-3.5 h-3.5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0zm-2.657-5.657a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">
+                            {{ $order->delivery_address }}
+                        </p>
+                    </div>
+                @endif
             </div>
         @endif
 
@@ -1041,17 +1060,12 @@
                 const channel = PUSHER.subscribe('order-success');
                 channel.bind('order-success.created', function(data) {
                     // @this.call('refreshOrderSuccess');
-
-                    console.log(data);
                     new Audio("{{ asset('sound/new_order.wav')}}").play();
-                    console.log('✅ Pusher received data for order success!. Refreshing...');
                     window.location.reload();
                 });
                 PUSHER.connection.bind('connected', () => {
-                    console.log('✅ Pusher connected for Order Success!');
                 });
                 channel.bind('pusher:subscription_succeeded', () => {
-                    console.log('✅ Subscribed to order-success channel!');
                 });
             });
         </script>
@@ -1090,7 +1104,6 @@
                     audio.volume = 0.3;
                     audio.play();
                 } catch (e) {
-                    console.log('Audio play failed:', e);
                 }
 
                 // Remove the celebration class after animation

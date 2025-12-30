@@ -39,6 +39,7 @@ class CustomerSiteSettings extends Component
     public bool $showVeg;
     public bool $showHalal;
     public int $tableLockTimeoutMinutes;
+    public bool $disableTableLockTimeout;
     public $activeTab = 'settings';
     public $headerType = 'text';
     public $headerText;
@@ -63,6 +64,7 @@ class CustomerSiteSettings extends Component
         $this->showVeg = $this->settings->show_veg;
         $this->showHalal = $this->settings->show_halal;
         $this->tableLockTimeoutMinutes = $this->settings->table_lock_timeout_minutes;
+        $this->disableTableLockTimeout = (bool) ($this->settings->disable_table_lock_timeout ?? false);
         $this->isWaiterRequestEnabledOnDesktop = $this->settings->is_waiter_request_enabled_on_desktop;
         $this->isWaiterRequestEnabledOnMobile = $this->settings->is_waiter_request_enabled_on_mobile;
         $this->isWaiterRequestEnabledOpenByQr = $this->settings->is_waiter_request_enabled_open_by_qr;
@@ -109,6 +111,7 @@ class CustomerSiteSettings extends Component
         $this->validate([
             'defaultReservationStatus' => 'required|in:Confirmed,Checked_In,Cancelled,No_Show,Pending',
             'tableLockTimeoutMinutes' => 'required|integer|min:1',
+            'disableTableLockTimeout' => 'boolean',
             'headerType' => 'required|in:text,image',
             'headerText' => 'required_if:headerType,text',
             'newImages.*' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -143,6 +146,7 @@ class CustomerSiteSettings extends Component
         $this->settings->show_veg = $this->showVeg;
         $this->settings->show_halal = $this->showHalal;
         $this->settings->table_lock_timeout_minutes = $this->tableLockTimeoutMinutes;
+        $this->settings->disable_table_lock_timeout = $this->disableTableLockTimeout;
         $this->settings->save();
 
         // Save header settings

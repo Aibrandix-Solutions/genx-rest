@@ -202,13 +202,10 @@
                 channel.bind('order-success.created', function(data) {
                     @this.call('refreshOrderSuccess');
                     new Audio("{{ asset('sound/new_order.wav')}}").play();
-                    console.log('✅ Pusher received data for order success!. Refreshing...');
                 });
                 PUSHER.connection.bind('connected', () => {
-                    console.log('✅ Pusher connected for Order Success!');
                 });
                 channel.bind('pusher:subscription_succeeded', () => {
-                    console.log('✅ Subscribed to order-success channel!');
                 });
             });
         </script>

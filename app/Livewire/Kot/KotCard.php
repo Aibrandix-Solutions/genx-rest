@@ -51,7 +51,7 @@ class KotCard extends Component
                 $order->order_status = \App\Enums\OrderStatus::PREPARING;
                 $order->save();
             } elseif ($status === 'food_ready' && $order->order_status?->value === 'preparing') {
-                $order->order_status = \App\Enums\OrderStatus::READY_FOR_PICKUP;
+                    $order->order_status = \App\Enums\OrderStatus::FOOD_READY;
                 $order->save();
             } elseif ($status === 'served') {
                 // Only mark served if ALL KOTs are served
@@ -134,7 +134,7 @@ class KotCard extends Component
                     $order->order_status = \App\Enums\OrderStatus::PREPARING;
                     $order->save();
                 } elseif ($newKotStatus === 'food_ready' && $order->order_status?->value === 'preparing') {
-                    $order->order_status = \App\Enums\OrderStatus::READY_FOR_PICKUP;
+                    $order->order_status = \App\Enums\OrderStatus::FOOD_READY;
                     $order->save();
                 }
             }

@@ -24,6 +24,7 @@ use Livewire\Attributes\On;
 use App\Models\ItemCategory;
 use App\Models\PaypalPayment;
 use App\Models\StripePayment;
+use App\Models\CustomerAddress;
 use App\Models\ModifierOption;
 use App\Events\NewOrderCreated;
 use App\Models\RazorpayPayment;
@@ -78,6 +79,7 @@ class Cart extends Component
     public $customer;
     public $customerName;
     public $customerPhone;
+    public $phoneCode = '+94'; // Default phone code for Sri Lanka
     public $customerAddress;
     public $orderNumber;
     public $paymentGateway;
@@ -662,18 +664,31 @@ class Cart extends Component
 
     public function submitCustomerName()
     {
-        $this->validate([
+        $rules = [
             'customerName' => 'required',
             'customerPhone' => [
                 'required',
                 Rule::unique('customers', 'phone')->ignore($this->customer->id ?? null),
             ],
-        ]);
+        ];
+
+        // Add address validation for delivery orders
+        if ($this->orderType === 'delivery') {
+            $rules['customerAddress'] = 'required';
+        }
+
+        $this->validate($rules);
+
+        // Combine phone code with phone number
+        $fullPhone = $this->phoneCode . $this->customerPhone;
 
         $this->customer->name = $this->customerName;
-        $this->customer->phone = $this->customerPhone;
+        $this->customer->phone = $fullPhone;
         $this->customer->delivery_address = $this->customerAddress;
         $this->customer->save();
+
+        // Update the customerPhone to include the code for order creation
+        $this->customerPhone = $fullPhone;
 
         session(['customer' => $this->customer]);
         $this->dispatch('setCustomer', customer: $this->customer);
@@ -724,6 +739,26 @@ class Cart extends Component
         $this->placeOrder();
     }
 
+    private function getPreferredDeliveryAddress(): ?string
+    {
+        if (!$this->customer) {
+            return null;
+        }
+
+        $customerAddress = trim((string) ($this->customer->delivery_address ?? ''));
+        if ($customerAddress !== '') {
+            return $customerAddress;
+        }
+
+        $savedAddress = CustomerAddress::where('customer_id', $this->customer->id)
+            ->latest('id')
+            ->value('address');
+
+        $savedAddress = is_string($savedAddress) ? trim($savedAddress) : '';
+
+        return $savedAddress !== '' ? $savedAddress : null;
+    }
+
     public function showPickupDateTime()
     {
         $this->showPickupDateTimeModal = true;
@@ -761,17 +796,28 @@ class Cart extends Component
             $deliverySetting = $this->shopBranch->deliverySetting ?? null;
         }
 
-        if ($this->customer && (is_null($this->customer->name) || ($this->orderType == 'delivery' && is_null($this->customerAddress)) && is_null($deliverySetting))) {
+
+        $preferredDeliveryAddress = $this->getPreferredDeliveryAddress();
+
+        // Show customer name/phone/address modal if customer data is missing
+        $needsCustomerInfo = $this->customer && (
+            is_null($this->customer->name) ||
+            is_null($this->customer->phone) ||
+            ($this->orderType == 'delivery' && empty($preferredDeliveryAddress))
+        );
+
+        if ($needsCustomerInfo) {
             $this->customerName = $this->customer->name;
-            $this->customerAddress = $this->customer->delivery_address;
+            $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
             $this->customerPhone = $this->customer->phone;
             $this->showCustomerNameModal = true;
             $this->payNow = $pay;
             return;
         }
 
+
         if ($this->customer && $this->orderType === 'delivery' && empty($this->addressLat) && empty($this->addressLng) && empty($this->deliveryAddress) && isset($deliverySetting)) {
-            $this->customerAddress = $this->customer->delivery_address;
+            $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
             $this->showDeliveryAddressModal = true;
             $this->payNow = $pay;
             return;
@@ -795,6 +841,11 @@ class Cart extends Component
             }
         } else {
             $orderNumberData = Order::generateOrderNumber($this->shopBranch);
+
+            $deliveryAddressForOrder = null;
+            if ($this->orderType === 'delivery') {
+                $deliveryAddressForOrder = $this->deliveryAddress ?: $this->customerAddress ?: $preferredDeliveryAddress;
+            }
 
             // Use the already selected order type ID if available
             if ($this->orderTypeId) {
@@ -829,7 +880,9 @@ class Cart extends Component
                 'order_type_id' => $orderTypeId,
                 'custom_order_type_name' => $orderTypeName,
                 'pickup_date' => $this->deliveryDateTime,
-                'delivery_address' => $this->customerAddress,
+                'customer_phone' => $this->customerPhone,
+                'customer_address' => $deliveryAddressForOrder ?: $this->customerAddress,
+                'delivery_address' => $deliveryAddressForOrder,
                 'status' => 'draft',
                 'order_status' => $this->restaurant->auto_confirm_orders ? 'confirmed' : 'placed',
                 'customer_lat' => $this->addressLat ?? null,

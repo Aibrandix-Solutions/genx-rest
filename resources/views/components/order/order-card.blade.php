@@ -235,7 +235,8 @@
                         'text-yellow-300' => $order->order_status->value == 'placed',
                         'text-indigo-500' => $order->order_status->value == 'confirmed',
                         'text-purple-500' => $order->order_status->value == 'preparing',
-                        'text-blue-400' => $order->order_status->value == 'ready_for_pickup',
+                        'text-blue-400' => $order->order_status->value == 'food_ready',
+                        'text-sky-500' => $order->order_status->value == 'ready_for_pickup',
                         'text-blue-500' => $order->order_status->value == 'out_for_delivery',
                         'text-green-400' => $order->order_status->value == 'served',
                         'text-green-500' => $order->order_status->value == 'delivered',
@@ -243,13 +244,10 @@
                     ]) viewBox="0 0 16 16">
                     <circle cx="8" cy="8" r="8" />
                 </svg>
-                @if($order->order_status->value === 'ready_for_pickup')
-                    @php $baseOrderType = $order->orderType?->type ?? $order->order_type; @endphp
-                    @if($baseOrderType === 'pickup')
-                        @lang('modules.order.readyForPickup')
-                    @else
-                        @lang('modules.order.foodIsReady')
-                    @endif
+                @if($order->order_status->value === 'food_ready')
+                    @lang('modules.order.foodIsReady')
+                @elseif($order->order_status->value === 'ready_for_pickup')
+                    @lang('modules.order.readyForPickup')
                 @else
                     @lang('modules.order.info_' . $order->order_status->value)
                 @endif

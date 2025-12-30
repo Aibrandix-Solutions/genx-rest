@@ -89,6 +89,12 @@ class Addresses extends Component
                     'lat' => $this->lat,
                     'lng' => $this->lng,
                 ]);
+
+                $customer = customer();
+                $customer->delivery_address = $this->address;
+                $customer->save();
+                session(['customer' => $customer]);
+
                 $this->alert('success', __('messages.addressUpdated'), [
                     'toast' => true,
                     'position' => 'top-end'
@@ -110,6 +116,12 @@ class Addresses extends Component
                 'lat' => $this->lat,
                 'lng' => $this->lng,
             ]);
+
+            $customer = customer();
+            $customer->delivery_address = $this->address;
+            $customer->save();
+            session(['customer' => $customer]);
+
             $this->alert('success', __('messages.addressAdded'), [
                 'toast' => true,
                 'position' => 'top-end'

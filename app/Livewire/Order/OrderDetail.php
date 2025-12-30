@@ -297,8 +297,23 @@ class OrderDetail extends Component
             return;
         }
 
+        // DEBUG: Log what we're trying to save
+        \Log::info('Order Status Update', [
+            'order_id' => $this->order->id,
+            'order_number' => $this->order->order_number,
+            'new_status' => $value,
+            'order_type' => $this->order->order_type,
+        ]);
+
         $this->order->update(['order_status' => $value]);
         $this->orderProgressStatus = $value;
+
+        // DEBUG: Log what was actually saved
+        $this->order->refresh();
+        \Log::info('Order Status After Save', [
+            'order_id' => $this->order->id,
+            'saved_status' => $this->order->order_status->value,
+        ]);
 
         if ($value === 'confirmed') {
             $this->order->kot->each(function ($kot) {
@@ -318,7 +333,8 @@ class OrderDetail extends Component
         case 'bill':
             $successMessage = __('messages.billedSuccess');
             $status = 'billed';
-            $tableStatus = 'running';
+            // Billing closes the table (free it for new guests)
+            $tableStatus = 'available';
                 break;
 
         case 'kot':
@@ -327,7 +343,7 @@ class OrderDetail extends Component
 
         $taxes = Tax::all();
 
-        Order::where('id', $this->order->id)->update([
+        $this->order->update([
             'date_time' => now(),
             'status' => $status
         ]);
@@ -491,7 +507,11 @@ class OrderDetail extends Component
 
                         // Release table session lock if exists
                         if ($table->tableSession) {
-                            $table->tableSession->releaseLock();
+                            if ($table->tableSession->isOrderLock() && $table->tableSession->order_id === $order->id) {
+                                $table->unlockFromOrder($order->id);
+                            } else {
+                                $table->tableSession->releaseLock();
+                            }
                         }
                     }
                 }
