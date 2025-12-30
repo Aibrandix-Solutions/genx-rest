@@ -81,6 +81,10 @@ class Cart extends Component
     public $customerPhone;
     public $phoneCode = '+94'; // Default phone code for Sri Lanka
     public $customerAddress;
+    public $customerAddresses = [];
+    public $selectedCustomerAddressId = null;
+    public $isDeliveryOrder = false;
+    public $deliveryAddressConfirmed = false;
     public $orderNumber;
     public $paymentGateway;
     public $paymentOrder;
@@ -172,6 +176,10 @@ class Cart extends Component
         $this->paymentGateway = PaymentGatewayCredential::withoutGlobalScopes()->where('restaurant_id', $this->restaurant->id)->first();
         $this->taxes = Tax::withoutGlobalScopes()->where('restaurant_id', $this->restaurant->id)->get();
         $this->customer = customer();
+
+        if ($this->customer) {
+            $this->refreshCustomerAddresses();
+        }
         $this->razorpayStatus = (bool)($this->paymentGateway->razorpay_status ?? false);
         $this->stripeStatus = (bool)($this->paymentGateway->stripe_status ?? false);
 
@@ -214,6 +222,9 @@ class Cart extends Component
             $this->updatedOrderType($this->orderType);
         }
 
+        $this->isDeliveryOrder = $this->isDeliveryOrderType();
+        $this->deliveryAddressConfirmed = false;
+
         $this->taxMode = $this->restaurant->tax_mode ?? 'order';
 
         $this->pickupRange = restaurant()->pickup_days_range ?? 1;
@@ -225,6 +236,88 @@ class Cart extends Component
 
         // Initialize header settings
         $this->initializeHeaderSettings();
+    }
+
+    private function isDeliveryOrderType(): bool
+    {
+        if ($this->orderType === 'delivery') {
+            return true;
+        }
+
+        if ($this->orderTypeId) {
+            return OrderType::where('id', $this->orderTypeId)->value('type') === 'delivery';
+        }
+
+        return false;
+    }
+
+    private function splitPhone(?string $phone): array
+    {
+        $raw = trim((string) $phone);
+        $raw = preg_replace('/\s+/', '', $raw);
+
+        if ($raw === '') {
+            return [$this->phoneCode, ''];
+        }
+
+        // Prefer matching against the exact dial codes offered in the UI.
+        // Pick the longest matching prefix to avoid cases like +9477... being split as +9477.
+        $knownDialCodes = [
+            '+971',
+            '+94',
+            '+91',
+            '+61',
+            '+44',
+            '+1',
+        ];
+
+        if (!str_starts_with($raw, '+')) {
+            return [$this->phoneCode, $raw];
+        }
+
+        $matchedCode = null;
+        foreach ($knownDialCodes as $code) {
+            if (str_starts_with($raw, $code) && ($matchedCode === null || strlen($code) > strlen($matchedCode))) {
+                $matchedCode = $code;
+            }
+        }
+
+        if ($matchedCode !== null) {
+            return [$matchedCode, substr($raw, strlen($matchedCode))];
+        }
+
+        // Fallback: keep digits (without leading +) in number field
+        return [$this->phoneCode, ltrim($raw, '+')];
+    }
+
+    private function refreshCustomerAddresses(): void
+    {
+        if (!$this->customer) {
+            $this->customerAddresses = [];
+            return;
+        }
+
+        $this->customerAddresses = CustomerAddress::where('customer_id', $this->customer->id)
+            ->orderByDesc('id')
+            ->get()
+            ->toArray();
+    }
+
+    public function updatedSelectedCustomerAddressId($value)
+    {
+        if (!$value) {
+            $this->customerAddress = null;
+            return;
+        }
+
+        if (empty($this->customerAddresses)) {
+            return;
+        }
+
+        $selected = collect($this->customerAddresses)->firstWhere('id', (int) $value);
+        if (!empty($selected['address'])) {
+            $this->customerAddress = $selected['address'];
+        }
     }
 
     /**
@@ -241,6 +334,10 @@ class Cart extends Component
         if ($orderTypeModel) {
             $this->orderTypeId = $orderTypeModel->id;
             $this->orderTypeSlug = $orderTypeModel->slug;
+            $this->orderType = $orderTypeModel->type;
+
+            // When setting programmatically, Livewire won't call updatedOrderTypeId automatically
+            $this->updatedOrderTypeId($this->orderTypeId);
         }
     }
 
@@ -263,6 +360,8 @@ class Cart extends Component
         // Update the local variables
         $this->orderType = $orderType->type;
         $this->orderTypeSlug = $orderType->slug;
+        $this->isDeliveryOrder = $this->isDeliveryOrderType();
+        $this->deliveryAddressConfirmed = false;
 
         // Get extra charges for this order type
         $mainExtraCharges = RestaurantCharge::withoutGlobalScopes()
@@ -274,11 +373,13 @@ class Cart extends Component
         // Update extra charges
         if (!$this->orderID) {
             // Only clear delivery-related fields if the order type is not delivery
-            if ($this->orderTypeSlug !== 'delivery') {
+            if ($this->orderType !== 'delivery') {
                 $this->addressLat = null;
                 $this->addressLng = null;
                 $this->deliveryAddress = null;
                 $this->deliveryFee = null;
+                $this->customerAddress = null;
+                $this->selectedCustomerAddressId = null;
             }
 
             $this->calculateMaxPreparationTime();
@@ -335,6 +436,9 @@ class Cart extends Component
 
         // Set the order type ID which will trigger updatedOrderTypeId
         $this->orderTypeId = $orderTypeId;
+
+        // Livewire does not run updated hooks for server-side assignments
+        $this->updatedOrderTypeId($orderTypeId);
 
         // Close the modal
         $this->showOrderTypeModal = false;
@@ -574,6 +678,10 @@ class Cart extends Component
 
         if ($orderTypeModel) {
             $this->orderTypeId = $orderTypeModel->id;
+            $this->orderType = $orderTypeModel->type;
+            $this->orderTypeSlug = $orderTypeModel->slug;
+            $this->isDeliveryOrder = $this->isDeliveryOrderType();
+            $this->deliveryAddressConfirmed = false;
             $mainExtraCharges = RestaurantCharge::withoutGlobalScopes()
             ->whereJsonContains('order_types', $value)
             ->where('is_enabled', true)
@@ -582,7 +690,7 @@ class Cart extends Component
         // Early return for new orders
         if (!$this->orderID) {
                 // Only clear delivery-related fields if the order type is not delivery
-                if ($value !== 'delivery') {
+                if ($orderTypeModel->type !== 'delivery') {
                     $this->addressLat = null;
                     $this->addressLng = null;
                     $this->deliveryAddress = null;
@@ -664,28 +772,50 @@ class Cart extends Component
 
     public function submitCustomerName()
     {
+        $enteredPhone = preg_replace('/\s+/', '', trim((string) $this->customerPhone));
+        $fullPhone = str_starts_with($enteredPhone, '+')
+            ? $enteredPhone
+            : (trim((string) $this->phoneCode) . $enteredPhone);
+
         $rules = [
             'customerName' => 'required',
             'customerPhone' => [
                 'required',
-                Rule::unique('customers', 'phone')->ignore($this->customer->id ?? null),
+                function ($attribute, $value, $fail) use ($fullPhone) {
+                    if (!$this->customer) {
+                        return;
+                    }
+
+                    $exists = Customer::where('phone', $fullPhone)
+                        ->where('id', '!=', $this->customer->id)
+                        ->exists();
+
+                    if ($exists) {
+                        $fail(__('validation.unique', ['attribute' => 'phone']));
+                    }
+                },
             ],
         ];
 
         // Add address validation for delivery orders
-        if ($this->orderType === 'delivery') {
+        if ($this->isDeliveryOrderType()) {
             $rules['customerAddress'] = 'required';
         }
 
         $this->validate($rules);
 
-        // Combine phone code with phone number
-        $fullPhone = $this->phoneCode . $this->customerPhone;
+        // $fullPhone is already normalized above
 
         $this->customer->name = $this->customerName;
         $this->customer->phone = $fullPhone;
         $this->customer->delivery_address = $this->customerAddress;
         $this->customer->save();
+
+        $this->refreshCustomerAddresses();
+
+        if ($this->isDeliveryOrderType()) {
+            $this->deliveryAddressConfirmed = true;
+        }
 
         // Update the customerPhone to include the code for order creation
         $this->customerPhone = $fullPhone;
@@ -769,8 +899,22 @@ class Cart extends Component
         if ($updateOrder) {
             $this->order = Order::find($updateOrder);
 
+            $orderTypeFromOrder = $this->order?->order_type_id
+                ? (OrderType::where('id', $this->order->order_type_id)->value('type') ?? null)
+                : null;
+
+            $isDeliveryOrder = $orderTypeFromOrder === 'delivery' || $this->isDeliveryOrderType();
+            if ($isDeliveryOrder && empty($this->order?->delivery_address)) {
+                $this->showPaymentModal = false;
+                $this->showDeliveryAddressModal = true;
+                $this->alert('error', __('modules.customer.address') . ' ' . __('validation.required'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+                return;
+            }
+
             Payment::create([
-                'order_id' => $this->order->id,
                 'branch_id' => $this->shopBranch->id,
                 'payment_method' => $method,
                 'amount' => $this->total,
@@ -792,35 +936,68 @@ class Cart extends Component
             return;
         }
 
-        if ($this->orderType == 'delivery') {
+        $deliverySetting = null;
+        if ($this->isDeliveryOrderType()) {
             $deliverySetting = $this->shopBranch->deliverySetting ?? null;
         }
 
-
         $preferredDeliveryAddress = $this->getPreferredDeliveryAddress();
 
-        // Show customer name/phone/address modal if customer data is missing
-        $needsCustomerInfo = $this->customer && (
-            is_null($this->customer->name) ||
-            is_null($this->customer->phone) ||
-            ($this->orderType == 'delivery' && empty($preferredDeliveryAddress))
-        );
+        // For delivery orders, always prompt to choose/confirm an address for this checkout
+        // (prevents auto-using latest saved/profile address without user confirmation).
+        if ($this->isDeliveryOrderType() && $this->customer && !$this->deliveryAddressConfirmed) {
+            if (isset($deliverySetting)) {
+                $this->showDeliveryAddressModal = true;
+                $this->payNow = $pay;
+                return;
+            }
 
-        if ($needsCustomerInfo) {
+            // No delivery settings configured: use the customer info modal with address selector/textarea
             $this->customerName = $this->customer->name;
-            $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
-            $this->customerPhone = $this->customer->phone;
+            [$this->phoneCode, $this->customerPhone] = $this->splitPhone($this->customer->phone);
+            $this->customerAddress = null;
+            $this->selectedCustomerAddressId = null;
             $this->showCustomerNameModal = true;
             $this->payNow = $pay;
             return;
         }
 
+        // Show customer name/phone/address modal if customer data is missing
+        $needsCustomerInfo = $this->customer && (
+            is_null($this->customer->name) ||
+            is_null($this->customer->phone) ||
+            ($this->isDeliveryOrderType() && empty($preferredDeliveryAddress))
+        );
 
-        if ($this->customer && $this->orderType === 'delivery' && empty($this->addressLat) && empty($this->addressLng) && empty($this->deliveryAddress) && isset($deliverySetting)) {
+        if ($needsCustomerInfo) {
+            $this->customerName = $this->customer->name;
             $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
-            $this->showDeliveryAddressModal = true;
+            [$this->phoneCode, $this->customerPhone] = $this->splitPhone($this->customer->phone);
+            $this->showCustomerNameModal = true;
             $this->payNow = $pay;
             return;
+        }
+
+        // Delivery orders must always have a delivery address before proceeding.
+        // If delivery settings exist, force the location selector flow (saved addresses + map selection).
+        if ($this->isDeliveryOrderType() && $this->customer) {
+            if (isset($deliverySetting)) {
+                if (empty($this->deliveryAddress) || empty($this->addressLat) || empty($this->addressLng)) {
+                    $this->showDeliveryAddressModal = true;
+                    $this->payNow = $pay;
+                    return;
+                }
+            } else {
+                $deliveryAddressText = trim((string) ($this->customerAddress ?: $preferredDeliveryAddress ?: ''));
+                if ($deliveryAddressText === '') {
+                    $this->customerName = $this->customer->name;
+                    [$this->phoneCode, $this->customerPhone] = $this->splitPhone($this->customer->phone);
+                    $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
+                    $this->showCustomerNameModal = true;
+                    $this->payNow = $pay;
+                    return;
+                }
+            }
         }
 
         if ($this->orderType == 'dine_in' && $this->getTable) {
@@ -843,8 +1020,22 @@ class Cart extends Component
             $orderNumberData = Order::generateOrderNumber($this->shopBranch);
 
             $deliveryAddressForOrder = null;
-            if ($this->orderType === 'delivery') {
-                $deliveryAddressForOrder = $this->deliveryAddress ?: $this->customerAddress ?: $preferredDeliveryAddress;
+            if ($this->isDeliveryOrderType()) {
+                $deliveryAddressForOrder = isset($deliverySetting)
+                    ? $this->deliveryAddress
+                    : ($this->customerAddress ?: $preferredDeliveryAddress);
+
+                $deliveryAddressForOrder = is_string($deliveryAddressForOrder) ? trim($deliveryAddressForOrder) : $deliveryAddressForOrder;
+
+                if (empty($deliveryAddressForOrder)) {
+                    if (isset($deliverySetting)) {
+                        $this->showDeliveryAddressModal = true;
+                    } else {
+                        $this->showCustomerNameModal = true;
+                    }
+                    $this->payNow = $pay;
+                    return;
+                }
             }
 
             // Use the already selected order type ID if available
@@ -898,7 +1089,7 @@ class Cart extends Component
             ]);
         }
 
-        if ($this->customer && $this->orderType === 'delivery' && !empty($this->deliveryAddress) && isset($deliverySetting)) {
+        if ($this->customer && $this->isDeliveryOrderType() && !empty($this->deliveryAddress) && isset($deliverySetting)) {
             $this->customer->delivery_address = $this->deliveryAddress;
             $this->customer->save();
 
@@ -1507,6 +1698,7 @@ class Cart extends Component
         $this->calculateMaxPreparationTime();
         $this->calculateTotal();
         $this->showDeliveryAddressModal = false;
+        $this->deliveryAddressConfirmed = true;
     }
 
     public function calculateMaxPreparationTime()

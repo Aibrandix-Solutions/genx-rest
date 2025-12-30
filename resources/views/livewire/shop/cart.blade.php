@@ -1064,11 +1064,28 @@
                         </div>
 
                         <!-- Address Field (for delivery orders) -->
-                        @if ($orderType == 'delivery')
+                        @if ($isDeliveryOrder)
+                            @if (!empty($customerAddresses))
+                                <div>
+                                    <x-label for="selectedCustomerAddressId" value="{{ __('modules.customer.address') }}" />
+                                    <select id="selectedCustomerAddressId"
+                                        wire:model="selectedCustomerAddressId"
+                                        class="block w-full mt-1 border-gray-300 rounded-md shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-skin-base focus:ring focus:ring-skin-base focus:ring-opacity-50">
+                                        <option value="">@lang('modules.delivery.selectDeliveryLocation') / @lang('modules.delivery.useDifferentLocation')</option>
+                                        @foreach ($customerAddresses as $addr)
+                                            <option value="{{ $addr['id'] }}">
+                                                {{ ($addr['label'] ?? __('modules.customer.address')) . ' - ' . Str::limit(($addr['address'] ?? ''), 50) }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            @endif
+
                             <div>
-                                <x-label for="customerAddress" value="{{ __('modules.customer.address') }}" />
-                                <x-textarea id="customerAddress" class="block w-full mt-1"
-                                    wire:model='customerAddress' rows="4" placeholder="Enter your delivery address" />
+                                <textarea id="customerAddress"
+                                    class="block w-full mt-1 border-gray-300 focus:border-gray-500 focus:ring-gray-500 rounded-md shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:focus:border-gray-600 dark:focus:ring-gray-600"
+                                    wire:model="customerAddress" rows="4" placeholder="Enter your delivery address"
+                                    @disabled(!empty($selectedCustomerAddressId))></textarea>
                                 <x-input-error for="customerAddress" class="mt-2" />
                             </div>
                         @endif
