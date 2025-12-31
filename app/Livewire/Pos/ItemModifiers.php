@@ -77,34 +77,57 @@ class ItemModifiers extends Component
 
     public function toggleSelection($groupId, $optionId)
     {
-        $modifierGroup = $this->selectedModifierItem->modifierGroups()
-            ->withPivot(['is_required', 'allow_multiple_selection'])
-            ->firstWhere('modifier_groups.id', $groupId);
+        // Backwards compatibility: legacy checkbox handler. Treat a "toggle" as qty 1/0.
+        $current = (int) ($this->selectedModifiers[$optionId] ?? 0);
+        if ($current > 0) {
+            $this->setOptionQty($groupId, $optionId, 0);
+            return;
+        }
 
-        $allowMultiple = $modifierGroup->pivot->allow_multiple_selection;
+        $this->setOptionQty($groupId, $optionId, 1);
+    }
 
-        if ($allowMultiple) {
-            if (in_array($optionId, $this->selectedModifiers)) {
-                if ($optionId !== 1) {
-                    $this->selectedModifiers = array_diff($this->selectedModifiers, [$optionId]);
-                }
-            }
-        } else {
-            if (isset($this->selectedModifiers[$optionId]) && $this->selectedModifiers[$optionId]) {
-                foreach ($modifierGroup->options as $option) {
-                    if ($option->id != $optionId) {
-                        unset($this->selectedModifiers[$option->id]);
-                    }
+    public function incrementOption(int $groupId, int $optionId): void
+    {
+        $current = (int) ($this->selectedModifiers[$optionId] ?? 0);
+        $this->setOptionQty($groupId, $optionId, $current + 1);
+    }
+
+    public function decrementOption(int $groupId, int $optionId): void
+    {
+        $current = (int) ($this->selectedModifiers[$optionId] ?? 0);
+        $this->setOptionQty($groupId, $optionId, max(0, $current - 1));
+    }
+
+    public function setOptionQty(int $groupId, int $optionId, int $qty): void
+    {
+        $modifierGroup = $this->modifiers instanceof \Illuminate\Support\Collection
+            ? $this->modifiers->firstWhere('id', $groupId)
+            : collect($this->modifiers)->firstWhere('id', $groupId);
+        $allowMultiple = (bool) ($modifierGroup?->itemModifiers?->first()?->allow_multiple_selection ?? false);
+
+        if (!$allowMultiple && $qty > 0) {
+            foreach ($modifierGroup->options as $option) {
+                if ((int) $option->id !== (int) $optionId) {
+                    $this->selectedModifiers[(int) $option->id] = 0;
                 }
             }
         }
+
+        $this->selectedModifiers[(int) $optionId] = max(0, $qty);
     }
 
     public function saveModifiers()
     {
         $this->validateRequiredModifiers();
+
+        $selected = collect($this->selectedModifiers)
+            ->map(fn($qty) => (int) $qty)
+            ->filter(fn($qty) => $qty > 0)
+            ->toArray();
+
         $this->finalModifiers = [
-            $this->menuItemId => array_keys(array_filter($this->selectedModifiers))
+            $this->menuItemId => $selected,
         ];
 
         $this->dispatch('setPosModifier', $this->finalModifiers);
@@ -123,11 +146,16 @@ class ItemModifiers extends Component
                 : false;
 
             if ($isRequired) {
-                $selectedOptions = array_keys(array_filter($this->selectedModifiers, function ($selected, $optionId) use ($modifierGroup) {
-                    return $selected && $modifierGroup->options->contains('id', $optionId);
-                }, ARRAY_FILTER_USE_BOTH));
+                $hasSelection = false;
+                foreach ($modifierGroup->options as $option) {
+                    $qty = (int) ($this->selectedModifiers[(int) $option->id] ?? 0);
+                    if ($qty > 0) {
+                        $hasSelection = true;
+                        break;
+                    }
+                }
 
-                if (empty($selectedOptions)) {
+                if (!$hasSelection) {
                     $rules["requiredModifiers.{$modifierGroup->id}"] = 'required';
                     $messages["requiredModifiers.{$modifierGroup->id}.required"] = __('validation.requiredModifierGroup', ['name' => $modifierGroup->name]);
                 }

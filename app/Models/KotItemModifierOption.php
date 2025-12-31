@@ -9,6 +9,10 @@ class KotItemModifierOption extends BaseModel
 {
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'quantity' => 'int',
+    ];
+
     public function kotItem(): BelongsTo
     {
         return $this->belongsTo(KotItem::class, 'kot_item_id');

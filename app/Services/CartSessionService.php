@@ -62,18 +62,23 @@ class CartSessionService
         // Calculate base price
         $basePrice = $variation ? $variation->price : $menuItem->price;
 
-        // Calculate modifier price
+        $modifierQuantities = $this->normalizeModifierQuantities($modifierOptionIds);
+
+        // Calculate modifier price (per-unit)
         $modifierPrice = 0;
-        if (!empty($modifierOptionIds)) {
-            $modifierOptions = ModifierOption::whereIn('id', $modifierOptionIds)->get();
-            $modifierPrice = $modifierOptions->sum('price');
+        if (!empty($modifierQuantities)) {
+            $modifierOptions = ModifierOption::whereIn('id', array_keys($modifierQuantities))->get()->keyBy('id');
+            foreach ($modifierQuantities as $modifierOptionId => $modifierQty) {
+                $price = $modifierOptions[$modifierOptionId]->price ?? 0;
+                $modifierPrice += ($price * $modifierQty);
+            }
         }
 
         $itemPrice = $basePrice + $modifierPrice;
         $amount = $itemPrice * $quantity;
 
         // Check if similar item already exists in cart
-        $existingCartItem = $this->findSimilarCartItem($cartSession, $menuItemId, $variationId, $modifierOptionIds);
+        $existingCartItem = $this->findSimilarCartItem($cartSession, $menuItemId, $variationId, $modifierQuantities);
 
         // Calculate tax information
         $taxData = $this->calculateItemTax($menuItem, $itemPrice, $quantity, $cartSession->tax_mode);
@@ -108,12 +113,17 @@ class CartSessionService
             ]);
 
             // Add modifier options
-            if (!empty($modifierOptionIds)) {
-                foreach ($modifierOptionIds as $modifierOptionId) {
-                    CartItemModifierOption::create([
-                        'cart_item_id' => $cartItem->id,
-                        'modifier_option_id' => $modifierOptionId,
-                    ]);
+            if (!empty($modifierQuantities)) {
+                foreach ($modifierQuantities as $modifierOptionId => $modifierQty) {
+                    CartItemModifierOption::updateOrCreate(
+                        [
+                            'cart_item_id' => $cartItem->id,
+                            'modifier_option_id' => $modifierOptionId,
+                        ],
+                        [
+                            'quantity' => $modifierQty,
+                        ]
+                    );
                 }
             }
         }
@@ -219,7 +229,7 @@ class CartSessionService
         CartSession $cartSession,
         int $menuItemId,
         ?int $variationId,
-        array $modifierOptionIds
+        array $modifierQuantities
     ): ?CartItem {
         $cartItems = $cartSession->cartItems()
             ->where('menu_item_id', $menuItemId)
@@ -228,15 +238,58 @@ class CartSessionService
             ->get();
 
         foreach ($cartItems as $cartItem) {
-            $existingModifierIds = $cartItem->modifiers->pluck('id')->sort()->values()->toArray();
-            $newModifierIds = collect($modifierOptionIds)->sort()->values()->toArray();
+            $existingModifiers = $cartItem->modifiers
+                ->mapWithKeys(fn($modifier) => [
+                    (int) $modifier->id => (int) ($modifier->pivot->quantity ?? 1),
+                ])
+                ->toArray();
 
-            if ($existingModifierIds === $newModifierIds) {
+            $existingModifiers = $this->normalizeModifierQuantities($existingModifiers);
+            $modifierQuantities = $this->normalizeModifierQuantities($modifierQuantities);
+
+            if ($existingModifiers === $modifierQuantities) {
                 return $cartItem;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Normalize modifier selections into: [modifier_option_id => quantity].
+     *
+     * Supports:
+     * - [1, 5, 9] (legacy) => [1=>1, 5=>1, 9=>1]
+     * - [1 => 2, 5 => 1] (new) => [1=>2, 5=>1]
+     */
+    private function normalizeModifierQuantities(array $modifierOptionIdsOrQuantities): array
+    {
+        if (empty($modifierOptionIdsOrQuantities)) {
+            return [];
+        }
+
+        $isList = array_is_list($modifierOptionIdsOrQuantities);
+        $normalized = [];
+
+        if ($isList) {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId) {
+                $modifierOptionId = (int) $modifierOptionId;
+                if ($modifierOptionId > 0) {
+                    $normalized[$modifierOptionId] = 1;
+                }
+            }
+        } else {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId => $qty) {
+                $modifierOptionId = (int) $modifierOptionId;
+                $qty = (int) $qty;
+                if ($modifierOptionId > 0 && $qty > 0) {
+                    $normalized[$modifierOptionId] = $qty;
+                }
+            }
+        }
+
+        ksort($normalized);
+        return $normalized;
     }
 
     /**

@@ -437,12 +437,16 @@
                                         @if ($item->modifierOptions->isNotEmpty())
                                             <div class="text-xs text-gray-600 dark:text-white">
                                                 @foreach ($item->modifierOptions as $modifier)
+                                                    @php
+                                                        $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                                        $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty);
+                                                    @endphp
                                                     <div
                                                         class="flex justify-between items-center px-1 py-0.5 mb-1 text-xs bg-gray-200 rounded-md border-l-2 border-blue-500 dark:bg-gray-900">
                                                         <span
-                                                            class="text-gray-900 dark:text-white">{{ $modifier->name }}</span>
+                                                            class="text-gray-900 dark:text-white">{{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif</span>
                                                         <span
-                                                            class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price, $currencyId) }}</span>
+                                                            class="text-gray-600 dark:text-gray-300">{{ currency_format($modifierLinePrice, $currencyId) }}</span>
                                                     </div>
                                                 @endforeach
                                             </div>

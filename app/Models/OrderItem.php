@@ -32,7 +32,9 @@ class OrderItem extends BaseModel
 
     public function modifierOptions(): BelongsToMany
     {
-        return $this->belongsToMany(ModifierOption::class, 'order_item_modifier_options', 'order_item_id', 'modifier_option_id');
+        return $this->belongsToMany(ModifierOption::class, 'order_item_modifier_options', 'order_item_id', 'modifier_option_id')
+            ->withPivot('quantity')
+            ->withTimestamps();
     }
 
     public function comboPack(): BelongsTo

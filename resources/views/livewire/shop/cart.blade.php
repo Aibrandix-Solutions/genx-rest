@@ -588,12 +588,17 @@
                             <!-- Modifiers (Shown below if present) -->
                             @if (!empty($itemModifiersSelected[$key]))
                                 <div class="flex flex-wrap gap-2 mt-2">
-                                    @foreach ($itemModifiersSelected[$key] as $modifierOptionId)
+                                    @foreach ($itemModifiersSelected[$key] as $modifierOptionId => $modifierQty)
+                                        @php
+                                            $modifier = $this->modifierOptions[$modifierOptionId] ?? null;
+                                            $modifierQty = (int) $modifierQty;
+                                        @endphp
+                                        @continue(!$modifier || $modifierQty <= 0)
                                         <span
                                             class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-skin-base/10 text-skin-base">
-                                            {{ $this->modifierOptions[$modifierOptionId]->name }}
+                                            {{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif
                                             <span class="ml-1 text-skin-base">
-                                                {{ currency_format($this->modifierOptions[$modifierOptionId]->price, $this->modifierOptions[$modifierOptionId]->modifierGroup->branch->restaurant->currency_id) }}
+                                                {{ currency_format($modifier->price * $modifierQty, $modifier->modifierGroup->branch->restaurant->currency_id) }}
                                             </span>
                                         </span>
                                     @endforeach

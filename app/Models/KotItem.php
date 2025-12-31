@@ -31,7 +31,9 @@ class KotItem extends BaseModel
 
     public function modifierOptions(): BelongsToMany
     {
-        return $this->belongsToMany(ModifierOption::class, 'kot_item_modifier_options', 'kot_item_id', 'modifier_option_id');
+        return $this->belongsToMany(ModifierOption::class, 'kot_item_modifier_options', 'kot_item_id', 'modifier_option_id')
+            ->withPivot('quantity')
+            ->withTimestamps();
     }
 
     public function kot(): BelongsTo

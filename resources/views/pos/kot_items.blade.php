@@ -256,13 +256,18 @@
 
                                 @if (!empty($itemModifiersSelected[$key]))
                                     <div class="text-xs text-gray-600 dark:text-white">
-                                        @foreach ($itemModifiersSelected[$key] as $modifierOptionId)
+                                        @foreach ($itemModifiersSelected[$key] as $modifierOptionId => $modifierQty)
+                                            @php
+                                                $modifier = $this->modifierOptions[$modifierOptionId] ?? null;
+                                                $modifierQty = (int) $modifierQty;
+                                            @endphp
+                                            @continue(!$modifier || $modifierQty <= 0)
                                             <div
                                                 class="flex items-center justify-between text-xs mb-1 py-0.5 px-1 border-l-2 border-blue-500 bg-gray-200 dark:bg-gray-900 rounded-md">
                                                 <span
-                                                    class="text-gray-900 dark:text-white">{{ $this->modifierOptions[$modifierOptionId]->name }}</span>
+                                                    class="text-gray-900 dark:text-white">{{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif</span>
                                                 <span
-                                                    class="text-gray-600 dark:text-gray-300">{{ currency_format($this->modifierOptions[$modifierOptionId]->price, restaurant()->currency_id) }}</span>
+                                                    class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price * $modifierQty, restaurant()->currency_id) }}</span>
                                             </div>
                                         @endforeach
                                         {{-- </div> --}}

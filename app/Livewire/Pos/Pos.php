@@ -340,6 +340,80 @@ class Pos extends Component
     }
 
     /**
+     * Normalize modifier selections into: [modifier_option_id => quantity].
+     *
+     * Supports:
+     * - [1, 5, 9] (legacy) => [1=>1, 5=>1, 9=>1]
+     * - [1 => 2, 5 => 1] (new) => [1=>2, 5=>1]
+     */
+    private function normalizeModifierQuantities(array $modifierOptionIdsOrQuantities): array
+    {
+        if (empty($modifierOptionIdsOrQuantities)) {
+            return [];
+        }
+
+        $isList = array_is_list($modifierOptionIdsOrQuantities);
+        $normalized = [];
+
+        if ($isList) {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId) {
+                $modifierOptionId = (int) $modifierOptionId;
+                if ($modifierOptionId > 0) {
+                    $normalized[$modifierOptionId] = 1;
+                }
+            }
+        } else {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId => $qty) {
+                $modifierOptionId = (int) $modifierOptionId;
+                $qty = (int) $qty;
+                if ($modifierOptionId > 0 && $qty > 0) {
+                    $normalized[$modifierOptionId] = $qty;
+                }
+            }
+        }
+
+        ksort($normalized);
+        return $normalized;
+    }
+
+    private function buildModifierSyncData(array $modifierOptionIdsOrQuantities): array
+    {
+        $qtyMap = $this->normalizeModifierQuantities($modifierOptionIdsOrQuantities);
+        $sync = [];
+        foreach ($qtyMap as $modifierOptionId => $qty) {
+            $sync[$modifierOptionId] = ['quantity' => $qty];
+        }
+        return $sync;
+    }
+
+    private function getSelectedModifierOptionIds(): array
+    {
+        $ids = [];
+        foreach (($this->itemModifiersSelected ?? []) as $selected) {
+            if (!is_array($selected)) {
+                continue;
+            }
+            $ids = array_merge($ids, array_keys($this->normalizeModifierQuantities($selected)));
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+        return $ids;
+    }
+
+    private function calculateModifierTotal(array $modifierOptionQtyMap, $modifierOptionsById): float
+    {
+        $modifierOptionQtyMap = $this->normalizeModifierQuantities($modifierOptionQtyMap);
+        $total = 0.0;
+
+        foreach ($modifierOptionQtyMap as $modifierOptionId => $qty) {
+            $price = $modifierOptionsById[$modifierOptionId]->price ?? 0;
+            $total += ((float) $price * (int) $qty);
+        }
+
+        return $total;
+    }
+
+    /**
      * Get the normalized delivery app ID for use in views
      */
     public function getNormalizedDeliveryAppIdProperty()
@@ -364,14 +438,13 @@ class Pos extends Component
                 // Update modifier prices
                 if (!empty($this->itemModifiersSelected[$key])) {
                     $modifierOptions = $this->getModifierOptionsProperty();
-                    $modifierTotal = 0;
-                    foreach ($this->itemModifiersSelected[$key] as $modifierId) {
+                    $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                    foreach (array_keys($selected) as $modifierId) {
                         if (isset($modifierOptions[$modifierId])) {
                             $modifierOptions[$modifierId]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
-                            $modifierTotal += $modifierOptions[$modifierId]->price;
                         }
                     }
-                    $this->orderItemModifiersPrice[$key] = $modifierTotal;
+                    $this->orderItemModifiersPrice[$key] = $this->calculateModifierTotal($selected, $modifierOptions);
                 }
                 
                 // Recalculate item amount with updated prices
@@ -418,9 +491,8 @@ class Pos extends Component
                 // Recalculate modifier prices
                 if (!empty($this->itemModifiersSelected[$key])) {
                     $modifierOptions = $this->getModifierOptionsProperty();
-                    $modifierTotal = collect($this->itemModifiersSelected[$key])
-                        ->sum(fn($modifierId) => isset($modifierOptions[$modifierId]) ? $modifierOptions[$modifierId]->price : 0);
-                    $this->orderItemModifiersPrice[$key] = $modifierTotal;
+                    $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                    $this->orderItemModifiersPrice[$key] = $this->calculateModifierTotal($selected, $modifierOptions);
                 }
                 
                 // Recalculate item amount
@@ -466,9 +538,8 @@ class Pos extends Component
             // Recalculate modifier prices
             if (!empty($this->itemModifiersSelected[$key])) {
                 $modifierOptions = $this->getModifierOptionsProperty();
-                $modifierTotal = collect($this->itemModifiersSelected[$key])
-                    ->sum(fn($modifierId) => isset($modifierOptions[$modifierId]) ? $modifierOptions[$modifierId]->price : 0);
-                $this->orderItemModifiersPrice[$key] = $modifierTotal;
+                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                $this->orderItemModifiersPrice[$key] = $this->calculateModifierTotal($selected, $modifierOptions);
             }
             
             // Recalculate item amount
@@ -618,7 +689,7 @@ class Pos extends Component
                     
                     $this->orderItemList[$key] = $item->menuItem;
                     $this->orderItemQty[$key] = $item->quantity;
-                    $this->itemModifiersSelected[$key] = $item->modifierOptions->pluck('id')->toArray();
+                    $this->itemModifiersSelected[$key] = $item->modifierOptions->pluck('pivot.quantity', 'id')->toArray();
                     
                     // Check if this KOT item is from a combo pack
                     // First check note for combo marker, then check order items
@@ -714,7 +785,10 @@ class Pos extends Component
                             }
                         }
                         
-                        $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum('price');
+                        $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum(function ($modifier) {
+                            $qty = (int) ($modifier->pivot->quantity ?? 1);
+                            return $modifier->price * max(1, $qty);
+                        });
                         $basePrice = $item->menuItemVariation ? $item->menuItemVariation->price : $item->menuItem->price;
                         $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
                     }
@@ -1631,7 +1705,7 @@ class Pos extends Component
                             'order_type_id' => $order->order_type_id ?? null,
                             'order_type' => $order->order_type ?? null,
                         ]);
-                        $kotItem->modifierOptions()->sync($item['modifiers']);
+                        $kotItem->modifierOptions()->sync($this->buildModifierSyncData($item['modifiers'] ?? []));
                     }
                 }
             } else {
@@ -1660,7 +1734,7 @@ class Pos extends Component
                         'order_type_id' => $order->order_type_id ?? null,
                         'order_type' => $order->order_type ?? null,
                     ]);
-                    $kotItem->modifierOptions()->sync($this->itemModifiersSelected[$key] ?? []);
+                    $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key] ?? []));
                 }
             }
 
@@ -1688,7 +1762,10 @@ class Pos extends Component
                             // Add modifier prices if any
                             $modifierPrice = 0;
                             if ($item->modifierOptions->isNotEmpty()) {
-                                $modifierPrice = $item->modifierOptions->sum('price');
+                                $modifierPrice = $item->modifierOptions->sum(function ($modifier) {
+                                    $qty = (int) ($modifier->pivot->quantity ?? 1);
+                                    return $modifier->price * max(1, $qty);
+                                });
                             }
                             
                             $itemAmount = ($menuItemPrice + $modifierPrice) * $item->quantity;
@@ -1778,7 +1855,7 @@ class Pos extends Component
                         'amount' => $this->orderItemAmount[$key],
                     ]);
                     $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-                    $orderItem->modifierOptions()->sync($this->itemModifiersSelected[$key]);
+                    $orderItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
                 }
 
                 if ($this->taxMode === 'order') {
@@ -1846,7 +1923,7 @@ class Pos extends Component
                 ]);
 
                 $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-                $orderItem->modifierOptions()->sync($this->itemModifiersSelected[$key]);
+                $orderItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
             }
 
             if ($this->taxMode === 'order') {
@@ -2518,8 +2595,15 @@ class Pos extends Component
     {
         $this->showModifiersModal = false;
 
-        $sortNumber = Str::of(implode('', Arr::flatten($modifierIds)))
-            ->split(1)->sort()->implode('');
+        $selection = is_array($modifierIds) ? (reset($modifierIds) ?: []) : [];
+        $modifierQtyMap = $this->normalizeModifierQuantities(is_array($selection) ? $selection : []);
+
+        $signatureParts = [];
+        foreach ($modifierQtyMap as $modifierOptionId => $qty) {
+            $signatureParts[] = $modifierOptionId . ':' . $qty;
+        }
+        $signature = implode('|', $signatureParts);
+        $sortNumber = $signature ? md5($signature) : '0';
 
         $keyId = $this->selectedModifierItem . '-' . $sortNumber;
         if (isset(explode('_', $this->selectedModifierItem)[1])) {
@@ -2541,22 +2625,19 @@ class Pos extends Component
             $this->orderItemAmount[$keyId] = 1 * ($this->orderItemVariation[$keyId]->price ?? $this->orderItemList[$keyId]->price);
         }
 
-        $this->itemModifiersSelected[$keyId] = Arr::flatten($modifierIds);
+        $this->itemModifiersSelected[$keyId] = $modifierQtyMap;
         $this->orderItemQty[$this->selectedModifierItem] = isset($this->orderItemQty[$this->selectedModifierItem]) ? ($this->orderItemQty[$this->selectedModifierItem] + 1) : 1;
 
         // Get modifier options with price context set
         $modifierOptions = $this->getModifierOptionsProperty();
-        $modifierTotal = collect($this->itemModifiersSelected[$keyId])
-            ->sum(fn($modifierId) => isset($modifierOptions[$modifierId]) ? $modifierOptions[$modifierId]->price : 0);
-
-        $this->orderItemModifiersPrice[$keyId] = (1 * (isset($this->itemModifiersSelected[$keyId]) ? $modifierTotal : 0));
+        $this->orderItemModifiersPrice[$keyId] = $this->calculateModifierTotal($modifierQtyMap, $modifierOptions);
 
         $this->syncCart($keyId);
     }
 
     public function getModifierOptionsProperty()
     {
-        $modifiers = ModifierOption::whereIn('id', collect($this->itemModifiersSelected)->flatten()->all())->get();
+        $modifiers = ModifierOption::whereIn('id', $this->getSelectedModifierOptionIds())->get();
         
         // Set price context on modifier options
         if ($this->orderTypeId) {
@@ -2846,7 +2927,10 @@ class Pos extends Component
             }
             
             $basePrice = !is_null($orderItem->menuItemVariation) ? $orderItem->menuItemVariation->price : $orderItem->menuItem->price;
-            $modifierPrice = $orderItem->modifierOptions->sum('price');
+            $modifierPrice = $orderItem->modifierOptions->sum(function ($modifier) {
+                $qty = (int) ($modifier->pivot->quantity ?? 1);
+                return $modifier->price * max(1, $qty);
+            });
 
             // If tax is inclusive, calculate the display price without tax
             if (restaurant()->tax_inclusive && restaurant()->tax_mode === 'item') {
@@ -2885,8 +2969,9 @@ class Pos extends Component
             $modifiers = [];
             $modifierTotal = 0;
             if (!empty($this->itemModifiersSelected[$key])) {
-                foreach ($this->itemModifiersSelected[$key] as $modifierId) {
-                    $modifier = \App\Models\ModifierOption::find($modifierId);
+                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                foreach ($selected as $modifierId => $qty) {
+                    $modifier = \App\Models\ModifierOption::find((int) $modifierId);
                     if ($modifier) {
                         // Set price context for modifier
                         if ($this->orderTypeId) {
@@ -2895,8 +2980,9 @@ class Pos extends Component
                         $modifiers[] = [
                             'name' => $modifier->name,
                             'price' => $modifier->price,
+                            'quantity' => (int) $qty,
                         ];
-                        $modifierTotal += $modifier->price;
+                        $modifierTotal += ($modifier->price * (int) $qty);
                     }
                 }
             }

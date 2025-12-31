@@ -405,13 +405,14 @@ class Cart extends Component
             // Recalculate modifier prices
             if (isset($this->itemModifiersSelected[$key]) && is_array($this->itemModifiersSelected[$key])) {
                 $modifierPrice = 0;
-                foreach ($this->itemModifiersSelected[$key] as $modifierId) {
-                    $modifier = ModifierOption::find($modifierId);
+                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                foreach ($selected as $modifierId => $qty) {
+                    $modifier = ModifierOption::find((int) $modifierId);
                     if ($modifier) {
                         if ($this->orderTypeId) {
                             $modifier->setPriceContext($this->orderTypeId, null);
                         }
-                        $modifierPrice += $modifier->price;
+                        $modifierPrice += ($modifier->price * (int) $qty);
                     }
                 }
                 $this->orderItemModifiersPrice[$key] = $modifierPrice;
@@ -423,6 +424,80 @@ class Cart extends Component
         }
 
         $this->calculateTotal();
+    }
+
+    /**
+     * Normalize modifier selections into: [modifier_option_id => quantity].
+     *
+     * Supports:
+     * - [1, 5, 9] (legacy) => [1=>1, 5=>1, 9=>1]
+     * - [1 => 2, 5 => 1] (new) => [1=>2, 5=>1]
+     */
+    private function normalizeModifierQuantities(array $modifierOptionIdsOrQuantities): array
+    {
+        if (empty($modifierOptionIdsOrQuantities)) {
+            return [];
+        }
+
+        $isList = array_is_list($modifierOptionIdsOrQuantities);
+        $normalized = [];
+
+        if ($isList) {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId) {
+                $modifierOptionId = (int) $modifierOptionId;
+                if ($modifierOptionId > 0) {
+                    $normalized[$modifierOptionId] = 1;
+                }
+            }
+        } else {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId => $qty) {
+                $modifierOptionId = (int) $modifierOptionId;
+                $qty = (int) $qty;
+                if ($modifierOptionId > 0 && $qty > 0) {
+                    $normalized[$modifierOptionId] = $qty;
+                }
+            }
+        }
+
+        ksort($normalized);
+        return $normalized;
+    }
+
+    private function buildModifierSyncData(array $modifierOptionIdsOrQuantities): array
+    {
+        $qtyMap = $this->normalizeModifierQuantities($modifierOptionIdsOrQuantities);
+        $sync = [];
+        foreach ($qtyMap as $modifierOptionId => $qty) {
+            $sync[$modifierOptionId] = ['quantity' => $qty];
+        }
+        return $sync;
+    }
+
+    private function getSelectedModifierOptionIds(): array
+    {
+        $ids = [];
+        foreach (($this->itemModifiersSelected ?? []) as $selected) {
+            if (!is_array($selected)) {
+                continue;
+            }
+            $ids = array_merge($ids, array_keys($this->normalizeModifierQuantities($selected)));
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+        return $ids;
+    }
+
+    private function calculateModifierTotal(array $modifierOptionQtyMap, $modifierOptionsById): float
+    {
+        $modifierOptionQtyMap = $this->normalizeModifierQuantities($modifierOptionQtyMap);
+        $total = 0.0;
+
+        foreach ($modifierOptionQtyMap as $modifierOptionId => $qty) {
+            $price = $modifierOptionsById[$modifierOptionId]->price ?? 0;
+            $total += ((float) $price * (int) $qty);
+        }
+
+        return $total;
     }
 
     /**
@@ -1122,7 +1197,7 @@ class Cart extends Component
             ]);
 
             $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-            $kotItem->modifierOptions()->sync($this->itemModifiersSelected[$key]);
+            $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
         }
 
         foreach ($this->orderItemList ?? [] as $key => $value) {
@@ -1143,7 +1218,7 @@ class Cart extends Component
             ]);
 
             $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-            $orderItem->modifierOptions()->sync($this->itemModifiersSelected[$key]);
+            $orderItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
         }
 
         if ($this->taxMode === 'order') {
@@ -1636,8 +1711,15 @@ class Cart extends Component
     {
         $this->showModifiersModal = false;
 
-        $sortNumber = Str::of(implode('', Arr::flatten($modifierIds)))
-            ->split(1)->sort()->implode('');
+        $selection = is_array($modifierIds) ? (reset($modifierIds) ?: []) : [];
+        $modifierQtyMap = $this->normalizeModifierQuantities(is_array($selection) ? $selection : []);
+
+        $signatureParts = [];
+        foreach ($modifierQtyMap as $modifierOptionId => $qty) {
+            $signatureParts[] = $modifierOptionId . ':' . $qty;
+        }
+        $signature = implode('|', $signatureParts);
+        $sortNumber = $signature ? md5($signature) : '0';
 
         $keyId = $this->selectedModifierItem . '-' . $sortNumber;
 
@@ -1655,28 +1737,18 @@ class Cart extends Component
         }
 
         $this->cartItemQty[$keyId] = ($this->cartItemQty[$keyId] ?? 0) + 1;
-        $this->itemModifiersSelected[$keyId] = Arr::flatten($modifierIds);
+        $this->itemModifiersSelected[$keyId] = $modifierQtyMap;
 
         // Set price context on modifiers before calculating total
-        $modifierTotal = 0;
-        foreach ($this->itemModifiersSelected[$keyId] ?? [] as $modifierId) {
-            $modifier = ModifierOption::find($modifierId);
-            if ($modifier) {
-                if ($this->orderTypeId) {
-                    $modifier->setPriceContext($this->orderTypeId, null);
-                }
-                $modifierTotal += $modifier->price;
-            }
-        }
-
-        $this->orderItemModifiersPrice[$keyId] = $modifierTotal;
+        $modifierOptions = $this->getModifierOptionsProperty();
+        $this->orderItemModifiersPrice[$keyId] = $this->calculateModifierTotal($modifierQtyMap, $modifierOptions);
 
         $this->syncCart($keyId);
     }
 
     public function getModifierOptionsProperty()
     {
-        return ModifierOption::whereIn('id', collect($this->itemModifiersSelected)->flatten()->all())->get()->keyBy('id');
+        return ModifierOption::whereIn('id', $this->getSelectedModifierOptionIds())->get()->keyBy('id');
     }
 
     public function showItemDetail($id)

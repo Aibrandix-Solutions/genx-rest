@@ -192,7 +192,10 @@
                                 <br><small>({{ $item->menuItemVariation->variation }})</small>
                             @endif
                             @foreach ($item->modifierOptions as $modifier)
-                                <div class="modifiers">• {{ $modifier->name }}</div>
+                                @php
+                                    $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                @endphp
+                                <div class="modifiers">• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif</div>
                             @endforeach
                             @if ($item->note)
                                 <div class="modifiers"><strong>@lang('modules.order.note'):</strong> {{ $item->note }}</div>

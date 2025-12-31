@@ -344,11 +344,20 @@
                                 @endif
                                 @if (!empty($itemModifiersSelected[$key]))
                                 <div class="text-xs text-gray-600 dark:text-white">
-                                    @foreach ($itemModifiersSelected[$key] as $modifierOptionId)
-                                            <div class="flex justify-between items-center px-1 py-0.5 mb-1 text-xs bg-gray-200 rounded-md border-l-2 border-blue-500 dark:bg-gray-900">
-                                                <span class="text-gray-900 dark:text-white">{{ $this->modifierOptions[$modifierOptionId]->name }}</span>
-                                                <span class="text-gray-600 dark:text-gray-300">{{ currency_format($this->modifierOptions[$modifierOptionId]->price , restaurant()->currency_id) }}</span>
-                                            </div>
+                                    @foreach ($itemModifiersSelected[$key] as $modifierOptionId => $modifierQty)
+                                        @php
+                                            $modifier = $this->modifierOptions[$modifierOptionId] ?? null;
+                                            $modifierQty = (int) $modifierQty;
+                                        @endphp
+                                        @continue(!$modifier || $modifierQty <= 0)
+                                        <div class="flex justify-between items-center px-1 py-0.5 mb-1 text-xs bg-gray-200 rounded-md border-l-2 border-blue-500 dark:bg-gray-900">
+                                            <span class="text-gray-900 dark:text-white">
+                                                {{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                            </span>
+                                            <span class="text-gray-600 dark:text-gray-300">
+                                                {{ currency_format($modifier->price * $modifierQty, restaurant()->currency_id) }}
+                                            </span>
+                                        </div>
                                     @endforeach
                                 </div>
                                 @endif

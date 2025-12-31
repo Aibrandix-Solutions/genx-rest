@@ -315,15 +315,18 @@
 
 
                                         <div class="flex flex-wrap items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
+                                            @php
+                                                $modifierSum = $item->modifierOptions->sum(fn($m) => $m->price * max(1, (int) ($m->pivot->quantity ?? 1)));
+                                            @endphp
                                             @if($taxMode === 'item' && $restaurant?->tax_inclusive && $item->tax_amount > 0)
                                                 <span class="font-medium">
-                                                    {{ currency_format(($item->price + $item->modifierOptions->sum('price')) - ($item->tax_amount / $item->quantity), $restaurant->currency_id) }}
+                                                    {{ currency_format(($item->price + $modifierSum) - ($item->tax_amount / $item->quantity), $restaurant->currency_id) }}
                                                 </span>
                                                 <span class="text-gray-400 dark:text-gray-500">+ tax</span>
                                                 <span class="text-gray-400 dark:text-gray-500">=</span>
                                             @endif
                                             <span class="font-medium">
-                                                {{ currency_format($item->price + $item->modifierOptions->sum('price'), $restaurant->currency_id) }}
+                                                {{ currency_format($item->price + $modifierSum, $restaurant->currency_id) }}
                                             </span>
                                             <span class="text-gray-400 dark:text-gray-500">×</span>
                                             <span class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded-full text-xs font-medium">
@@ -353,17 +356,18 @@
                                         @endif
                                     </div>
                                     <span class="text-sm font-semibold text-gray-900 dark:text-white whitespace-nowrap">
-                                        {{ currency_format(($item->price + $item->modifierOptions->sum('price')) * $item->quantity, $restaurant->currency_id) }}
+                                        {{ currency_format(($item->price + $modifierSum) * $item->quantity, $restaurant->currency_id) }}
                                     </span>
                                 </div>
 
                                 @if($item->modifierOptions->isNotEmpty())
                                     <div class="flex flex-wrap gap-1.5 mt-2">
                                         @foreach ($item->modifierOptions as $modifier)
+                                            @php $modifierQty = max(1, (int) ($modifier->pivot->quantity ?? 1)); @endphp
                                             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-skin-base/10 text-skin-base">
-                                                {{ $modifier->name }}
+                                                {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
                                                 <span class="ml-1 text-skin-base">
-                                                    ({{ currency_format($modifier->price, $restaurant->currency_id) }})
+                                                    ({{ currency_format($modifier->price * $modifierQty, $restaurant->currency_id) }})
                                                 </span>
                                             </span>
                                         @endforeach

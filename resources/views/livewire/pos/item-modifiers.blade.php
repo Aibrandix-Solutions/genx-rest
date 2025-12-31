@@ -54,7 +54,7 @@
                                 @lang('modules.menu.setPrice')
                             </th>
                             <th class="py-2.5 px-4 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-right">
-                                @lang('app.select')
+                                @lang('modules.order.qty')
                             </th>
                         </tr>
                     </thead>
@@ -69,7 +69,29 @@
                                 </td>
                                 <td class="py-2.5 px-4 text-right">
                                     @if ($option->is_available)
-                                    <x-checkbox wire:model="selectedModifiers.{{ $option->id }}" wire:click="toggleSelection({{ $modifier->id }}, {{ $option->id }})" value="{{ $option->id }}" />
+                                        @php $qty = (int) ($selectedModifiers[$option->id] ?? 0); @endphp
+                                        <div class="inline-flex items-center justify-end gap-2">
+                                            <button type="button"
+                                                wire:click="decrementOption({{ $modifier->id }}, {{ $option->id }})"
+                                                class="h-8 w-8 inline-flex items-center justify-center border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-md"
+                                                @disabled($qty <= 0)
+                                            >
+                                                <svg class="w-3 h-3 text-gray-900 dark:text-white" aria-hidden="true" fill="none" viewBox="0 0 18 2">
+                                                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                                                </svg>
+                                            </button>
+
+                                            <span class="min-w-8 text-center text-sm text-gray-900 dark:text-white">{{ $qty }}</span>
+
+                                            <button type="button"
+                                                wire:click="incrementOption({{ $modifier->id }}, {{ $option->id }})"
+                                                class="h-8 w-8 inline-flex items-center justify-center border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-md"
+                                            >
+                                                <svg class="w-3 h-3 text-gray-900 dark:text-white" aria-hidden="true" fill="none" viewBox="0 0 18 18">
+                                                    <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                                                </svg>
+                                            </button>
+                                        </div>
                                     @else
                                     <span class="text-xs font-medium px-2.5 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
                                         @lang('modules.menu.notAvailable')

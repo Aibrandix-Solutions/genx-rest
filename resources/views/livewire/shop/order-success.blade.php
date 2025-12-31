@@ -72,9 +72,10 @@
                             @if($item->modifierOptions->isNotEmpty())
                             <div class="text-xs text-gray-600 dark:text-white">
                                 @foreach ($item->modifierOptions as $modifier)
+                                @php $modifierQty = max(1, (int) ($modifier->pivot->quantity ?? 1)); @endphp
                                 <div class="flex items-center justify-between text-xs mb-1 py-0.5 px-1 border-l-2 border-blue-500 bg-gray-200 dark:bg-gray-800 rounded-md">
-                                    <span class="text-gray-900 dark:text-white">{{ $modifier->name }}</span>
-                                    <span class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price, $restaurant->currency_id) }}</span>
+                                    <span class="text-gray-900 dark:text-white">{{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif</span>
+                                    <span class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price * $modifierQty, $restaurant->currency_id) }}</span>
                                 </div>
                                 @endforeach
                             </div>
@@ -94,11 +95,13 @@
                         <div class="flex flex-col items-end gap-1">
                             @if($taxMode === 'item' && $restaurant?->tax_inclusive && $item->tax_amount > 0)
                                 <div class="text-xs text-gray-500 dark:text-gray-400">
-                                    {{ currency_format(($item->price + $item->modifierOptions->sum('price')) - ($item->tax_amount / $item->quantity), $restaurant->currency_id) }} + tax
+                                    @php $modifierSum = $item->modifierOptions->sum(fn($m) => $m->price * max(1, (int) ($m->pivot->quantity ?? 1))); @endphp
+                                    {{ currency_format(($item->price + $modifierSum) - ($item->tax_amount / $item->quantity), $restaurant->currency_id) }} + tax
                                 </div>
                             @endif
                             <p class="text-lg font-medium leading-tight text-gray-900 dark:text-white">
-                                {{ currency_format($item->price + $item->modifierOptions->sum('price'), $restaurant->currency_id) }}
+                                @php $modifierSum = $modifierSum ?? $item->modifierOptions->sum(fn($m) => $m->price * max(1, (int) ($m->pivot->quantity ?? 1))); @endphp
+                                {{ currency_format($item->price + $modifierSum, $restaurant->currency_id) }}
                             </p>
                         </div>
                     </div>

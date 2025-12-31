@@ -249,6 +249,9 @@
                                     @if ($item->modifierOptions->isNotEmpty())
                                         <div class="mt-2 flex flex-wrap items-center gap-1">
                                             @foreach ($item->modifierOptions as $modifier)
+                                                @php
+                                                    $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                                @endphp
                                                 <div
                                                     class="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 mr-1"
@@ -257,7 +260,7 @@
                                                             d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
                                                             clip-rule="evenodd" />
                                                     </svg>
-                                                    {{ $modifier->name }}
+                                                    {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
                                                 </div>
                                             @endforeach
                                         </div>
