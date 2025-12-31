@@ -28,10 +28,12 @@
                         <div class="mb-1">@lang('cashregister::app.openedAt')</div>
                         <div class="font-medium text-gray-900 dark:text-white">{{ $session->opened_at?->timezone(timezone())?->format('d M Y, h:i A') }}</div>
                     </div>
+                    @if($this->canSeeExpectedCash())
                     <div class="text-sm text-gray-600 dark:text-gray-400">
                         <div class="mb-1">@lang('cashregister::app.expectedCash')</div>
                         <div class="font-semibold text-indigo-600">{{ currency_format((float) $expectedCash, restaurant()->currency_id) }}</div>
                     </div>
+                    @endif
                 </div>
             @else
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -49,8 +51,9 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">@lang('cashregister::app.openingBalance')</label>
-                                <input type="number" step="0.01" wire:model.live="openingFloat" placeholder="0.00"
-                                        class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+                                <input type="number" step="0.01" min="0" wire:model.live="openingFloat" placeholder="0.00"
+                                        class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-3 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent @error('openingFloat') border-rose-500 @enderror" />
+                                <x-input-error for="openingFloat" class="mt-2" />
                             </div>
                             <div class="flex items-end">
                                 <x-button type="button" wire:click="openRegister" class="w-full flex justify-center items-center py-3 min-h-[46px]">
@@ -87,10 +90,25 @@
                             <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.openingBalance')</div>
                             <div class="text-xl font-bold text-gray-900 dark:text-white">{{ currency_format((float) $openingFloat, restaurant()->currency_id) }}</div>
                         </div>
-                        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-                            <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.cashSalesLabel')</div>
-                            <div class="text-xl font-bold text-green-600">{{ currency_format((float) $cashSales, restaurant()->currency_id) }}</div>
-                        </div>
+                        @if($this->canSeeExpectedCash())
+                            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.cashSalesLabel')</div>
+                                <div class="text-xl font-bold text-green-600">{{ currency_format((float) $cashSales, restaurant()->currency_id) }}</div>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.cashIn')</div>
+                                <div class="text-xl font-bold text-green-600">{{ currency_format((float) $cashIn, restaurant()->currency_id) }}</div>
+                            </div>
+                        @else
+                            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.cashSalesLabel')</div>
+                                <div class="text-sm font-medium text-gray-500 dark:text-gray-300">@lang('cashregister::app.blindCountingMode')</div>
+                            </div>
+                            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                                <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.cashIn')</div>
+                                <div class="text-sm font-medium text-gray-500 dark:text-gray-300">@lang('cashregister::app.blindCountingMode')</div>
+                            </div>
+                        @endif
                         <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                             <div class="text-sm text-gray-600 dark:text-gray-400">@lang('cashregister::app.cashOutLabel')</div>
                             <div class="text-xl font-bold text-red-600">-{{ currency_format((float) $cashOut, restaurant()->currency_id) }}</div>
@@ -101,12 +119,24 @@
                         </div>
                     </div>
                     
+                    @if($this->canSeeExpectedCash())
                     <div class="mt-4 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20 rounded-lg p-4 border border-indigo-200 dark:border-indigo-800">
                         <div class="flex justify-between items-center">
                             <span class="text-lg font-semibold text-gray-900 dark:text-white">@lang('cashregister::app.expectedCash')</span>
                             <span class="text-2xl font-bold text-indigo-600">{{ currency_format((float) $expectedCash, restaurant()->currency_id) }}</span>
                         </div>
                     </div>
+                    @else
+                    <div class="mt-4 bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-700 dark:to-gray-600 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <div class="text-center text-sm text-gray-600 dark:text-gray-400">
+                            <svg class="w-6 h-6 mx-auto mb-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd"></path>
+                                <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"></path>
+                            </svg>
+                            @lang('cashregister::app.blindCountingMode')
+                        </div>
+                    </div>
+                    @endif
                 </div>
             </div>
         </div>
@@ -211,9 +241,27 @@
                                 </div>
                             </div>
                             
-                            <div class="flex justify-between items-center p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
-                                <span class="font-semibold text-gray-900 dark:text-white">@lang('cashregister::app.countedTotal')</span>
-                                <span class="text-xl font-bold text-indigo-600">{{ currency_format((float) $countedCash, restaurant()->currency_id) }}</span>
+                            <div class="space-y-3">
+                                <div class="flex justify-between items-center p-4 bg-indigo-50 dark:bg-indigo-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
+                                    <span class="font-semibold text-gray-900 dark:text-white">@lang('cashregister::app.countedTotal')</span>
+                                    <span class="text-xl font-bold text-indigo-600">{{ currency_format((float) $countedCash, restaurant()->currency_id) }}</span>
+                                </div>
+                                
+                                @if($this->canSeeExpectedCash())
+                                <div class="flex justify-between items-center p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+                                    <span class="font-semibold text-gray-900 dark:text-white">@lang('cashregister::app.expectedCash')</span>
+                                    <span class="text-xl font-bold text-blue-600">{{ currency_format((float) $expectedCash, restaurant()->currency_id) }}</span>
+                                </div>
+                                
+                                @php
+                                    $diff = $countedCash - $expectedCash;
+                                    $diffColor = $diff >= 0 ? 'green' : 'red';
+                                @endphp
+                                <div class="flex justify-between items-center p-4 bg-{{ $diffColor }}-50 dark:bg-{{ $diffColor }}-900/20 rounded-lg border border-{{ $diffColor }}-200 dark:border-{{ $diffColor }}-800">
+                                    <span class="font-semibold text-gray-900 dark:text-white">@lang('cashregister::app.discrepancy')</span>
+                                    <span class="text-xl font-bold text-{{ $diffColor }}-600">{{ $diff >= 0 ? '+' : '' }}{{ currency_format($diff, restaurant()->currency_id) }}</span>
+                                </div>
+                                @endif
                             </div>
                             
                             <div>

@@ -332,7 +332,7 @@
                     </p>
                     @if($reportData['session']->approved_by)
                         <p class="text-sm text-gray-600 dark:text-gray-400">
-                            Approved By: {{ $reportData['session']->closer->name ?? 'Manager' }}
+                            Approved By: {{ $reportData['session']->approver->name ?? 'Manager' }}
                         </p>
                     @endif
                 </div>

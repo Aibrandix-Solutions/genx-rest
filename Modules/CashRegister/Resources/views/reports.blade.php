@@ -10,7 +10,7 @@
         </div>
     </div>
 
-    <div class="p-4" x-data="{tab:'x'}">
+    <div class="p-4" x-data="{tab:'{{ in_array(request('tab'), ['x','z','disc','ledger','summary','shift'], true) ? request('tab') : 'x' }}'}">
         <div class="border-b dark:border-gray-700">
             <nav class="-mb-px flex flex-wrap gap-2" aria-label="Tabs">
                 <button @click="tab='x'" :class="tab==='x' ? 'border-b-2 border-skin-base text-skin-base' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'" class="px-3 py-2 text-sm font-medium">@lang('cashregister::app.xReportTab')</button>

@@ -12,6 +12,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('cash-register/cashier', [CashRegisterController::class, 'cashier'])
         ->name('cashregister.cashier');
     Route::get('cash-register/reports', [CashRegisterController::class, 'reports'])
+        ->middleware('can:View Cash Register Reports')
         ->name('cashregister.reports');
     Route::get('cash-register/approvals', \Modules\CashRegister\Livewire\Approvals\ApprovalsList::class)
         ->middleware('can:Approve Cash Register')
@@ -42,12 +43,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Exports
     Route::get('cash-register/export/discrepancy', [CashRegisterController::class, 'exportDiscrepancy'])
+        ->middleware('can:View Cash Register Reports')
         ->name('cashregister.export.discrepancy');
     Route::get('cash-register/export/cash-ledger', [CashRegisterController::class, 'exportCashLedger'])
+        ->middleware('can:View Cash Register Reports')
         ->name('cashregister.export.cash-ledger');
     Route::get('cash-register/export/cash-in-out', [CashRegisterController::class, 'exportCashInOut'])
+        ->middleware('can:View Cash Register Reports')
         ->name('cashregister.export.cash-in-out');
     Route::get('cash-register/export/session-summary', [CashRegisterController::class, 'exportSessionSummary'])
+        ->middleware('can:View Cash Register Reports')
         ->name('cashregister.export.session-summary');
     
     // Resource fallback (keep for future expansion)

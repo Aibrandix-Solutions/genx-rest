@@ -138,32 +138,33 @@ class CashInOutReport extends Component
             return;
         }
 
-        // Get sessions in date range
-        $sessionQuery = CashRegisterSession::where('restaurant_id', restaurant()->id)
-            ->whereBetween('opened_at', [
-                Carbon::createFromFormat('m/d/Y', $this->startDate)->startOfDay(),
-                Carbon::createFromFormat('m/d/Y', $this->endDate)->endOfDay()
-            ]);
+        [$startDate, $endDate] = $this->parseDateRange();
+        if (!$startDate || !$endDate) {
+            $this->transactions = collect();
+            $this->summary = [];
+            return;
+        }
 
-        if ($this->branchId) {
-            $sessionQuery->whereHas('register', function($q) {
-                $q->where('branch_id', $this->branchId);
+        // Filter by transaction time, scoped via the related session
+        $query = CashRegisterTransaction::with(['session.cashier', 'session.register', 'session.branch'])
+            ->whereBetween('created_at', [$startDate, $endDate])
+            ->whereHas('session', function ($q) {
+                $q->where('restaurant_id', restaurant()->id);
+
+                if ($this->branchId) {
+                    $q->whereHas('register', function ($qr) {
+                        $qr->where('branch_id', $this->branchId);
+                    });
+                }
+
+                if ($this->registerId) {
+                    $q->where('cash_register_id', $this->registerId);
+                }
+
+                if ($this->cashierId) {
+                    $q->where('opened_by', $this->cashierId);
+                }
             });
-        }
-
-        if ($this->registerId) {
-            $sessionQuery->where('cash_register_id', $this->registerId);
-        }
-
-        if ($this->cashierId) {
-            $sessionQuery->where('opened_by', $this->cashierId);
-        }
-
-        $sessionIds = $sessionQuery->pluck('id');
-
-        // Get cash in/out/safe_drop transactions with optional type filter
-        $query = CashRegisterTransaction::with(['session.cashier', 'session.register'])
-            ->whereIn('cash_register_session_id', $sessionIds);
 
         if (in_array($this->type, ['cash_in', 'cash_out', 'safe_drop'], true)) {
             $query->where('type', $this->type);
@@ -174,6 +175,26 @@ class CashInOutReport extends Component
         $this->transactions = $query->orderBy('created_at', 'desc')->get();
         
         $this->calculateSummary();
+    }
+
+    private function parseDateRange(): array
+    {
+        $formats = ['m/d/Y', 'd-m-Y', 'Y-m-d', 'm/d/y', 'd/m/Y', 'd/m/y', 'Y-m-d H:i:s', 'm/d/Y H:i:s'];
+        foreach ($formats as $format) {
+            try {
+                $start = Carbon::createFromFormat($format, (string) $this->startDate)->startOfDay();
+                $end = Carbon::createFromFormat($format, (string) $this->endDate)->endOfDay();
+                return [$start, $end];
+            } catch (\Exception $e) {
+                // try next format
+            }
+        }
+
+        try {
+            return [Carbon::parse((string) $this->startDate)->startOfDay(), Carbon::parse((string) $this->endDate)->endOfDay()];
+        } catch (\Exception $e) {
+            return [null, null];
+        }
     }
 
     private function calculateSummary()

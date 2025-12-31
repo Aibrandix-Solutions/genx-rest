@@ -37,6 +37,11 @@ class XReport extends Component
 
     public function mount()
     {
+        // Deep link support: /cash-register/reports?tab=x&session={id}
+        if (request()->query('tab') === 'x' && request()->filled('session')) {
+            $this->selectedSessionId = (int) request()->query('session');
+        }
+
         // If user can view all reports, default to all; else restrict to self
         $this->cashierId = user_can('View Cash Register Reports') ? '' : user()->id;
         

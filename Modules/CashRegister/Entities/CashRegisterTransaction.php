@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class CashRegisterTransaction extends Model
 {
-    protected $guarded = [];
+    protected $guarded = ['id'];
 
     protected $casts = [
         'happened_at' => 'datetime',

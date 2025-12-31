@@ -10,7 +10,7 @@ use Modules\CashRegister\Entities\CashRegisterCount;
 use Modules\CashRegister\Entities\CashDenomination;
 use Modules\CashRegister\Entities\Denomination;
 use Modules\CashRegister\Services\RegisterForceOpenService;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class CashierWidget extends Component
@@ -19,6 +19,7 @@ class CashierWidget extends Component
     public ?CashRegisterSession $session = null;
     public $openingFloat = 0;
     public $cashSales = 0;
+    public $cashIn = 0;
     public $cashOut = 0;
     public $safeDrop = 0;
     public $expectedCash = 0;
@@ -35,6 +36,7 @@ class CashierWidget extends Component
     protected array $rules = [
         'amount' => 'required|numeric|min:0.01',
         'reason' => 'nullable|string|min:0|max:255',
+        'openingFloat' => 'required|numeric|min:0',
     ];
 
     // Confirmation modal state
@@ -46,6 +48,14 @@ class CashierWidget extends Component
     public function mount(): void
     {
         $this->loadSession();
+    }
+
+    /**
+     * Check if user can see expected cash amounts (blind counting for cashiers)
+     */
+    public function canSeeExpectedCash(): bool
+    {
+        return user_can('View Cash Register Reports') || user_can('Approve Cash Register');
     }
 
     private function loadSession(): void
@@ -86,6 +96,7 @@ class CashierWidget extends Component
     {
         if (!$this->session) {
             $this->cashSales = 0;
+            $this->cashIn = 0;
             $this->cashOut = 0;
             $this->safeDrop = 0;
             $this->expectedCash = 0;
@@ -93,20 +104,23 @@ class CashierWidget extends Component
         }
 
         // Calculate everything fresh from database for accuracy
-        $this->cashSales = (float) CashRegisterTransaction::where('cash_register_session_id', $this->session->id)
-            ->whereIn('type', ['cash_sale', 'cash_in'])
-            ->sum('amount');
+        $transactions = CashRegisterTransaction::where('cash_register_session_id', $this->session->id)->get();
+        
+        $cashSales = (float) $transactions->where('type', 'cash_sale')->sum('amount');
+        $cashIn = (float) $transactions->where('type', 'cash_in')->sum('amount');
+        $cashOut = (float) $transactions->where('type', 'cash_out')->sum('amount');
+        $safeDrop = (float) $transactions->where('type', 'safe_drop')->sum('amount');
+        $changeGiven = (float) $transactions->where('type', 'change_given')->sum('amount');
+        $refunds = (float) $transactions->where('type', 'refund')->sum('amount');
 
-        $this->cashOut = (float) CashRegisterTransaction::where('cash_register_session_id', $this->session->id)
-            ->where('type', 'cash_out')
-            ->sum('amount');
+        // Keep Cash Sales and Cash In separate in UI
+        $this->cashSales = $cashSales;
+        $this->cashIn = $cashIn;
+        $this->cashOut = $cashOut;
+        $this->safeDrop = $safeDrop;
 
-        $this->safeDrop = (float) CashRegisterTransaction::where('cash_register_session_id', $this->session->id)
-            ->where('type', 'safe_drop')
-            ->sum('amount');
-
-        // Calculate expected cash fresh
-        $this->expectedCash = (float) $this->openingFloat + $this->cashSales - $this->cashOut - $this->safeDrop;
+        // Calculate expected cash - MUST match report formula
+        $this->expectedCash = (float) $this->openingFloat + $cashSales + $cashIn - $changeGiven - $cashOut - $safeDrop - $refunds;
     }
 
     public function getExpectedProperty(): float
@@ -118,19 +132,17 @@ class CashierWidget extends Component
         // Calculate fresh from database every time for accuracy
         $opening = (float) $this->openingFloat;
 
-        $cashSales = (float) CashRegisterTransaction::where('cash_register_session_id', $this->session->id)
-            ->whereIn('type', ['cash_sale', 'cash_in'])
-            ->sum('amount');
+        $transactions = CashRegisterTransaction::where('cash_register_session_id', $this->session->id)->get();
+        
+        $cashSales = (float) $transactions->where('type', 'cash_sale')->sum('amount');
+        $cashIn = (float) $transactions->where('type', 'cash_in')->sum('amount');
+        $cashOut = (float) $transactions->where('type', 'cash_out')->sum('amount');
+        $safeDrop = (float) $transactions->where('type', 'safe_drop')->sum('amount');
+        $changeGiven = (float) $transactions->where('type', 'change_given')->sum('amount');
+        $refunds = (float) $transactions->where('type', 'refund')->sum('amount');
 
-        $cashOut = (float) CashRegisterTransaction::where('cash_register_session_id', $this->session->id)
-            ->where('type', 'cash_out')
-            ->sum('amount');
-
-        $safeDrop = (float) CashRegisterTransaction::where('cash_register_session_id', $this->session->id)
-            ->where('type', 'safe_drop')
-            ->sum('amount');
-
-        $expected = $opening + $cashSales - $cashOut - $safeDrop;
+        // MUST match report formula for consistency
+        $expected = $opening + $cashSales + $cashIn - $changeGiven - $cashOut - $safeDrop - $refunds;
 
         // Update the property for consistency
         $this->expectedCash = $expected;
@@ -144,11 +156,17 @@ class CashierWidget extends Component
         // Permission check
         if (!user_can('Open Cash Register')) {
             session()->flash('message', __('You do not have permission to open the register.'));
-            // return null;
+            return null;
         }
 
         if ($this->session) {
             return null; // already open
+        }
+
+        // Validate opening float
+        if ($this->openingFloat < 0) {
+            $this->alert('error', __('Opening balance cannot be negative.'));
+            return null;
         }
 
         $register = CashRegister::firstOrCreate([
@@ -186,12 +204,18 @@ class CashierWidget extends Component
             session()->flash('message', 'Open the register first.');
             return;
         }
+
+        if (!user_can('Open Cash Register')) {
+            $this->alert('error', __('You do not have permission to record cash transactions.'));
+            return;
+        }
+
         $this->validate();
         $amount = (float) $this->amount;
         CashRegisterTransaction::create([
             'cash_register_session_id' => $this->session->id,
-            'restaurant_id' => restaurant()->id ?? 0,
-            'branch_id' => branch()->id ?? 0,
+            'restaurant_id' => $this->session->restaurant_id,
+            'branch_id' => $this->session->branch_id,
             'happened_at' => now(),
             'type' => 'cash_in',
             'reason' => $this->reason,
@@ -210,6 +234,12 @@ class CashierWidget extends Component
             session()->flash('message', 'Open the register first.');
             return;
         }
+
+        if (!user_can('Open Cash Register')) {
+            $this->alert('error', __('You do not have permission to record cash transactions.'));
+            return;
+        }
+
         $this->validate();
         $amount = (float) $this->amount;
         // Prevent overdraft beyond expected cash
@@ -219,8 +249,8 @@ class CashierWidget extends Component
         }
         CashRegisterTransaction::create([
             'cash_register_session_id' => $this->session->id,
-            'restaurant_id' => restaurant()->id ?? 0,
-            'branch_id' => branch()->id ?? 0,
+            'restaurant_id' => $this->session->restaurant_id,
+            'branch_id' => $this->session->branch_id,
             'happened_at' => now(),
             'type' => 'cash_out',
             'reason' => $this->reason,
@@ -238,6 +268,12 @@ class CashierWidget extends Component
             session()->flash('message', 'Open the register first.');
             return;
         }
+
+        if (!user_can('Open Cash Register')) {
+            $this->alert('error', __('You do not have permission to record cash transactions.'));
+            return;
+        }
+
         $this->validate();
         $amount = (float) $this->amount;
         // Prevent overdraft beyond expected cash
@@ -247,8 +283,8 @@ class CashierWidget extends Component
         }
         CashRegisterTransaction::create([
             'cash_register_session_id' => $this->session->id,
-            'restaurant_id' => restaurant()->id ?? 0,
-            'branch_id' => branch()->id ?? 0,
+            'restaurant_id' => $this->session->restaurant_id,
+            'branch_id' => $this->session->branch_id,
             'happened_at' => now(),
             'type' => 'safe_drop',
             'reason' => $this->reason,
@@ -357,10 +393,14 @@ class CashierWidget extends Component
         if (!$this->session) return;
         $this->showClose = true;
         $this->usingDefaultDenoms = false;
+
+        $restaurantId = $this->session->restaurant_id;
+        $branchId = $this->session->branch_id;
+
         // Load active denominations for current restaurant/branch (currency removed)
         $this->denoms = Denomination::query()
-            ->where(function ($q) { $q->where('restaurant_id', restaurant()->id ?? null)->orWhereNull('restaurant_id'); })
-            ->where(function ($q) { $q->where('branch_id', branch()->id ?? null)->orWhereNull('branch_id'); })
+            ->where(function ($q) use ($restaurantId) { $q->where('restaurant_id', $restaurantId)->orWhereNull('restaurant_id'); })
+            ->where(function ($q) use ($branchId) { $q->where('branch_id', $branchId)->orWhereNull('branch_id'); })
             ->where('is_active', true)
             ->orderByDesc('value')
             ->get(['id', 'value'])
@@ -393,10 +433,26 @@ class CashierWidget extends Component
     {
         if (!$this->session) return;
 
+        if (!user_can('Open Cash Register')) {
+            $this->alert('error', __('You do not have permission to close the register.'));
+            return;
+        }
+
+        // Basic input hardening (Livewire arrays can be tampered with)
+        foreach ($this->denoms as $d) {
+            if ((int) ($d['count'] ?? 0) < 0) {
+                $this->alert('error', 'Invalid denomination count.');
+                return;
+            }
+        }
+
+        $restaurantId = $this->session->restaurant_id;
+        $branchId = $this->session->branch_id;
+
         // Check if denominations are configured (currency removed)
         $denominationsExist = Denomination::query()
-            ->where(function ($q) { $q->where('restaurant_id', restaurant()->id ?? null)->orWhereNull('restaurant_id'); })
-            ->where(function ($q) { $q->where('branch_id', branch()->id ?? null)->orWhereNull('branch_id'); })
+            ->where(function ($q) use ($restaurantId) { $q->where('restaurant_id', $restaurantId)->orWhereNull('restaurant_id'); })
+            ->where(function ($q) use ($branchId) { $q->where('branch_id', $branchId)->orWhereNull('branch_id'); })
             ->where('is_active', true)
             ->exists();
 
@@ -405,33 +461,32 @@ class CashierWidget extends Component
             return;
         }
 
-        $expected = $this->expectedCash;
-        $this->session->expected_cash = $expected;
-        $this->session->counted_cash = $this->countedCash;
-        $this->session->discrepancy = $this->countedCash - $expected;
-        $this->session->closing_note = $this->closingNote;
-        $this->session->status = 'pending_approval';
-        $this->session->closed_by = user()->id;
-        $this->session->closed_at = now();
-        $this->session->save();
+        DB::transaction(function () {
+            $expected = $this->expectedCash;
+            $this->session->expected_cash = $expected;
+            $this->session->counted_cash = $this->countedCash;
+            $this->session->discrepancy = $this->countedCash - $expected;
+            $this->session->closing_note = $this->closingNote;
+            $this->session->status = 'pending_approval';
+            $this->session->closed_by = user()->id;
+            $this->session->closed_at = now();
+            $this->session->save();
 
-        foreach ($this->denoms as $d) {
-            $count = (int)($d['count'] ?? 0);
-            $subtotal = (int)($d['subtotal'] ?? 0);
-            $denominationId = $d['id'] ?? null;
+            foreach ($this->denoms as $d) {
+                $count = (int)($d['count'] ?? 0);
+                $subtotal = (int)($d['subtotal'] ?? 0);
+                $denominationId = $d['id'] ?? null;
 
-            if ($denominationId && $count > 0) {
-                CashRegisterCount::create([
-                    'cash_register_session_id' => $this->session->id,
-                    'cash_denomination_id' => $denominationId,
-                    'count' => $count,
-                    'subtotal' => $subtotal,
-                ]);
-
-                // Debug: Log saved denomination
-                Log::info('[Cashier] Saved denomination: Session ' . $this->session->id . ', Denomination ID ' . $denominationId . ' × ' . $count . ' = ' . $subtotal);
+                if ($denominationId && $count > 0) {
+                    CashRegisterCount::create([
+                        'cash_register_session_id' => $this->session->id,
+                        'cash_denomination_id' => $denominationId,
+                        'count' => $count,
+                        'subtotal' => $subtotal,
+                    ]);
+                }
             }
-        }
+        });
 
         // Reset UI state after closing
         $this->reset(['amount', 'reason', 'showClose', 'countedCash', 'denoms', 'closingNote']);

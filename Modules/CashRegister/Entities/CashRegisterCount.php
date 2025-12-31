@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class CashRegisterCount extends Model
 {
-    protected $guarded = [];
+    protected $guarded = ['id'];
 
     public function denomination(): BelongsTo
     {
