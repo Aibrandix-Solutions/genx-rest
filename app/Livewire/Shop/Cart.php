@@ -1016,6 +1016,10 @@ class Cart extends Component
             $deliverySetting = $this->shopBranch->deliverySetting ?? null;
         }
 
+        // If auto-confirm is disabled, staff must confirm before the order goes to kitchen.
+        // In that case, we should NOT create any KOTs yet.
+        $requiresStaffConfirmationBeforeKitchen = !(bool) ($this->restaurant->auto_confirm_orders ?? false);
+
         $preferredDeliveryAddress = $this->getPreferredDeliveryAddress();
 
         // For delivery orders, always prompt to choose/confirm an address for this checkout
@@ -1175,29 +1179,32 @@ class Cart extends Component
 
         session(['transaction_id' => $transactionId]);
 
-        $kot = Kot::create([
-            'branch_id' => $this->shopBranch->id,
-            'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
-            'order_id' => $order->id,
-            'order_type_id' => $order->order_type_id,
-            'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
-            'note' => $this->orderNote,
-            'transaction_id' => $transactionId
-        ]);
-
-        foreach ($this->orderItemList ?? [] as $key => $value) {
-
-            $kotItem = KotItem::create([
-                'kot_id' => $kot->id,
-                'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id,
-                'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
-                'quantity' => $this->orderItemQty[$key],
-                'transaction_id' => $transactionId,
-                'note' => $this->itemNotes[$key] ?? null,
+        $kot = null;
+        if (!$requiresStaffConfirmationBeforeKitchen) {
+            $kot = Kot::create([
+                'branch_id' => $this->shopBranch->id,
+                'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
+                'order_id' => $order->id,
+                'order_type_id' => $order->order_type_id,
+                'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
+                'note' => $this->orderNote,
+                'transaction_id' => $transactionId
             ]);
 
-            $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-            $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+            foreach ($this->orderItemList ?? [] as $key => $value) {
+
+                $kotItem = KotItem::create([
+                    'kot_id' => $kot->id,
+                    'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id,
+                    'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                    'quantity' => $this->orderItemQty[$key],
+                    'transaction_id' => $transactionId,
+                    'note' => $this->itemNotes[$key] ?? null,
+                ]);
+
+                $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
+                $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+            }
         }
 
         foreach ($this->orderItemList ?? [] as $key => $value) {
@@ -1280,7 +1287,9 @@ class Cart extends Component
             'tax_mode' => $this->taxMode,
         ]);
 
-        $this->printKot($order, $kot);
+        if ($kot) {
+            $this->printKot($order, $kot);
+        }
 
         event(new OrderUpdated($order, 'updated'));
 
@@ -1294,7 +1303,7 @@ class Cart extends Component
             $this->paymentOrder = $order;
         } else {
             Order::where('id', $order->id)->update([
-                'status' => 'kot'
+                'status' => $requiresStaffConfirmationBeforeKitchen ? 'pending_verification' : 'kot'
             ]);
 
             $this->sendNotifications($order);
@@ -1680,6 +1689,7 @@ class Cart extends Component
         NewOrderCreated::dispatch($order);
 
         SendNewOrderReceived::dispatch($order);
+
         if ($order->customer_id) {
             try {
                 $order->customer->notify(new SendOrderBill($order));

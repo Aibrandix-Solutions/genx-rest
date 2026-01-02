@@ -155,6 +155,12 @@
                 <div class="text-sm font-medium text-gray-600 dark:text-neutral-400">
                     {{ $kot->order ? $kot->order->show_formatted_order_number : '--' }}
 
+                    @if (($kot->order?->placed_via ?? null) === 'shop')
+                        <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                            SHOP
+                        </span>
+                    @endif
+
                     @if ($kot->order && $kot->order->table)
                         <span class="font-bold text-skin-base">({{ $kot->order->table->table_code }})</span>
                     @endif

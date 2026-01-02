@@ -29,6 +29,7 @@ class TodayOrders extends Component
             ->count();
 
         $playSound = false;
+        $playCustomerOrderPlacedSound = false;
 
         if (session()->has('today_order_count') && session('today_order_count') < $todayKotCount) {
             $playSound = true;
@@ -43,10 +44,29 @@ class TodayOrders extends Component
 
         session(['today_order_count' => $todayKotCount]);
 
+        // Customer-site order placed (should be confirmed by staff before kitchen)
+        $pendingShopCount = Order::whereDate('orders.date_time', '>=', now()->startOfDay()->toDateTimeString())
+            ->whereDate('orders.date_time', '<=', now()->endOfDay()->toDateTimeString())
+            ->where('status', 'pending_verification')
+            ->where('placed_via', 'shop')
+            ->count();
+
+        if (session()->has('pending_shop_order_count') && session('pending_shop_order_count') < $pendingShopCount) {
+            $playCustomerOrderPlacedSound = true;
+
+            $this->alert('success', __('messages.customerOrderPlaced'), [
+                'toast' => true,
+                'position' => 'top-end'
+            ]);
+        }
+
+        session(['pending_shop_order_count' => $pendingShopCount]);
+
 
         return view('livewire.dashboard.today-orders', [
             'count' => $count,
             'playSound' => $playSound,
+            'playCustomerOrderPlacedSound' => $playCustomerOrderPlacedSound,
         ]);
     }
 

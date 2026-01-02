@@ -38,6 +38,13 @@
                 });
             </script>
         @endscript
+    @elseif($playCustomerOrderPlacedSound)
+        @script
+            <script>
+                console.log('✅ Playing sound for customer order placed!', "{{ asset('sound/order-placed.mp3')}}");
+                new Audio("{{ asset('sound/order-placed.mp3')}}").play();
+            </script>
+        @endscript
     @elseif($playSound)
         @script
             <script>

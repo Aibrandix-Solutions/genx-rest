@@ -316,6 +316,44 @@ class OrderDetail extends Component
         ]);
 
         if ($value === 'confirmed') {
+            // If this order came from customer site and was held for staff confirmation,
+            // it may not have KOTs yet. Generate them now so kitchen can start.
+            if ($this->order->kot()->count() === 0) {
+                $transactionId = uniqid('TXN_', true) . '_' . random_int(100000, 999999);
+
+                $kot = Kot::create([
+                    'branch_id' => $this->order->branch_id,
+                    'kot_number' => (Kot::generateKotNumber($this->order->branch) + 1),
+                    'order_id' => $this->order->id,
+                    'order_type_id' => $this->order->order_type_id,
+                    'token_number' => Kot::generateTokenNumber($this->order->branch_id, $this->order->order_type_id),
+                    'note' => $this->order->note ?? null,
+                    'transaction_id' => $transactionId,
+                ]);
+
+                foreach ($this->order->items as $orderItem) {
+                    $kotItem = KotItem::create([
+                        'kot_id' => $kot->id,
+                        'menu_item_id' => $orderItem->menu_item_id,
+                        'menu_item_variation_id' => $orderItem->menu_item_variation_id,
+                        'quantity' => $orderItem->quantity,
+                        'transaction_id' => $transactionId,
+                        'note' => $orderItem->note,
+                    ]);
+
+                    $sync = [];
+                    foreach ($orderItem->modifierOptions as $modifier) {
+                        $qty = (int) ($modifier->pivot->quantity ?? 1);
+                        $sync[$modifier->id] = ['quantity' => max(1, $qty)];
+                    }
+                    if (!empty($sync)) {
+                        $kotItem->modifierOptions()->sync($sync);
+                    }
+                }
+
+                $this->order->update(['status' => 'kot']);
+            }
+
             $this->order->kot->each(function ($kot) {
                 $kot->update(['status' => 'in_kitchen']);
             });

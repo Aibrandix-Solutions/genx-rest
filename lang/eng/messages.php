@@ -68,6 +68,7 @@ return array(
     'noTableReserved' => 'No table is reserved.',
     'smtpError' => 'Your SMTP details are not correct. Please update to the correct one.<br><br>Proper SMTP configuration is essential for sending emails such as order confirmations, password resets, and notifications to customers and staff. Without correct SMTP settings, your restaurant management system cannot communicate via email.',
     'newOrderReceived' => 'New Order Received.',
+    'customerOrderPlaced' => 'Customer Order Placed.',
     'cannotDeleteCurrentBranch' => 'Cannot delete current branch.',
     'branchAdded' => 'New branch added.',
     'branchDeleted' => 'Branch deleted successfully.',
