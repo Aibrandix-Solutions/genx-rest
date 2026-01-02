@@ -1079,6 +1079,10 @@
             new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();
         });
 
+        $wire.on('food_ready_sound', () => {
+            new Audio("{{ asset('sound/food-ready.mp3')}}").play();
+        });
+
         $wire.on('print_location', (url) => {
             const anchor = document.createElement('a');
             anchor.href = url;

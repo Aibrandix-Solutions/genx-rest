@@ -177,6 +177,15 @@
     <script>
         const datepickerEl1 = document.getElementById('datepicker-range-start');
 
+    @if($playFoodReadySound)
+        @script
+            <script>
+                console.log('✅ Playing sound for food ready!', "{{ asset('sound/sound_beep-29.mp3')}}");
+                new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();
+            </script>
+        @endscript
+    @endif
+
         datepickerEl1.addEventListener('changeDate', (event) => {
             $wire.dispatch('setStartDate', { start: datepickerEl1.value });
         });

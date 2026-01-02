@@ -41,6 +41,8 @@ class KotCard extends Component
             return;
         }
 
+        $previousStatus = $kot->status;
+
         $kot->status = $status;
         $kot->save();
 
@@ -77,6 +79,10 @@ class KotCard extends Component
             KotItem::where('kot_id', $this->kot->id)->update([
                 'status' => 'cooking'
             ]);
+        }
+
+        if ($status === 'food_ready' && $previousStatus !== 'food_ready') {
+            $this->dispatch('playFoodReadySound');
         }
 
         $this->dispatch('refreshKots');
@@ -137,6 +143,10 @@ class KotCard extends Component
                     $order->order_status = \App\Enums\OrderStatus::FOOD_READY;
                     $order->save();
                 }
+            }
+
+            if ($newKotStatus === 'food_ready') {
+                $this->dispatch('playFoodReadySound');
             }
         }
 

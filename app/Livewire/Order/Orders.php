@@ -9,11 +9,14 @@ use App\Models\KotCancelReason;
 use App\Models\PusherSetting;
 use App\Models\DeliveryPlatform;
 use Carbon\Carbon;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\On;
 use Livewire\Component;
 
 class Orders extends Component
 {
+
+    use LivewireAlert;
 
     protected $listeners = ['refreshOrders' => '$refresh'];
 
@@ -193,6 +196,23 @@ class Orders extends Component
 
         $orders = $orders->get();
 
+        $playFoodReadySound = false;
+        $foodReadyCount = $orders->filter(function ($order) {
+            $status = $order->order_status?->value ?? $order->order_status;
+            return $status === 'food_ready';
+        })->count();
+
+        $sessionKey = 'orders_food_ready_count';
+        if (session()->has($sessionKey) && session($sessionKey) < $foodReadyCount) {
+            $playFoodReadySound = true;
+
+            $this->alert('success', __('messages.foodReady'), [
+                'toast' => true,
+                'position' => 'top-end'
+            ]);
+        }
+        session([$sessionKey => $foodReadyCount]);
+
         $kotCount = $orders->filter(function ($order) {
             return $order->status == 'kot';
         });
@@ -279,6 +299,7 @@ class Orders extends Component
             'deliveredOrdersCount' => count($deliveredOrders),
             'receiptSettings' => $receiptSettings, // Pass the fetched receipt settings to the view
             'orderID' => $this->orderID,
+            'playFoodReadySound' => $playFoodReadySound,
         ]);
     }
 }

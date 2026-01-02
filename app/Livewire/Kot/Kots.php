@@ -15,7 +15,10 @@ class Kots extends Component
 {
     use LivewireAlert;
 
-    protected $listeners = ['refreshKots' => '$refresh'];
+    protected $listeners = [
+        'refreshKots' => '$refresh',
+        'playFoodReadySound' => 'notifyFoodReady',
+    ];
     public $filterOrders;
     public $dateRangeType;
     public $startDate;
@@ -172,6 +175,8 @@ class Kots extends Component
     public function render()
     {
 
+        $playFoodReadySound = false;
+
         $tz = timezone();
 
         $start = Carbon::createFromFormat('m/d/Y', $this->startDate, $tz)
@@ -293,6 +298,17 @@ class Kots extends Component
             return $order->status == 'food_ready';
         });
 
+        $foodReadyCount = count($foodReady);
+        $sessionKey = 'kots_food_ready_count_' . ($this->showAllKitchens ? 'all' : ($this->kotPlace?->id ?? 'none'));
+
+        if (session()->has($sessionKey) && session($sessionKey) < $foodReadyCount) {
+            $playFoodReadySound = true;
+
+            $this->notifyFoodReady();
+        }
+
+        session([$sessionKey => $foodReadyCount]);
+
         $pendingConfirmation = $kots->filter(function ($order) {
             return $order->status == 'pending_confirmation';
         });
@@ -330,13 +346,24 @@ class Kots extends Component
         return view('livewire.kot.kots', [
             'kots' => $kotList,
             'inKitchenCount' => count($inKitchen),
-            'foodReadyCount' => count($foodReady),
+            'foodReadyCount' => $foodReadyCount,
             'pendingConfirmationCount' => count($pendingConfirmation),
             'cancelledCount' => count($cancelled),
             'kotSettings' => $kotSettings,
             'cancelReasons' => $cancelReasons,
             'kitchens' => $kitchens,
             'showAllKitchens' => $this->showAllKitchens,
+            'playFoodReadySound' => $playFoodReadySound,
+        ]);
+    }
+
+    public function notifyFoodReady(): void
+    {
+        $this->dispatch('food_ready_sound');
+
+        $this->alert('success', __('messages.foodReady'), [
+            'toast' => true,
+            'position' => 'top-end'
         ]);
     }
 }

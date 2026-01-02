@@ -308,6 +308,14 @@ class OrderDetail extends Component
         $this->order->update(['order_status' => $value]);
         $this->orderProgressStatus = $value;
 
+        if ($value === 'food_ready') {
+            $this->dispatch('food_ready_sound');
+            $this->alert('success', __('messages.foodReady'), [
+                'toast' => true,
+                'position' => 'top-end'
+            ]);
+        }
+
         // DEBUG: Log what was actually saved
         $this->order->refresh();
         \Log::info('Order Status After Save', [
