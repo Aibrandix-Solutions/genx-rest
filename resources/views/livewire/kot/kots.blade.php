@@ -220,16 +220,6 @@
 
     @push('scripts')
 
-
-    @if($playFoodReadySound)
-        @script
-            <script>
-                console.log('✅ Playing sound for food ready!', "{{ asset('sound/food-ready.mp3')}}");
-                new Audio("{{ asset('sound/food-ready.mp3')}}").play();
-            </script>
-        @endscript
-    @endif
-
     @if(pusherSettings()->is_enabled_pusher_broadcast)
         <script>
             document.addEventListener('DOMContentLoaded', function () {

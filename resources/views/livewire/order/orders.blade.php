@@ -177,23 +177,23 @@
     <script>
         const datepickerEl1 = document.getElementById('datepicker-range-start');
 
-    @if($playFoodReadySound)
-        @script
-            <script>
-                console.log('✅ Playing sound for food ready!', "{{ asset('sound/sound_beep-29.mp3')}}");
-                new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();
-            </script>
-        @endscript
-    @endif
-
-        datepickerEl1.addEventListener('changeDate', (event) => {
-            $wire.dispatch('setStartDate', { start: datepickerEl1.value });
-        });
+        if (datepickerEl1) {
+            datepickerEl1.addEventListener('changeDate', (event) => {
+                $wire.dispatch('setStartDate', { start: datepickerEl1.value });
+            });
+        }
 
         const datepickerEl2 = document.getElementById('datepicker-range-end');
 
-        datepickerEl2.addEventListener('changeDate', (event) => {
-            $wire.dispatch('setEndDate', { end: datepickerEl2.value });
+        if (datepickerEl2) {
+            datepickerEl2.addEventListener('changeDate', (event) => {
+                $wire.dispatch('setEndDate', { end: datepickerEl2.value });
+            });
+        }
+
+        // Food ready sound listener
+        $wire.on('food_ready_sound', () => {
+            new Audio("{{ asset('sound/food-ready.mp3')}}").play();
         });
 
         // Handle polling
