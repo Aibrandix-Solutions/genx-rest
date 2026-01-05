@@ -783,8 +783,7 @@
                                         ])>
                                             <div class="inline-flex items-center justify-center gap-2">
                                                 @if($order->status !== 'pending_verification' && user_can('Update Order'))
-                                                    <x-select wire:model.live="item.payment_method"
-                                                            wire:change="updatePaymentMethod({{ $item->id }}, $event.target.value)"
+                                                    <x-select wire:change="updatePaymentMethod({{ $item->id }}, $event.target.value)"
                                                             class="w-32 text-sm">
                                                         @foreach(['cash', 'card', 'upi', 'due' , 'bank_transfer'] as $method)
                                                             <option value="{{ $method }}" @selected($item->payment_method == $method)>

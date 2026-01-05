@@ -228,15 +228,19 @@
             document.addEventListener('DOMContentLoaded', function () {
                 const btn = document.getElementById('customer-display-dropdown-button');
                 const menu = document.getElementById('customer-display-dropdown-menu');
-                btn.addEventListener('click', function (e) {
-                    e.stopPropagation();
-                    menu.classList.toggle('hidden');
-                });
-                document.addEventListener('click', function (e) {
-                    if (!btn.contains(e.target)) {
-                        menu.classList.add('hidden');
-                    }
-                });
+
+            if (!btn || !menu) return;
+
+            btn.addEventListener('click', function (e) {
+              e.stopPropagation();
+              menu.classList.toggle('hidden');
+            });
+
+            document.addEventListener('click', function (e) {
+              if (!btn.contains(e.target)) {
+                menu.classList.add('hidden');
+              }
+            });
             });
         </script>
 

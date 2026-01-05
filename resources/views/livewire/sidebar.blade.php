@@ -1,4 +1,5 @@
 <div>
+    @php($customPlugins = custom_module_plugins() ?? [])
     <aside id="sidebar"
         class="fixed top-0 ltr:left-0 rtl:right-0 z-20 flex flex-col flex-shrink-0 hidden w-64 h-full pt-16 font-normal duration-75 lg:flex transition-width menu-collapsed:hidden"
         aria-label="Sidebar">
@@ -94,7 +95,7 @@
                             @livewire('sidebar-menu-item', ['name' => __('menu.pos'), 'icon' => 'pos', 'link' => route('pos.index'), 'active' => request()->routeIs('pos.*')])
                         @endif
 
-                        @if ($this->hasModule('Kitchen') && in_array('kitchen', custom_module_plugins()))
+                        @if ($this->hasModule('Kitchen') && in_array('kitchen', $customPlugins))
                             @if ($this->hasModule('Order') && user_can('Show Order'))
                                 @livewire('sidebar-menu-item', ['name' => __('menu.orders'), 'icon' => 'orders', 'link' => route('orders.index'), 'active' => request()->routeIs('orders.*')])
                             @endif
@@ -180,7 +181,7 @@
                             @endif
                         @endif
 
-                        @foreach (custom_module_plugins() as $item)
+                        @foreach ($customPlugins as $item)
                             @includeIf(strtolower($item) . '::sections.sidebar')
                         @endforeach
 
