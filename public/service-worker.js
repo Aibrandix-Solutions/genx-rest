@@ -41,6 +41,13 @@ self.addEventListener("fetch", (event) => {
 
     // Skip unsupported schemes (chrome-extension, moz-extension, etc.)
     const url = new URL(event.request.url);
+
+    // Never cache or interfere with Livewire endpoints.
+    // Livewire uses POST /livewire/update and expects strict method semantics.
+    if (url.pathname.startsWith("/livewire")) {
+        return event.respondWith(fetch(event.request));
+    }
+
     const supportedSchemes = ["http", "https"];
     if (!supportedSchemes.includes(url.protocol.replace(":", ""))) {
         return event.respondWith(fetch(event.request));

@@ -227,7 +227,7 @@
 
     @include('sections.pusher-script')
 
-    @include('layouts.service-worker-js')
+    {{-- Service worker/PWA is intended for customer-facing pages; keep it off the admin app to avoid interfering with Livewire requests. --}}
     @stack('scripts')
     <script src="{{ asset('vendor/trix/trix.umd.min.js') }}"></script>
 
