@@ -282,4 +282,6 @@ return array(
     'toggleDarkMode' => 'Toggle Dark Mode',
     'urgent' => 'URGENT',
     'attention' => 'Attention',
+   'branch' => 'Branch',
+    'all_branches' => 'All Branches',
 );

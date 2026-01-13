@@ -383,7 +383,7 @@
                                                         @endif
 
                                                         @if(user_can('Show Purchase Order'))
-                                                            <a href="{{ route('purchase-orders.pdf', $order->id) }}" target="_blank" @click="open = false"
+                                                            <a href="{{ route('purchases.pdf', $order->id) }}" target="_blank" @click="open = false"
                                                                class="w-full flex items-center px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/50">
                                                                 <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

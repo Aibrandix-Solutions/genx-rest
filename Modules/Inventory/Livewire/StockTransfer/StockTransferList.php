@@ -23,6 +23,8 @@ class StockTransferList extends Component
     public $startDate = null;
     public $endDate = null;
     public $perPage = 20;
+    public $showAdminView = false;
+    public $branchFilter = '';
     public $selectedTransfer = null;
     public $showViewModal = false;
     public $showReceiveModal = false;
@@ -41,6 +43,7 @@ class StockTransferList extends Component
     public function mount()
     {
         $this->filterType = 'all';
+        $this->showAdminView = user_can('View Admin Transfers');
     }
 
     public function updatingSearch()
@@ -150,15 +153,22 @@ class StockTransferList extends Component
                             }
                         }
 
-                        // Restore stock to source branch
+                        // Restore stock to source location
                         // If partial receive: restore only the NOT received quantity
                         // If no receive: restore full requested quantity
                         $quantityToRestore = $requestedQty - $confirmedQty;
                         
                         if ($quantityToRestore > 0) {
-                            $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
-                                ->where('branch_id', $transfer->source_branch_id)
-                                ->first();
+                            if ($transfer->source_location_id) {
+                                $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                                    ->where('location_id', $transfer->source_location_id)
+                                    ->first();
+                            } else {
+                                // Fallback to branch-based lookup for old transfers
+                                $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                                    ->where('branch_id', $transfer->source_branch_id)
+                                    ->first();
+                            }
 
                             if ($sourceStock) {
                                 // Restore the not-yet-received quantity
@@ -211,7 +221,7 @@ class StockTransferList extends Component
     {
         try {
             DB::transaction(function () use ($transferId) {
-                $transfer = InventoryTransfer::with('items')->findOrFail($transferId);
+                $transfer = InventoryTransfer::with('items', 'sourceLocation')->findOrFail($transferId);
                 
                 if ($transfer->status !== 'pending') {
                     throw new \Exception(__('inventory::modules.transfers.cannot_initiate_transfer'));
@@ -222,10 +232,17 @@ class StockTransferList extends Component
                 }
 
                 foreach ($transfer->items as $item) {
-                    // Check stock availability
-                    $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
-                        ->where('branch_id', branch()->id)
-                        ->first();
+                    // Check stock availability at source location
+                    if ($transfer->source_location_id) {
+                        $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                            ->where('location_id', $transfer->source_location_id)
+                            ->first();
+                    } else {
+                        // Fallback to branch-based lookup for old transfers
+                        $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                            ->where('branch_id', branch()->id)
+                            ->first();
+                    }
                     
                     if (!$stock || $stock->quantity < $item->requested_quantity) {
                         $itemName = $item->sourceItem ? $item->sourceItem->name : __('inventory::modules.transfers.item');
@@ -382,15 +399,31 @@ class StockTransferList extends Component
         $query = InventoryTransfer::with([
             'sourceBranch',
             'destinationBranch',
+            'sourceLocation',
+            'destinationLocation',
             'createdBy',
             'items'
         ])->where('restaurant_id', restaurant()->id);
 
-        // Filter by type (outgoing/incoming)
+        // Filter by type (outgoing/incoming) - only for non-admin or admin can see all
         if ($this->filterType === 'outgoing') {
-            $query->where('source_branch_id', branch()->id);
+            $query->where('source_branch_id', $this->showAdminView ? ($this->branchFilter ?: branch()->id) : branch()->id);
         } elseif ($this->filterType === 'incoming') {
-            $query->where('destination_branch_id', branch()->id);
+            $query->where('destination_branch_id', $this->showAdminView ? ($this->branchFilter ?: branch()->id) : branch()->id);
+        } elseif ($this->showAdminView && !$this->filterType === 'all') {
+            // Admin all view
+            if ($this->branchFilter) {
+                $query->where(function ($q) {
+                    $q->where('source_branch_id', $this->branchFilter)
+                      ->orWhere('destination_branch_id', $this->branchFilter);
+                });
+            }
+        } else if (!$this->showAdminView) {
+            // Non-admin default: show transfers related to their branch
+            $query->where(function ($q) {
+                $q->where('source_branch_id', branch()->id)
+                  ->orWhere('destination_branch_id', branch()->id);
+            });
         }
 
         // Filter by status
@@ -432,9 +465,12 @@ class StockTransferList extends Component
     public function render()
     {
         $transfers = $this->getTransfersQuery()->paginate($this->perPage);
+        $branches = $this->showAdminView ? \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get() : [];
 
         return view('inventory::livewire.stock-transfer.stock-transfer-list', [
             'transfers' => $transfers,
+            'branches' => $branches,
+            'showAdminView' => $this->showAdminView,
         ]);
     }
 }

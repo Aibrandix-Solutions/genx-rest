@@ -22,14 +22,16 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     private $search;
     private $category;
     private $stockStatus;
+    private $locationFilter;
     private $startDate;
     private $endDate;
 
-    public function __construct($search, $category, $stockStatus, $startDate = null, $endDate = null)
+    public function __construct($search, $category, $stockStatus, $locationFilter = null, $startDate = null, $endDate = null)
     {
         $this->search = $search;
         $this->category = $category;
         $this->stockStatus = $stockStatus;
+        $this->locationFilter = $locationFilter;
         $this->startDate = $startDate;
         $this->endDate = $endDate;
     }
@@ -39,6 +41,7 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
         return [
             __('inventory::modules.inventoryItem.name'),
             __('inventory::modules.inventoryItem.category'),
+            __('inventory::modules.stock.location'),
             __('inventory::modules.stock.currentStock'),
             __('inventory::modules.stock.stockStatus'),
             __('inventory::modules.stock.cost'),
@@ -48,10 +51,13 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     public function map($item): array
     {
         $stockStatus = $item->getStockStatus();
+        $stock = $item->stocks->first();
+        $locationName = $stock && $stock->location ? $stock->location->name : '--';
 
         return [
             $item->name,
             $item->category->name ?? '--',
+            $locationName,
             number_format($item->current_stock, 2) . ' ' . optional($item->unit)->symbol,
             $stockStatus['status'],
             currency_format($item->unit_purchase_price * $item->current_stock, restaurant()->currency_id),
@@ -80,13 +86,25 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
         // Set MySQL to non-strict mode for this query
         DB::statement("SET SESSION sql_mode=''");
  
-        $query = InventoryItem::with(['category', 'unit', 'stocks'])
+        $query = InventoryItem::with(['category', 'unit', 'stocks' => function($q) {
+                if ($this->locationFilter) {
+                    $q->where('location_id', $this->locationFilter);
+                } else {
+                    $q->where('branch_id', branch()->id);
+                }
+            }, 'stocks.location'])
              ->where('inventory_items.branch_id', branch()->id)
              ->select('inventory_items.*')
              ->selectRaw('COALESCE(SUM(inventory_stocks.quantity), 0) as current_stock')
              ->leftJoin('inventory_stocks', function($join) {
-                 $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id')
-                     ->where('inventory_stocks.branch_id', '=', branch()->id);
+                 $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id');
+                 
+                 // Filter by location if selected, otherwise by branch
+                 if ($this->locationFilter) {
+                     $join->where('inventory_stocks.location_id', '=', $this->locationFilter);
+                 } else {
+                     $join->where('inventory_stocks.branch_id', '=', branch()->id);
+                 }
                  
                  if ($this->startDate && $this->endDate) {
                     $join->whereBetween('inventory_stocks.created_at', [

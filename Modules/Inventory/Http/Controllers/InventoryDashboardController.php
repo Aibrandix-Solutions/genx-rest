@@ -13,8 +13,20 @@ class InventoryDashboardController extends Controller
     public function index()
     {
         abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('Show Inventory Dashboard'), 403);
 
         return view('inventory::dashboard.index');
+    }
+
+    /**
+     * Display admin inventory dashboard (cross-branch)
+     */
+    public function adminDashboard()
+    {
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('View Admin Inventory Dashboard'), 403);
+
+        return view('inventory::admin.inventory-dashboard');
     }
 
     /**

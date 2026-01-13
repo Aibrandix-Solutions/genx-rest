@@ -148,15 +148,28 @@ class ReceiveStockTransfer extends Component
 
                     $item->save();
 
-                    // Update inventory stock
-                    $stock = InventoryStock::where('inventory_item_id', $item->destination_inventory_item_id)
-                        ->where('branch_id', branch()->id)
-                        ->firstOrCreate([
-                            'inventory_item_id' => $item->destination_inventory_item_id,
-                            'branch_id' => branch()->id,
-                        ], [
-                            'quantity' => 0
-                        ]);
+                    // Update inventory stock at destination location
+                    if ($this->transfer->destination_location_id) {
+                        $stock = InventoryStock::where('inventory_item_id', $item->destination_inventory_item_id)
+                            ->where('location_id', $this->transfer->destination_location_id)
+                            ->firstOrCreate([
+                                'inventory_item_id' => $item->destination_inventory_item_id,
+                                'branch_id' => branch()->id,
+                                'location_id' => $this->transfer->destination_location_id,
+                            ], [
+                                'quantity' => 0
+                            ]);
+                    } else {
+                        // Fallback to branch-based stock for old transfers
+                        $stock = InventoryStock::where('inventory_item_id', $item->destination_inventory_item_id)
+                            ->where('branch_id', branch()->id)
+                            ->firstOrCreate([
+                                'inventory_item_id' => $item->destination_inventory_item_id,
+                                'branch_id' => branch()->id,
+                            ], [
+                                'quantity' => 0
+                            ]);
+                    }
 
                     $stock->quantity += $confirmedQty;
                     $stock->save();

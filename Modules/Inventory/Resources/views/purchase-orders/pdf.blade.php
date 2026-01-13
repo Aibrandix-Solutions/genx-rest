@@ -68,6 +68,23 @@
 </head>
 <body>
     <div class="header">
+        @php
+            $logoUrl = $purchaseOrder->branch->restaurant->logo_url ?? null;
+            $logoBase64 = null;
+            if ($logoUrl) {
+                $path = parse_url($logoUrl, PHP_URL_PATH);
+                $logoPath = public_path($path);
+                if (file_exists($logoPath)) {
+                    $data = base64_encode(file_get_contents($logoPath));
+                    $ext = strtolower(pathinfo($logoPath, PATHINFO_EXTENSION));
+                    $mime = in_array($ext, ['png','jpg','jpeg']) ? ($ext === 'png' ? 'png' : 'jpeg') : 'jpeg';
+                    $logoBase64 = 'data:image/' . $mime . ';base64,' . $data;
+                }
+            }
+        @endphp
+        @if($logoBase64)
+            <img src="{{ $logoBase64 }}" alt="{{ $purchaseOrder->branch->restaurant->name }}" style="max-width: 150px; max-height: 80px; margin-bottom: 10px;">
+        @endif
         <div class="restaurant-name">{{ $purchaseOrder->branch->restaurant->name }}</div>
         <div>{{ $purchaseOrder->branch->name }}</div>
         <div>{{ $purchaseOrder->branch->address }}</div>

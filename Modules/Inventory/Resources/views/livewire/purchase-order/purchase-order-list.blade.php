@@ -58,6 +58,20 @@
                        class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                        placeholder="{{ trans('inventory::modules.purchaseOrder.search_placeholder') }}" />
             </div>
+            @if($showAdminView)
+            <div class="w-full sm:w-auto">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    {{ trans('app.branch') }}
+                </label>
+                <x-select wire:model.live="branchFilter" 
+                        class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="">{{ trans('app.all') }}</option>
+                    @foreach($branches as $branch)
+                        <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                    @endforeach
+                </x-select>
+            </div>
+            @endif
             <div class="w-full sm:w-auto">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ trans('inventory::modules.purchaseOrder.supplier') }}
@@ -151,9 +165,10 @@
             {{ trans('app.export') }}
         </x-secondary-button>
     @if(user_can('Create Purchase Order'))
-        <x-button wire:click="$dispatch('showPurchaseOrderModal')">
+        <a href="{{ route('purchases.create') }}" wire:navigate
+           class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
             {{ trans('inventory::modules.purchaseOrder.create_title') }}
-        </x-button>
+        </a>
     </div>
     @endif
 
@@ -222,7 +237,7 @@
                                     {{ $purchaseOrder->status === 'received' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300' : '' }}
                                     {{ $purchaseOrder->status === 'partially_received' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
                                     {{ $purchaseOrder->status === 'cancelled' ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-300' : '' }}">
-                                    {{ $statuses[$purchaseOrder->status] }}
+                                    {{ $statuses[$purchaseOrder->status] ?? ucfirst(str_replace('_', ' ', $purchaseOrder->status)) }}
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
@@ -243,7 +258,7 @@
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <div class="static" x-data="{ open: false }">
+                                <div class="relative" x-data="{ open: false }">
                                     <button @click="open = !open"
                                             @click.away="open = false"
                                             class="inline-flex items-center justify-center w-8 h-8 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full focus:outline-none relative">
@@ -251,21 +266,11 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
                                         </svg>
                                     </button>
-                                    <div x-show="open"
-                                         x-transition
-                                         class="fixed right-0 z-50 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5"
+                                        <div x-show="open"
+                                             x-transition
+                                             class="absolute right-0 z-50 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5"
                                          x-cloak
                                          @click.away="open = false"
-                                         x-data="{ style: {} }"
-                                         x-init="$nextTick(() => {
-                                             const button = $el.previousElementSibling;
-                                             const rect = button.getBoundingClientRect();
-                                             style = {
-                                                 top: `${rect.bottom + window.scrollY + 5}px`,
-                                                 right: `${window.innerWidth - rect.right}px`
-                                             }
-                                         })"
-                                         :style="style">
                                         <div class="py-1 flex flex-col gap-1">
                                             @if($purchaseOrder->status === 'draft' && user_can('Update Purchase Order'))
                                                 <button wire:click="confirmSend({{ $purchaseOrder->id }})" @click="open = false"
@@ -278,13 +283,13 @@
                                             @endif
                                             
                                             @if(!in_array($purchaseOrder->status, ['received', 'cancelled']) && user_can('Update Purchase Order'))
-                                                <button wire:click="$dispatch('editPurchaseOrder', { purchaseOrder: {{ $purchaseOrder->id }} })" @click="open = false"
+                                                <a href="{{ route('purchases.edit', $purchaseOrder->id) }}" @click="open = false" wire:navigate
                                                         class="w-full flex items-center px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/50">
                                                     <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                     </svg>
                                                     <span>{{ trans('inventory::modules.purchaseOrder.edit') }}</span>
-                                                </button>
+                                                </a>
                                             @endif
                                             
                                             @if(in_array($purchaseOrder->status, ['sent', 'partially_received']) && user_can('Update Purchase Order'))
@@ -294,6 +299,16 @@
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
                                                     </svg>
                                                     <span>{{ trans('inventory::modules.purchaseOrder.receive') }}</span>
+                                                </button>
+                                            @endif
+
+                                            @if($purchaseOrder->due_amount > 0 && user_can('Create Purchase Order'))
+                                                <button wire:click="$dispatch('recordPayment', { purchaseId: {{ $purchaseOrder->id }} })" @click="open = false"
+                                                        class="w-full flex items-center px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/50">
+                                                    <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <span>Record Payment</span>
                                                 </button>
                                             @endif
 
@@ -425,4 +440,17 @@
     <livewire:inventory::purchase-order.receive-purchase-order />
     <livewire:inventory::purchase-order.view-purchase-order />
     <livewire:inventory::purchase-order.purchase-order-payment />
-</div> 
+
+    <!-- Payment Recording Modal -->
+    @if($showPaymentModal && $purchaseIdForPayment)
+        <x-dialog-modal wire:model="showPaymentModal">
+            <x-slot name="title">
+                {{ trans('inventory::modules.payments.record_payment') }}
+            </x-slot>
+
+            <x-slot name="content">
+                <livewire:inventory::record-purchase-payment :purchaseId="$purchaseIdForPayment" :key="'payment-'.$purchaseIdForPayment" />
+            </x-slot>
+        </x-dialog-modal>
+    @endif
+</div>

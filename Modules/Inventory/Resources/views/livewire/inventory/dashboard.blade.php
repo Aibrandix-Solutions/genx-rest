@@ -2,8 +2,33 @@
     <!-- Header with Filters -->
     <div class="mb-8">
         <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4">{{ __('inventory::modules.dashboard.title') }}</h2>
-        <div class="flex flex-wrap gap-4 items-center bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
-            <div class="flex-1 min-w-[200px]">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
+            <!-- Branch Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ __('app.branch') }}</label>
+                <select wire:model.live="selectedBranch" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="all">{{ __('app.all_branches') }}</option>
+                    @foreach($branches as $branch)
+                        <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <!-- Location Filter -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ __('inventory::modules.stock.location') }}</label>
+                <select wire:model.live="selectedLocation" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" {{ $selectedBranch === 'all' && count($locations) > 0 ? '' : '' }}>
+                    <option value="all">{{ __('inventory::modules.stock.allLocations') }}</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">
+                            {{ $location->name }} ({{ ucfirst($location->type) }})
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+
+            <!-- Category Filter -->
+            <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ __('inventory::modules.dashboard.filters.category') }}</label>
                 <select wire:model.live="selectedCategory" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     <option value="all">{{ __('inventory::modules.dashboard.filters.all_categories') }}</option>
@@ -12,7 +37,9 @@
                     @endforeach
                 </select>
             </div>
-            <div class="flex-1 min-w-[200px]">
+
+            <!-- Period Filter -->
+            <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ __('inventory::modules.dashboard.filters.time_period') }}</label>
                 <select wire:model.live="selectedPeriod" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     @foreach(['daily', 'weekly', 'monthly'] as $period)

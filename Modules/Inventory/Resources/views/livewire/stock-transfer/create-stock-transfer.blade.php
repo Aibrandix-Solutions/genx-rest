@@ -1,17 +1,41 @@
 <div>
     <div class="space-y-6">
-        <!-- Destination Branch -->
+        <!-- Source Location -->
         <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                {{ __('inventory::modules.transfers.destination_branch') }} <span class="text-red-500">*</span>
+                {{ __('inventory::modules.transfers.source_location') }} <span class="text-red-500">*</span>
             </label>
-            <select wire:model.live="destinationBranch" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">{{ __('inventory::modules.transfers.select_destination_branch') }}</option>
-                @foreach($availableBranches as $branch)
-                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+            <select wire:model.live="sourceLocation" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">{{ __('inventory::modules.transfers.select_source_location') }}</option>
+                @foreach($availableLocations as $location)
+                    <option value="{{ $location->id }}">
+                        {{ $location->name }} 
+                        @if($location->type !== 'branch')
+                            ({{ ucfirst($location->type) }})
+                        @endif
+                    </option>
                 @endforeach
             </select>
-            @error('destinationBranch') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
+            @error('sourceLocation') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
+        </div>
+
+        <!-- Destination Location -->
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                {{ __('inventory::modules.transfers.destination_location') }} <span class="text-red-500">*</span>
+            </label>
+            <select wire:model.live="destinationLocation" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">{{ __('inventory::modules.transfers.select_destination_location') }}</option>
+                @foreach($availableLocations as $location)
+                    <option value="{{ $location->id }}">
+                        {{ $location->name }} 
+                        @if($location->type !== 'branch')
+                            ({{ ucfirst($location->type) }})
+                        @endif
+                    </option>
+                @endforeach
+            </select>
+            @error('destinationLocation') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
         </div>
 
         <!-- Expected Delivery Date -->
@@ -86,11 +110,12 @@
                                 <!-- Destination Item -->
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        {{ __('inventory::modules.transfers.destination_item') }} <span class="text-red-500">*</span>
+                                        {{ __('inventory::modules.transfers.destination_item') }}
+                                        <span class="text-xs text-gray-500">(optional - will auto-create if not found)</span>
                                     </label>
-                                    @if($destinationBranch)
+                                    @if($destinationLocation)
                                         <select wire:model.live="transferItems.{{ $index }}.destination_item_id" class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
-                                            <option value="">{{ __('inventory::modules.transfers.select_item') }}</option>
+                                            <option value="">{{ __('inventory::modules.transfers.auto_create_item') }}</option>
                                             @forelse($destinationItems as $destItem)
                                                 <option value="{{ $destItem->id }}">
                                                     {{ $destItem->name }}
@@ -99,17 +124,17 @@
                                                     @endif
                                                 </option>
                                             @empty
-                                                <option value="" disabled>{{ __('inventory::modules.transfers.no_items_in_destination') }}</option>
+                                                <option value="" disabled>{{ __('inventory::modules.transfers.select_or_auto_create') }}</option>
                                             @endforelse
                                         </select>
                                         @if(count($destinationItems) === 0)
-                                            <p class="text-xs text-yellow-600 dark:text-yellow-400 mt-1">
-                                                {{ __('inventory::modules.transfers.no_items_warning') }}
+                                            <p class="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                                {{ __('inventory::modules.transfers.items_will_be_auto_created') }}
                                             </p>
                                         @endif
                                     @else
                                         <select disabled class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-400">
-                                            <option>{{ __('inventory::modules.transfers.select_destination_branch_first') }}</option>
+                                            <option>{{ __('inventory::modules.transfers.select_destination_location_first') }}</option>
                                         </select>
                                     @endif
                                     @error("transferItems.{$index}.destination_item_id") <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
