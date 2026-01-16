@@ -189,8 +189,7 @@ class ManagePurchaseOrder extends Component
            $inventoryItems = $inventoryItems->where('preferred_supplier_id', $this->supplierId);
         }
 
-        $inventoryItems = $inventoryItems->where('branch_id', branch()->id)
-            ->with(['unit', 'category'])
+        $inventoryItems = $inventoryItems->with(['unit', 'category'])
             ->orderBy('name')
             ->get()
             ->map(function ($item) {

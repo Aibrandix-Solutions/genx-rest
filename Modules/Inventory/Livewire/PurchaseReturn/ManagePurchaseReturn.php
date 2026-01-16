@@ -415,8 +415,7 @@ class ManagePurchaseReturn extends Component
 
     public function render()
     {
-        $inventoryItems = InventoryItem::where('branch_id', branch()->id)
-            ->with(['unit', 'category'])
+        $inventoryItems = InventoryItem::with(['unit', 'category'])
             ->orderBy('name')
             ->get()
             ->map(function ($item) {

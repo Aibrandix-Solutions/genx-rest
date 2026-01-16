@@ -22,7 +22,7 @@ class AddInventoryItem extends Component
     public $itemCategories;
     public $units;
     public $suppliers;
-    public $reorderQuantity = 0;
+    // Removed: reorder_quantity (auto-purchase disabled)
     public $unitPurchasePrice = 0;
 
     protected $listeners = [
@@ -39,13 +39,20 @@ class AddInventoryItem extends Component
     protected function rules()
     {
         return [
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|unique:inventory_items,name',
             'itemCategory' => 'required|',
             'unit' => 'required',
             'thresholdQuantity' => 'required|numeric|min:0',
             'preferredSupplier' => 'required',
-            'reorderQuantity' => 'required|numeric|min:0',
+
             'unitPurchasePrice' => 'required|numeric|min:0',
+        ];
+    }
+
+    protected function messages()
+    {
+        return [
+            'name.unique' => 'An inventory item with this name already exists. Please use a different name.',
         ];
     }
 
@@ -59,12 +66,12 @@ class AddInventoryItem extends Component
             'unit_id' => $this->unit,
             'threshold_quantity' => $this->thresholdQuantity,
             'preferred_supplier_id' => $this->preferredSupplier,
-            'reorder_quantity' => $this->reorderQuantity,
+
             'unit_purchase_price' => $this->unitPurchasePrice,
         ]);
 
         $this->dispatch('inventoryItemAdded');
-        $this->reset(['name', 'itemCategory', 'unit', 'thresholdQuantity', 'preferredSupplier', 'reorderQuantity', 'unitPurchasePrice']);
+        $this->reset(['name', 'itemCategory', 'unit', 'thresholdQuantity', 'preferredSupplier', 'unitPurchasePrice']);
         $this->showAddInventoryItem = false;
 
         $this->alert('success', __('inventory::modules.inventoryItem.inventoryItemAdded'));

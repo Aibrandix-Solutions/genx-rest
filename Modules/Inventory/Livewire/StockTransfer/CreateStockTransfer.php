@@ -50,19 +50,10 @@ class CreateStockTransfer extends Component
     public function updatedDestinationLocation()
     {
         if ($this->destinationLocation) {
-            // Get the branch_id from the destination location
-            $destLocation = PurchaseLocation::find($this->destinationLocation);
-            
-            if ($destLocation && $destLocation->branch_id) {
-                // Load items from the destination branch
-                $this->destinationItems = InventoryItem::withoutGlobalScopes()
-                    ->where('branch_id', $destLocation->branch_id)
-                    ->with(['category', 'unit'])
-                    ->orderBy('name')
-                    ->get();
-            } else {
-                $this->destinationItems = [];
-            }
+            // Load all items (items are now restaurant-scoped, not branch-scoped)
+            $this->destinationItems = InventoryItem::with(['category', 'unit'])
+                ->orderBy('name')
+                ->get();
         } else {
             $this->destinationItems = [];
         }
@@ -236,44 +227,13 @@ class CreateStockTransfer extends Component
                     'created_by' => user()->id,
                 ]);
 
-                // Create transfer items and auto-create destination items if needed
+                // Create transfer items - now simple since items are shared!
                 foreach ($this->transferItems as $item) {
-                    $destinationItemId = $item['destination_item_id'];
-                    
-                    // Check if destination item exists, if not create it
-                    $destBranchId = $destinationLocation->branch_id ?? branch()->id;
-                    $destItemExists = InventoryItem::withoutGlobalScopes()
-                        ->where('id', $destinationItemId)
-                        ->where('branch_id', $destBranchId)
-                        ->exists();
-                    
-                    if (!$destItemExists) {
-                        // Get source item details
-                        $sourceItem = InventoryItem::withoutGlobalScopes()->find($item['source_item_id']);
-                        
-                        if ($sourceItem) {
-                            // Create destination item as a copy of source item
-                            $newDestItem = InventoryItem::create([
-                                'name' => $sourceItem->name,
-                                'branch_id' => $destBranchId,
-                                'restaurant_id' => restaurant()->id,
-                                'inventory_item_category_id' => $sourceItem->inventory_item_category_id,
-                                'unit_id' => $sourceItem->unit_id,
-                                'unit_purchase_price' => $sourceItem->unit_purchase_price,
-                                'unit_selling_price' => $sourceItem->unit_selling_price,
-                                'threshold_quantity' => $sourceItem->threshold_quantity,
-                                'description' => $sourceItem->description,
-                                'sku' => $sourceItem->sku,
-                            ]);
-                            
-                            $destinationItemId = $newDestItem->id;
-                        }
-                    }
-                    
+                    // With restaurant-scoped items, source and destination use the SAME item
                     InventoryTransferItem::create([
                         'inventory_transfer_id' => $transfer->id,
                         'source_inventory_item_id' => $item['source_item_id'],
-                        'destination_inventory_item_id' => $destinationItemId,
+                        'destination_inventory_item_id' => $item['source_item_id'], // Same item!
                         'requested_quantity' => $item['quantity'],
                         'status' => 'pending',
                     ]);

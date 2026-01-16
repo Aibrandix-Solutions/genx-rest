@@ -97,13 +97,7 @@ class StockTransferList extends Component
                     throw new \Exception(__('inventory::modules.transfers.cannot_cancel_transfer'));
                 }
 
-                // Check authorization: source branch can cancel pending, both branches can cancel in_transit
-                $isSourceBranch = $transfer->source_branch_id === branch()->id;
-                $isDestinationBranch = $transfer->destination_branch_id === branch()->id;
-                
-                if (!$isSourceBranch && !$isDestinationBranch) {
-                    throw new \Exception(__('inventory::modules.transfers.unauthorized_action'));
-                }
+                // Restaurant-scoped: any user can cancel transfers within the restaurant
 
                 // If transfer is in_transit, handle stock restoration based on partial receives
                 if ($transfer->status === 'in_transit') {
@@ -111,8 +105,8 @@ class StockTransferList extends Component
                         $confirmedQty = $item->confirmed_quantity ?? 0;
                         $requestedQty = $item->requested_quantity;
                         
-                        // If destination branch is cancelling and items were partially/fully received
-                        if ($isDestinationBranch && $confirmedQty > 0) {
+                        // If items were partially/fully received
+                        if ($confirmedQty > 0) {
                             // Deduct confirmed quantity from destination branch (reverse the receive)
                             $destinationStock = InventoryStock::where('inventory_item_id', $item->destination_inventory_item_id)
                                 ->where('branch_id', $transfer->destination_branch_id)
@@ -227,9 +221,7 @@ class StockTransferList extends Component
                     throw new \Exception(__('inventory::modules.transfers.cannot_initiate_transfer'));
                 }
 
-                if ($transfer->source_branch_id !== branch()->id) {
-                    throw new \Exception(__('inventory::modules.transfers.unauthorized_action'));
-                }
+                // Restaurant-scoped: any user can initiate transfers
 
                 foreach ($transfer->items as $item) {
                     // Check stock availability at source location
@@ -355,10 +347,7 @@ class StockTransferList extends Component
             'items.destinationItem.unit',
         ])->findOrFail($transferId);
         
-        if ($transfer->destination_branch_id !== branch()->id) {
-            session()->flash('error', __('inventory::modules.transfers.unauthorized_action'));
-            return;
-        }
+        // Restaurant-scoped: any user can receive transfers
 
         $this->selectedTransfer = $transfer;
         $this->showReceiveModal = true;
@@ -405,26 +394,8 @@ class StockTransferList extends Component
             'items'
         ])->where('restaurant_id', restaurant()->id);
 
-        // Filter by type (outgoing/incoming) - only for non-admin or admin can see all
-        if ($this->filterType === 'outgoing') {
-            $query->where('source_branch_id', $this->showAdminView ? ($this->branchFilter ?: branch()->id) : branch()->id);
-        } elseif ($this->filterType === 'incoming') {
-            $query->where('destination_branch_id', $this->showAdminView ? ($this->branchFilter ?: branch()->id) : branch()->id);
-        } elseif ($this->showAdminView && !$this->filterType === 'all') {
-            // Admin all view
-            if ($this->branchFilter) {
-                $query->where(function ($q) {
-                    $q->where('source_branch_id', $this->branchFilter)
-                      ->orWhere('destination_branch_id', $this->branchFilter);
-                });
-            }
-        } else if (!$this->showAdminView) {
-            // Non-admin default: show transfers related to their branch
-            $query->where(function ($q) {
-                $q->where('source_branch_id', branch()->id)
-                  ->orWhere('destination_branch_id', branch()->id);
-            });
-        }
+        // Show all transfers in restaurant (restaurant-scoped)
+        // No branch filtering - all users can see and manage all transfers
 
         // Filter by status
         if ($this->statusFilter !== 'all') {

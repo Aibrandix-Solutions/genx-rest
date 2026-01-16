@@ -120,27 +120,12 @@
         </div>
 
         <!-- Filter Controls -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-            <!-- Date Range -->
-            <div class="flex items-center gap-2 col-span-1 sm:col-span-2 lg:col-span-1">
-                <x-input type="date" wire:model.live="startDate" class="block w-full" />
-                <span class="text-gray-500 font-medium whitespace-nowrap">@lang('app.to')</span>
-                <x-input type="date" wire:model.live="endDate" class="block w-full" />
-            </div>
-
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
             <!-- Category Filter -->
             <select wire:model.live="category" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
                 <option value="">@lang('inventory::modules.stock.allCategories')</option>
                 @foreach($categories as $cat)
                     <option value="{{ $cat->id }}">{{ $cat->name }}</option>
-                @endforeach
-            </select>
-
-            <!-- Branch Filter -->
-            <select wire:model.live="branchFilter" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
-                <option value="all">{{ __('app.all_branches') }}</option>
-                @foreach($branches as $branch)
-                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
                 @endforeach
             </select>
 
@@ -207,7 +192,7 @@
             </div>
 
             <!-- Clear Filters Button -->
-            @if($search || $category || $stockStatus || $branchFilter !== 'all' || $locationFilter !== 'all' || $startDate || $endDate)
+            @if($search || $category || $stockStatus || $locationFilter !== 'all')
                 <button
                     wire:click="clearFilters"
                     class="inline-flex items-center justify-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
@@ -229,7 +214,6 @@
                     <tr>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.inventoryItem.name")</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.inventoryItem.category")</th>
-                        <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.location")</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.currentStock")</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.stockStatus")</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.cost")</th>
@@ -250,21 +234,6 @@
                                 <div class="text-sm text-gray-900 dark:text-white">{{ $item->category->name ?? '-'}}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                @php
-                                    $stock = $item->stocks->first();
-                                @endphp
-                                @if($stock && $stock->location)
-                                    <div class="text-sm text-gray-900 dark:text-white">{{ $stock->location->name }}</div>
-                                    @if($stock->location->type !== 'branch')
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                            {{ ucfirst($stock->location->type) }}
-                                        </span>
-                                    @endif
-                                @else
-                                    <div class="text-sm text-gray-500 dark:text-gray-400">-</div>
-                                @endif
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm text-gray-900 dark:text-white">{{ number_format($item->filtered_stock ?? 0, 2) }} {{ $item->unit->symbol }}</div>
                                 <div clas6="text-xs text-gray-500 dark:text-gray-400">@lang("inventory::modules.stock.minStock"): {{ number_format($item->threshold_quantity, 2) }} {{ $item->unit->symbol }}</div>
                             </td>
@@ -281,7 +250,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                            <td colspan="5" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                                 @lang("inventory::modules.stock.noStockItemsFound")
                             </td>
                         </tr>

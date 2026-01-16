@@ -215,7 +215,14 @@ class EditDirectPurchase extends Component
         return collect($this->items)->sum(function ($item) {
             $qty = (float) ($item['quantity'] ?? 0);
             $price = (float) ($item['unit_price'] ?? 0);
-            return $qty * $price;
+            $lineTotal = $qty * $price;
+            
+            // Apply item-level discount
+            $itemDiscount = ($item['discount_type'] ?? 'fixed') === 'percentage'
+                ? $lineTotal * (((float)($item['discount'] ?? 0)) / 100)
+                : ((float)($item['discount'] ?? 0));
+            
+            return max(0, $lineTotal - $itemDiscount);
         });
     }
 

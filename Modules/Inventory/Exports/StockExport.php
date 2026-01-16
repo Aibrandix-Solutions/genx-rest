@@ -23,17 +23,13 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     private $category;
     private $stockStatus;
     private $locationFilter;
-    private $startDate;
-    private $endDate;
 
-    public function __construct($search, $category, $stockStatus, $locationFilter = null, $startDate = null, $endDate = null)
+    public function __construct($search, $category, $stockStatus, $locationFilter = null)
     {
         $this->search = $search;
         $this->category = $category;
         $this->stockStatus = $stockStatus;
         $this->locationFilter = $locationFilter;
-        $this->startDate = $startDate;
-        $this->endDate = $endDate;
     }
 
     public function headings(): array
@@ -58,9 +54,9 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
             $item->name,
             $item->category->name ?? '--',
             $locationName,
-            number_format($item->current_stock, 2) . ' ' . optional($item->unit)->symbol,
+            number_format($item->filtered_stock ?? 0, 2) . ' ' . optional($item->unit)->symbol,
             $stockStatus['status'],
-            currency_format($item->unit_purchase_price * $item->current_stock, restaurant()->currency_id),
+            currency_format($item->total_cost_value ?? 0, restaurant()->currency_id),
         ];
     }
 
@@ -87,32 +83,21 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
         DB::statement("SET SESSION sql_mode=''");
  
         $query = InventoryItem::with(['category', 'unit', 'stocks' => function($q) {
-                if ($this->locationFilter) {
+                if ($this->locationFilter && $this->locationFilter !== 'all') {
                     $q->where('location_id', $this->locationFilter);
-                } else {
-                    $q->where('branch_id', branch()->id);
                 }
             }, 'stocks.location'])
-             ->where('inventory_items.branch_id', branch()->id)
              ->select('inventory_items.*')
-             ->selectRaw('COALESCE(SUM(inventory_stocks.quantity), 0) as current_stock')
              ->leftJoin('inventory_stocks', function($join) {
                  $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id');
                  
-                 // Filter by location if selected, otherwise by branch
-                 if ($this->locationFilter) {
+                 // Filter by location if selected
+                 if ($this->locationFilter && $this->locationFilter !== 'all') {
                      $join->where('inventory_stocks.location_id', '=', $this->locationFilter);
-                 } else {
-                     $join->where('inventory_stocks.branch_id', '=', branch()->id);
-                 }
-                 
-                 if ($this->startDate && $this->endDate) {
-                    $join->whereBetween('inventory_stocks.created_at', [
-                        $this->startDate . ' 00:00:00',
-                        $this->endDate . ' 23:59:59'
-                    ]);
                  }
              })
+             ->selectRaw('COALESCE(SUM(inventory_stocks.quantity), 0) as filtered_stock')
+             ->selectRaw('COALESCE(SUM(inventory_stocks.quantity * inventory_items.unit_purchase_price), 0) as total_cost_value')
              ->groupBy('inventory_items.id');
  
          // Apply search filter
@@ -129,13 +114,13 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
          if ($this->stockStatus) {
              switch ($this->stockStatus) {
                  case 'in_stock':
-                     $query->havingRaw('current_stock > inventory_items.threshold_quantity');
+                     $query->havingRaw('filtered_stock > inventory_items.threshold_quantity');
                      break;
                  case 'low_stock':
-                     $query->havingRaw('current_stock > 0 AND current_stock <= inventory_items.threshold_quantity');
+                     $query->havingRaw('filtered_stock > 0 AND filtered_stock <= inventory_items.threshold_quantity');
                      break;
                  case 'out_of_stock':
-                     $query->havingRaw('current_stock <= 0');
+                     $query->havingRaw('filtered_stock <= 0');
                      break;
              }
          }

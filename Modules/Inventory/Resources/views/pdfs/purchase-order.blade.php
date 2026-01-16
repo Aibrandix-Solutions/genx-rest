@@ -221,7 +221,6 @@
                     <th style="width: 5%;">#</th>
                     <th style="width: 45%;">{{ trans('inventory::modules.inventoryItem.name') }}</th>
                     <th style="width: 15%;">{{ trans('inventory::modules.purchaseOrder.ordered_quantity') }}</th>
-                    <th style="width: 15%;">{{ trans('inventory::modules.purchaseOrder.received_quantity') }}</th>
                     <th style="width: 15%;">{{ trans('inventory::modules.purchaseOrder.unit_price') }}</th>
                 </tr>
             </thead>
@@ -242,14 +241,13 @@
                             @endif
                         </td>
                         <td>{{ number_format($item->quantity, 2) }}</td>
-                        <td>{{ number_format($item->received_quantity, 2) }}</td>
                         <td>{{ currency_format($item->unit_price, restaurant()->currency_id) }}</td>
                     </tr>
                 @endforeach
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="4" class="order-total" style="text-align: right;">{{ trans('modules.billing.total') }}</td>
+                    <td colspan="3" class="order-total" style="text-align: right;">{{ trans('modules.billing.total') }}</td>
                     <td colspan="1" class="order-total">{{ currency_format($purchaseOrder->total_amount, restaurant()->currency_id) }}</td>
                 </tr>
             </tfoot>

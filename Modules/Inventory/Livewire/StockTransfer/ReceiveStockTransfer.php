@@ -48,12 +48,11 @@ class ReceiveStockTransfer extends Component
         $this->transfer = InventoryTransfer::with([
             'items.sourceItem.unit',
             'items.destinationItem.unit',
+            'sourceLocation',
+            'destinationLocation',
         ])->findOrFail($transferId);
         
-        if ($this->transfer->destination_branch_id !== branch()->id) {
-            $this->alert('error', __('inventory::modules.transfers.unauthorized_action'));
-            return;
-        }
+        // Restaurant-scoped: any user can receive transfers
 
         $this->loadReceivedItems();
         $this->showModal = true;

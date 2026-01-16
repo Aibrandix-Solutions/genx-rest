@@ -224,7 +224,7 @@
                                         </svg>
                                     </button>
                                     
-                                    @if($transfer->status === 'pending' && $transfer->source_branch_id === branch()->id)
+                                    @if($transfer->status === 'pending')
                                         <button wire:click="confirmInitiate({{ $transfer->id }})" class="text-green-600 hover:text-green-900 dark:text-green-400" title="{{ __('inventory::modules.transfers.initiate_transfer') }}">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
@@ -232,7 +232,7 @@
                                         </button>
                                     @endif
                                     
-                                    @if($transfer->status === 'in_transit' && $transfer->destination_branch_id === branch()->id)
+                                    @if($transfer->status === 'in_transit')
                                         <button wire:click="openReceiveModal({{ $transfer->id }})" class="text-purple-600 hover:text-purple-900 dark:text-purple-400" title="{{ __('inventory::modules.transfers.receive_transfer') }}">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -240,9 +240,7 @@
                                         </button>
                                     @endif
                                     
-                                    @if(user_can('Cancel Stock Transfer') && 
-                                        (($transfer->status === 'pending' && $transfer->source_branch_id === branch()->id) || 
-                                        ($transfer->status === 'in_transit' && ($transfer->source_branch_id === branch()->id || $transfer->destination_branch_id === branch()->id))))
+                                    @if(user_can('Cancel Stock Transfer') && in_array($transfer->status, ['pending', 'in_transit']))
                                         <button wire:click="confirmCancel({{ $transfer->id }})" class="text-red-600 hover:text-red-900 dark:text-red-400" title="{{ __('inventory::modules.transfers.cancel_transfer') }}">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>

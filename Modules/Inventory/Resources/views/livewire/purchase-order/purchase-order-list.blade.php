@@ -270,7 +270,7 @@
                                              x-transition
                                              class="absolute right-0 z-50 mt-2 w-48 bg-white dark:bg-gray-800 rounded-md shadow-lg ring-1 ring-black ring-opacity-5"
                                          x-cloak
-                                         @click.away="open = false"
+                                         @click.away="open = false">
                                         <div class="py-1 flex flex-col gap-1">
                                             @if($purchaseOrder->status === 'draft' && user_can('Update Purchase Order'))
                                                 <button wire:click="confirmSend({{ $purchaseOrder->id }})" @click="open = false"

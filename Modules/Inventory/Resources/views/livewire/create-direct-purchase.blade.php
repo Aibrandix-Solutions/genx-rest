@@ -1,4 +1,4 @@
-<div class="max-w-6xl mx-auto space-y-6">
+<div class="p-4">
     <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
         <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-4">Add Purchase</h1>
         <form wire:submit.prevent="savePurchase" class="space-y-6">
@@ -132,16 +132,14 @@
                                         <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full" />
                                         @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </td>
-                                    <td class="px-4 py-2 w-40">
+                                    <td class="px-4 py-2 w-48">
                                         <div class="flex gap-2">
                                             <x-input
                                                 type="number"
                                                 step="0.01"
                                                 min="0"
                                                 wire:model.live="items.{{ $index }}.discount"
-                                                placeholder="{{ $item['discount'] ?? 0 }}"
-                                                value="{{ $item['discount'] ?? 0 }}"
-                                                class="w-full placeholder:text-gray-400 dark:placeholder:text-gray-500 text-gray-900 dark:text-gray-300"
+                                                class="w-full"
                                             />
                                             <x-select wire:model.live="items.{{ $index }}.discount_type">
                                                 <option value="fixed" @selected(($item['discount_type'] ?? 'fixed') === 'fixed')>Fixed</option>

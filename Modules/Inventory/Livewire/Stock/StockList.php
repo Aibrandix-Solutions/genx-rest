@@ -18,11 +18,8 @@ class StockList extends Component
 
     public $showAddStockEntry = false;
     public $search = '';
-    public $startDate = null;
-    public $endDate = null;
     public $category = '';
     public $stockStatus = '';
-    public $branchFilter = 'all';
     public $locationFilter = 'all';
     public $perPage = 20;
 
@@ -30,7 +27,6 @@ class StockList extends Component
         'search' => ['except' => ''],
         'category' => ['except' => ''],
         'stockStatus' => ['except' => ''],
-        'branchFilter' => ['except' => 'all'],
         'locationFilter' => ['except' => 'all'],
     ];
 
@@ -55,16 +51,11 @@ class StockList extends Component
 
     public function getStockStatistics()
     {
-        // Get items with stock filtered by branch/location
+        // Get items with stock filtered by location
         $query = InventoryItem::query()
-            ->when($this->branchFilter !== 'all', function ($q) {
-                $q->where('branch_id', $this->branchFilter);
-            })
             ->with(['stocks' => function($q) {
                 if ($this->locationFilter !== 'all') {
                     $q->where('location_id', $this->locationFilter);
-                } elseif ($this->branchFilter !== 'all') {
-                    $q->where('branch_id', $this->branchFilter);
                 }
             }]);
         
@@ -101,14 +92,9 @@ class StockList extends Component
 
         // Build the base query
         $query = InventoryItem::select('inventory_items.*')
-            ->when($this->branchFilter !== 'all', function ($q) {
-                $q->where('inventory_items.branch_id', $this->branchFilter);
-            })
             ->with(['category', 'unit', 'stocks' => function($q) {
                 if ($this->locationFilter !== 'all') {
                     $q->where('location_id', $this->locationFilter);
-                } elseif ($this->branchFilter !== 'all') {
-                    $q->where('branch_id', $this->branchFilter);
                 }
             }, 'stocks.location', 'stocks.branch']);
 
@@ -116,19 +102,9 @@ class StockList extends Component
         $query->leftJoin('inventory_stocks', function($join) {
             $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id');
             
-            // Apply location or branch filter to join
+            // Apply location filter to join
             if ($this->locationFilter !== 'all') {
                 $join->where('inventory_stocks.location_id', '=', $this->locationFilter);
-            } elseif ($this->branchFilter !== 'all') {
-                $join->where('inventory_stocks.branch_id', '=', $this->branchFilter);
-            }
-
-            // Apply date filter to join
-            if ($this->startDate && $this->endDate) {
-                $join->whereBetween('inventory_stocks.created_at', [
-                    $this->startDate . ' 00:00:00',
-                    $this->endDate . ' 23:59:59'
-                ]);
             }
         });
 
@@ -181,9 +157,6 @@ class StockList extends Component
     {
         return PurchaseLocation::where('restaurant_id', restaurant()->id)
             ->where('is_active', true)
-            ->when($this->branchFilter !== 'all', function ($query) {
-                $query->where('branch_id', $this->branchFilter);
-            })
             ->orderBy('type')
             ->orderBy('name')
             ->get();
@@ -191,36 +164,25 @@ class StockList extends Component
 
     public function clearFilters()
     {
-        $this->reset(['search', 'category', 'stockStatus', 'branchFilter', 'locationFilter', 'startDate', 'endDate']);
-        $this->branchFilter = 'all';
+        $this->reset(['search', 'category', 'stockStatus', 'locationFilter']);
         $this->locationFilter = 'all';
         $this->resetPage();
     }
 
-    public function updatedBranchFilter()
-    {
-        // Reset location when branch changes
-        if ($this->branchFilter === 'all') {
-            $this->locationFilter = 'all';
-        }
-        $this->resetPage();
-    }
+
 
     public function export()
     {
-        return Excel::download(new StockExport($this->search, $this->category, $this->stockStatus, $this->locationFilter, $this->startDate, $this->endDate), 'stock-inventory.xlsx');
+        return Excel::download(new StockExport($this->search, $this->category, $this->stockStatus, $this->locationFilter), 'stock-inventory.xlsx');
     }
 
     public function render()
     {
-        $branches = \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get();
-        
         return view('inventory::livewire.stock.stock-list', [
             'stats' => $this->getStockStatistics(),
             'stockItems' => $this->getStockItems(),
             'categories' => $this->getCategories(),
             'locations' => $this->getLocations(),
-            'branches' => $branches,
         ]);
     }
 }
