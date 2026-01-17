@@ -49,6 +49,7 @@ class SalesReport extends Component
     {
         $ranges = [
             'today' => [now()->startOfDay(), now()->endOfDay()],
+            'yesterday' => [now()->subDay()->startOfDay(), now()->subDay()->endOfDay()],
             'lastWeek' => [now()->subWeek()->startOfWeek(), now()->subWeek()->endOfWeek()],
             'last7Days' => [now()->subDays(7), now()->endOfDay()],
             'currentMonth' => [now()->startOfMonth(), now()->endOfDay()],
