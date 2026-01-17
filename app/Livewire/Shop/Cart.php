@@ -1916,10 +1916,12 @@ class Cart extends Component
             $query = $query->where('menu_items.type', 'halal');
         }
 
-        if (!empty($this->search)) {
+        if ($this->search) {
             $query->where(function ($q) {
                 $q->where('item_name', 'like', '%' . $this->search . '%')
-                    ->orWhereHas('translations', function ($q) {
+                    ->orWhere('item_code', 'like', '%' . $this->search . '%') // Search by item code
+                    ->orWhereTranslation('item_name', 'like', '%' . $this->search . '%', locale: current_locale(), fallback: false)
+                    ->orWhereHas('category', function ($q) {
                         $q->where('item_name', 'like', '%' . $this->search . '%');
                     });
             });

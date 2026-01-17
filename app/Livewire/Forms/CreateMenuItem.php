@@ -30,6 +30,9 @@ class CreateMenuItem extends Component
     #[Validate('required')]
     public string $itemName = '';
 
+    #[Validate('nullable|string|max:50|unique:menu_items,item_code')]
+    public string $itemCode = '';
+
     #[Validate('required')]
     public string $menu = '';
 
@@ -455,8 +458,14 @@ class CreateMenuItem extends Component
 
     private function createMenuItem(): MenuItem
     {
+        // Auto-generate item code if empty
+        if (empty($this->itemCode)) {
+            $this->itemCode = $this->generateItemCode();
+        }
+
         return MenuItem::create([
             'item_name' => $this->translationNames[$this->globalLocale],
+            'item_code' => $this->itemCode,
             'price' => $this->hasVariations ? 0 : (float)$this->itemPrice,
             'item_category_id' => $this->itemCategory,
             'description' => $this->translationDescriptions[$this->globalLocale],
@@ -467,6 +476,25 @@ class CreateMenuItem extends Component
             'kot_place_id' => $this->kitchenType,
             'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : false,
         ]);
+    }
+
+    /**
+     * Generate unique item code
+     */
+    private function generateItemCode(): string
+    {
+        $prefix = 'IT';
+        $lastItem = MenuItem::where('item_code', 'like', $prefix . '%')
+            ->orderBy('item_code', 'desc')
+            ->first();
+
+        if ($lastItem && preg_match('/' . $prefix . '(\d+)/', $lastItem->item_code, $matches)) {
+            $number = intval($matches[1]) + 1;
+        } else {
+            $number = 1;
+        }
+
+        return $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
     }
 
     private function handleTranslations(MenuItem $menuItem): void

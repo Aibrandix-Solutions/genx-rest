@@ -64,15 +64,15 @@
 
             <div class="space-y-4">
                 <div>
-                    <x-label for="name" value="@lang('inventory::modules.locations.name')" />
+                    <x-label for="name" :value="__('inventory::modules.locations.name')" />
                     <x-input id="name" type="text" class="mt-1 block w-full" wire:model.defer="name" />
                     <x-input-error for="name" class="mt-2" />
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <x-label for="type" value="@lang('inventory::modules.locations.type')" />
-                        <select id="type" wire:model="type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-skin-base focus:ring-skin-base dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">
+                        <x-label for="type" :value="__('inventory::modules.locations.type')" />
+                        <select id="type" wire:model.live="type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-skin-base focus:ring-skin-base dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">
                             <option value="warehouse">@lang('inventory::modules.locations.warehouse')</option>
                             <option value="branch">@lang('inventory::modules.locations.branch')</option>
                         </select>
@@ -80,7 +80,7 @@
                     </div>
 
                     <div>
-                        <x-label for="branch_id" value="@lang('inventory::modules.locations.branch')" />
+                        <x-label for="branch_id" :value="__('inventory::modules.locations.branch')" />
                         <select id="branch_id" wire:model="branch_id" {{ $type === 'warehouse' ? 'disabled' : '' }} class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-skin-base focus:ring-skin-base dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">
                             <option value="">@lang('inventory::modules.locations.selectBranch')</option>
                             @foreach($branches as $branch)
@@ -92,14 +92,14 @@
                 </div>
 
                 <div>
-                    <x-label for="address" value="@lang('inventory::modules.locations.address')" />
+                    <x-label for="address" :value="__('inventory::modules.locations.address')" />
                     <textarea id="address" rows="3" wire:model.defer="address" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-skin-base focus:ring-skin-base dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"></textarea>
                     <x-input-error for="address" class="mt-2" />
                 </div>
 
                 <div class="flex items-center gap-2">
                     <x-checkbox id="is_active" wire:model="is_active" />
-                    <x-label for="is_active" value="@lang('inventory::modules.locations.activeLabel')" />
+                    <x-label for="is_active" :value="__('inventory::modules.locations.activeLabel')" />
                 </div>
             </div>
 
