@@ -12,15 +12,16 @@ class BranchObserver
     public function created(Branch $branch): void
     {
 
+        // Units are now restaurant-scoped (not branch-scoped)
+        // Only create them once globally if they don't exist
         foreach (Unit::UNITS as $unit) {
-            Unit::firstOrCreate(array_merge($unit, [
-                'branch_id' => $branch->id
-            ]));
+            Unit::firstOrCreate($unit);
         }
 
+        // Categories are now restaurant-scoped (not branch-scoped)
+        // Only create them once globally if they don't exist
         foreach (InventoryItemCategory::CATEGORIES as $category) {
             InventoryItemCategory::firstOrCreate([
-                'branch_id' => $branch->id,
                 'name' => $category
             ]);
         }

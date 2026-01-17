@@ -340,6 +340,13 @@ class RecipeForm extends Component
         if ($this->menuItemId) {
             $menuItem = MenuItem::with('variations')->find($this->menuItemId);
             
+            // Check if menu item exists before accessing variations
+            if (!$menuItem) {
+                $this->menuItemVariations = collect();
+                $this->hasVariations = false;
+                return;
+            }
+            
             if ($menuItem->variations->count() > 0) {
                 if ($this->isEditing) {
                     // When editing, show all variations so user can edit existing recipes

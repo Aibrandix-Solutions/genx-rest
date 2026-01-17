@@ -9,8 +9,9 @@ class UnitObserver
 
     public function creating(Unit $unit)
     {
-        if (branch()) {
-            $unit->branch_id = branch()->id;
-        }
+        // Disabled: Units are now restaurant-scoped, not branch-scoped
+        // if (branch()) {
+        //     $unit->branch_id = branch()->id;
+        // }
     }
 }

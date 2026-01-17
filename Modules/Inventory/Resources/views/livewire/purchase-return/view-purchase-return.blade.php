@@ -67,9 +67,13 @@
                         <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseReturn->return_date->format('M d, Y') }}</p>
                     </div>
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Branch</h4>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Location</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">
-                            {{ $purchaseReturn->branch ? $purchaseReturn->branch->name : 'All Branches' }}
+                            @if($purchaseReturn->purchaseOrder && $purchaseReturn->purchaseOrder->location)
+                                {{ $purchaseReturn->purchaseOrder->location->display_name }}
+                            @else
+                                -
+                            @endif
                         </p>
                     </div>
                     <div>
