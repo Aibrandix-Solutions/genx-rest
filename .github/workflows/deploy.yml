@@ -178,7 +178,7 @@ jobs:
             # php artisan optimize || true
 
             # Run migrations (optional, uncomment if needed)
-            # php artisan migrate --force
+            php artisan migrate --force
 
             # Storage link
             php artisan storage:link || true
