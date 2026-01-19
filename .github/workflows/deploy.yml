@@ -118,8 +118,8 @@ jobs:
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
           local_path: "deploy_app/*"
-          # UPDATE THIS PATH
-          remote_path: "domains/aibrandix.com/public_html/laravel/"
+          # Target digipartner.lk Laravel app dir
+          remote_path: "domains/digipartner.lk/public_html/laravel/"
           delete_remote_files: false
           sftp_only: true
 
@@ -131,8 +131,8 @@ jobs:
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
           local_path: "deploy_public/*"
-          # UPDATE THIS PATH
-          remote_path: "domains/aibrandix.com/public_html/"
+          # Target digipartner.lk public docroot
+          remote_path: "domains/digipartner.lk/public_html/"
           delete_remote_files: false
           sftp_only: true
 
@@ -146,8 +146,8 @@ jobs:
           key: ${{ secrets.GENX_SSH_KEY }}
           script: |
             set -e
-            # UPDATE THIS PATH
-            cd /home/u158663215/domains/aibrandix.com/public_html/laravel
+            # Target digipartner.lk Laravel app dir
+            cd /home/u158663215/domains/digipartner.lk/public_html/laravel
 
             # Ensure runtime dirs
             mkdir -p storage/framework/{cache,sessions,views}
@@ -184,8 +184,8 @@ jobs:
             php artisan storage:link || true
 
             # Create symlink for user-uploads (from public_html to laravel/public/user-uploads)
-            cd /home/u158663215/domains/aibrandix.com/public_html
+            cd /home/u158663215/domains/digipartner.lk/public_html
             rm -rf user-uploads 2>/dev/null || true
-            ln -sf /home/u158663215/domains/aibrandix.com/public_html/laravel/public/user-uploads user-uploads
+            ln -sf /home/u158663215/domains/digipartner.lk/public_html/laravel/public/user-uploads user-uploads
             echo "✅ user-uploads symlink created"
             ls -la user-uploads
