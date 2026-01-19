@@ -2,7 +2,7 @@ name: Deploy Genx Restaurant (via SFTP)
 
 on:
   push:
-    branches: [himan]
+    branches: [stable]
   workflow_dispatch:
 
 jobs:
