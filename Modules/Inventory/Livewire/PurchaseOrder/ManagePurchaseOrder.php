@@ -185,10 +185,8 @@ class ManagePurchaseOrder extends Component
     {
         $inventoryItems = InventoryItem::query();
         
-        if ($this->supplierId) {
-           $inventoryItems = $inventoryItems->where('preferred_supplier_id', $this->supplierId);
-        }
-
+        // Show all inventory items regardless of preferred supplier
+        // Users can order any item from any supplier
         $inventoryItems = $inventoryItems->where('branch_id', branch()->id)
             ->with(['unit', 'category'])
             ->orderBy('name')

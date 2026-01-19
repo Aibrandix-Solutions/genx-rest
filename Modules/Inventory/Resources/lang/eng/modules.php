@@ -72,7 +72,7 @@ return [
         'inventoryItemUpdated' => 'Inventory Item Updated Successfully',
         'inventoryItemAdded' => 'Inventory Item Added Successfully',
         'preferredSupplier' => 'Preferred Supplier',
-        'preferredSupplierHelp' => 'Required to create a purchase order when the stock level is below the threshold.',
+        'preferredSupplierHelp' => 'Used for automatic purchase order creation when stock falls below threshold (if enabled in settings). Optional for manual purchases.',
         'reorderQuantity' => 'Auto Reorder Quantity',
         'reorderQuantityPlaceholder' => 'Enter reorder quantity',
         'purchasePrice' => 'Purchase Price',

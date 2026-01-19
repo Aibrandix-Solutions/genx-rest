@@ -50,7 +50,7 @@ class EditInventoryItem extends Component
             'itemCategory' => 'required',
             'unit' => 'required',
             'thresholdQuantity' => 'required|numeric|min:0',
-            'preferredSupplier' => 'required',
+            'preferredSupplier' => 'nullable',
             'reorderQuantity' => 'required|numeric|min:0',
             'unitPurchasePrice' => 'required|numeric|min:0',
         ];
