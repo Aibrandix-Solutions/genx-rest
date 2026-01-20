@@ -66,9 +66,15 @@ class ItemModifiers extends Component
 
         // Set price context on all modifier options
         if ($this->orderTypeId) {
+            // Normalize delivery app ID to ensure it's either an integer or null
+            $deliveryAppId = null;
+            if ($this->deliveryAppId && $this->deliveryAppId !== 'default') {
+                $deliveryAppId = is_numeric($this->deliveryAppId) ? (int)$this->deliveryAppId : null;
+            }
+            
             foreach ($this->modifiers as $modifierGroup) {
                 foreach ($modifierGroup->options as $option) {
-                    $option->setPriceContext($this->orderTypeId, $this->deliveryAppId);
+                    $option->setPriceContext($this->orderTypeId, $deliveryAppId);
                 }
             }
         }

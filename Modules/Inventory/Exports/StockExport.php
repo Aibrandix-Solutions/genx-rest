@@ -22,16 +22,14 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     private $search;
     private $category;
     private $stockStatus;
-    private $startDate;
-    private $endDate;
+    private $locationFilter;
 
-    public function __construct($search, $category, $stockStatus, $startDate = null, $endDate = null)
+    public function __construct($search, $category, $stockStatus, $locationFilter = null)
     {
         $this->search = $search;
         $this->category = $category;
         $this->stockStatus = $stockStatus;
-        $this->startDate = $startDate;
-        $this->endDate = $endDate;
+        $this->locationFilter = $locationFilter;
     }
 
     public function headings(): array
@@ -39,6 +37,7 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
         return [
             __('inventory::modules.inventoryItem.name'),
             __('inventory::modules.inventoryItem.category'),
+            __('inventory::modules.stock.location'),
             __('inventory::modules.stock.currentStock'),
             __('inventory::modules.stock.stockStatus'),
             __('inventory::modules.stock.cost'),
@@ -48,13 +47,16 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     public function map($item): array
     {
         $stockStatus = $item->getStockStatus();
+        $stock = $item->stocks->first();
+        $locationName = $stock && $stock->location ? $stock->location->name : '--';
 
         return [
             $item->name,
             $item->category->name ?? '--',
-            number_format($item->current_stock, 2) . ' ' . optional($item->unit)->symbol,
+            $locationName,
+            number_format($item->filtered_stock ?? 0, 2) . ' ' . optional($item->unit)->symbol,
             $stockStatus['status'],
-            currency_format($item->unit_purchase_price * $item->current_stock, restaurant()->currency_id),
+            currency_format($item->total_cost_value ?? 0, restaurant()->currency_id),
         ];
     }
 
@@ -80,21 +82,22 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
         // Set MySQL to non-strict mode for this query
         DB::statement("SET SESSION sql_mode=''");
  
-        $query = InventoryItem::with(['category', 'unit', 'stocks'])
-             ->where('inventory_items.branch_id', branch()->id)
+        $query = InventoryItem::with(['category', 'unit', 'stocks' => function($q) {
+                if ($this->locationFilter && $this->locationFilter !== 'all') {
+                    $q->where('location_id', $this->locationFilter);
+                }
+            }, 'stocks.location'])
              ->select('inventory_items.*')
-             ->selectRaw('COALESCE(SUM(inventory_stocks.quantity), 0) as current_stock')
              ->leftJoin('inventory_stocks', function($join) {
-                 $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id')
-                     ->where('inventory_stocks.branch_id', '=', branch()->id);
+                 $join->on('inventory_items.id', '=', 'inventory_stocks.inventory_item_id');
                  
-                 if ($this->startDate && $this->endDate) {
-                    $join->whereBetween('inventory_stocks.created_at', [
-                        $this->startDate . ' 00:00:00',
-                        $this->endDate . ' 23:59:59'
-                    ]);
+                 // Filter by location if selected
+                 if ($this->locationFilter && $this->locationFilter !== 'all') {
+                     $join->where('inventory_stocks.location_id', '=', $this->locationFilter);
                  }
              })
+             ->selectRaw('COALESCE(SUM(inventory_stocks.quantity), 0) as filtered_stock')
+             ->selectRaw('COALESCE(SUM(inventory_stocks.quantity * inventory_items.unit_purchase_price), 0) as total_cost_value')
              ->groupBy('inventory_items.id');
  
          // Apply search filter
@@ -111,13 +114,13 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
          if ($this->stockStatus) {
              switch ($this->stockStatus) {
                  case 'in_stock':
-                     $query->havingRaw('current_stock > inventory_items.threshold_quantity');
+                     $query->havingRaw('filtered_stock > inventory_items.threshold_quantity');
                      break;
                  case 'low_stock':
-                     $query->havingRaw('current_stock > 0 AND current_stock <= inventory_items.threshold_quantity');
+                     $query->havingRaw('filtered_stock > 0 AND filtered_stock <= inventory_items.threshold_quantity');
                      break;
                  case 'out_of_stock':
-                     $query->havingRaw('current_stock <= 0');
+                     $query->havingRaw('filtered_stock <= 0');
                      break;
              }
          }

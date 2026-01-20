@@ -20,11 +20,25 @@
             </div>
             <div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('inventory::modules.transfers.from') }}</p>
-                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ $selectedTransfer->sourceBranch->name }}</p>
+                <p class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ $selectedTransfer->sourceLocation ? $selectedTransfer->sourceLocation->name : $selectedTransfer->sourceBranch->name }}
+                    @if($selectedTransfer->sourceLocation && $selectedTransfer->sourceLocation->type !== 'branch')
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 ml-1">
+                            {{ ucfirst($selectedTransfer->sourceLocation->type) }}
+                        </span>
+                    @endif
+                </p>
             </div>
             <div>
                 <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('inventory::modules.transfers.to') }}</p>
-                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ $selectedTransfer->destinationBranch->name }}</p>
+                <p class="text-sm font-medium text-gray-900 dark:text-white">
+                    {{ $selectedTransfer->destinationLocation ? $selectedTransfer->destinationLocation->name : $selectedTransfer->destinationBranch->name }}
+                    @if($selectedTransfer->destinationLocation && $selectedTransfer->destinationLocation->type !== 'branch')
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 ml-1">
+                            {{ ucfirst($selectedTransfer->destinationLocation->type) }}
+                        </span>
+                    @endif
+                </p>
             </div>
             @if($selectedTransfer->expected_delivery_date)
                 <div>
@@ -65,10 +79,7 @@
                 <thead class="bg-gray-50 dark:bg-gray-700">
                     <tr>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
-                            {{ __('inventory::modules.transfers.source_item') }}
-                        </th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
-                            {{ __('inventory::modules.transfers.destination_item') }}
+                            {{ __('inventory::modules.transfers.item') }}
                         </th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
                             {{ __('inventory::modules.transfers.requested_quantity') }}
@@ -86,9 +97,6 @@
                         <tr>
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
                                 {{ $item->sourceItem->name }}
-                            </td>
-                            <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                                {{ $item->destinationItem->name }}
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
                                 {{ number_format($item->requested_quantity, 2) }} {{ $item->sourceItem->unit->symbol ?? '' }}

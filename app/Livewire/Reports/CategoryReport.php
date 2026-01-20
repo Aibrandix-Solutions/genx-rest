@@ -42,6 +42,11 @@ class CategoryReport extends Component
             $this->endDate = now()->startOfDay()->format('m/d/Y');
             break;
 
+        case 'yesterday':
+            $this->startDate = now()->subDay()->startOfDay()->format('m/d/Y');
+            $this->endDate = now()->subDay()->endOfDay()->format('m/d/Y');
+            break;
+
         case 'lastWeek':
             $this->startDate = now()->subWeek()->startOfWeek()->format('m/d/Y');
             $this->endDate = now()->subWeek()->endOfWeek()->format('m/d/Y');

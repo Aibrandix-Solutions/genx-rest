@@ -1,4 +1,5 @@
-@if (in_array('Cash Register', restaurant_modules()) && in_array('cashregister', custom_module_plugins()) &&
+@php($customPlugins = custom_module_plugins() ?? [])
+@if (in_array('Cash Register', restaurant_modules()) && in_array('cashregister', $customPlugins) &&
         (user_can('View Cash Register Reports') || user_can('Manage Cash Register Settings') || user_can('Open Cash Register') ||
         user_can('Approve Cash Register') || user_can('Manage Cash Denominations')))
     <x-sidebar-dropdown-menu :name="__('permissions.modules.Cash Register')" isAddon="true" icon="cash"

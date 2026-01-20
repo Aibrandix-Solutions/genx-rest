@@ -4,7 +4,7 @@ namespace Modules\Inventory\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use App\Traits\HasBranch;
+// Removed: use App\Traits\HasBranch;
 use Modules\Inventory\Entities\InventoryItemCategory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -15,13 +15,13 @@ use App\Models\MenuItem;
 class InventoryItem extends Model
 {
     use HasFactory;
-    use HasBranch;
+    // Removed HasBranch trait - items are now restaurant-scoped
 
     /**
      * The attributes that are mass assignable.
      */
     protected $fillable = [
-        'branch_id',
+        // 'branch_id', - Removed - items shared across restaurant
         'name',
         'inventory_item_category_id',
         'unit_id',

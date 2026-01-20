@@ -18,6 +18,7 @@ use Modules\Inventory\Livewire\Reports\ForecastingReport;
 use Modules\Inventory\Livewire\StockTransfer\CreateStockTransfer;
 use Modules\Inventory\Livewire\StockTransfer\StockTransferList;
 use Modules\Inventory\Livewire\StockTransfer\ReceiveStockTransfer;
+use Modules\Inventory\Livewire\Setting\LocationManager;
 use Modules\Inventory\Console\CreateAutoPurchaseOrder;
 use Modules\Inventory\Console\ActivateModuleCommand;
 use Illuminate\Console\Scheduling\Schedule;
@@ -71,6 +72,8 @@ class InventoryServiceProvider extends ServiceProvider
         Livewire::component('inventory::stock-transfer.create-stock-transfer', CreateStockTransfer::class);
         Livewire::component('inventory::stock-transfer.stock-transfer-list', StockTransferList::class);
         Livewire::component('inventory::stock-transfer.receive-stock-transfer', ReceiveStockTransfer::class);
+
+        Livewire::component('inventory::setting.location-manager', LocationManager::class);
 
         Unit::observe(UnitObserver::class);
         InventoryItem::observe(InventoryItemObserver::class);

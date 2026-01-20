@@ -10,8 +10,9 @@ class InventoryItemCategoryObserver
 
     public function creating(InventoryItemCategory $inventoryitemcategory)
     {
-        if (branch()) {
-            $inventoryitemcategory->branch_id = branch()->id;
-        }
+        // Disabled: Categories are now restaurant-scoped, not branch-scoped
+        // if (branch()) {
+        //     $inventoryitemcategory->branch_id = branch()->id;
+        // }
     }
 }

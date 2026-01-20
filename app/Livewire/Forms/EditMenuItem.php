@@ -26,6 +26,7 @@ class EditMenuItem extends Component
     public bool $hasVariations = false;
     public $menu;
     public $itemName;
+    public $itemCode;
     public $itemCategory;
     public $itemPrice;
     public $itemDescription;
@@ -68,6 +69,7 @@ class EditMenuItem extends Component
         $this->menus = Menu::all();
         $this->menu = $this->menuItem->menu_id;
         $this->itemCategory = $this->menuItem->item_category_id;
+        $this->itemCode = $this->menuItem->item_code;
         $this->itemPrice = $this->menuItem->price;
         $this->preparationTime = $this->menuItem->preparation_time;
         $this->itemType = $this->menuItem->type;
@@ -253,6 +255,7 @@ class EditMenuItem extends Component
 
         MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
             'item_name' => $this->translationNames[$this->globalLocale],
+            'item_code' => $this->itemCode,
             'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
             'item_category_id' => $this->itemCategory,
             'description' => $this->translationDescriptions[$this->globalLocale],

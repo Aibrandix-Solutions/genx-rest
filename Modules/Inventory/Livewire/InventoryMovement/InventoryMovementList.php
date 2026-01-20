@@ -159,7 +159,7 @@ class InventoryMovementList extends Component
         $movements = $query->paginate($this->perPage);
         
         // Fetch categories for the current branch
-        $categories = InventoryItemCategory::where('branch_id', branch()->id)->get();
+        $categories = InventoryItemCategory::get();
 
         return view('inventory::livewire.inventory-movement.inventory-movement-list', [
             'movements' => $movements,

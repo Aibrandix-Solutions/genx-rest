@@ -9,8 +9,9 @@ class InventoryItemObserver
 
     public function creating(InventoryItem $inventoryitem)
     {
-        if (branch()) {
-            $inventoryitem->branch_id = branch()->id;
-        }
+        // Disabled: Items are now restaurant-scoped, not branch-scoped
+        // if (branch()) {
+        //     $inventoryitem->branch_id = branch()->id;
+        // }
     }
 }

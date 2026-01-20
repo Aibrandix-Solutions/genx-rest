@@ -105,39 +105,67 @@
     </div>
 
     <!-- Filters -->
-    <div class="mb-6 flex flex-col sm:flex-row gap-4">
-        <div class="flex-1">
-            <div class="relative">
-                <input type="text"
-                       wire:model.live.debounce.300ms="search"
-                       placeholder="@lang('inventory::modules.stock.searchPlaceholder')"
-                       class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
-                <div class="absolute left-3 top-2.5">
-                    <svg class="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                    </svg>
-                </div>
+    <div class="mb-6 space-y-4">
+        <!-- Search Bar -->
+        <div class="relative">
+            <input type="text"
+                   wire:model.live.debounce.300ms="search"
+                   placeholder="@lang('inventory::modules.stock.searchPlaceholder')"
+                   class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
+            <div class="absolute left-3 top-2.5">
+                <svg class="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
             </div>
         </div>
-        <div class="flex flex-col sm:flex-row items-center gap-4">
-            <div class="flex items-center gap-2">
-                 <x-input type="date" wire:model.live="startDate" class="block w-full sm:w-auto" />
-                 <span class="text-gray-500 font-medium">@lang('app.to')</span>
-                 <x-input type="date" wire:model.live="endDate" class="block w-full sm:w-auto" />
-            </div>
+
+        <!-- Filter Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <!-- Category Filter -->
+            <select wire:model.live="category" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
+                <option value="">@lang('inventory::modules.stock.allCategories')</option>
+                @foreach($categories as $cat)
+                    <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+                @endforeach
+            </select>
+
+            <!-- Location Filter -->
+            <select wire:model.live="locationFilter" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
+                <option value="all">@lang('inventory::modules.stock.allLocations')</option>
+                @foreach($locations as $location)
+                    <option value="{{ $location->id }}">
+                        {{ $location->name }} 
+                        @if($location->type !== 'branch')
+                            ({{ ucfirst($location->type) }})
+                        @endif
+                    </option>
+                @endforeach
+            </select>
+
+            <!-- Stock Status Filter -->
+            <select wire:model.live="stockStatus" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
+                <option value="">@lang('inventory::modules.stock.allStatus')</option>
+                <option value="in_stock">@lang('inventory::modules.stock.inStock')</option>
+                <option value="low_stock">@lang('inventory::modules.stock.lowStock')</option>
+                <option value="out_of_stock">@lang('inventory::modules.stock.outOfStock')</option>
+            </select>
+
+            <!-- Per Page Dropdown -->
             <div>
                 <x-dropdown align="left">
                     <x-slot name="trigger">
-                        <span class="inline-flex rounded-md">
+                        <span class="inline-flex rounded-md w-full">
                             <button type="button"
-                                class="inline-flex items-center px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-500 hover:text-gray-700 focus:outline-none transition ease-in-out duration-150 bg-white dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                                @lang('app.perPage')
-                                @if ($perPage != 20)
-                                <div class="inline-flex items-center justify-center w-5 h-5 text-xs font-medium text-white bg-red-500 rounded-md dark:border-gray-900 ml-1">{{ $perPage }}</div>
-                                @endif
-                                <svg class="-mr-1 ml-1.5 w-5 h-5" fill="currentColor" viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                                    <path clip-rule="evenodd" fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
-                                </svg>
+                                class="inline-flex items-center justify-between w-full px-3 py-2 border border-gray-300 text-sm leading-4 font-medium rounded-md text-gray-500 hover:text-gray-700 focus:outline-none transition ease-in-out duration-150 bg-white dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                                <span>@lang('app.perPage')</span>
+                                <div class="flex items-center gap-1">
+                                    @if ($perPage != 20)
+                                    <div class="inline-flex items-center justify-center w-5 h-5 text-xs font-medium text-white bg-red-500 rounded-md dark:border-gray-900">{{ $perPage }}</div>
+                                    @endif
+                                    <svg class="w-5 h-5" fill="currentColor" viewbox="0 0 20 20" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                        <path clip-rule="evenodd" fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" />
+                                    </svg>
+                                </div>
                             </button>
                         </span>
                     </x-slot>
@@ -162,23 +190,12 @@
                     </x-slot>
                 </x-dropdown>
             </div>
-            <select wire:model.live="category" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
-                <option value="">@lang('inventory::modules.stock.allCategories')</option>
-                @foreach($categories as $cat)
-                    <option value="{{ $cat->id }}">{{ $cat->name }}</option>
-                @endforeach
-            </select>
-            <select wire:model.live="stockStatus" class="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-4 focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
-                <option value="">@lang('inventory::modules.stock.allStatus')</option>
-                <option value="in_stock">@lang('inventory::modules.stock.inStock')</option>
-                <option value="low_stock">@lang('inventory::modules.stock.lowStock')</option>
-                <option value="out_of_stock">@lang('inventory::modules.stock.outOfStock')</option>
-            </select>
 
-            @if($search || $category || $stockStatus || $startDate || $endDate)
+            <!-- Clear Filters Button -->
+            @if($search || $category || $stockStatus || $locationFilter !== 'all')
                 <button
                     wire:click="clearFilters"
-                    class="inline-flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
+                    class="inline-flex items-center justify-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200"
                 >
                     <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -217,8 +234,8 @@
                                 <div class="text-sm text-gray-900 dark:text-white">{{ $item->category->name ?? '-'}}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900 dark:text-white">{{ number_format($item->current_stock, 2) }} {{ $item->unit->symbol }}</div>
-                                <div class="text-xs text-gray-500 dark:text-gray-400">@lang("inventory::modules.stock.minStock"): {{ number_format($item->threshold_quantity, 2) }} {{ $item->unit->symbol }}</div>
+                                <div class="text-sm text-gray-900 dark:text-white">{{ number_format($item->filtered_stock ?? 0, 2) }} {{ $item->unit->symbol }}</div>
+                                <div clas6="text-xs text-gray-500 dark:text-gray-400">@lang("inventory::modules.stock.minStock"): {{ number_format($item->threshold_quantity, 2) }} {{ $item->unit->symbol }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ $stockStatus['class'] }}">
@@ -226,14 +243,14 @@
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900 dark:text-white">{{ currency_format($item->unit_purchase_price * $item->current_stock, restaurant()->currency_id) }}</div>
+                                <div class="text-sm text-gray-900 dark:text-white">{{ currency_format($item->total_cost_value ?? 0, restaurant()->currency_id) }}</div>
                             </td>
 
 
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                            <td colspan="5" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                                 @lang("inventory::modules.stock.noStockItemsFound")
                             </td>
                         </tr>

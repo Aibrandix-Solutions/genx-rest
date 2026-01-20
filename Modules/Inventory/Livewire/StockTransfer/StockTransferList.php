@@ -23,6 +23,8 @@ class StockTransferList extends Component
     public $startDate = null;
     public $endDate = null;
     public $perPage = 20;
+    public $showAdminView = false;
+    public $branchFilter = '';
     public $selectedTransfer = null;
     public $showViewModal = false;
     public $showReceiveModal = false;
@@ -41,6 +43,7 @@ class StockTransferList extends Component
     public function mount()
     {
         $this->filterType = 'all';
+        $this->showAdminView = user_can('View Admin Transfers');
     }
 
     public function updatingSearch()
@@ -94,13 +97,7 @@ class StockTransferList extends Component
                     throw new \Exception(__('inventory::modules.transfers.cannot_cancel_transfer'));
                 }
 
-                // Check authorization: source branch can cancel pending, both branches can cancel in_transit
-                $isSourceBranch = $transfer->source_branch_id === branch()->id;
-                $isDestinationBranch = $transfer->destination_branch_id === branch()->id;
-                
-                if (!$isSourceBranch && !$isDestinationBranch) {
-                    throw new \Exception(__('inventory::modules.transfers.unauthorized_action'));
-                }
+                // Restaurant-scoped: any user can cancel transfers within the restaurant
 
                 // If transfer is in_transit, handle stock restoration based on partial receives
                 if ($transfer->status === 'in_transit') {
@@ -108,8 +105,8 @@ class StockTransferList extends Component
                         $confirmedQty = $item->confirmed_quantity ?? 0;
                         $requestedQty = $item->requested_quantity;
                         
-                        // If destination branch is cancelling and items were partially/fully received
-                        if ($isDestinationBranch && $confirmedQty > 0) {
+                        // If items were partially/fully received
+                        if ($confirmedQty > 0) {
                             // Deduct confirmed quantity from destination branch (reverse the receive)
                             $destinationStock = InventoryStock::where('inventory_item_id', $item->destination_inventory_item_id)
                                 ->where('branch_id', $transfer->destination_branch_id)
@@ -150,15 +147,22 @@ class StockTransferList extends Component
                             }
                         }
 
-                        // Restore stock to source branch
+                        // Restore stock to source location
                         // If partial receive: restore only the NOT received quantity
                         // If no receive: restore full requested quantity
                         $quantityToRestore = $requestedQty - $confirmedQty;
                         
                         if ($quantityToRestore > 0) {
-                            $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
-                                ->where('branch_id', $transfer->source_branch_id)
-                                ->first();
+                            if ($transfer->source_location_id) {
+                                $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                                    ->where('location_id', $transfer->source_location_id)
+                                    ->first();
+                            } else {
+                                // Fallback to branch-based lookup for old transfers
+                                $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                                    ->where('branch_id', $transfer->source_branch_id)
+                                    ->first();
+                            }
 
                             if ($sourceStock) {
                                 // Restore the not-yet-received quantity
@@ -211,21 +215,26 @@ class StockTransferList extends Component
     {
         try {
             DB::transaction(function () use ($transferId) {
-                $transfer = InventoryTransfer::with('items')->findOrFail($transferId);
+                $transfer = InventoryTransfer::with('items', 'sourceLocation')->findOrFail($transferId);
                 
                 if ($transfer->status !== 'pending') {
                     throw new \Exception(__('inventory::modules.transfers.cannot_initiate_transfer'));
                 }
 
-                if ($transfer->source_branch_id !== branch()->id) {
-                    throw new \Exception(__('inventory::modules.transfers.unauthorized_action'));
-                }
+                // Restaurant-scoped: any user can initiate transfers
 
                 foreach ($transfer->items as $item) {
-                    // Check stock availability
-                    $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
-                        ->where('branch_id', branch()->id)
-                        ->first();
+                    // Check stock availability at source location
+                    if ($transfer->source_location_id) {
+                        $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                            ->where('location_id', $transfer->source_location_id)
+                            ->first();
+                    } else {
+                        // Fallback to branch-based lookup for old transfers
+                        $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                            ->where('branch_id', branch()->id)
+                            ->first();
+                    }
                     
                     if (!$stock || $stock->quantity < $item->requested_quantity) {
                         $itemName = $item->sourceItem ? $item->sourceItem->name : __('inventory::modules.transfers.item');
@@ -338,10 +347,7 @@ class StockTransferList extends Component
             'items.destinationItem.unit',
         ])->findOrFail($transferId);
         
-        if ($transfer->destination_branch_id !== branch()->id) {
-            session()->flash('error', __('inventory::modules.transfers.unauthorized_action'));
-            return;
-        }
+        // Restaurant-scoped: any user can receive transfers
 
         $this->selectedTransfer = $transfer;
         $this->showReceiveModal = true;
@@ -382,16 +388,14 @@ class StockTransferList extends Component
         $query = InventoryTransfer::with([
             'sourceBranch',
             'destinationBranch',
+            'sourceLocation',
+            'destinationLocation',
             'createdBy',
             'items'
         ])->where('restaurant_id', restaurant()->id);
 
-        // Filter by type (outgoing/incoming)
-        if ($this->filterType === 'outgoing') {
-            $query->where('source_branch_id', branch()->id);
-        } elseif ($this->filterType === 'incoming') {
-            $query->where('destination_branch_id', branch()->id);
-        }
+        // Show all transfers in restaurant (restaurant-scoped)
+        // No branch filtering - all users can see and manage all transfers
 
         // Filter by status
         if ($this->statusFilter !== 'all') {
@@ -432,9 +436,12 @@ class StockTransferList extends Component
     public function render()
     {
         $transfers = $this->getTransfersQuery()->paginate($this->perPage);
+        $branches = $this->showAdminView ? \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get() : [];
 
         return view('inventory::livewire.stock-transfer.stock-transfer-list', [
             'transfers' => $transfers,
+            'branches' => $branches,
+            'showAdminView' => $this->showAdminView,
         ]);
     }
 }

@@ -4,13 +4,12 @@ namespace Modules\Inventory\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use App\Traits\HasBranch;
-// use Modules\Inventory\Database\Factories\UnitFactory;
+// Removed: use App\Traits\HasBranch;
 
 class Unit extends Model
 {
     use HasFactory;
-    use HasBranch;
+    // Removed HasBranch trait - units are now restaurant-scoped
 
     /**
      * The attributes that are mass assignable.

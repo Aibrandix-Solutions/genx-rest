@@ -22,22 +22,30 @@ class PurchaseOrderList extends Component
     public $startDate = null;
     public $endDate = null;
     public $perPage = 20;
+    public $showAdminView = false;
+    public $branchFilter = '';
     public $confirmingDeletion = false;
     public $purchaseOrderToDelete;
     public $confirmingSend = false;
     public $purchaseOrderToSend;
     public $confirmingCancel = false;
     public $purchaseOrderToCancel;
+    public $showPaymentModal = false;
+    public $purchaseIdForPayment = null;
 
     protected $listeners = [
         'purchaseOrderSaved' => '$refresh',
         'purchaseOrderSent' => '$refresh',
         'purchaseOrderCancelled' => '$refresh',
         'purchaseOrderPaymentSaved' => '$refresh',
+        'recordPayment' => 'openPaymentModal',
+        'paymentRecorded' => 'closePaymentModal',
+        'refreshPurchaseList' => '$refresh',
     ];
 
     public function mount()
     {
+        $this->showAdminView = user_can('View Admin Purchases');
     }
 
     public function updatingSearch()
@@ -134,22 +142,46 @@ class PurchaseOrderList extends Component
 
     protected function getStats()
     {
+        $query = PurchaseOrder::query();
+        
+        if (!$this->showAdminView) {
+            $query->where('branch_id', branch()->id);
+        }
+        
         return [
-            'total_orders' => PurchaseOrder::where('branch_id', branch()->id)->count(),
-            'pending_orders' => PurchaseOrder::where('branch_id', branch()->id)
-                ->whereIn('status', ['draft', 'sent', 'partially_received'])
+            'total_orders' => $query->count(),
+            'pending_orders' => $query->clone()
+                ->whereIn('status', ['ordered', 'pending'])
                 ->count(),
-            'completed_orders' => PurchaseOrder::where('branch_id', branch()->id)
+            'completed_orders' => $query->clone()
                 ->where('status', 'received')
                 ->count()
         ];
     }
 
+    public function openPaymentModal($purchaseId)
+    {
+        $this->purchaseIdForPayment = $purchaseId;
+        $this->showPaymentModal = true;
+    }
+
+    public function closePaymentModal()
+    {
+        $this->showPaymentModal = false;
+        $this->purchaseIdForPayment = null;
+        $this->dispatch('notify-success', trans('inventory::modules.payments.payment_recorded'));
+    }
+
     public function render()
     {
         $query = PurchaseOrder::query()
-            ->where('branch_id', branch()->id)
-            ->with(['supplier', 'items.inventoryItem', 'payments']) // Eager load payments for payment status
+            ->with(['supplier', 'items.inventoryItem', 'payments', 'branch', 'location'])
+            ->when(!$this->showAdminView, function ($query) {
+                $query->where('branch_id', branch()->id);
+            })
+            ->when($this->showAdminView && $this->branchFilter, function ($query) {
+                $query->where('branch_id', $this->branchFilter);
+            })
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
                     $query->where('po_number', 'like', '%' . $this->search . '%')
@@ -165,7 +197,7 @@ class PurchaseOrderList extends Component
                 $query->where('status', $this->status);
             })
             ->when($this->startDate && $this->endDate, function($query) {
-                $query->whereBetween('po_date', [$this->startDate, $this->endDate]);
+                $query->whereBetween('order_date', [$this->startDate, $this->endDate]);
             })
             ->latest();
 
@@ -174,11 +206,11 @@ class PurchaseOrderList extends Component
             'suppliers' => Supplier::where('restaurant_id', restaurant()->id)
                 ->orderBy('name')
                 ->get(),
+            'branches' => $this->showAdminView ? \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get() : [],
             'statuses' => [
-                'draft' => trans('inventory::modules.purchaseOrder.status.draft'),
-                'sent' => trans('inventory::modules.purchaseOrder.status.sent'),
+                'ordered' => trans('inventory::modules.purchaseOrder.status.ordered'),
+                'pending' => trans('inventory::modules.purchaseOrder.status.pending'),
                 'received' => trans('inventory::modules.purchaseOrder.status.received'),
-                'partially_received' => trans('inventory::modules.purchaseOrder.status.partially_received'),
                 'cancelled' => trans('inventory::modules.purchaseOrder.status.cancelled'),
             ],
             'stats' => $this->getStats(),
@@ -188,6 +220,6 @@ class PurchaseOrderList extends Component
 
     public function export()
     {
-        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\PurchaseOrderExport($this->search, $this->startDate, $this->endDate, $this->supplierId, $this->status), 'purchase-orders.xlsx');
+        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\PurchaseOrderExport($this->search, $this->startDate, $this->endDate, $this->supplierId, $this->status), 'purchases.xlsx');
     }
 } 

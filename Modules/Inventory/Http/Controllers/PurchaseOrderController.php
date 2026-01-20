@@ -4,8 +4,6 @@ namespace Modules\Inventory\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Modules\Inventory\Entities\PurchaseOrder;
-use Modules\Inventory\Entities\Supplier;
-use Modules\Inventory\Entities\InventoryItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PDF;
@@ -13,24 +11,22 @@ use PDF;
 class PurchaseOrderController extends Controller
 {
     /**
-     * Display the purchase orders page.
+     * Display the purchases page.
      */
     public function index()
     {
         abort_if(!in_array('Inventory', restaurant_modules()), 403);
         abort_if(!user_can('Show Purchase Order'), 403);
         
-        return view('inventory::purchase-orders.index');
+        return view('inventory::purchases.index');
     }
 
     public function create()
     {
-        $suppliers = Supplier::where('restaurant_id', auth()->user()->restaurant_id)->get();
-        $inventoryItems = InventoryItem::where('branch_id', auth()->user()->branch_id)
-            ->with('unit')
-            ->get();
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('Create Purchase Order'), 403);
 
-        return view('inventory::purchase-orders.create', compact('suppliers', 'inventoryItems'));
+        return view('inventory::purchases.create');
     }
 
     public function store(Request $request)
@@ -72,12 +68,12 @@ class PurchaseOrderController extends Controller
             $po->update(['total_amount' => $po->items->sum('subtotal')]);
         });
 
-        return redirect()->route('purchase-orders.index')
+        return redirect()->route('purchases.index')
             ->with('success', 'Purchase order created successfully.');
     }
 
     /**
-     * Generate PDF for the purchase order
+     * Generate PDF for the purchase
      */
     public function generatePdf(PurchaseOrder $purchaseOrder)
     {
@@ -87,7 +83,24 @@ class PurchaseOrderController extends Controller
             'purchaseOrder' => $purchaseOrder->load(['supplier', 'items.inventoryItem.unit', 'createdBy', 'branch.restaurant'])
         ]);
 
-        return $pdf->download("PO-{$purchaseOrder->po_number}.pdf");
+        return $pdf->download("PURCHASE-{$purchaseOrder->po_number}.pdf");
+    }
+
+    public function edit(PurchaseOrder $purchase)
+    {
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!(user_can('Update Purchase Order') || user_can('Edit Purchase Order')), 403);
+        abort_if($purchase->branch_id !== branch()->id, 403);
+
+        return view('inventory::purchases.edit', ['purchase' => $purchase]);
+    }
+
+    public function update(Request $request, PurchaseOrder $purchase)
+    {
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('Edit Purchase Order'), 403);
+
+        return redirect()->route('purchases.index');
     }
 
     // ... Add other controller methods (show, edit, update, destroy) ...

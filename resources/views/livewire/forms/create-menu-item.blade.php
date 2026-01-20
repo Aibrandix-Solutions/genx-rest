@@ -59,6 +59,13 @@
                         <x-input-error for="translationNames.{{ $globalLocale }}" class="mt-2" />
                     </div>
 
+                    <div class="mb-4">
+                        <x-label for="itemCode" value="{{ __('modules.menu.itemCode') }}" />
+                        <x-input id="itemCode" class="block mt-1 w-full" type="text" placeholder="e.g., IT0001 (auto-generated if empty)" wire:model="itemCode" />
+                        <x-input-error for="itemCode" class="mt-2" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Leave empty to auto-generate</p>
+                    </div>
+
                     <div>
                         <x-label for="itemDescription" :value="__('modules.menu.itemDescription') . ' (' . $languages[$currentLanguage] . ')'" />
                         <x-textarea class="block mt-1 w-full" :placeholder="__('placeholders.itemDescriptionPlaceholder')" wire:model='itemDescription'

@@ -101,6 +101,8 @@ return [
         'Update Stock Transfer' => 'Update Stock Transfer',
         'Delete Stock Transfer' => 'Delete Stock Transfer',
         'Cancel Stock Transfer' => 'Cancel Stock Transfer',
+        'Manage Locations' => 'Manage Locations',
+        'Show Inventory Dashboard' => 'Show Inventory Dashboard',
         'Create Expense Category' => 'Create Expense Category',
         'Show Expense Category' => 'Show Expense Category',
         'Update Expense Category' => 'Update Expense Category',

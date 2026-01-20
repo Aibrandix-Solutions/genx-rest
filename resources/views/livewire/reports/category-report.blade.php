@@ -25,6 +25,7 @@
                     <div class="lg:flex gap-2 items-center">
                         <x-select id="dateRangeType" class="block w-fit" wire:model="dateRangeType" wire:change="setDateRange">
                             <option value="today">@lang('app.today')</option>
+                            <option value="yesterday">@lang('app.yesterday')</option>
                             <option value="currentWeek">@lang('app.currentWeek')</option>
                             <option value="lastWeek">@lang('app.lastWeek')</option>
                             <option value="last7Days">@lang('app.last7Days')</option>

@@ -11,7 +11,7 @@
                     <div>
                         <p class="text-sm text-gray-500 dark:text-gray-400">{{ __('inventory::modules.transfers.from_to') }}</p>
                         <p class="text-sm font-medium text-gray-900 dark:text-white">
-                            {{ $transfer->sourceBranch->name }} → {{ $transfer->destinationBranch->name }}
+                            {{ $transfer->sourceLocation ? $transfer->sourceLocation->name : $transfer->sourceBranch->name }} → {{ $transfer->destinationLocation ? $transfer->destinationLocation->name : $transfer->destinationBranch->name }}
                         </p>
                     </div>
                 </div>
@@ -29,7 +29,7 @@
                             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <div class="md:col-span-2">
                                     <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ $item->sourceItem->name }} → {{ $item->destinationItem->name }}
+                                        {{ $item->sourceItem->name }}
                                     </p>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                         {{ __('inventory::modules.transfers.requested') }}: 
