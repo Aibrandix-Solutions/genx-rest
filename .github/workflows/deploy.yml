@@ -184,12 +184,7 @@ jobs:
 
             # Run migrations and seeders
             echo "Running database migrations..."
-            php artisan migrate --force
-
-            echo "Seeding database with essential data..."
-            php artisan db:seed --class=ModuleSeeder --force || true
-            php artisan db:seed --class=PermissionSeeder --force || true
-            php artisan db:seed --class=RoleSeeder --force || true
+            # php artisan migrate --force
 
             echo "Database setup completed successfully!"
 
