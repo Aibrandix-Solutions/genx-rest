@@ -177,8 +177,21 @@ jobs:
             php artisan optimize:clear || true
             # php artisan optimize || true
 
-            # Run migrations (optional, uncomment if needed)
-            # php artisan migrate --force
+            # Publish module assets and migrations
+            echo "Publishing module migrations and assets..."
+            php artisan module:publish || true
+            php artisan module:publish-migration Inventory || true
+
+            # Run migrations and seeders
+            echo "Running database migrations..."
+            php artisan migrate --force
+
+            echo "Seeding database with essential data..."
+            php artisan db:seed --class=ModuleSeeder --force || true
+            php artisan db:seed --class=PermissionSeeder --force || true
+            php artisan db:seed --class=RoleSeeder --force || true
+
+            echo "Database setup completed successfully!"
 
             # Storage link
             php artisan storage:link || true
