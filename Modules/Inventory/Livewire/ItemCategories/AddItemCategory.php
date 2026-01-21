@@ -19,6 +19,7 @@ class AddItemCategory extends Component
 
         $itemCategory = InventoryItemCategory::create([
             'name' => $this->itemCategoryName,
+            'restaurant_id' => restaurant()->id,
         ]);
 
         $this->itemCategoryName = '';
