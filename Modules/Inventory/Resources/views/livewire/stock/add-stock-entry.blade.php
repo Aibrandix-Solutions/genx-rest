@@ -20,7 +20,7 @@
                     <span>@lang("inventory::modules.stock.transactionType")</span>
                 </div>
             </label>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <div>
                     <input type="radio" id="typeIn" name="transactionType" value="in" class="hidden peer" wire:model.live='transactionType' />
                     <label for="typeIn"  class="flex flex-col items-center space-y-2 justify-center p-4 text-gray-600 bg-white border-2 border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-skin-base peer-checked:border-skin-base peer-checked:text-gray-900 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium">
@@ -56,21 +56,33 @@
                     </label>
                 </div>
 
-                <div>
-                    <input type="radio" wire:model.live="transactionType" value="transfer" id="typeTransfer" class="hidden peer" wire:model='transactionType' />
-                    <label class="flex flex-col items-center space-y-2 justify-center p-4 text-gray-600 bg-white border-2 border-gray-200 rounded-lg cursor-pointer dark:hover:text-gray-300 dark:border-gray-700 dark:peer-checked:text-skin-base peer-checked:border-skin-base peer-checked:text-gray-900 hover:text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:bg-gray-800 dark:hover:bg-gray-700 text-sm font-medium" for="typeTransfer">
-                        <svg class="w-6 h-6 text-blue-500 peer-checked:text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-                        </svg>
-                        <span class="text-sm font-medium text-gray-900 dark:text-white peer-checked:text-indigo-600">@lang("inventory::modules.stock.transfer")</span>
-                    </label>
-                </div>
+                
 
        
             </div>
         </div>
 
         <div class="grid grid-cols-1  gap-8">
+            <!-- Location Selection -->
+            <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    <div class="flex items-center space-x-2">
+                        <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1 1 0 01-1.414 0L6.343 16.657A8 8 0 1117.657 5.343 8 8 0 0117.657 16.657z"/>
+                        </svg>
+                        <span>@lang('inventory::modules.stock.location')</span>
+                    </div>
+                </label>
+                <div class="mt-1">
+                    <x-select wire:model="location_id" class="w-full">
+                        <option value="">--</option>
+                        @foreach(($locations ?? []) as $loc)
+                            <option value="{{ $loc->id }}">{{ $loc->display_name ?? $loc->name }}</option>
+                        @endforeach
+                    </x-select>
+                </div>
+                @error('location_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+            </div>
             <!-- Item Selection -->
             <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
                 <label for="search" class="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -230,66 +242,7 @@
                 </div>
             @endif
 
-            @if ($transactionType == 'transfer')
-                <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <label for="branch_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        <div class="flex items-center space-x-2">
-                            <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                            </svg>
-                            <span>@lang("inventory::modules.stock.selectTargetBranch")</span>
-                        </div>
-                    </label>
-                    <select wire:model.live="branch"
-                            id="branch_id"
-                            class="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2.5 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm transition-colors duration-200">
-                            <option value="">--</option>
-                            @foreach ($branches as $branch)
-                                <option value="{{ $branch->id }}">{{ $branch->name }}</option>
-                            @endforeach
-                    </select>
-                    @error('branch')
-                        <span class="text-red-500">{{ $message }}</span>
-                    @enderror
-                </div>
-
-                <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
-                    <label for="destination_inventory_item_id" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        <div class="flex items-center space-x-2">
-                            <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
-                            </svg>
-                            <span>@lang("inventory::modules.stock.targetInventoryItem")</span>
-                        </div>
-                    </label>
-                    @if(empty($destinationInventoryItems) && $branch)
-                        <div class="text-amber-600 dark:text-amber-400 text-sm py-2">
-                            @lang('inventory::modules.transfers.no_items_in_destination')
-                        </div>
-                    @else
-                        <select wire:model.live="destinationInventoryItem"
-                                id="destination_inventory_item_id"
-                                class="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2.5 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm transition-colors duration-200">
-                                <option value="">-- @lang('inventory::modules.transfers.select_item') --</option>
-                                @foreach ($destinationInventoryItems as $destItem)
-                                    <option value="{{ $destItem->id }}">
-                                        {{ $destItem->name }}
-                                        @if($destItem->unit && $destItem->unit->symbol)
-                                            ({{ $destItem->unit->symbol }})
-                                        @endif
-                                        @if($destItem->category)
-                                            - {{ $destItem->category->name }}
-                                        @endif
-                                    </option>
-                                @endforeach
-                        </select>
-                    @endif
-                    @error('destinationInventoryItem')
-                        <span class="text-red-500">{{ $message }}</span>
-                    @enderror
-                </div>
-                
-            @endif
+            
 
 
         </div>
