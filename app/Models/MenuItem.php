@@ -52,10 +52,6 @@ class MenuItem extends BaseModel
 
     protected $guarded = ['id'];
 
-    protected $fillable = [
-        'item_code', // Add item code for quick search
-    ];
-
     protected $casts = [
         'show_on_customer_site' => 'boolean',
     ];

@@ -29,6 +29,7 @@ return [
         'menuItemHelp' => 'Fill in the details below to add a new menu item.',
         'editMenuItemHelp' => 'Update the details below to modify the menu item.',
         'itemName' => 'Item Name',
+        'itemCode' => 'Item Code',
         'itemDescription' => 'Item Description',
         'categoryName' => 'Item Category Name',
         'setPrice' => 'Price',

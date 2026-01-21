@@ -197,7 +197,7 @@ class CreateDirectPurchase extends Component
                 '_key' => (string) Str::uuid(),
                 'inventory_item_id' => $itemId,
                 'quantity' => 1,
-                'unit_price' => $item->purchase_price ?? 0,
+                'unit_price' => $item->unit_purchase_price ?? 0,
                 'discount' => 0,
                 'discount_type' => 'fixed',
             ];

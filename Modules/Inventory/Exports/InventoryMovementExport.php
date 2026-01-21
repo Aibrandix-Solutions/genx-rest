@@ -37,7 +37,6 @@ class InventoryMovementExport implements WithMapping, FromCollection, WithHeadin
         return [
             __('app.date'),
             __('inventory::modules.inventoryItem.name'),
-            __('inventory::app.menu.inventoryMovement'),
             __('inventory::modules.inventoryMovement.type'),
             __('inventory::modules.inventoryMovement.quantity'),
             __('inventory::modules.inventoryMovement.source'),
@@ -47,13 +46,26 @@ class InventoryMovementExport implements WithMapping, FromCollection, WithHeadin
 
     public function map($movement): array
     {
+        $source = $movement->location->display_name ?? $movement->sourceBranch->name ?? '--';
+        $destination = '--';
+
+        if ($movement->transaction_type === 'transfer' && $movement->inventoryTransfer) {
+            $source = $movement->inventoryTransfer->sourceLocation->display_name
+                ?? $movement->inventoryTransfer->sourceBranch->name
+                ?? $source;
+
+            $destination = $movement->inventoryTransfer->destinationLocation->display_name
+                ?? $movement->inventoryTransfer->destinationBranch->name
+                ?? '--';
+        }
+
         return [
             $movement->created_at->format('Y-m-d H:i'),
             $movement->item->name ?? '--',
             $movement->transaction_type,
             $movement->quantity,
-            $movement->sourceBranch->name ?? '--',
-            $movement->transferBranch->name ?? '--',
+            $source,
+            $destination,
         ];
     }
 
@@ -73,8 +85,17 @@ class InventoryMovementExport implements WithMapping, FromCollection, WithHeadin
     }
 
     public function collection()
-    {
-        return InventoryMovement::with(['item', 'sourceBranch', 'transferBranch'])
+     {
+        return InventoryMovement::with([
+                'item',
+                'location',
+                'inventoryTransfer.sourceLocation',
+                'inventoryTransfer.destinationLocation',
+                'inventoryTransfer.sourceBranch',
+                'inventoryTransfer.destinationBranch',
+                'sourceBranch',
+                'transferBranch'
+            ])
             ->where('branch_id', branch()->id)
             ->when($this->search, function($query) {
                 $query->whereHas('item', function($q) {
