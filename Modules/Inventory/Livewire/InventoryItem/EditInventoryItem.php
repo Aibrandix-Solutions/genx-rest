@@ -47,10 +47,10 @@ class EditInventoryItem extends Component
     {
         return [
             'name' => 'required|string|max:255|unique:inventory_items,name,' . $this->inventoryItem->id,
-            'itemCategory' => 'required',
-            'unit' => 'required',
+            'itemCategory' => 'required|exists:inventory_item_categories,id',
+            'unit' => 'required|exists:units,id',
             'thresholdQuantity' => 'required|numeric|min:0',
-            'preferredSupplier' => 'nullable|',
+            'preferredSupplier' => 'nullable|exists:suppliers,id',
 
             'unitPurchasePrice' => 'required|numeric|min:0',
         ];
