@@ -175,17 +175,25 @@ class CreateDirectPurchase extends Component
     public function searchItems()
     {
         $this->showSearchResults = false;
-        
-        if (strlen($this->searchItem) < 1) {
+
+        $term = trim((string) $this->searchItem);
+        if ($term === '') {
             $this->filteredItems = [];
             return;
         }
 
-        $this->filteredItems = InventoryItem::where('name', 'like', '%' . $this->searchItem . '%')
+        $this->filteredItems = InventoryItem::query()
+            ->select(['id', 'name', 'unit_purchase_price'])
+            ->where('name', 'like', '%' . $term . '%')
             ->limit(10)
             ->get();
         
         $this->showSearchResults = true;
+    }
+
+    public function updatedSearchItem()
+    {
+        $this->searchItems();
     }
 
     public function selectItem($itemId)
@@ -193,14 +201,45 @@ class CreateDirectPurchase extends Component
         $item = InventoryItem::find($itemId);
         
         if ($item) {
-            $this->items[] = [
-                '_key' => (string) Str::uuid(),
-                'inventory_item_id' => $itemId,
-                'quantity' => 1,
-                'unit_price' => $item->unit_purchase_price ?? 0,
-                'discount' => 0,
-                'discount_type' => 'fixed',
-            ];
+            $targetIndex = null;
+            foreach ($this->items as $index => $row) {
+                if (empty($row['inventory_item_id'])) {
+                    $targetIndex = $index;
+                    break;
+                }
+            }
+
+            if ($targetIndex === null) {
+                $targetIndex = count($this->items);
+                $this->items[] = [
+                    '_key' => (string) Str::uuid(),
+                    'inventory_item_id' => '',
+                    'quantity' => 1,
+                    'unit_price' => 0,
+                    'discount' => 0,
+                    'discount_type' => 'fixed',
+                ];
+            }
+
+            if (empty($this->items[$targetIndex]['_key'])) {
+                $this->items[$targetIndex]['_key'] = (string) Str::uuid();
+            }
+
+            $this->items[$targetIndex]['inventory_item_id'] = $itemId;
+            $this->items[$targetIndex]['quantity'] = (float) ($this->items[$targetIndex]['quantity'] ?? 0) > 0
+                ? $this->items[$targetIndex]['quantity']
+                : 1;
+
+            if (!isset($this->items[$targetIndex]['unit_price']) || (float) $this->items[$targetIndex]['unit_price'] <= 0) {
+                $this->items[$targetIndex]['unit_price'] = $item->unit_purchase_price ?? 0;
+            }
+
+            if (!isset($this->items[$targetIndex]['discount'])) {
+                $this->items[$targetIndex]['discount'] = 0;
+            }
+            if (empty($this->items[$targetIndex]['discount_type'])) {
+                $this->items[$targetIndex]['discount_type'] = 'fixed';
+            }
             
             // Clear search
             $this->searchItem = '';
@@ -224,8 +263,8 @@ class CreateDirectPurchase extends Component
     {
         if (isset($this->items[$index]['inventory_item_id']) && $this->items[$index]['inventory_item_id']) {
             $item = InventoryItem::find($this->items[$index]['inventory_item_id']);
-            if ($item && $item->purchase_price) {
-                $this->items[$index]['unit_price'] = $item->purchase_price;
+            if ($item && $item->unit_purchase_price !== null) {
+                $this->items[$index]['unit_price'] = $item->unit_purchase_price;
             }
         }
     }
