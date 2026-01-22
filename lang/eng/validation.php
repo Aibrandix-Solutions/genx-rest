@@ -190,6 +190,8 @@ return array (
   'availabilityMustBeBoolean' => 'The availability status must be true or false.',
   'showOnCustomerSiteRequired' => 'The show on customer site status is required.',
   'showOnCustomerSiteMustBeBoolean' => 'The show on customer site status must be true or false.',
+  'kitchenTypeRequired' => 'The kitchen type is required.',
+  'kitchenTypeInvalid' => 'The selected kitchen type is invalid.',
   'alreadyAssociatedGroup' => 'The selected modifier group is already associated with this menu item.',
   'cannotRemoveTranslation' => 'Cannot remove the :language translation.',
   'InvalidFlutterwaveKeyOrSecret' => 'Invalid Flutterwave key or secret.',

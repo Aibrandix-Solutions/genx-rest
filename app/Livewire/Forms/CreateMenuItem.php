@@ -20,6 +20,7 @@ use Livewire\Attributes\Validate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class CreateMenuItem extends Component
@@ -489,6 +490,22 @@ class CreateMenuItem extends Component
             'platformAvailability.*' => 'nullable|boolean',
         ];
 
+        // If Kitchen module is enabled, a kitchen type is mandatory.
+        if (in_array('Kitchen', restaurant_modules(), true)) {
+            $branchId = branch()->id ?? null;
+
+            $rules['kitchenType'] = [
+                'required',
+                Rule::exists('kot_places', 'id')->where(function ($query) use ($branchId) {
+                    $query->where('is_active', true);
+
+                    if (!empty($branchId)) {
+                        $query->where('branch_id', $branchId);
+                    }
+                }),
+            ];
+        }
+
         // Add validation rules for variations if they exist
         if ($this->hasVariations && !empty($this->variationName)) {
             $rules['variationName.*'] = 'required|string|max:255';
@@ -515,6 +532,8 @@ class CreateMenuItem extends Component
             'itemPrice.required_if' => __('validation.itemPriceRequired'),
             'itemPrice.numeric' => __('validation.itemPriceMustBeNumeric'),
             'itemPrice.min' => __('validation.itemPriceMustBePositive'),
+            'kitchenType.required' => __('validation.kitchenTypeRequired'),
+            'kitchenType.exists' => __('validation.kitchenTypeInvalid'),
         ];
     }
 
