@@ -126,7 +126,7 @@
                 @if($activeTab === 'payments')
                 <!-- Payment Summary -->
                 <div class="mb-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div class="grid grid-cols-4 gap-4 text-sm">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
                         <div>
                             <span class="text-gray-500 dark:text-gray-400">Total Amount:</span>
                             <p class="text-lg font-semibold text-gray-900 dark:text-white">{{ currency_format($purchaseOrder->total_amount, restaurant()->currency_id) }}</p>

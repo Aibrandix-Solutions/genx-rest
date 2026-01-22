@@ -73,15 +73,15 @@
                     <div class="flex gap-2">
                         <input 
                             type="text" 
-                            wire:model.live="searchItem" 
-                            wire:change="searchItems"
+                            wire:model.live.debounce.300ms="searchItem" 
+                            wire:keydown.escape="$set('showSearchResults', false)"
                             placeholder="Search item by name..."
                             class="flex-1 rounded-md border-gray-300 dark:bg-gray-800 dark:border-gray-700"
                         />
                     </div>
                     
                     @if($showSearchResults && !empty($filteredItems))
-                        <div class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg z-10">
+                        <div class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg z-10 max-h-60 overflow-auto">
                             @foreach($filteredItems as $item)
                                 <button 
                                     type="button"
@@ -89,7 +89,7 @@
                                     class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-700 last:border-b-0 transition"
                                 >
                                     <div class="font-medium text-gray-900 dark:text-white">{{ $item->name }}</div>
-                                    <div class="text-xs text-gray-500 dark:text-gray-400">Price: {{ currency_format($item->purchase_price, restaurant()->currency_id) }}</div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">Price: {{ currency_format($item->unit_purchase_price, restaurant()->currency_id) }}</div>
                                 </button>
                             @endforeach
                         </div>
@@ -100,8 +100,75 @@
                     @endif
                 </div>
 
-                <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
-                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                <!-- Mobile (card layout) -->
+                <div class="space-y-3 md:hidden">
+                    @foreach($items as $index => $item)
+                        <div wire:key="purchase-item-card-{{ $item['_key'] ?? $index }}" class="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                            <div class="space-y-3">
+                                <div>
+                                    <x-label value="Item" />
+                                    <x-select wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
+                                        <option value="">Select item...</option>
+                                        @foreach($inventoryItems as $inventoryItem)
+                                            <option value="{{ $inventoryItem->id }}">{{ $inventoryItem->name }}</option>
+                                        @endforeach
+                                    </x-select>
+                                    @error('items.'.$index.'.inventory_item_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <x-label value="Qty" />
+                                        <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full text-base" />
+                                        @error('items.'.$index.'.quantity') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div>
+                                        <x-label value="Unit Price" />
+                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full text-base" />
+                                        @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <x-label value="Discount" />
+                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.discount" class="w-full text-base" />
+                                        @error('items.'.$index.'.discount') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div>
+                                        <x-label value="Type" />
+                                        <x-select wire:model.live="items.{{ $index }}.discount_type" class="w-full">
+                                            <option value="fixed" @selected(($item['discount_type'] ?? 'fixed') === 'fixed')>Fixed</option>
+                                            <option value="percentage" @selected(($item['discount_type'] ?? 'fixed') === 'percentage')>%</option>
+                                        </x-select>
+                                        @error('items.'.$index.'.discount_type') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                </div>
+
+                                <div class="flex items-center justify-between">
+                                    <span class="text-sm text-gray-600 dark:text-gray-300">Subtotal</span>
+                                    <span class="text-sm font-semibold text-gray-900 dark:text-white">
+                                        @php
+                                            $lineTotal = ((float)($item['quantity'] ?? 0)) * ((float)($item['unit_price'] ?? 0));
+                                            $lineDiscount = ($item['discount_type'] ?? 'fixed') === 'percentage'
+                                                ? $lineTotal * (((float)($item['discount'] ?? 0)) / 100)
+                                                : ((float)($item['discount'] ?? 0));
+                                        @endphp
+                                        {{ currency_format(max(0, $lineTotal - $lineDiscount), restaurant()->currency_id) }}
+                                    </span>
+                                </div>
+
+                                <div class="flex justify-end">
+                                    <x-secondary-button type="button" wire:click="removeItem({{ $index }})">Remove</x-secondary-button>
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+
+                <!-- Desktop (table layout) -->
+                <div class="hidden md:block overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <table class="min-w-[900px] w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                         <thead class="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-200">
                             <tr>
                                 <th class="px-4 py-2 text-left">Item</th>
@@ -124,18 +191,18 @@
                                         </x-select>
                                         @error('items.'.$index.'.inventory_item_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </td>
-                                    <td class="px-4 py-2 w-28">
-                                        <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full" />
+                                    <td class="px-4 py-2 min-w-[140px] md:w-28">
+                                        <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full text-base md:text-sm" />
                                         @error('items.'.$index.'.quantity') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </td>
-                                    <td class="px-4 py-2 w-32">
-                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full" />
+                                    <td class="px-4 py-2 min-w-[160px] md:w-32">
+                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full text-base md:text-sm" />
                                         @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </td>
-                                    <td class="px-4 py-2 w-48">
-                                        <div class="flex gap-2">
-                                            <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.discount" class="w-full" />
-                                            <x-select wire:model.live="items.{{ $index }}.discount_type">
+                                    <td class="px-4 py-2 min-w-[240px] md:w-48">
+                                        <div class="flex flex-col sm:flex-row gap-2">
+                                            <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.discount" class="w-full text-base md:text-sm" />
+                                            <x-select wire:model.live="items.{{ $index }}.discount_type" class="w-full sm:w-auto">
                                                 <option value="fixed" @selected(($item['discount_type'] ?? 'fixed') === 'fixed')>Fixed</option>
                                                 <option value="percentage" @selected(($item['discount_type'] ?? 'fixed') === 'percentage')>%</option>
                                             </x-select>

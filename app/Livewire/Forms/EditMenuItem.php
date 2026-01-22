@@ -15,6 +15,7 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Models\Tax;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 
 class EditMenuItem extends Component
 {
@@ -269,6 +270,22 @@ class EditMenuItem extends Component
             'showOnCustomerSite' => 'required|boolean',
         ];
 
+        // If Kitchen module is enabled, a kitchen type is mandatory.
+        if (in_array('Kitchen', restaurant_modules(), true)) {
+            $branchId = branch()->id ?? null;
+
+            $rules['kitchenType'] = [
+                'required',
+                Rule::exists('kot_places', 'id')->where(function ($query) use ($branchId) {
+                    $query->where('is_active', true);
+
+                    if (!empty($branchId)) {
+                        $query->where('branch_id', $branchId);
+                    }
+                }),
+            ];
+        }
+
         // Add validation for variations if hasVariations is true
         if ($this->hasVariations) {
             foreach ($this->inputs as $key => $value) {
@@ -281,6 +298,8 @@ class EditMenuItem extends Component
 
         $this->validate($rules, [
             'translationNames.' . $this->globalLocale . '.required' => __('validation.itemNameRequired', ['language' => $this->languages[$this->globalLocale]]),
+            'kitchenType.required' => __('validation.kitchenTypeRequired'),
+            'kitchenType.exists' => __('validation.kitchenTypeInvalid'),
         ]);
 
         try {
