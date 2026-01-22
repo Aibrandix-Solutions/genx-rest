@@ -18,6 +18,8 @@ use App\Models\MenuItemVariation;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Validate;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class CreateMenuItem extends Component
@@ -131,7 +133,7 @@ class CreateMenuItem extends Component
     private function initializeLanguages(): void
     {
         $this->languages = languages()->pluck('language_name', 'language_code')->toArray();
-        $this->globalLocale = global_setting()->locale;
+        $this->globalLocale = auth()->user()->locale ?? global_setting()->locale;
         $this->currentLanguage = $this->globalLocale;
         $this->translationNames = array_fill_keys(array_keys($this->languages), '');
         $this->translationDescriptions = array_fill_keys(array_keys($this->languages), '');
@@ -379,12 +381,43 @@ class CreateMenuItem extends Component
     // FORM SUBMISSION AND VALIDATION
     public function submitForm(): void
     {
+        $traceId = (string) Str::uuid();
+
+        Log::info('menu_item.create.submit.start', [
+            'trace_id' => $traceId,
+            'user_id' => auth()->id(),
+            'restaurant_id' => restaurant()->id ?? null,
+            'branch_id' => branch()->id ?? null,
+            'has_variations' => (bool) $this->hasVariations,
+            'menu_id' => $this->menu ?: null,
+            'category_id' => $this->itemCategory ?: null,
+            'kot_place_id' => $this->kitchenType ?: null,
+            'item_code_provided' => trim((string) $this->itemCode) !== '',
+            'item_name_len' => strlen((string) ($this->itemName ?? '')),
+        ]);
+
         $this->validateForm();
+
+        // validateForm() can add manual errors (e.g. variations) and return.
+        // If there are any errors at this point, do not proceed to DB writes.
+        if ($this->getErrorBag()->isNotEmpty()) {
+            Log::warning('menu_item.create.submit.validation_failed', [
+                'trace_id' => $traceId,
+                'errors' => $this->getErrorBag()->toArray(),
+            ]);
+            return;
+        }
 
         try {
             DB::beginTransaction();
 
             $menuItem = $this->createMenuItem();
+
+            Log::info('menu_item.create.created', [
+                'trace_id' => $traceId,
+                'menu_item_id' => $menuItem->id,
+                'item_code' => $menuItem->item_code,
+            ]);
             $this->handleTranslations($menuItem);
             $this->handleImageUpload($menuItem);
             $this->handleVariationsOrPricing($menuItem);
@@ -394,8 +427,21 @@ class CreateMenuItem extends Component
 
             $this->handleSuccessfulSubmission();
 
-        } catch (\Exception $e) {
+            Log::info('menu_item.create.submit.success', [
+                'trace_id' => $traceId,
+                'menu_item_id' => $menuItem->id,
+            ]);
+
+        } catch (\Throwable $e) {
             DB::rollBack();
+
+            report($e);
+
+            Log::error('menu_item.create.submit.exception', [
+                'trace_id' => $traceId,
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
             $this->alert('error', __('messages.menuItemCreationFailed'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -405,6 +451,21 @@ class CreateMenuItem extends Component
 
     private function validateForm(): void
     {
+        // Ensure the currently edited language fields are synced into the translation arrays
+        // before validation / persistence (wire:change might not fire before submit).
+        $this->updateTranslation();
+
+        // Normalize item code: treat empty string as null.
+        $this->itemCode = trim((string) $this->itemCode);
+        if ($this->itemCode === '') {
+            $this->itemCode = '';
+        }
+
+        // If item code is empty, pre-generate so we can validate uniqueness reliably.
+        if (empty($this->itemCode)) {
+            $this->itemCode = $this->generateItemCode();
+        }
+
         $this->cleanupEmptyVariations();
 
         if ($this->hasVariations && empty($this->variationName)) {
@@ -422,6 +483,7 @@ class CreateMenuItem extends Component
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
+            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code',
             'isAvailable' => 'required|boolean',
             'orderTypePrices.*' => 'nullable|numeric|min:0',
             'platformAvailability.*' => 'nullable|boolean',
@@ -494,7 +556,14 @@ class CreateMenuItem extends Component
             $number = 1;
         }
 
-        return $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
+        // Guarantee uniqueness even if existing item_code values are irregular.
+        do {
+            $candidate = $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
+            $exists = MenuItem::where('item_code', $candidate)->exists();
+            $number++;
+        } while ($exists);
+
+        return $candidate;
     }
 
     private function handleTranslations(MenuItem $menuItem): void

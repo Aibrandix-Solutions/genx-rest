@@ -86,7 +86,7 @@
                 </div>
 
                 <div>
-                    <x-label for="preferredSupplier" value="{{ __('inventory::modules.inventoryItem.preferredSupplier') }} ({{ __('app.optional') }})" />  
+                    <x-label for="preferredSupplier" value="{{ __('inventory::modules.inventoryItem.preferredSupplier') }} ({{ __('app.optional') }})" /> 
                     <livewire:inventory::components.searchable-select
                         :name="'preferredSupplier'"
                         :placeholder="__('inventory::placeholders.selectSupplier')"

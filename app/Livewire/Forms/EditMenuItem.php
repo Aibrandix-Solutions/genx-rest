@@ -13,6 +13,8 @@ use App\Models\MenuItemVariation;
 use App\Scopes\AvailableMenuItemScope;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Models\Tax;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class EditMenuItem extends Component
 {
@@ -210,6 +212,30 @@ class EditMenuItem extends Component
 
     public function submitForm()
     {
+        $traceId = (string) Str::uuid();
+
+        // Ensure current language inputs are synced into translation arrays
+        // (wire:change may not fire before submit).
+        $this->updateTranslation();
+
+        // Normalize item code: empty string -> null
+        $this->itemCode = trim((string) ($this->itemCode ?? ''));
+        if ($this->itemCode === '') {
+            $this->itemCode = null;
+        }
+
+        Log::info('menu_item.edit.submit.start', [
+            'trace_id' => $traceId,
+            'user_id' => auth()->id(),
+            'restaurant_id' => restaurant()->id ?? null,
+            'branch_id' => branch()->id ?? null,
+            'menu_item_id' => $this->menuItem->id ?? null,
+            'menu_id' => $this->menu ?: null,
+            'category_id' => $this->itemCategory ?: null,
+            'kot_place_id' => $this->kitchenType ?: null,
+            'item_code_provided' => !empty($this->itemCode),
+        ]);
+
         if ($this->hasVariations) {
             $hasAtLeastOne = false;
             foreach ($this->inputs as $key => $value) {
@@ -220,6 +246,10 @@ class EditMenuItem extends Component
             }
             if (!$hasAtLeastOne) {
                 $this->addError('variationName.0', __('validation.atLeastOneVariationRequired'));
+                Log::warning('menu_item.edit.submit.validation_failed', [
+                    'trace_id' => $traceId,
+                    'errors' => $this->getErrorBag()->toArray(),
+                ]);
                 return;
             }
         }
@@ -234,6 +264,7 @@ class EditMenuItem extends Component
             'itemPrice' => 'required_if:hasVariations,false',
             'itemCategory' => 'required',
             'menu' => 'required',
+            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code,' . ($this->menuItem->id ?? 'NULL'),
             'isAvailable' => 'required|boolean',
             'showOnCustomerSite' => 'required|boolean',
         ];
@@ -252,21 +283,36 @@ class EditMenuItem extends Component
             'translationNames.' . $this->globalLocale . '.required' => __('validation.itemNameRequired', ['language' => $this->languages[$this->globalLocale]]),
         ]);
 
+        try {
+            MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
+                'item_name' => $this->translationNames[$this->globalLocale],
+                'item_code' => $this->itemCode,
+                'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
+                'item_category_id' => $this->itemCategory,
+                'description' => $this->translationDescriptions[$this->globalLocale],
+                'type' => $this->itemType,
+                'preparation_time' => $this->preparationTime,
+                'menu_id' => $this->menu,
+                'is_available' => $this->isAvailable,
+                'kot_place_id' => $this->kitchenType,
+                'show_on_customer_site' => $this->showOnCustomerSite,
+                'tax_inclusive' => (restaurant()->tax_mode === 'item') ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+            Log::error('menu_item.edit.submit.exception', [
+                'trace_id' => $traceId,
+                'menu_item_id' => $this->menuItem->id ?? null,
+                'exception' => get_class($e),
+                'message' => $e->getMessage(),
+            ]);
 
-        MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
-            'item_name' => $this->translationNames[$this->globalLocale],
-            'item_code' => $this->itemCode,
-            'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
-            'item_category_id' => $this->itemCategory,
-            'description' => $this->translationDescriptions[$this->globalLocale],
-            'type' => $this->itemType,
-            'preparation_time' => $this->preparationTime,
-            'menu_id' => $this->menu,
-            'is_available' => $this->isAvailable,
-            'kot_place_id' => $this->kitchenType,
-            'show_on_customer_site' => $this->showOnCustomerSite,
-            'tax_inclusive' => (restaurant()->tax_mode === 'item') ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
-        ]);
+            $this->alert('error', __('messages.menuItemUpdateFailed'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+            return;
+        }
 
         if (in_array('Inventory', restaurant_modules())) {
             MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([

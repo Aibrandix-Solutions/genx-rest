@@ -34,6 +34,9 @@ class UpdateMenuItem extends Component
     #[Validate('required')]
     public string $itemName = '';
 
+    #[Validate('nullable|string|max:50')]
+    public ?string $itemCode = null;
+
     #[Validate('required')]
     public string $menu = '';
 
@@ -149,7 +152,7 @@ class UpdateMenuItem extends Component
         $this->languages = languages()->pluck('language_name', 'language_code')->toArray();
         $this->translationNames = array_fill_keys(array_keys($this->languages), '');
         $this->translationDescriptions = array_fill_keys(array_keys($this->languages), '');
-        $this->globalLocale = global_setting()->locale;
+        $this->globalLocale = auth()->user()->locale ?? global_setting()->locale;
         $this->currentLanguage = $this->globalLocale;
     }
 
@@ -161,6 +164,7 @@ class UpdateMenuItem extends Component
         // Load basic data
         $this->menu = (string)$this->menuItem->menu_id;
         $this->itemCategory = (string)$this->menuItem->item_category_id;
+        $this->itemCode = $this->menuItem->item_code;
         $this->itemPrice = (string)$this->menuItem->price;
         $this->preparationTime = $this->menuItem->preparation_time;
         $this->itemType = $this->menuItem->type;
@@ -554,11 +558,22 @@ class UpdateMenuItem extends Component
 
     private function validateForm(): void
     {
+        // Ensure the currently edited language fields are synced into the translation arrays
+        // before validation / persistence (wire:change might not fire before submit).
+        $this->updateTranslation();
+
+        // Normalize item code: empty string -> null
+        $this->itemCode = is_null($this->itemCode) ? null : trim((string) $this->itemCode);
+        if ($this->itemCode === '') {
+            $this->itemCode = null;
+        }
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
+            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code,' . $this->menuItem->id,
             'isAvailable' => 'required|boolean',
             'showOnCustomerSite' => 'required|boolean',
             'platformAvailability.*' => 'nullable|boolean',
@@ -657,6 +672,7 @@ class UpdateMenuItem extends Component
     {
         $updateData = [
             'item_name' => $this->translationNames[$this->globalLocale],
+            'item_code' => $this->itemCode,
             'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
             'item_category_id' => $this->itemCategory,
             'description' => $this->translationDescriptions[$this->globalLocale],

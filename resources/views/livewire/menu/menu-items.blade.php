@@ -60,6 +60,11 @@
                                                 </span>
                                             @endif
                                         </div>
+                                        @if(!empty($item->item_code))
+                                            <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mt-0.5">
+                                                {{ __('modules.menu.itemCode') }}: {{ $item->item_code }}
+                                            </div>
+                                        @endif
                                         <div class="text-sm font-normal text-gray-500 dark:text-gray-400 line-clamp-2">{{
                                             $item->description }}</div>
                                     </div>

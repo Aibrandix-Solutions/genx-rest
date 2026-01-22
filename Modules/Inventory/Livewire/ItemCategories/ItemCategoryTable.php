@@ -41,7 +41,9 @@ class ItemCategoryTable extends Component
     public function render()
     {
 
-        $itemCategories = InventoryItemCategory::where('name', 'like', '%' . $this->search . '%')->paginate(10);
+        $itemCategories = InventoryItemCategory::where('restaurant_id', restaurant()->id)
+            ->where('name', 'like', '%' . $this->search . '%')
+            ->paginate(10);
 
         return view('inventory::livewire.item-categories.item-category-table', compact('itemCategories'));
     }
