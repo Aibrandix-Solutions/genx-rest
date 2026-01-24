@@ -1,6 +1,21 @@
 <div class="space-y-6">
     <div class="p-4 bg-white rounded-lg shadow dark:bg-gray-800">
-        <div class="grid gap-4 md:grid-cols-5">
+        <div class="grid gap-4 md:grid-cols-6">
+            <div>
+                <x-label :value="__('app.dateRange')" />
+                <x-select class="mt-1 w-full" wire:model.live="dateRangeType">
+                    <option value="today">@lang('app.today')</option>
+                    <option value="yesterday">@lang('app.yesterday')</option>
+                    <option value="currentWeek">@lang('app.currentWeek')</option>
+                    <option value="lastWeek">@lang('app.lastWeek')</option>
+                    <option value="last7Days">@lang('app.last7Days')</option>
+                    <option value="currentMonth">@lang('app.currentMonth')</option>
+                    <option value="lastMonth">@lang('app.lastMonth')</option>
+                    <option value="currentYear">@lang('app.currentYear')</option>
+                    <option value="lastYear">@lang('app.lastYear')</option>
+                    <option value="custom">@lang('app.custom')</option>
+                </x-select>
+            </div>
             <div>
                 <x-label :value="__('app.fromDate')" />
                 <x-input type="date" class="mt-1 w-full" wire:model.live="fromDate" />

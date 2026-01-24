@@ -19,7 +19,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->foreign('branch_id')->references('id')->on('branches')->onDelete('cascade');
-            $table->foreign('payment_account_id')->references('id')->on('payment_accounts')->onDelete('set null');
+            // Removed foreign key to payment_accounts - it exists in Inventory module and may not be available
             
             // Ensure one default account per payment method per branch
             $table->unique(['branch_id', 'payment_method']);
