@@ -43,12 +43,7 @@ class ViewPurchaseReturn extends Component
             'addedBy',
             'payments.account',
             'payments.addedBy',
-            'items.inventoryItem' => function($q) {
-                $q->withoutGlobalScopes();
-            },
-            'items.inventoryItem.unit' => function($q) {
-                $q->withoutGlobalScopes();
-            },
+            'items.inventoryItem.unit',
         ])->find($id);
         
         if (!$this->purchaseReturn) {

@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Livewire\StockTransfer;
 
 use Livewire\Component;
+use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryTransfer;
 use Modules\Inventory\Entities\InventoryTransferItem;
 use Modules\Inventory\Entities\InventoryStock;
@@ -190,7 +191,7 @@ class ReceiveStockTransfer extends Component
                         
                         // Ensure unit price is set (use source item's price for cost tracking)
                         if (!$movement->unit_purchase_price) {
-                            $sourceItem = InventoryItem::withoutGlobalScopes()->find($item->source_inventory_item_id);
+                            $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
                             if ($sourceItem && $sourceItem->unit_purchase_price) {
                                 $movement->unit_purchase_price = $sourceItem->unit_purchase_price;
                                 $movement->save();
@@ -216,7 +217,7 @@ class ReceiveStockTransfer extends Component
                             
                             // Set unit price from source item if not set
                             if (!$movement->unit_purchase_price) {
-                                $sourceItem = InventoryItem::withoutGlobalScopes()->find($item->source_inventory_item_id);
+                                $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
                                 if ($sourceItem && $sourceItem->unit_purchase_price) {
                                     $movement->unit_purchase_price = $sourceItem->unit_purchase_price;
                                 }

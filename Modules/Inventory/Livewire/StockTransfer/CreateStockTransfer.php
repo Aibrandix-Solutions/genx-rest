@@ -91,7 +91,7 @@ class CreateStockTransfer extends Component
                 
                 if ($itemId && isset($this->transferItems[$index])) {
                     // Get source item details
-                    $sourceItem = InventoryItem::withoutGlobalScopes()->find($itemId);
+                    $sourceItem = InventoryItem::query()->find($itemId);
                     
                     // Get available stock from the specific source location if selected
                     if ($this->sourceLocation) {

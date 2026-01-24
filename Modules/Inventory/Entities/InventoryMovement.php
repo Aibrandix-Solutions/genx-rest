@@ -46,7 +46,7 @@ class InventoryMovement extends Model
 
     public function item()
     {
-        return $this->belongsTo(InventoryItem::class, 'inventory_item_id')->withoutGlobalScopes();
+           return $this->belongsTo(InventoryItem::class, 'inventory_item_id');
     }
 
     public function branch(): BelongsTo

@@ -7,6 +7,7 @@ use Modules\Inventory\Entities\InventoryItemCategory;
 use Modules\Inventory\Entities\Unit;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Inventory\Entities\Supplier;
+use Illuminate\Validation\Rule;
 
 class EditInventoryItem extends Component
 {
@@ -46,7 +47,14 @@ class EditInventoryItem extends Component
     protected function rules()
     {
         return [
-            'name' => 'required|string|max:255|unique:inventory_items,name,' . $this->inventoryItem->id,
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('inventory_items', 'name')
+                    ->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))
+                    ->ignore($this->inventoryItem->id),
+            ],
             'itemCategory' => 'required|exists:inventory_item_categories,id',
             'unit' => 'required|exists:units,id',
             'thresholdQuantity' => 'required|numeric|min:0',
@@ -69,6 +77,7 @@ class EditInventoryItem extends Component
 
         $this->inventoryItem->update([
             'name' => $this->name,
+            'restaurant_id' => $this->inventoryItem->restaurant_id ?? restaurant()->id,
             'inventory_item_category_id' => $this->itemCategory,
             'unit_id' => $this->unit,
             'threshold_quantity' => $this->thresholdQuantity,

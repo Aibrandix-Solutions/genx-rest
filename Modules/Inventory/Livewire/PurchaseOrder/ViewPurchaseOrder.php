@@ -22,12 +22,7 @@ class ViewPurchaseOrder extends Component
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
             'branch',
-            'items.inventoryItem' => function($q) {
-                $q->withoutGlobalScopes();
-            },
-            'items.inventoryItem.unit' => function($q) {
-                $q->withoutGlobalScopes();
-            },
+            'items.inventoryItem.unit',
             'payments.account',
             'payments.addedBy',
         ]);
@@ -49,12 +44,7 @@ class ViewPurchaseOrder extends Component
         $this->purchaseOrder->load([
             'supplier',
             'branch',
-            'items.inventoryItem' => function($q) {
-                $q->withoutGlobalScopes();
-            },
-            'items.inventoryItem.unit' => function($q) {
-                $q->withoutGlobalScopes();
-            }
+            'items.inventoryItem.unit',
         ]);
 
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [
