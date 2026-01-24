@@ -118,7 +118,7 @@ class StockTransferList extends Component
 
                                 // Get destination item price for reversal movement
                                 // Use the price that was recorded when item was received
-                                $destinationItem = InventoryItem::withoutGlobalScopes()->find($item->destination_inventory_item_id);
+                                $destinationItem = InventoryItem::query()->find($item->destination_inventory_item_id);
                                 $destinationUnitPrice = $destinationItem ? ($destinationItem->unit_purchase_price ?? 0) : 0;
                                 
                                 // Try to get the price from the original destination movement
@@ -255,7 +255,7 @@ class StockTransferList extends Component
                         ->first();
 
                     // Get source item to retrieve unit purchase price
-                    $sourceItem = InventoryItem::withoutGlobalScopes()->find($item->source_inventory_item_id);
+                    $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
                     $sourceUnitPrice = $sourceItem ? ($sourceItem->unit_purchase_price ?? 0) : 0;
 
                     if ($sourceMovement) {
@@ -290,11 +290,11 @@ class StockTransferList extends Component
                     if (!$destinationMovement) {
                         // Get destination item to retrieve unit purchase price
                         // Use destination item's price for destination branch records
-                        $destinationItem = InventoryItem::withoutGlobalScopes()->find($item->destination_inventory_item_id);
+                        $destinationItem = InventoryItem::query()->find($item->destination_inventory_item_id);
                         $destinationUnitPrice = $destinationItem ? ($destinationItem->unit_purchase_price ?? 0) : 0;
                         
                         // Also get source item price for reference (use source price for cost tracking)
-                        $sourceItem = InventoryItem::withoutGlobalScopes()->find($item->source_inventory_item_id);
+                        $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
                         $sourceUnitPrice = $sourceItem ? ($sourceItem->unit_purchase_price ?? 0) : 0;
                         
                         // Use source price for destination movement (maintains cost basis from source)

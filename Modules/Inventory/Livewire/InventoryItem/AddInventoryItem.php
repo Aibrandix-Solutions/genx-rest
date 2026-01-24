@@ -9,6 +9,7 @@ use Modules\Inventory\Entities\Unit;
 use Illuminate\Support\Facades\Auth;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Inventory\Entities\Supplier;
+use Illuminate\Validation\Rule;
 
 class AddInventoryItem extends Component
 {
@@ -39,7 +40,13 @@ class AddInventoryItem extends Component
     protected function rules()
     {
         return [
-            'name' => 'required|string|max:255|unique:inventory_items,name',
+            'name' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('inventory_items', 'name')
+                    ->where(fn ($q) => $q->where('restaurant_id', restaurant()->id)),
+            ],
             'itemCategory' => 'required|exists:inventory_item_categories,id',
             'unit' => 'required|exists:units,id',
             'thresholdQuantity' => 'required|numeric|min:0',
@@ -62,6 +69,7 @@ class AddInventoryItem extends Component
 
         InventoryItem::create([
             'name' => $this->name,
+            'restaurant_id' => restaurant()->id,
             'inventory_item_category_id' => $this->itemCategory,
             'unit_id' => $this->unit,
             'threshold_quantity' => $this->thresholdQuantity,

@@ -164,6 +164,7 @@ class EditDirectPurchase extends Component
 
         $this->filteredItems = InventoryItem::query()
             ->select(['id', 'name', 'unit_purchase_price'])
+            ->where('restaurant_id', restaurant()->id)
             ->where('name', 'like', '%' . $term . '%')
             ->limit(10)
             ->get();

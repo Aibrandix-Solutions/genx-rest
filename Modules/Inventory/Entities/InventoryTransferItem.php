@@ -32,12 +32,12 @@ class InventoryTransferItem extends Model
 
     public function sourceItem(): BelongsTo
     {
-        return $this->belongsTo(InventoryItem::class, 'source_inventory_item_id')->withoutGlobalScopes();
+        return $this->belongsTo(InventoryItem::class, 'source_inventory_item_id');
     }
 
     public function destinationItem(): BelongsTo
     {
-        return $this->belongsTo(InventoryItem::class, 'destination_inventory_item_id')->withoutGlobalScopes();
+        return $this->belongsTo(InventoryItem::class, 'destination_inventory_item_id');
     }
 
     public function getIsPendingAttribute()
