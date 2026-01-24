@@ -86,6 +86,11 @@ class Orders extends Component
                 $this->endDate = now()->startOfDay()->format('m/d/Y');
                 break;
 
+            case 'yesterday':
+                $this->startDate = now()->subDay()->startOfDay()->format('m/d/Y');
+                $this->endDate = now()->subDay()->startOfDay()->format('m/d/Y');
+                break;
+
             case 'currentWeek':
                 $this->startDate = now()->startOfWeek()->format('m/d/Y');
                 $this->endDate = now()->endOfWeek()->format('m/d/Y');
