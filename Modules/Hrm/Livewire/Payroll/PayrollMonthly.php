@@ -8,7 +8,6 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
 use Livewire\WithPagination;
@@ -23,7 +22,6 @@ use Modules\Hrm\Exports\PayrollImportTemplateExport;
 use Modules\Hrm\Exports\PayrollMonthlyExport;
 use Modules\Hrm\Imports\PayrollMonthlyImport;
 
-#[Locked]
 class PayrollMonthly extends Component
 {
     use WithPagination, AuthorizesRequests, WithFileUploads;
@@ -56,6 +54,23 @@ class PayrollMonthly extends Component
 
     protected $queryString = ['branchId', 'month', 'search', 'departmentId', 'designationId'];
 
+    private function normalizeMonth(string $value): string
+    {
+        $value = trim($value);
+
+        if (preg_match('/^\d{4}-\d{1,2}$/', $value) === 1) {
+            // Fix: Parse with explicit day to avoid month overflow
+            // Extract year and month, then create date with day = 01
+            if (preg_match('/^(\d{4})-(\d{1,2})$/', $value, $matches)) {
+                $year = $matches[1];
+                $month = str_pad($matches[2], 2, '0', STR_PAD_LEFT);
+                return Carbon::createFromFormat('Y-m-d', "$year-$month-01")->format('Y-m');
+            }
+        }
+
+        return $value;
+    }
+
     private function resetAdjustmentForm(): void
     {
         $this->adjustEmployeeId = null;
@@ -75,7 +90,7 @@ class PayrollMonthly extends Component
         $this->authorize('Manage Payroll');
 
         $this->branchId = $this->branchId ?? (branch()?->id);
-        $this->month = $this->month ?: now()->format('Y-m');
+        $this->month = $this->normalizeMonth($this->month ?: now()->format('Y-m'));
 
         $this->branches = DB::table('branches')
             ->select('id', 'name')
@@ -102,6 +117,18 @@ class PayrollMonthly extends Component
             ->all();
     }
 
+    public function updatedMonth($value): void
+    {
+        if (!is_string($value) || $value === '') {
+            return;
+        }
+
+        $normalized = $this->normalizeMonth($value);
+        if ($normalized !== $this->month) {
+            $this->month = $normalized;
+        }
+    }
+
     public function updating($name, $value): void
     {
         if (in_array($name, ['branchId', 'month', 'search', 'departmentId', 'designationId'], true)) {
@@ -111,14 +138,24 @@ class PayrollMonthly extends Component
 
     private function monthRange(): array
     {
-        $m = Carbon::createFromFormat('Y-m', $this->month)->startOfMonth();
+        $month = $this->normalizeMonth($this->month);
+
+        if (preg_match('/^\d{4}-\d{2}$/', $month) === 1) {
+            // Fix: Use Y-m-d format with explicit day to avoid month overflow
+            $m = Carbon::createFromFormat('Y-m-d', $month . '-01')->startOfMonth();
+        } else {
+            // Fallback for any unexpected but parseable value
+            $m = Carbon::parse($month)->startOfMonth();
+        }
+
         return [$m->copy(), $m->copy()->endOfMonth()];
     }
 
     private function daysInMonth(): int
     {
-        [$from, $to] = $this->monthRange();
-        return $from->diffInDays($to) + 1;
+        [$from] = $this->monthRange();
+        // Use Carbon's built-in daysInMonth property for accuracy
+        return $from->daysInMonth;
     }
 
     private function intersectDays(string $fromDate, string $toDate, Carbon $rangeFrom, Carbon $rangeTo): int
