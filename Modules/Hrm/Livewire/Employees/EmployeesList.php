@@ -1,0 +1,254 @@
+<?php
+
+namespace Modules\Hrm\Livewire\Employees;
+
+use App\Models\User;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
+use Livewire\Component;
+use Livewire\WithPagination;
+use Modules\Hrm\Entities\Department;
+use Modules\Hrm\Entities\Designation;
+use Modules\Hrm\Entities\Employee;
+
+class EmployeesList extends Component
+{
+    use WithPagination, AuthorizesRequests;
+
+    public string $search = '';
+    public ?int $branchId = null;
+
+    public bool $showModal = false;
+    public ?int $editingId = null;
+
+    public ?int $branch_id = null;
+    public ?int $user_id = null;
+    public ?int $department_id = null;
+    public ?int $designation_id = null;
+
+    public ?string $staff_code = null;
+    public string $name = '';
+    public ?string $email = null;
+    public ?string $phone = null;
+    public ?string $hire_date = null;
+    public string $employment_type = 'full_time';
+    public float $basic_salary_per_day = 0;
+    public float $basic_salary_per_month = 0;
+    public string $status = 'active';
+    public bool $is_epf_eligible = true;
+    public ?string $note = null;
+
+    public bool $showDeleteModal = false;
+    public ?int $deleteId = null;
+
+    public array $branches = [];
+
+    protected $queryString = ['search', 'branchId'];
+
+    public function mount(): void
+    {
+        $this->branches = DB::table('branches')
+            ->select('id', 'name')
+            ->when(restaurant(), fn($q) => $q->where('restaurant_id', restaurant()->id))
+            ->orderBy('name')
+            ->get()
+            ->map(fn($b) => ['id' => $b->id, 'name' => $b->name])
+            ->all();
+
+        $this->branchId = $this->branchId ?? (branch()?->id);
+    }
+
+    public function updating($name, $value): void
+    {
+        if (in_array($name, ['search', 'branchId'], true)) {
+            $this->resetPage();
+        }
+    }
+
+    public function create(): void
+    {
+        $this->authorize('Create Employee');
+
+        $this->resetForm();
+        $this->branch_id = branch()?->id;
+        $this->showModal = true;
+    }
+
+    public function edit(int $id): void
+    {
+        $this->authorize('Update Employee');
+
+        $employee = Employee::query()->findOrFail($id);
+
+        $this->editingId = $employee->id;
+        $this->branch_id = $employee->branch_id;
+        $this->user_id = $employee->user_id;
+        $this->department_id = $employee->department_id;
+        $this->designation_id = $employee->designation_id;
+        $this->staff_code = $employee->staff_code;
+        $this->name = (string) $employee->name;
+        $this->email = $employee->email;
+        $this->phone = $employee->phone;
+        $this->hire_date = $employee->hire_date?->toDateString();
+        $this->employment_type = (string) $employee->employment_type;
+        $this->basic_salary_per_day = (float) ($employee->basic_salary_per_day ?? 0);
+        $this->basic_salary_per_month = (float) ($employee->basic_salary_per_month ?? 0);
+        $this->status = (string) $employee->status;
+        $this->is_epf_eligible = (bool) ($employee->is_epf_eligible ?? true);
+        $this->note = $employee->note;
+
+        $this->showModal = true;
+    }
+
+    public function save(): void
+    {
+        if ($this->editingId) {
+            $this->authorize('Update Employee');
+        } else {
+            $this->authorize('Create Employee');
+        }
+
+        $this->staff_code = $this->staff_code !== null ? trim((string) $this->staff_code) : null;
+        if (!$this->staff_code) {
+            $this->staff_code = Employee::generateStaffCode((int) restaurant()->id);
+        }
+
+        $this->validate([
+            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')],
+            'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')],
+            'staff_code' => [
+                'required',
+                'string',
+                'max:255',
+                Rule::unique('hrm_employees', 'staff_code')
+                    ->where(fn($q) => $q->where('restaurant_id', restaurant()->id))
+                    ->ignore($this->editingId),
+            ],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['nullable', 'email', 'max:255'],
+            'phone' => ['nullable', 'string', 'max:255'],
+            'hire_date' => ['nullable', 'date'],
+            'employment_type' => ['required', 'string', 'max:50'],
+            'basic_salary_per_day' => ['required', 'numeric', 'min:0'],
+            'basic_salary_per_month' => ['required', 'numeric', 'min:0'],
+            'status' => ['required', 'string', 'max:50'],
+            'note' => ['nullable', 'string'],
+        ]);
+
+        $employee = $this->editingId
+            ? Employee::query()->findOrFail($this->editingId)
+            : new Employee();
+
+        $employee->restaurant_id = restaurant()->id;
+        $employee->branch_id = (int) $this->branch_id;
+        $employee->user_id = $this->user_id;
+        $employee->department_id = $this->department_id;
+        $employee->designation_id = $this->designation_id;
+        $employee->staff_code = $this->staff_code;
+        $employee->name = $this->name;
+        $employee->email = $this->email;
+        $employee->phone = $this->phone;
+        $employee->hire_date = $this->hire_date;
+        $employee->employment_type = $this->employment_type;
+        $employee->basic_salary_per_day = (float) $this->basic_salary_per_day;
+        $employee->basic_salary_per_month = (float) $this->basic_salary_per_month;
+        $employee->status = $this->status;
+        $employee->is_epf_eligible = $this->is_epf_eligible;
+        $employee->note = $this->note;
+        $employee->save();
+
+        $this->showModal = false;
+        $this->resetForm();
+    }
+
+    public function confirmDelete(int $id): void
+    {
+        $this->authorize('Delete Employee');
+
+        $this->deleteId = $id;
+        $this->showDeleteModal = true;
+    }
+
+    public function delete(): void
+    {
+        $this->authorize('Delete Employee');
+
+        if (!$this->deleteId) {
+            $this->showDeleteModal = false;
+            return;
+        }
+
+        $employee = Employee::query()->findOrFail($this->deleteId);
+        $employee->delete();
+
+        $this->showDeleteModal = false;
+        $this->deleteId = null;
+    }
+
+    public function cancelDelete(): void
+    {
+        $this->showDeleteModal = false;
+        $this->deleteId = null;
+    }
+
+    private function resetForm(): void
+    {
+        $this->editingId = null;
+        $this->branch_id = null;
+        $this->user_id = null;
+        $this->department_id = null;
+        $this->designation_id = null;
+        $this->staff_code = null;
+        $this->name = '';
+        $this->email = null;
+        $this->phone = null;
+        $this->hire_date = null;
+        $this->employment_type = 'full_time';
+        $this->basic_salary_per_day = 0;
+        $this->basic_salary_per_month = 0;
+        $this->status = 'active';
+        $this->is_epf_eligible = true;
+        $this->note = null;
+    }
+
+    public function render()
+    {
+        $departments = Department::query()->orderBy('name')->get(['id', 'name']);
+        $designations = Designation::query()->orderBy('name')->get(['id', 'name']);
+
+        $users = User::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->orderBy('name')
+            ->limit(200)
+            ->get(['id', 'name', 'email']);
+
+        $employees = Employee::query()
+            ->with([
+                'branch:id,name',
+                'department:id,name',
+                'designation:id,name',
+                'user:id,name,email',
+            ])
+            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->search, function ($q) {
+                $q->where(function ($q2) {
+                    $q2->where('name', 'like', "%{$this->search}%")
+                        ->orWhere('staff_code', 'like', "%{$this->search}%")
+                        ->orWhere('email', 'like', "%{$this->search}%")
+                        ->orWhere('phone', 'like', "%{$this->search}%");
+                });
+            })
+            ->orderBy('name')
+            ->paginate(15);
+
+        return view('hrm::livewire.employees-list', [
+            'employees' => $employees,
+            'departments' => $departments,
+            'designations' => $designations,
+            'users' => $users,
+        ])->layout('layouts.app');
+    }
+}

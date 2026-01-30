@@ -1,0 +1,16 @@
+{
+    "name": "Hrm",
+    "alias": "hrm",
+    "description": "Human Resource Management module",
+    "keywords": [
+        "hrm",
+        "employees",
+        "attendance",
+        "leave"
+    ],
+    "priority": 0,
+    "providers": [
+        "Modules\\Hrm\\Providers\\HrmServiceProvider"
+    ],
+    "files": []
+}

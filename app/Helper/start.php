@@ -230,6 +230,10 @@ if (!function_exists('user_can')) {
 
     function user_can($permission)
     {
+        if (user() && method_exists(user(), 'can')) {
+            return user()->can($permission);
+        }
+
         if (is_null(role_permissions())) {
             $rolePermissions = [];
         } else {

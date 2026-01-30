@@ -14,5 +14,8 @@ Schedule::command('app:hide-cron-job-message')->everyMinute();
 
 Schedule::command('queue:flush')->weekly();
 
+// HRM: mark absent for any active employees not marked for the day
+Schedule::command('hrm:auto-absent')->dailyAt('23:59');
+
 // Schedule the queue:work command to run without overlapping and with 3 tries
 Schedule::command('queue:work database --tries=3 --stop-when-empty')->withoutOverlapping();
