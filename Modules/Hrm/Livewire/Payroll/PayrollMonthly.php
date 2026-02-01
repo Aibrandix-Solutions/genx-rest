@@ -313,6 +313,26 @@ class PayrollMonthly extends Component
 
         $employeeIds = $employees->pluck('id')->all();
 
+        // POS customer due for employees as of month end
+        // (sum of max(0, total - amount_paid) for payment_due orders up to $to)
+        $posDueByEmployee = DB::table('customers as c')
+            ->join('hrm_employees as e', 'e.id', '=', 'c.employee_id')
+            ->leftJoin('orders as o', function ($join) use ($to) {
+                $join->on('o.customer_id', '=', 'c.id')
+                    ->where('o.status', '=', 'payment_due')
+                    ->where('o.date_time', '<=', $to->copy()->endOfDay()->toDateTimeString());
+            })
+            ->leftJoin('branches as b', 'b.id', '=', 'o.branch_id')
+            ->where('c.restaurant_id', restaurant()->id)
+            ->whereIn('c.employee_id', $employeeIds)
+            ->where(function ($q) {
+                $q->whereNull('o.id')
+                    ->orWhere('b.restaurant_id', restaurant()->id);
+            })
+            ->groupBy('c.employee_id')
+            ->select('c.employee_id', DB::raw('SUM(CASE WHEN (o.total - o.amount_paid) > 0 THEN (o.total - o.amount_paid) ELSE 0 END) as due'))
+            ->pluck('due', 'employee_id');
+
         $presentCounts = AttendanceLog::query()
             ->where('restaurant_id', restaurant()->id)
             ->where('branch_id', (int) $this->branchId)
@@ -393,7 +413,9 @@ class PayrollMonthly extends Component
             $etf = 0;
             
             $timeDeduction = (float) ($adj?->time_deduction ?? 0);
-            $creditPurchase = (float) ($adj?->credit_purchase ?? 0);
+            $creditPurchaseAuto = (float) ($posDueByEmployee[$e->id] ?? 0);
+            $creditPurchaseManual = (float) ($adj?->credit_purchase ?? 0);
+            $creditPurchase = $creditPurchaseManual > 0 ? $creditPurchaseManual : $creditPurchaseAuto;
             $otherDeduction = (float) ($adj?->other_deduction ?? 0);
 
             $totalEarning = $monthlyBasic + $additionalPay;

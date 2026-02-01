@@ -3,6 +3,7 @@
 namespace Modules\Hrm\Livewire\CreditPurchases;
 
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Livewire\WithPagination;
@@ -233,9 +234,32 @@ class CreditPurchaseManager extends Component
             ->orderBy('name')
             ->get();
 
+        $employeeIds = $employees->pluck('id')->all();
+        $posDueByEmployee = [];
+
+        if (!empty($employeeIds)) {
+            $posDueByEmployee = DB::table('customers as c')
+                ->leftJoin('orders as o', function ($join) {
+                    $join->on('o.customer_id', '=', 'c.id')
+                        ->where('o.status', '=', 'payment_due');
+                })
+                ->leftJoin('branches as b', 'b.id', '=', 'o.branch_id')
+                ->where('c.restaurant_id', restaurant()->id)
+                ->whereIn('c.employee_id', $employeeIds)
+                ->where(function ($q) {
+                    $q->whereNull('o.id')
+                        ->orWhere('b.restaurant_id', restaurant()->id);
+                })
+                ->groupBy('c.employee_id')
+                ->select('c.employee_id', DB::raw('SUM(CASE WHEN (o.total - o.amount_paid) > 0 THEN (o.total - o.amount_paid) ELSE 0 END) as due'))
+                ->pluck('due', 'employee_id')
+                ->toArray();
+        }
+
         return view('hrm::livewire.credit-purchases.manager', [
             'creditPurchases' => $creditPurchases,
             'employees' => $employees,
+            'posDueByEmployee' => $posDueByEmployee,
         ])->layout('layouts.app');
     }
 }

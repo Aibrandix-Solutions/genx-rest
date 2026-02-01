@@ -52,6 +52,48 @@
         </div>
     </div>
 
+    <!-- POS Due Summary (Read-only) -->
+    @php
+        $posDueByEmployee = $posDueByEmployee ?? [];
+        $posDueRows = collect($employees ?? [])->map(function ($e) use ($posDueByEmployee) {
+            $due = (float) ($posDueByEmployee[$e->id] ?? 0);
+            return [
+                'id' => $e->id,
+                'name' => $e->name,
+                'due' => $due,
+            ];
+        })->filter(fn($row) => $row['due'] > 0)->sortByDesc('due')->values();
+    @endphp
+    @if($posDueRows->count() > 0)
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">POS Due (Employee Customers)</h3>
+                    <p class="text-xs text-gray-600 dark:text-gray-400">Read-only: calculated from POS orders with payment due</p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                        <tr>
+                            <th class="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">Employee</th>
+                            <th class="px-4 py-2 text-right font-semibold text-gray-700 dark:text-gray-300">Due</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                        @foreach($posDueRows as $r)
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                <td class="px-4 py-2 text-gray-900 dark:text-white">{{ $r['name'] }}</td>
+                                <td class="px-4 py-2 text-right font-medium text-gray-900 dark:text-white">{{ number_format($r['due'], 2) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    @endif
+
     <!-- Credit Purchases Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div class="overflow-x-auto">
