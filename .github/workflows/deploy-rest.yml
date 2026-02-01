@@ -2,7 +2,7 @@ name: Deploy Genx Restaurant (rest.digipartner.lk via SFTP)
 
 on:
   push:
-    branches: [hrm]
+    branches: [payment-account]
   workflow_dispatch:
 
 jobs:

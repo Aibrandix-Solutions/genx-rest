@@ -150,6 +150,16 @@ return [
         'Close Cash Register' => 'Close Cash Register',
         'Open Cash Register' => 'Open Cash Register',
         'Delete Kitchen Place' => 'Delete Kitchen Place',
+
+        // Payment Accounts
+        'Show Payment Account' => 'Show Payment Account',
+        'Create Payment Account' => 'Create Payment Account',
+        'Update Payment Account' => 'Update Payment Account',
+        'Delete Payment Account' => 'Delete Payment Account',
+        'Show Payment Account Report' => 'Show Payment Account Report',
+        'Show Payment Account Balance Sheet' => 'Show Payment Account Balance Sheet',
+        'Show Payment Account Trial Balance' => 'Show Payment Account Trial Balance',
+        'Show Payment Account Cash Flow' => 'Show Payment Account Cash Flow',
     ],
 
     'modules' => [
@@ -184,6 +194,9 @@ return [
         'Kiosk' => 'Kiosk',
         'Cash Register' => 'Cash Register',
         'Sms' => 'Sms',
+
+        // Payment Accounts
+        'Payment Accounts' => 'Payment Accounts',
     ],
 
 

@@ -47,14 +47,25 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     });
 
     // Payment Accounts & Reports
-    Route::resource('payment-accounts', \Modules\Inventory\Http\Controllers\PaymentAccountController::class);
+    Route::resource('payment-accounts', \Modules\Inventory\Http\Controllers\PaymentAccountController::class)
+        ->middleware('can:Show Payment Account');
     Route::prefix('payment-accounts')->name('payment-accounts.')->group(function () {
-        Route::get('reports/account-report', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'report'])->name('report');
-        Route::get('reports/balance-sheet', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'balanceSheet'])->name('balance-sheet');
-        Route::get('reports/trial-balance', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'trialBalance'])->name('trial-balance');
-        Route::get('reports/cash-flow', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'cashFlow'])->name('cash-flow');
+        Route::get('reports/account-report', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'report'])
+            ->middleware('can:Show Payment Account Report')
+            ->name('report');
+        Route::get('reports/balance-sheet', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'balanceSheet'])
+            ->middleware('can:Show Payment Account Balance Sheet')
+            ->name('balance-sheet');
+        Route::get('reports/trial-balance', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'trialBalance'])
+            ->middleware('can:Show Payment Account Trial Balance')
+            ->name('trial-balance');
+        Route::get('reports/cash-flow', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'cashFlow'])
+            ->middleware('can:Show Payment Account Cash Flow')
+            ->name('cash-flow');
         // Export Route
-        Route::get('reports/export', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'exportReport'])->name('export');
+        Route::get('reports/export', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'exportReport'])
+            ->middleware('can:Show Payment Account Report')
+            ->name('export');
     });
 
     // New Reports Section
