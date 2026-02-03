@@ -112,10 +112,28 @@
 
             <div class="space-y-4 bg-gray-50 p-3 dark:bg-gray-800">
                 <div class="space-y-2">
+                    @php
+                        $extrasTotal = (float) ($order->extras?->sum('amount') ?? 0);
+                        $chargeTaxBase = max(0, (float) $order->sub_total + $extrasTotal - ((float) ($order->discount_amount ?? 0)));
+                    @endphp
                     <dl class="flex items-center justify-between gap-4">
                         <dt class="font-normal text-gray-500 dark:text-gray-400"> @lang('modules.order.subTotal')</dt>
                         <dd class="font-medium text-gray-900 dark:text-white">{{ currency_format($order->sub_total, $restaurant->currency_id) }}</dd>
                     </dl>
+
+                    @if (restaurant()->allow_custom_order_extras ?? false)
+                        @foreach(($order->extras ?? []) as $extra)
+                            @php
+                                $extraAmount = (float) ($extra->amount ?? 0);
+                                $extraNote = trim((string) ($extra->note ?? ''));
+                            @endphp
+                            @continue($extraAmount <= 0 && $extraNote === '')
+                            <dl class="flex items-center justify-between gap-4 text-sm text-gray-500 dark:text-gray-400">
+                                <dt class="font-normal">{{ $extraNote !== '' ? $extraNote : 'Extra' }}</dt>
+                                <dd class="font-medium text-gray-900 dark:text-white">{{ currency_format($extraAmount, $restaurant->currency_id) }}</dd>
+                            </dl>
+                        @endforeach
+                    @endif
 
                     @if ($order->discount_amount)
                         <dl class="flex items-center justify-between gap-4 text-sm text-gray-500 dark:text-gray-400">
@@ -132,7 +150,7 @@
                             @endif
                         </div>
                         <div>
-                            {{ currency_format(($item->charge->getAmount($order->sub_total - ($order->discount_amount ?? 0))), $restaurant->currency_id) }}
+                            {{ currency_format(($item->charge->getAmount($chargeTaxBase)), $restaurant->currency_id) }}
                         </div>
                     </div>
                     @endforeach
@@ -140,7 +158,7 @@
                     @foreach ($order->taxes as $item)
                     <dl class="flex items-center justify-between gap-4 text-sm text-gray-500 dark:text-gray-400">
                         <dt class="font-normal">{{ $item->tax->tax_name }} ({{ $item->tax->tax_percent }}%)</dt>
-                        <dd class="text-sm font-medium ">{{ currency_format(($item->tax->tax_percent / 100) * $order->sub_total, $restaurant->currency_id) }}</dd>
+                        <dd class="text-sm font-medium ">{{ currency_format(($item->tax->tax_percent / 100) * $chargeTaxBase, $restaurant->currency_id) }}</dd>
                     </dl>
                     @endforeach
 
