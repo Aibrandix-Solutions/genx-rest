@@ -16,6 +16,7 @@ use App\Models\OrderTax;
 use App\Models\OrderItem;
 use App\Models\OrderType;
 use App\Models\OrderCharge;
+use App\Models\OrderExtra;
 use App\Scopes\BranchScope;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
@@ -98,6 +99,7 @@ class Pos extends Component
     public $orderItemOriginalPrice = [];
     public $orderItemComboDiscount = [];
     public $extraCharges;
+    public $orderExtras = [];
     public $discountedTotal;
     public $tipAmount = 0;
     public $orderStatus;
@@ -229,6 +231,15 @@ class Pos extends Component
             $this->deliveryDateTime = $order->pickup_date;
             $this->taxMode = $order->tax_mode ?? $this->taxMode;
             $this->selectedDeliveryApp = $order->delivery_app_id;
+
+            $this->orderExtras = $order->extras()
+                ->orderBy('id')
+                ->get(['note', 'amount'])
+                ->map(fn($extra) => [
+                    'note' => $extra->note,
+                    'amount' => (float) $extra->amount,
+                ])
+                ->toArray();
 
             if ($this->orderDetail) {
 
@@ -1279,20 +1290,30 @@ class Pos extends Component
             }
         }
 
-        $this->discountedTotal = $this->total;
+        $itemsSubTotalForDiscount = $this->subTotal;
+        $extrasTotal = $this->getOrderExtrasTotal();
+
+        // Extras are part of order total, but excluded from discount calculations
+        if ($extrasTotal > 0) {
+            $this->total += $extrasTotal;
+        }
 
         // Apply discounts
         if ($this->discountValue > 0 && $this->discountType) {
             if ($this->discountType === 'percent') {
-                $this->discountAmount = round(($this->subTotal * $this->discountValue) / 100, 2);
+                $this->discountAmount = round(($itemsSubTotalForDiscount * $this->discountValue) / 100, 2);
             } elseif ($this->discountType === 'fixed') {
-                $this->discountAmount = min($this->discountValue, $this->subTotal);
+                $this->discountAmount = min($this->discountValue, $itemsSubTotalForDiscount);
             }
 
             $this->total -= $this->discountAmount;
         }
 
-        $this->discountedTotal = $this->total;
+        // Charges/taxes base should match POS UI breakdown:
+        // base = (items subtotal + custom extras) - discount
+        // Note: custom extras are excluded from discount calculations (handled above).
+        $chargeAndTaxBase = max(0, round(($this->subTotal + $extrasTotal) - ((float) ($this->discountAmount ?? 0)), 2));
+        $this->discountedTotal = $chargeAndTaxBase;
 
         // Calculate taxes using centralized method
         $this->recalculateTaxTotals();
@@ -1336,6 +1357,7 @@ class Pos extends Component
             'order_number' => $this->orderNumber,
             'formatted_order_number' => $this->formattedOrderNumber,
             'items' => $this->getCustomerDisplayItems(),
+            'custom_extras' => $this->getCustomerDisplayCustomExtras(),
             'sub_total' => $this->subTotal,
             'discount' => $this->discountAmount ?? 0,
             'total' => $this->total,
@@ -1373,10 +1395,107 @@ class Pos extends Component
             'order_number' => $this->orderNumber,
             'formatted_order_number' => $this->formattedOrderNumber,
             'items' => $this->getCustomerDisplayItems(),
+            'custom_extras' => $this->getCustomerDisplayCustomExtras(),
             'sub_total' => $this->subTotal,
             'discount' => $this->discountAmount ?? 0,
             'total' => $this->total,
         ]);
+    }
+
+    public function updated($name, $value)
+    {
+        if (is_string($name) && Str::startsWith($name, 'orderExtras.')) {
+            $this->calculateTotal();
+        }
+    }
+
+    public function updatedOrderExtras()
+    {
+        $this->calculateTotal();
+    }
+
+    public function addOrderExtraRow()
+    {
+        if (!(restaurant()->allow_custom_order_extras ?? false)) {
+            return;
+        }
+
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        $this->orderExtras[] = [
+            'amount' => 0,
+            'note' => '',
+        ];
+
+        $this->calculateTotal();
+    }
+
+    public function removeOrderExtraRow($index)
+    {
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        if (!isset($this->orderExtras[$index])) {
+            return;
+        }
+
+        unset($this->orderExtras[$index]);
+        $this->orderExtras = array_values($this->orderExtras);
+        $this->calculateTotal();
+    }
+
+    private function normalizeOrderExtras(): array
+    {
+        $normalized = [];
+
+        foreach (($this->orderExtras ?? []) as $extra) {
+            if (!is_array($extra)) {
+                continue;
+            }
+
+            $note = trim((string) ($extra['note'] ?? ''));
+            $amount = (float) ($extra['amount'] ?? 0);
+            $amount = max(0, round($amount, 2));
+
+            if ($note === '' && $amount <= 0) {
+                continue;
+            }
+
+            $normalized[] = [
+                'note' => ($note !== '' ? $note : null),
+                'amount' => $amount,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function getOrderExtrasTotal(): float
+    {
+        return (float) collect($this->normalizeOrderExtras())->sum('amount');
+    }
+
+    private function getCustomerDisplayCustomExtras(): array
+    {
+        return $this->normalizeOrderExtras();
+    }
+
+    private function syncOrderExtras(Order $order): void
+    {
+        if (!(restaurant()->allow_custom_order_extras ?? false)) {
+            return;
+        }
+
+        $extras = $this->normalizeOrderExtras();
+
+        $order->extras()->delete();
+
+        if (!empty($extras)) {
+            $order->extras()->createMany($extras);
+        }
     }
 
     private function recalculateTaxTotals()
@@ -1526,6 +1645,10 @@ class Pos extends Component
 
         $this->validate($rules, $messages);
 
+        // Ensure totals are up-to-date (especially nested orderExtras changes)
+        // before persisting to the database.
+        $this->calculateTotal();
+
         switch ($action) {
             case 'bill':
                 $successMessage = __('messages.billedSuccess');
@@ -1637,6 +1760,8 @@ class Pos extends Component
             $order->taxes()->delete();
         }
 
+        $this->syncOrderExtras($order);
+
         if ($status == 'canceled') {
             $order->delete();
 
@@ -1655,12 +1780,29 @@ class Pos extends Component
                 // Group items by kot_place_id
                 $groupedItems = [];
 
+                $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)
+                    ->where('is_default', true)
+                    ->value('id');
+
+                if (!$defaultKotPlaceId) {
+                    $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)->value('id');
+                }
+
                 foreach ($this->orderItemList as $key => $item) {
                     $menuItem = $this->orderItemVariation[$key]->menuItem ?? $item;
                     $kotPlaceId = $menuItem->kot_place_id ?? null;
 
                     if (!$kotPlaceId) {
-                        continue;
+                        if ($defaultKotPlaceId) {
+                            // Persist the fallback so this doesn't break future orders/KOTs.
+                            MenuItem::withoutGlobalScopes()
+                                ->whereKey($menuItem->id)
+                                ->update(['kot_place_id' => $defaultKotPlaceId]);
+
+                            $kotPlaceId = $defaultKotPlaceId;
+                        } else {
+                            continue;
+                        }
                     }
 
                     $groupedItems[$kotPlaceId][] = [
@@ -1679,6 +1821,7 @@ class Pos extends Component
 
                 foreach ($groupedItems as $kotPlaceId => $items) {
                     $kot = Kot::create([
+                        'branch_id' => $order->branch_id,
                         'kot_number' => Kot::generateKotNumber($order->branch),
                         'order_id' => $order->id,
                         'order_type_id' => $order->order_type_id,
@@ -1711,6 +1854,7 @@ class Pos extends Component
             } else {
                 // No kitchen module: single KOT for all items
                 $kot = Kot::create([
+                    'branch_id' => $order->branch_id,
                     'kot_number' => Kot::generateKotNumber($order->branch) + 1,
                     'order_id' => $order->id,
                     'order_type_id' => $order->order_type_id,
@@ -1843,6 +1987,7 @@ class Pos extends Component
                         : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
                     
                     $orderItem = OrderItem::create([
+                        'branch_id' => $order->branch_id,
                         'order_id' => $order->id,
                         'menu_item_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $this->orderItemList[$key]->id),
                         'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
@@ -1904,6 +2049,7 @@ class Pos extends Component
                     : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
                 
                 $orderItem = OrderItem::create([
+                    'branch_id' => $order->branch_id,
                     'order_type' => $this->orderType,
                     'order_type_id' => $this->orderTypeId,
                     'order_id' => $order->id,
@@ -1957,6 +2103,14 @@ class Pos extends Component
             foreach ($order->load('items')->items as $value) {
                 $this->subTotal = ($this->subTotal + $value->amount);
                 $this->total = ($this->total + $value->amount);
+            }
+
+            // Include custom extras in billed totals (extras are not part of sub_total)
+            $stateExtrasTotal = $this->getOrderExtrasTotal();
+            $dbExtrasTotal = (float) $order->extras()->sum('amount');
+            $extrasTotal = max($stateExtrasTotal, $dbExtrasTotal);
+            if ($extrasTotal > 0) {
+                $this->total += $extrasTotal;
             }
 
             $this->discountedTotal = $this->total;
@@ -2148,8 +2302,12 @@ class Pos extends Component
                 $kotPlaceItems = [];
 
                 foreach ($kot->items as $kotItem) {
-                    if ($kotItem->menuItem && $kotItem->menuItem->kot_place_id) {
-                        $kotPlaceId = $kotItem->menuItem->kot_place_id;
+                    if ($kotItem->menuItem) {
+                        $kotPlaceId = $kotItem->menuItem->kot_place_id ?: $kot->kitchen_place_id;
+
+                        if (!$kotPlaceId) {
+                            continue;
+                        }
 
                         if (!isset($kotPlaceItems[$kotPlaceId])) {
                             $kotPlaceItems[$kotPlaceId] = [];

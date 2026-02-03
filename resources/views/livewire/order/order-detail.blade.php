@@ -515,6 +515,22 @@
                             </div>
                         </div>
 
+                        @php
+                            $extrasTotal = (float) ($order->extras?->sum('amount') ?? 0);
+                            $chargeTaxBase = $order->sub_total + $extrasTotal - ($order->discount_amount ?? 0);
+                        @endphp
+
+                        @if(($order->extras?->count() ?? 0) > 0)
+                            @foreach ($order->extras as $extra)
+                                @if(($extra->amount ?? 0) > 0 || $extra->note)
+                                    <div class="flex justify-between text-sm text-gray-500 dark:text-gray-400">
+                                        <div>{{ $extra->note ?: 'Extra' }}</div>
+                                        <div>{{ currency_format($extra->amount, $currencyId) }}</div>
+                                    </div>
+                                @endif
+                            @endforeach
+                        @endif
+
                         @if (!is_null($order->discount_amount))
                             <div wire:key="discountAmount"
                                 class="flex justify-between text-sm text-green-500 dark:text-green-400">
@@ -550,7 +566,7 @@
                                     @endif
                                 </div>
                                 <div>
-                                    {{ currency_format($item->charge->getAmount($order->sub_total - ($order->discount_amount ?? 0)), $currencyId) }}
+                                    {{ currency_format($item->charge->getAmount($chargeTaxBase), $currencyId) }}
                                 </div>
                             </div>
                         @endforeach
@@ -588,7 +604,7 @@
                                         {{ $item->tax->tax_name }} ({{ $item->tax->tax_percent }}%)
                                     </div>
                                     <div>
-                                        {{ currency_format(($item->tax->tax_percent / 100) * ($order->sub_total - ($order->discount_amount ?? 0)), restaurant()->currency_id) }}
+                                        {{ currency_format(($item->tax->tax_percent / 100) * ($chargeTaxBase), restaurant()->currency_id) }}
                                     </div>
                                 </div>
                             @endforeach

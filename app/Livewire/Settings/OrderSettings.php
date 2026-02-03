@@ -26,6 +26,7 @@ class OrderSettings extends Component
     public $resetDaily = false;
     public $hideMenuItemImageOnPos = false;
     public $hideMenuItemImageOnCustomerSite = false;
+    public $allowCustomOrderExtras = false;
     public $settings;
     public $tokenSettings = [];
 
@@ -43,6 +44,7 @@ class OrderSettings extends Component
 
         $this->hideMenuItemImageOnPos = (bool) restaurant()->hide_menu_item_image_on_pos ?? false;
         $this->hideMenuItemImageOnCustomerSite = (bool) restaurant()->hide_menu_item_image_on_customer_site ?? false;
+        $this->allowCustomOrderExtras = (bool) (restaurant()->allow_custom_order_extras ?? false);
     }
 
     public function setActiveTab($tab)
@@ -94,6 +96,7 @@ class OrderSettings extends Component
             'branchId' => 'required|exists:branches,id',
             'hideMenuItemImageOnPos' => 'boolean',
             'hideMenuItemImageOnCustomerSite' => 'boolean',
+            'allowCustomOrderExtras' => 'boolean',
         ]);
 
         // Get the current restaurant for this branch
@@ -102,6 +105,7 @@ class OrderSettings extends Component
             $branch->restaurant->update([
                 'hide_menu_item_image_on_pos' => $this->hideMenuItemImageOnPos,
                 'hide_menu_item_image_on_customer_site' => $this->hideMenuItemImageOnCustomerSite,
+                'allow_custom_order_extras' => $this->allowCustomOrderExtras,
             ]);
         }
 

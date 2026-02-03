@@ -100,6 +100,20 @@
                     <span class="text-gray-500">@lang('modules.order.subTotal')</span>
                     <span class="font-semibold text-gray-700">{{ currency_format($subTotal, restaurant()->currency_id) }}</span>
                 </div>
+
+                @if(!empty($customExtras))
+                    @foreach($customExtras as $extra)
+                        @php
+                            $extraAmount = (float) ($extra['amount'] ?? 0);
+                            $extraNote = trim((string) ($extra['note'] ?? ''));
+                        @endphp
+                        @continue($extraAmount <= 0 && $extraNote === '')
+                        <div class="flex justify-between text-base">
+                            <span class="text-gray-500">{{ $extraNote !== '' ? $extraNote : 'Extra' }}</span>
+                            <span class="text-orange-600">+{{ currency_format($extraAmount, restaurant()->currency_id) }}</span>
+                        </div>
+                    @endforeach
+                @endif
                 @if($discount > 0)
                 <div class="flex justify-between">
                     <span class="text-gray-500">@lang('modules.order.discount')</span>

@@ -419,6 +419,15 @@
 
     <div>
         <div class="w-full h-auto p-4 mt-3 space-y-4 text-center rounded select-none bg-gray-50 dark:bg-gray-700">
+            @php
+                $orderExtrasTotal = collect($orderExtras ?? [])->sum(fn($e) => (float) ($e['amount'] ?? 0));
+            @endphp
+
+            @if(app()->environment('local'))
+                <div class="text-left text-xs text-gray-400" wire:key="dbg-allow-custom-order-extras">
+                    DBG allow_custom_order_extras={{ (int) (restaurant()->allow_custom_order_extras ?? 0) }} (restaurant_id={{ restaurant()->id ?? 'n/a' }})
+                </div>
+            @endif
             @if (count($orderItemList) > 0 && user_can('Update Order'))
                 <div class="text-left">
                     <x-secondary-button wire:click="showAddDiscount">
@@ -449,6 +458,41 @@
                     {{ currency_format($subTotal, restaurant()->currency_id) }}
                 </div>
             </div>
+
+            @if (restaurant()->allow_custom_order_extras ?? false)
+                <div class="pt-2 text-left">
+                    <div class="flex items-center justify-between">
+                        <div class="text-sm font-medium text-gray-700 dark:text-gray-200">Custom Extras</div>
+                        @if ((user_can('Update Order') && $orderID) || (user_can('Create Order') && !$orderID))
+                            <x-secondary-button wire:click="addOrderExtraRow">+ Add</x-secondary-button>
+                        @endif
+                    </div>
+
+                    @foreach(($orderExtras ?? []) as $index => $extra)
+                        <div class="flex gap-2 items-center mt-2">
+                            <x-input type="number" step="0.01" min="0" class="w-1/3 text-sm" placeholder="Amount" wire:model.live="orderExtras.{{ $index }}.amount" />
+                            <x-input type="text" class="w-2/3 text-sm" placeholder="Note (optional)" wire:model.live="orderExtras.{{ $index }}.note" />
+                            <button type="button" class="text-red-500 hover:scale-110 active:scale-100" wire:click="removeOrderExtraRow({{ $index }})" title="Remove">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    @endforeach
+                </div>
+
+                @foreach(($orderExtras ?? []) as $extra)
+                    @php
+                        $extraAmount = (float) ($extra['amount'] ?? 0);
+                        $extraNote = trim((string) ($extra['note'] ?? ''));
+                    @endphp
+                    @continue($extraAmount <= 0 && $extraNote === '')
+                    <div class="flex justify-between text-sm text-gray-500 dark:text-neutral-400">
+                        <div>{{ $extraNote !== '' ? $extraNote : 'Extra' }}</div>
+                        <div>{{ currency_format($extraAmount, restaurant()->currency_id) }}</div>
+                    </div>
+                @endforeach
+            @endif
 
             @if ($discountAmount)
                 <div wire:key="discountAmount"
@@ -492,7 +536,7 @@
                         @endif
                     </div>
                     <div>
-                        {{ currency_format($charge->getAmount($subTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
+                        {{ currency_format($charge->getAmount($subTotal + $orderExtrasTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
                     </div>
                 </div>
             @endforeach
@@ -530,7 +574,7 @@
                             {{ $item->tax_name }} ({{ $item->tax_percent }}%)
                         </div>
                         <div>
-                            {{ currency_format(($item->tax_percent / 100) * ($subTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
+                            {{ currency_format(($item->tax_percent / 100) * ($subTotal + $orderExtrasTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
                         </div>
                     </div>
                 @endforeach
