@@ -250,6 +250,8 @@ return [
         'changeOrderType' => 'Change Order Type?',
         'changeOrderTypeConfirmation' => 'Changing order type may change price and options.',
         'orderTypeSetTo' => 'Order type set to :type',
+        'platform' => 'Platform',
+        'default' => 'Default',
         'deliveryPlatformLabel' => 'Platform',
         'orderTypeLabel' => 'Order Type',
         'defaultDeliveryPlatform' => 'Default',

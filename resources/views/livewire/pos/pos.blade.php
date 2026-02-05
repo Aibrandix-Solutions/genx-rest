@@ -1,7 +1,6 @@
 <div>
-    @if(!$orderTypeId)
-    @livewire('forms.OrderTypeSelection')
-    @endif
+    {{-- Legacy order type modal (kept for reference; no longer rendered) --}}
+    {{-- @livewire('forms.OrderTypeSelection') --}}
     <div class="flex-grow lg:flex h-auto">
 
 
