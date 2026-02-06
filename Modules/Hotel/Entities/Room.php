@@ -1,0 +1,86 @@
+<?php
+
+namespace Modules\Hotel\Entities;
+
+use App\Models\Branch;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class Room extends Model
+{
+    use HasFactory;
+
+    protected $table = 'hotel_rooms';
+
+    protected $fillable = [
+        'branch_id',
+        'room_type_id',
+        'room_number',
+        'floor',
+        'section',
+        'status',
+        'notes',
+        'last_cleaned_at',
+    ];
+
+    protected $casts = [
+        'last_cleaned_at' => 'datetime',
+    ];
+
+    const STATUS_AVAILABLE = 'available';
+    const STATUS_OCCUPIED = 'occupied';
+    const STATUS_CLEANING = 'cleaning';
+    const STATUS_MAINTENANCE = 'maintenance';
+    const STATUS_RESERVED = 'reserved';
+    const STATUS_BLOCKED = 'blocked';
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
+    public function roomType(): BelongsTo
+    {
+        return $this->belongsTo(RoomType::class);
+    }
+
+    public function reservations(): HasMany
+    {
+        return $this->hasMany(Reservation::class);
+    }
+
+    public function housekeepingTasks(): HasMany
+    {
+        return $this->hasMany(HousekeepingTask::class);
+    }
+
+    /**
+     * Get current reservation (checked-in)
+     */
+    public function currentReservation(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Reservation::class)->where('status', Reservation::STATUS_CHECKED_IN);
+    }
+
+    /**
+     * Check if room is available for specific dates
+     */
+    public function isAvailableForDates($checkIn, $checkOut)
+    {
+        $conflictingReservations = $this->reservations()
+            ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+            ->where(function($query) use ($checkIn, $checkOut) {
+                $query->whereBetween('check_in_date', [$checkIn, $checkOut])
+                      ->orWhereBetween('checkout_date', [$checkIn, $checkOut])
+                      ->orWhere(function($q) use ($checkIn, $checkOut) {
+                          $q->where('check_in_date', '<=', $checkIn)
+                            ->where('checkout_date', '>=', $checkOut);
+                      });
+            })
+            ->exists();
+
+        return !$conflictingReservations && in_array($this->status, [self::STATUS_AVAILABLE, self::STATUS_RESERVED]);
+    }
+}

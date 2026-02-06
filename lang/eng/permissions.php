@@ -160,6 +160,41 @@ return [
         'Show Payment Account Balance Sheet' => 'Show Payment Account Balance Sheet',
         'Show Payment Account Trial Balance' => 'Show Payment Account Trial Balance',
         'Show Payment Account Cash Flow' => 'Show Payment Account Cash Flow',
+
+        // Hotel Permissions
+        'view_hotel_dashboard' => 'View Hotel Dashboard',
+        'view_hotel_room_types' => 'View Hotel Room Types',
+        'create_room_type' => 'Create Room Type',
+        'edit_room_type' => 'Edit Room Type',
+        'delete_room_type' => 'Delete Room Type',
+        'view_hotel_rooms' => 'View Hotel Rooms',
+        'create_room' => 'Create Room',
+        'edit_room' => 'Edit Room',
+        'delete_room' => 'Delete Room',
+        'change_room_status' => 'Change Room Status',
+        'view_hotel_reservations' => 'View Hotel Reservations',
+        'create_reservation' => 'Create Reservation',
+        'edit_reservation' => 'Edit Reservation',
+        'delete_reservation' => 'Delete Reservation',
+        'check_in_guest' => 'Check In Guest',
+        'check_out_guest' => 'Check Out Guest',
+        'view_hotel_guests' => 'View Hotel Guests',
+        'create_guest' => 'Create Guest',
+        'edit_guest' => 'Edit Guest',
+        'delete_guest' => 'Delete Guest',
+        'view_hotel_billing' => 'View Hotel Billing',
+        'add_room_charge' => 'Add Room Charge',
+        'edit_room_charge' => 'Edit Room Charge',
+        'delete_room_charge' => 'Delete Room Charge',
+        'process_hotel_payment' => 'Process Hotel Payment',
+        'refund_reservation' => 'Refund Reservation',
+        'view_hotel_housekeeping' => 'View Hotel Housekeeping',
+        'create_housekeeping_task' => 'Create Housekeeping Task',
+        'assign_housekeeping_task' => 'Assign Housekeeping Task',
+        'complete_housekeeping_task' => 'Complete Housekeeping Task',
+        'view_hotel_reports' => 'View Hotel Reports',
+        'manage_hotel_settings' => 'Manage Hotel Settings',
+        'manage_room_prices' => 'Manage Room Prices',
     ],
 
     'modules' => [
@@ -197,6 +232,7 @@ return [
 
         // Payment Accounts
         'Payment Accounts' => 'Payment Accounts',
+        'Hotel' => 'Hotel',
     ],
 
 

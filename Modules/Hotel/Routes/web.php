@@ -1,0 +1,23 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use Modules\Hotel\Http\Controllers\HotelController;
+
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register web routes for your module. These
+| routes are loaded by the RouteServiceProvider within a group which
+| contains the "web" middleware group. Now create something great!
+|
+*/
+
+Route::middleware(['auth'])->prefix('hotel')->name('hotel.')->group(function() {
+    Route::get('/', \Modules\Hotel\Livewire\Dashboard\HotelDashboard::class)->name('dashboard');
+    Route::get('/room-types', \Modules\Hotel\Livewire\RoomType\RoomTypeList::class)->name('room-types');
+    Route::get('/rooms', \Modules\Hotel\Livewire\Room\RoomList::class)->name('rooms');
+    Route::get('/guests', \Modules\Hotel\Livewire\Guest\GuestList::class)->name('guests');
+    Route::get('/reservations', \Modules\Hotel\Livewire\Reservation\ReservationList::class)->name('reservations');
+});
