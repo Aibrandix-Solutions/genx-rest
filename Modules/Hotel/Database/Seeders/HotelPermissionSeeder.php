@@ -76,6 +76,7 @@ class HotelPermissionSeeder extends Seeder
             // Settings
             'manage_hotel_settings',
             'manage_room_prices',
+            'manage_room_service',
         ];
 
         // Create permissions with module_id

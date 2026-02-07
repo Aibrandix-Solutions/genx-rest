@@ -98,6 +98,8 @@ class Pos extends Component
     public $orderItemComboPack = [];
     public $orderItemOriginalPrice = [];
     public $orderItemComboDiscount = [];
+    public $showRoomSelectionModal = false;
+    public $selectedRoomReservationId;
     public $extraCharges;
     public $orderExtras = [];
     public $discountedTotal;
@@ -211,10 +213,17 @@ class Pos extends Component
         }
 
         // Dropdown options (avoid queries in Blade)
-        $this->availableOrderTypes = OrderType::where('is_active', true)
+        // Dropdown options (avoid queries in Blade)
+        $types = OrderType::where('is_active', true)
             ->orderBy('order_type_name')
-            ->get(['id', 'order_type_name', 'slug', 'type'])
-            ->toArray();
+            ->get(['id', 'order_type_name', 'slug', 'type']);
+
+        // Gating for Room Service
+        if (!in_array('Hotel', restaurant_modules()) || !user_can('manage_room_service')) {
+             $types = $types->reject(fn($t) => $t->slug === 'room_service')->values();
+        }
+
+        $this->availableOrderTypes = $types->toArray();
 
         $this->availableDeliveryPlatforms = DeliveryPlatform::where('is_active', true)
             ->orderBy('name')
@@ -267,7 +276,7 @@ class Pos extends Component
         }
 
         if ($this->orderID) {
-            $order = Order::find($this->orderID);
+            $order = Order::with(['hotelReservation.room', 'hotelReservation.guest'])->find($this->orderID);
 
             if (!$order || $order->status === 'canceled') {
                 return $this->redirect(route('pos.index'), navigate: true);
@@ -322,13 +331,9 @@ class Pos extends Component
                 ])
                 ->toArray();
 
-            if ($this->orderDetail) {
-
-                $this->orderDetail = $order;
-
-                $this->selectDeliveryExecutive = $order->delivery_executive_id;
-                $this->setupOrderItems();
-            }
+            $this->orderDetail = $order;
+            $this->selectDeliveryExecutive = $order->delivery_executive_id;
+            $this->setupOrderItems();
         }
 
         $this->updatedOrderTypeId($this->orderTypeId);
@@ -718,6 +723,10 @@ class Pos extends Component
         $this->extraCharges = $orderTypeSlugFromOrder === $this->orderTypeSlug ? $order->extraCharges : $mainExtraCharges;
 
         $this->orderStatus = $order->order_status;
+
+        if ($order->hotel_reservation_id) {
+            $this->selectedRoomReservationId = $order->hotel_reservation_id;
+        }
         
         // Recalculate prices for all items in cart when order type changes
         foreach ($this->orderItemList as $key => $item) {
@@ -846,8 +855,13 @@ class Pos extends Component
     public function showOrderDetail()
     {
         $this->orderDetail = $this->tableOrder->activeOrder;
+        $this->orderDetail->load(['hotelReservation.room', 'hotelReservation.guest']);
         $this->orderType = $this->orderDetail->order_type;
         $this->orderTypeId = $this->orderDetail->order_type_id;
+
+        if ($this->orderDetail->hotel_reservation_id) {
+            $this->selectedRoomReservationId = $this->orderDetail->hotel_reservation_id;
+        }
 
         // Update orderTypeSlug based on order_type_id if available
         if ($this->orderDetail->order_type_id) {
@@ -1154,7 +1168,7 @@ class Pos extends Component
             Order::where('id', $this->orderID)->update(['table_id' => $table->id]);
 
             // Refresh orderDetail to ensure it's the latest object
-            $this->orderDetail = Order::find($this->orderID);
+            $this->orderDetail = Order::with(['hotelReservation.room', 'hotelReservation.guest'])->find($this->orderID);
 
             if (
                 $this->orderDetail && is_object($this->orderDetail) && $this->orderDetail->date_time &&
@@ -1814,11 +1828,16 @@ class Pos extends Component
             $rules['selectWaiter'] = 'required_if:orderType,dine_in';
         }
 
+        if ($this->orderType === 'room_service') {
+            $rules['selectedRoomReservationId'] = 'required';
+        }
+
         $messages = [
             'noOfPax.required_if' => __('messages.enterPax'),
             'tableNo.required_if' => __('messages.setTableNo'),
             'selectWaiter.required_if' => __('messages.selectWaiter'),
             'orderItemList.required' => __('messages.orderItemRequired'),
+            'selectedRoomReservationId.required' => __('modules.order.selectRoom'),
         ];
 
         $this->validate($rules, $messages);
@@ -1871,6 +1890,15 @@ class Pos extends Component
                 $this->intendedOrderAction = $action; // Store the intended action
                 return;
             }
+
+            // For Room Service, we don't set customer_id from guest_id as they are different tables.
+            // We rely on hotel_reservation_id to link to the guest.
+            $customerId = $this->customerId;
+            
+            if ($this->isSameCustomer) {
+                $customerId = $this->reservationCustomer->id;
+            }
+
             $order = Order::create([
                 'order_number' => $orderNumberData['order_number'],
                 'formatted_order_number' => $orderNumberData['formatted_order_number'],
@@ -1895,7 +1923,8 @@ class Pos extends Component
                 'placed_via' => 'pos',
                 'tax_mode' => $this->taxMode,
                 'reservation_id' => $this->isSameCustomer ? $this->reservationId : null,
-                'customer_id' => $this->isSameCustomer ? $this->reservationCustomer->id : $this->customerId,
+                'customer_id' => $customerId,
+                'hotel_reservation_id' => ($this->orderType === 'room_service' ? $this->selectedRoomReservationId : null),
             ]);
 
             if (!empty($this->extraCharges)) {
@@ -1912,7 +1941,7 @@ class Pos extends Component
         } else {
 
             if ($this->orderID) {
-                $this->orderDetail = Order::find($this->orderID);
+                $this->orderDetail = Order::with(['hotelReservation.room', 'hotelReservation.guest'])->find($this->orderID);
             }
 
             $order = ($this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail);
@@ -1931,7 +1960,8 @@ class Pos extends Component
                 'delivery_fee' => ($this->orderType == 'delivery' ? $this->deliveryFee : 0),
                 'delivery_app_id' => ($this->orderType == 'delivery' ? $this->normalizeDeliveryAppId() : null),
                 'status' => $status,
-                'order_status' => $this->orderStatus ?? 'confirmed'
+                'order_status' => $this->orderStatus ?? 'confirmed',
+                'hotel_reservation_id' => ($this->orderType === 'room_service' ? $this->selectedRoomReservationId : null),
             ]);
 
             $order->items()->delete();
@@ -1948,7 +1978,6 @@ class Pos extends Component
             ]);
             return $this->redirect(route('pos.index'), navigate: true);
         }
-
         // Handle KOT creation and totals calculation
 
         $kot = null;
@@ -1956,6 +1985,8 @@ class Pos extends Component
         if ($status == 'kot') {
             if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
                 // Group items by kot_place_id
+                // Gating for Room Service
+
                 $groupedItems = [];
 
                 $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)
@@ -2467,6 +2498,7 @@ class Pos extends Component
     public function printKot($order, $kot = null, $kotIds = [])
     {
         // Check if the 'kitchen' package is enabled
+
         if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
             // Get all KOTs for this order (created above)
 
@@ -3152,10 +3184,19 @@ class Pos extends Component
             ->when(!$showCustomOrderTypes, fn($q) => $q->where('is_default', true))
             ->get();
 
+        // Fetch Active Room Service Reservations for the modal
+        $roomServiceReservations = collect([]);
+        if (in_array('Hotel', restaurant_modules())) {
+            $roomServiceReservations = \Modules\Hotel\Entities\Reservation::with(['room.roomType', 'guest'])
+                ->where('status', 'checked_in')
+                ->get();
+        }
+
         return view('livewire.pos.pos', [
             'menuItems' => $query,
             'comboPacks' => $comboPacks,
-            'orderTypes' => $orderTypes
+            'orderTypes' => $orderTypes,
+            'roomServiceReservations' => $roomServiceReservations
         ]);
     }
 
@@ -3470,5 +3511,33 @@ class Pos extends Component
         $this->reservation = null;
         $this->isSameCustomer = false;
         $this->intendedOrderAction = null;
+    }
+    /**
+     * Show Room Selection Modal
+     */
+    public function changeRoom()
+    {
+        $this->showRoomSelectionModal = true;
+    }
+
+    /**
+     * Close Room Selection Modal
+     */
+    public function closeRoomSelectionModal()
+    {
+        $this->showRoomSelectionModal = false;
+    }
+
+    /**
+     * Select a room reservation
+     * @param int $id
+     */
+    public function selectRoomReservation($id)
+    {
+        $this->selectedRoomReservationId = $id;
+        $this->showRoomSelectionModal = false;
+        
+        // Dispatch event or update UI if needed
+        $this->dispatch('refreshPos');
     }
 }

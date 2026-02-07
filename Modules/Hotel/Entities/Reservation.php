@@ -84,6 +84,11 @@ class Reservation extends Model
         return $this->hasMany(RoomCharge::class);
     }
 
+    public function orders(): HasMany
+    {
+        return $this->hasMany(\App\Models\Order::class, 'hotel_reservation_id');
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');

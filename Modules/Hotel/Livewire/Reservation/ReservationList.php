@@ -84,6 +84,48 @@ class ReservationList extends Component
         $this->findAvailableRooms();
     }
 
+    public $showCreateGuest = false;
+    public $new_guest_first_name = '';
+    public $new_guest_last_name = '';
+    public $new_guest_email = '';
+    public $new_guest_phone = '';
+
+    public function saveGuest()
+    {
+        $this->validate([
+            'new_guest_first_name' => 'required|string|max:255',
+            'new_guest_last_name' => 'required|string|max:255',
+            'new_guest_email' => 'nullable|email|max:255',
+            'new_guest_phone' => 'nullable|string|max:20',
+        ]);
+
+        $guest = \Modules\Hotel\Entities\Guest::create([
+            'branch_id' => auth()->user()->branch_id ?? 1,
+            'first_name' => $this->new_guest_first_name,
+            'last_name' => $this->new_guest_last_name,
+            'email' => $this->new_guest_email,
+            'phone' => $this->new_guest_phone,
+        ]);
+
+        // Attempt to link to existing customer
+        $guest->linkToCustomer();
+
+        $this->create_guest_id = $guest->id;
+        $this->showCreateGuest = false;
+        
+        // Reset guest form
+        $this->new_guest_first_name = '';
+        $this->new_guest_last_name = '';
+        $this->new_guest_email = '';
+        $this->new_guest_phone = '';
+
+        $this->dispatch('show-notification', [
+            'title' => 'Success',
+            'message' => 'Guest added successfully',
+            'type' => 'success'
+        ]);
+    }
+
     public function findAvailableRooms()
     {
         if (!$this->create_check_in_date || !$this->create_check_out_date) {
@@ -251,6 +293,40 @@ class ReservationList extends Component
         $this->showEditReservation = false;
         $this->resetCheckoutForm();
         $this->dispatch('$refresh'); // Refresh list to show updated status
+    }
+
+    public function cancelReservation($id)
+    {
+        $reservation = Reservation::find($id);
+        
+        if (!$reservation) {
+            return;
+        }
+
+        // Only allow cancellation for specific statuses
+        if (!in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
+            $this->dispatch('show-notification', [
+                'title' => 'Error',
+                'message' => 'Cannot cancel reservation in current status.',
+                'type' => 'error'
+            ]);
+            return;
+        }
+
+        $reservation->update(['status' => Reservation::STATUS_CANCELLED]);
+
+        // If room was occupied (checked in), free it up
+        if ($reservation->room) {
+             $reservation->room->update(['status' => 'available']);
+        }
+
+        $this->dispatch('show-notification', [
+            'title' => 'Cancelled',
+            'message' => 'Reservation cancelled successfully.',
+            'type' => 'success'
+        ]);
+        
+        $this->dispatch('$refresh');
     }
 
     private function resetCheckoutForm()

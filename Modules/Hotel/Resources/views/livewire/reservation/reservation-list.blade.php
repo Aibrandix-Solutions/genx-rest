@@ -108,6 +108,11 @@
                                                 Checkout
                                             </button>
                                         @endif
+                                        @if(in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']))
+                                            <a href="{{ route('hotel.folio', $reservation->reservation_number) }}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600">
+                                                Folio
+                                            </a>
+                                        @endif
                                         @if(in_array($reservation->status, ['confirmed', 'checked_in']))
                                             <button wire:click="cancelReservation({{ $reservation->id }})" wire:confirm="Cancel this reservation?" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
                                                 Cancel
@@ -153,7 +158,7 @@
                             @endforeach
                         </select>
                         <x-input-error for="create_guest_id" class="mt-2" />
-                        <p class="text-xs text-blue-600 mt-1 cursor-pointer hover:underline" onclick="alert('Guest creation inside reservation coming next!')">+ Create New Guest (Coming Soon)</p>
+                        <p class="text-xs text-blue-600 mt-1 cursor-pointer hover:underline" wire:click="$set('showCreateGuest', true)">+ Create New Guest</p>
                     </div>
 
                     {{-- Dates --}}
@@ -324,6 +329,48 @@
                     </form>
                 </div>
             @endif
+        </x-slot>
+    </x-right-modal>
+    <x-right-modal wire:model.live="showCreateGuest">
+        <x-slot name="title">Add New Guest</x-slot>
+        <x-slot name="content">
+            <form wire:submit.prevent="saveGuest">
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <x-label for="new_guest_first_name" value="First Name" />
+                            <x-input id="new_guest_first_name" type="text" class="block w-full mt-1" wire:model="new_guest_first_name" required />
+                            <x-input-error for="new_guest_first_name" class="mt-2" />
+                        </div>
+                        <div>
+                            <x-label for="new_guest_last_name" value="Last Name" />
+                            <x-input id="new_guest_last_name" type="text" class="block w-full mt-1" wire:model="new_guest_last_name" required />
+                            <x-input-error for="new_guest_last_name" class="mt-2" />
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <x-label for="new_guest_email" value="Email" />
+                        <x-input id="new_guest_email" type="email" class="block w-full mt-1" wire:model="new_guest_email" />
+                        <x-input-error for="new_guest_email" class="mt-2" />
+                    </div>
+
+                    <div>
+                        <x-label for="new_guest_phone" value="Phone" />
+                        <x-input id="new_guest_phone" type="text" class="block w-full mt-1" wire:model="new_guest_phone" />
+                        <x-input-error for="new_guest_phone" class="mt-2" />
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end gap-3">
+                    <x-button type="button" wire:click="$set('showCreateGuest', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                        Cancel
+                    </x-button>
+                    <x-button type="submit" wire:loading.attr="disabled">
+                        Save Guest
+                    </x-button>
+                </div>
+            </form>
         </x-slot>
     </x-right-modal>
 </div>

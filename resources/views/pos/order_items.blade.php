@@ -18,6 +18,15 @@
                 @endif
             </div>
 
+            @if ($orderType == 'room_service' && $orderDetail->hotelReservation)
+            <div class="inline-flex items-center gap-2 dark:text-gray-300">
+                <div class="font-semibold text-gray-700 dark:text-gray-300">
+                     @lang('hotel::modules.reservation.room') {{ $orderDetail->hotelReservation->room->room_number }} 
+                     <span class="text-sm font-normal text-gray-500">({{ $orderDetail->hotelReservation->guest->full_name }})</span>
+                 </div>
+            </div>
+            @endif
+
             @if ($orderType == 'dine_in')
             <div class="inline-flex items-center gap-2 dark:text-gray-300">
                 @if (!is_null($tableNo))

@@ -28,6 +28,8 @@ class HotelServiceProvider extends ServiceProvider
         $this->registerConfig();
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->moduleName, 'Database/Migrations'));
+
+        \App\Models\Order::observe(\Modules\Hotel\Observers\OrderObserver::class);
     }
 
     /**

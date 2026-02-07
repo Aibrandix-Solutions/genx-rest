@@ -24,7 +24,7 @@ class RoomCharge extends Model
 
     protected $casts = [
         'amount' => 'decimal:2',
-        'charge_date' => 'date',
+        'charge_date' => 'datetime',
     ];
 
     const TYPE_ROOM_NIGHT = 'room_night';

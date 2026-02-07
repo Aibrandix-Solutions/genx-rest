@@ -20,4 +20,5 @@ Route::middleware(['auth'])->prefix('hotel')->name('hotel.')->group(function() {
     Route::get('/rooms', \Modules\Hotel\Livewire\Room\RoomList::class)->name('rooms');
     Route::get('/guests', \Modules\Hotel\Livewire\Guest\GuestList::class)->name('guests');
     Route::get('/reservations', \Modules\Hotel\Livewire\Reservation\ReservationList::class)->name('reservations');
+    Route::get('/reservations/{reservationNumber}/folio', \Modules\Hotel\Livewire\Folio\FolioManager::class)->name('folio');
 });

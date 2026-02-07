@@ -17,5 +17,6 @@ class HotelDatabaseSeeder extends Seeder
         Model::unguard();
 
         $this->call(HotelPermissionSeeder::class);
+        $this->call(HotelOrderTypeSeeder::class);
     }
 }

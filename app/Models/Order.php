@@ -112,6 +112,16 @@ class Order extends BaseModel
         return $this->belongsTo(Reservation::class);
     }
 
+    public function hotelReservation(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Hotel\Entities\Reservation::class, 'hotel_reservation_id');
+    }
+
+    public function scopeRoomService($query)
+    {
+        return $query->whereNotNull('hotel_reservation_id');
+    }
+
     public function cancelReason(): BelongsTo
     {
         return $this->belongsTo(KotCancelReason::class, 'cancel_reason_id');

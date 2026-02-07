@@ -78,7 +78,14 @@
                                     @endif
                                 @endif
                                 <div>
-                                    @if ($order->customer_id)
+                                    @if($order->hotel_reservation_id && $order->hotelReservation)
+                                        <div class="flex items-center gap-2">
+                                            <div class="font-semibold text-gray-700 dark:text-gray-300">
+                                                @lang('hotel::modules.reservation.room') {{ $order->hotelReservation->room->room_number ?? '--' }}
+                                                <span class="text-sm font-normal text-gray-500">({{ $order->hotelReservation->guest->full_name ?? '--' }})</span>
+                                            </div>
+                                        </div>
+                                    @elseif ($order->customer_id)
                                         <div class="flex items-center gap-2">
                                             <div class="font-semibold text-gray-700 dark:text-gray-300">{{ $order->customer ? ($order->customer->name ? $order->customer->name : __('modules.customer.walkin')) : '--' }}</div>
                                             @if(user_can('Update Order'))

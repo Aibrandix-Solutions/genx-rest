@@ -124,7 +124,7 @@ class OrderDetail extends Component
     #[On('showOrderDetail')]
     public function showOrder($id, $fromPos = null)
     {
-        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'payments', 'cancelReason')->find($id);
+        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'payments', 'cancelReason', 'hotelReservation.room', 'hotelReservation.guest')->find($id);
         $this->orderStatus = $this->order->status;
         $this->fromPos = $fromPos;
         $this->orderProgressStatus = $this->order->order_status->value;
