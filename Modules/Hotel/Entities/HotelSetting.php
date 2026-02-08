@@ -13,6 +13,8 @@ class HotelSetting extends Model
 
     protected $fillable = [
         'branch_id',
+        'hotel_name',
+        'hotel_logo',
         'default_check_in_time',
         'default_checkout_time',
         'early_checkin_charge_per_hour',

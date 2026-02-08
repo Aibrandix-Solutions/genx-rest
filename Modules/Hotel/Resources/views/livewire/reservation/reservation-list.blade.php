@@ -26,7 +26,9 @@
                 </div>
 
                 <div class="lg:inline-flex items-center gap-4">
+                    @if(user_can('create_reservation'))
                     <x-button type='button' wire:click="$set('showCreateReservation', true)">New Reservation</x-button>
+                    @endif
                 </div>
             </div>
         </div>
@@ -98,22 +100,22 @@
                                         @endif
                                     </td>
                                     <td class="p-4 space-x-2 whitespace-nowrap">
-                                        @if($reservation->status === 'confirmed')
-                                            <button wire:click="checkIn({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
+                                        @if($reservation->status === 'confirmed' && user_can('check_in_guest'))
+                                            <button wire:click="openCheckIn({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
                                                 Check In
                                             </button>
                                         @endif
-                                        @if($reservation->status === 'checked_in')
+                                        @if($reservation->status === 'checked_in' && user_can('check_out_guest'))
                                             <button wire:click="editReservation({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800">
                                                 Checkout
                                             </button>
                                         @endif
-                                        @if(in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']))
+                                        @if(in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing'))
                                             <a href="{{ route('hotel.folio', $reservation->reservation_number) }}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600">
                                                 Folio
                                             </a>
                                         @endif
-                                        @if(in_array($reservation->status, ['confirmed', 'checked_in']))
+                                        @if(in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('edit_reservation'))
                                             <button wire:click="cancelReservation({{ $reservation->id }})" wire:confirm="Cancel this reservation?" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
                                                 Cancel
                                             </button>
@@ -225,9 +227,21 @@
                         <x-input-error for="create_room_id" class="mt-2" />
                     </div>
 
+                    {{-- Booking Source --}}
+                    <div>
+                        <x-label for="create_booking_source" value="Booking Source" />
+                        <select id="create_booking_source" wire:model="create_booking_source" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                            <option value="walk-in">Walk-in</option>
+                            <option value="phone">Phone</option>
+                            <option value="website">Website</option>
+                            <option value="ota">OTA (Online Travel Agent)</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+
                     {{-- Notes --}}
                     <div>
-                        <x-label for="create_notes" value="Notes" />
+                        <x-label for="create_notes" value="Special Requests / Notes" />
                         <textarea id="create_notes" wire:model="create_notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
                         <x-input-error for="create_notes" class="mt-2" />
                     </div>
@@ -277,27 +291,33 @@
 
                     {{-- Billing --}}
                     <div>
-                        <div class="flex justify-between items-center mb-4 border-b pb-2 dark:border-gray-600">
-                            <span class="text-lg font-bold text-gray-900 dark:text-white">Total Amount</span>
+                        <div class="flex justify-between items-center mb-2 border-b pb-2 dark:border-gray-600">
+                            <span class="text-lg font-bold text-gray-900 dark:text-white">Total Charges</span>
                             <span class="text-lg font-bold text-blue-600 dark:text-blue-400">{{ currency_format($checkout_total_amount, restaurant()->currency_id) }}</span>
                         </div>
-                        
+
+                        @if($checkout_balance_due > 0)
                         <div class="bg-red-50 dark:bg-red-900/30 p-3 rounded-lg mb-4 flex justify-between items-center">
                             <span class="font-semibold text-red-800 dark:text-red-200">Balance Due</span>
                             <span class="font-bold text-red-800 dark:text-red-200">{{ currency_format($checkout_balance_due, restaurant()->currency_id) }}</span>
                         </div>
+                        @else
+                        <div class="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg mb-4 flex justify-between items-center">
+                            <span class="font-semibold text-green-800 dark:text-green-200">Fully Paid</span>
+                            <span class="font-bold text-green-800 dark:text-green-200">{{ currency_format(0, restaurant()->currency_id) }}</span>
+                        </div>
+                        @endif
+
+                        <a href="{{ route('hotel.folio', $checkout_reservation->reservation_number) }}" target="_blank" class="text-sm text-blue-600 hover:underline dark:text-blue-400">View Full Folio &rarr;</a>
                     </div>
 
                     {{-- Payment Form --}}
                     <form wire:submit.prevent="processCheckout">
                         <div class="space-y-4">
                             <div>
-                                <x-label for="checkout_amount_paid" value="Payment Amount" />
-                                <div class="relative mt-1">
-                                        <span class="text-gray-500 sm:text-sm">{{ restaurant()->currency->symbol ?? '' }}</span>
-                                    </div>
-                                    <x-input id="checkout_amount_paid" type="number" step="0.01" class="block w-full pl-7" wire:model="checkout_amount_paid" required />
-                                </div>
+                                <x-label for="checkout_amount_paid" value="Settlement Amount" />
+                                <x-input id="checkout_amount_paid" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="checkout_amount_paid" required />
+                                <p class="text-xs text-gray-500 mt-1">Enter 0 if balance was already settled.</p>
                                 <x-input-error for="checkout_amount_paid" class="mt-2" />
                             </div>
 
@@ -307,6 +327,7 @@
                                     <option value="cash">Cash</option>
                                     <option value="card">Card</option>
                                     <option value="bank_transfer">Bank Transfer</option>
+                                    <option value="upi">UPI</option>
                                     <option value="other">Other</option>
                                 </select>
                                 <x-input-error for="checkout_payment_method" class="mt-2" />
@@ -371,6 +392,89 @@
                     </x-button>
                 </div>
             </form>
+        </x-slot>
+    </x-right-modal>
+
+    {{-- Check-In Modal --}}
+    <x-right-modal wire:model.live="showCheckInModal">
+        <x-slot name="title">Guest Check-In</x-slot>
+        <x-slot name="content">
+            @if($checkInReservation)
+                <div class="space-y-4">
+                    {{-- Reservation Summary --}}
+                    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                        <h4 class="font-semibold text-gray-900 dark:text-white mb-2">Reservation Summary</h4>
+                        <div class="text-sm space-y-1">
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Guest:</span>
+                                <span class="font-medium dark:text-gray-200">{{ $checkInReservation->guest->full_name }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Room:</span>
+                                <span class="font-medium dark:text-gray-200">
+                                    {{ $checkInReservation->room ? $checkInReservation->room->room_number : 'N/A' }}
+                                    ({{ $checkInReservation->room?->roomType?->name }})
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-600 dark:text-gray-400">Stay:</span>
+                                <span class="font-medium dark:text-gray-200">
+                                    {{ $checkInReservation->check_in_date->format('M d') }} -
+                                    {{ $checkInReservation->checkout_date->format('M d, Y') }}
+                                    ({{ $checkInReservation->getNumberOfNights() }} nights)
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Stay Total --}}
+                    <div class="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg flex justify-between items-center">
+                        <span class="font-semibold text-blue-800 dark:text-blue-200">Estimated Stay Total</span>
+                        <span class="font-bold text-blue-800 dark:text-blue-200 text-lg">{{ currency_format($checkInTotalAmount, restaurant()->currency_id) }}</span>
+                    </div>
+
+                    {{-- Advance Payment --}}
+                    <form wire:submit.prevent="processCheckIn">
+                        <div class="space-y-4">
+                            <div class="border-t pt-4 dark:border-gray-600">
+                                <h4 class="font-semibold text-gray-900 dark:text-white mb-3">Advance Payment (Optional)</h4>
+                            </div>
+
+                            <div>
+                                <x-label for="checkInAdvanceAmount" value="Advance Amount" />
+                                <x-input id="checkInAdvanceAmount" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="checkInAdvanceAmount" />
+                                <p class="text-xs text-gray-500 mt-1">Enter 0 if no advance payment is being collected.</p>
+                                <x-input-error for="checkInAdvanceAmount" class="mt-2" />
+                            </div>
+
+                            <div>
+                                <x-label for="checkInPaymentMethod" value="Payment Method" />
+                                <select id="checkInPaymentMethod" wire:model="checkInPaymentMethod" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                    <option value="cash">Cash</option>
+                                    <option value="card">Card</option>
+                                    <option value="bank_transfer">Bank Transfer</option>
+                                    <option value="upi">UPI</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <x-label for="checkInNotes" value="Notes" />
+                                <textarea id="checkInNotes" wire:model="checkInNotes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex justify-end gap-3">
+                            <x-button type="button" wire:click="$set('showCheckInModal', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                                Cancel
+                            </x-button>
+                            <x-button type="submit" wire:loading.attr="disabled" class="bg-green-600 hover:bg-green-700">
+                                Confirm Check-In
+                            </x-button>
+                        </div>
+                    </form>
+                </div>
+            @endif
         </x-slot>
     </x-right-modal>
 </div>

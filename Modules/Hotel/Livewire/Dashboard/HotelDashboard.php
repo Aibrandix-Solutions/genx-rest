@@ -15,7 +15,7 @@ class HotelDashboard extends Component
 
     public function mount()
     {
-        //
+        abort_unless(user_can('view_hotel_dashboard'), 403);
     }
 
     private function getRoomStats()

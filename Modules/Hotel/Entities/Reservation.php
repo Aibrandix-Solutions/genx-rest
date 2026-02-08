@@ -89,6 +89,11 @@ class Reservation extends Model
         return $this->hasMany(\App\Models\Order::class, 'hotel_reservation_id');
     }
 
+    public function payments(): HasMany
+    {
+        return $this->hasMany(HotelPayment::class);
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
@@ -112,15 +117,24 @@ class Reservation extends Model
     }
 
     /**
-     * Calculate total charges
+     * Calculate total charges and update balance
      */
     public function calculateTotal()
     {
         $totalCharges = $this->charges()->sum('amount');
-        
+        $totalPayments = $this->payments()
+            ->where('payment_type', '!=', HotelPayment::TYPE_REFUND)
+            ->sum('amount');
+        $totalRefunds = $this->payments()
+            ->where('payment_type', HotelPayment::TYPE_REFUND)
+            ->sum('amount');
+
+        $paidAmount = $totalPayments - $totalRefunds;
+
         $this->update([
             'total_amount' => $totalCharges,
-            'balance_due' => $totalCharges - $this->paid_amount,
+            'paid_amount' => $paidAmount,
+            'balance_due' => $totalCharges - $paidAmount,
         ]);
     }
 

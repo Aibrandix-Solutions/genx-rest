@@ -4,17 +4,28 @@ namespace Modules\Hotel\Livewire\Reservation;
 
 use Livewire\Component;
 use Livewire\Attributes\On;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\Reservation;
+use Modules\Hotel\Entities\RoomCharge;
+use Modules\Hotel\Entities\HotelPayment;
+use Modules\Hotel\Entities\HotelSetting;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ReservationList extends Component
 {
+    use LivewireAlert;
     public $showCreateReservation = false;
     public $showEditReservation = false;
     public $editingReservationId = null;
     public $search = '';
     public $statusFilter = 'all';
     public $dateFilter = 'all';
+
+    public function mount()
+    {
+        abort_unless(user_can('view_hotel_reservations'), 403);
+    }
 
     #[On('reservation-saved')]
     public function reservationSaved()
@@ -25,34 +36,155 @@ class ReservationList extends Component
         $this->dispatch('$refresh');
     }
 
-    // editReservation method replaced below with checkout logic
+    // --- Check-in with advance payment + room night charges ---
 
-    public function checkIn($id)
+    public $showCheckInModal = false;
+    public $checkInReservation = null;
+    public $checkInAdvanceAmount = 0;
+    public $checkInPaymentMethod = 'cash';
+    public $checkInNotes = '';
+    public $checkInTotalAmount = 0;
+
+    public function openCheckIn($id)
     {
-        $reservation = Reservation::find($id);
-        if ($reservation && $reservation->status === Reservation::STATUS_CONFIRMED) {
+        abort_unless(user_can('check_in_guest'), 403);
+        $this->checkInReservation = Reservation::with(['guest', 'room.roomType'])->find($id);
+
+        if (!$this->checkInReservation || $this->checkInReservation->status !== Reservation::STATUS_CONFIRMED) {
+            return;
+        }
+
+        // Calculate total using dynamic pricing
+        $this->checkInTotalAmount = $this->calculateStayTotal($this->checkInReservation);
+
+        // Determine suggested advance based on hotel settings
+        $branchId = auth()->user()->branch_id ?? 1;
+        $settings = HotelSetting::where('branch_id', $branchId)->first();
+        $this->checkInAdvanceAmount = $settings ? $settings->calculateDeposit($this->checkInTotalAmount) : 0;
+        $this->checkInPaymentMethod = 'cash';
+        $this->checkInNotes = '';
+        $this->showCheckInModal = true;
+    }
+
+    public function processCheckIn()
+    {
+        abort_unless(user_can('check_in_guest'), 403);
+
+        $this->validate([
+            'checkInAdvanceAmount' => 'required|numeric|min:0',
+            'checkInPaymentMethod' => 'required|string',
+        ]);
+
+        if (!$this->checkInReservation) {
+            return;
+        }
+
+        DB::transaction(function () {
+            $reservation = $this->checkInReservation;
+
+            // 1. Generate room night charges
+            $this->generateRoomNightCharges($reservation);
+
+            // 2. Record advance payment if amount > 0
+            if ($this->checkInAdvanceAmount > 0) {
+                HotelPayment::create([
+                    'reservation_id' => $reservation->id,
+                    'branch_id' => $reservation->branch_id,
+                    'amount' => $this->checkInAdvanceAmount,
+                    'payment_method' => $this->checkInPaymentMethod,
+                    'payment_type' => HotelPayment::TYPE_ADVANCE,
+                    'notes' => $this->checkInNotes ?: 'Advance payment at check-in',
+                    'received_by_user_id' => auth()->id(),
+                ]);
+            }
+
+            // 3. Update reservation status
             $reservation->update([
                 'status' => Reservation::STATUS_CHECKED_IN,
                 'actual_check_in' => now(),
+                'created_by_user_id' => $reservation->created_by_user_id ?? auth()->id(),
             ]);
 
-            // Update room status
+            // 4. Recalculate totals (charges + payments)
+            $reservation->calculateTotal();
+
+            // 5. Update room status
             if ($reservation->room) {
                 $reservation->room->update(['status' => 'occupied']);
             }
+        });
 
-            $this->dispatch('$refresh');
+        $this->showCheckInModal = false;
+        $this->checkInReservation = null;
+
+        $this->alert('success', 'Guest checked in successfully.');
+        $this->dispatch('$refresh');
+    }
+
+    /**
+     * Generate room night charges for the entire stay using dynamic pricing
+     */
+    protected function generateRoomNightCharges(Reservation $reservation)
+    {
+        $roomType = $reservation->room->roomType;
+        $checkIn = $reservation->check_in_date->copy();
+        $checkOut = $reservation->checkout_date->copy();
+
+        // Create one charge per night
+        $currentDate = $checkIn->copy();
+        while ($currentDate->lt($checkOut)) {
+            $nightlyRate = $roomType->getPriceForDate($currentDate);
+
+            RoomCharge::create([
+                'reservation_id' => $reservation->id,
+                'charge_type' => RoomCharge::TYPE_ROOM_NIGHT,
+                'description' => 'Room ' . $reservation->room->room_number . ' - ' . $currentDate->format('d M Y'),
+                'amount' => $nightlyRate,
+                'charge_date' => $currentDate->toDateString(),
+            ]);
+
+            $currentDate->addDay();
         }
     }
+
+    /**
+     * Calculate stay total using dynamic pricing per night
+     */
+    protected function calculateStayTotal(Reservation $reservation): float
+    {
+        $roomType = $reservation->room->roomType;
+        $checkIn = Carbon::parse($reservation->check_in_date);
+        $checkOut = Carbon::parse($reservation->checkout_date);
+
+        $total = 0;
+        $current = $checkIn->copy();
+        while ($current->lt($checkOut)) {
+            $total += (float)$roomType->getPriceForDate($current);
+            $current->addDay();
+        }
+
+        return $total;
+    }
+
+    // --- Existing simple checkIn kept for backward compat (used by old blade) ---
+
+    public function checkIn($id)
+    {
+        // Redirect to the modal-based check-in
+        $this->openCheckIn($id);
+    }
+
+    // --- Create reservation ---
 
     public $create_guest_id = '';
     public $create_room_id = '';
     public $create_check_in_date = '';
     public $create_check_out_date = '';
-    public $create_room_type_id = ''; // Filter for finding rooms
+    public $create_room_type_id = '';
     public $create_adults = 1;
     public $create_children = 0;
     public $create_notes = '';
+    public $create_booking_source = 'walk-in';
     
     public $available_rooms = [];
 
@@ -66,6 +198,7 @@ class ReservationList extends Component
             'create_adults' => 'required|integer|min:1',
             'create_children' => 'integer|min:0',
             'create_notes' => 'nullable|string',
+            'create_booking_source' => 'nullable|string|max:100',
         ];
     }
 
@@ -92,6 +225,8 @@ class ReservationList extends Component
 
     public function saveGuest()
     {
+        abort_unless(user_can('create_guest'), 403);
+
         $this->validate([
             'new_guest_first_name' => 'required|string|max:255',
             'new_guest_last_name' => 'required|string|max:255',
@@ -119,11 +254,7 @@ class ReservationList extends Component
         $this->new_guest_email = '';
         $this->new_guest_phone = '';
 
-        $this->dispatch('show-notification', [
-            'title' => 'Success',
-            'message' => 'Guest added successfully',
-            'type' => 'success'
-        ]);
+        $this->alert('success', 'Guest added successfully');
     }
 
     public function findAvailableRooms()
@@ -162,6 +293,7 @@ class ReservationList extends Component
 
     public function createNewReservation()
     {
+        abort_unless(user_can('create_reservation'), 403);
         $this->resetForm();
         $this->create_check_in_date = Carbon::today()->format('Y-m-d');
         $this->create_check_out_date = Carbon::tomorrow()->format('Y-m-d');
@@ -170,18 +302,25 @@ class ReservationList extends Component
 
     public function saveReservation()
     {
+        abort_unless(user_can('create_reservation'), 403);
+
         $this->validate();
 
-        $room = \Modules\Hotel\Entities\Room::find($this->create_room_id);
+        $room = \Modules\Hotel\Entities\Room::with('roomType')->find($this->create_room_id);
         if (!$room) {
              $this->addError('create_room_id', 'Selected room is invalid.');
              return;
         }
 
-        // Calculate total amount based on room price and duration
-        // Assuming RoomType has base_price
-        $days = Carbon::parse($this->create_check_in_date)->diffInDays(Carbon::parse($this->create_check_out_date));
-        $totalAmount = $room->roomType->base_price * $days;
+        // Calculate total amount using dynamic pricing per night
+        $checkIn = Carbon::parse($this->create_check_in_date);
+        $checkOut = Carbon::parse($this->create_check_out_date);
+        $totalAmount = 0;
+        $current = $checkIn->copy();
+        while ($current->lt($checkOut)) {
+            $totalAmount += (float)$room->roomType->getPriceForDate($current);
+            $current->addDay();
+        }
 
         Reservation::create([
             'branch_id' => auth()->user()->branch_id ?? 1,
@@ -191,10 +330,12 @@ class ReservationList extends Component
             'checkout_date' => $this->create_check_out_date,
             'adults' => $this->create_adults,
             'children' => $this->create_children,
+            'special_requests' => $this->create_notes,
+            'booking_source' => $this->create_booking_source ?: 'walk-in',
             'status' => Reservation::STATUS_CONFIRMED,
             'total_amount' => $totalAmount,
-            'balance_due' => $totalAmount, // Assuming no upfront payment for now
-            'notes' => $this->create_notes,
+            'balance_due' => $totalAmount,
+            'created_by_user_id' => auth()->id(),
         ]);
         
         // Update room status if check-in is today
@@ -204,11 +345,7 @@ class ReservationList extends Component
             // keeping standard flow: Confirmed -> Check In action.
         }
 
-        $this->dispatch('show-notification', [
-            'title' => 'Success',
-            'message' => 'Reservation created successfully',
-            'type' => 'success'
-        ]);
+        $this->alert('success', 'Reservation created successfully');
 
         $this->showCreateReservation = false;
         $this->resetForm();
@@ -224,6 +361,7 @@ class ReservationList extends Component
         $this->create_adults = 1;
         $this->create_children = 0;
         $this->create_notes = '';
+        $this->create_booking_source = 'walk-in';
         $this->available_rooms = [];
         $this->resetErrorBag();
     }
@@ -237,15 +375,20 @@ class ReservationList extends Component
 
     public function editReservation($id)
     {
+        abort_unless(user_can('check_out_guest'), 403);
         $this->editingReservationId = $id;
-        $this->checkout_reservation = Reservation::with(['guest', 'room.roomType'])->find($id);
+        $this->checkout_reservation = Reservation::with(['guest', 'room.roomType', 'charges', 'payments'])->find($id);
         
         if ($this->checkout_reservation) {
+            // Recalculate from actual charges/payments
+            $this->checkout_reservation->calculateTotal();
+            $this->checkout_reservation->refresh();
+
             $this->checkout_total_amount = $this->checkout_reservation->total_amount;
             $this->checkout_balance_due = $this->checkout_reservation->balance_due;
             
             // Default payment to full balance
-            $this->checkout_amount_paid = $this->checkout_balance_due;
+            $this->checkout_amount_paid = max(0, $this->checkout_balance_due);
             
             $this->showEditReservation = true;
         }
@@ -253,42 +396,47 @@ class ReservationList extends Component
 
     public function processCheckout()
     {
+        abort_unless(user_can('check_out_guest'), 403);
+
         $this->validate([
             'checkout_amount_paid' => 'required|numeric|min:0',
             'checkout_payment_method' => 'required|string',
         ]);
 
-        // Ensure full payment (Professional Requirement)
-        if (abs($this->checkout_balance_due - $this->checkout_amount_paid) > 0.01) {
-             $this->addError('checkout_amount_paid', 'Full payment is required to check out.');
-             return;
-        }
-
         if (!$this->checkout_reservation) {
             return;
         }
 
-        // Update reservation
-        $this->checkout_reservation->update([
-            'status' => Reservation::STATUS_CHECKED_OUT,
-            'actual_check_out' => now(),
-            'balance_due' => $this->checkout_balance_due - $this->checkout_amount_paid,
-            // In a real system, we'd create a Payment record here
-        ]);
+        DB::transaction(function () {
+            // Record settlement payment if amount > 0
+            if ($this->checkout_amount_paid > 0) {
+                HotelPayment::create([
+                    'reservation_id' => $this->checkout_reservation->id,
+                    'branch_id' => $this->checkout_reservation->branch_id,
+                    'amount' => $this->checkout_amount_paid,
+                    'payment_method' => $this->checkout_payment_method,
+                    'payment_type' => HotelPayment::TYPE_SETTLEMENT,
+                    'notes' => $this->checkout_notes ?: 'Settlement at checkout',
+                    'received_by_user_id' => auth()->id(),
+                ]);
+            }
 
-        // Update room status
-        if ($this->checkout_reservation->room) {
-            // Set to cleanup or available. Let's set to 'cleanup' if we had a housekeeping module, 
-            // but for now 'available' is safest or 'dirty' if checking housekeeping.
-            // Let's assume 'dirty' needs to be cleaned.
-            $this->checkout_reservation->room->update(['status' => 'available']); 
-        }
+            // Update reservation status
+            $this->checkout_reservation->update([
+                'status' => Reservation::STATUS_CHECKED_OUT,
+                'actual_checkout' => now(),
+            ]);
 
-        $this->dispatch('show-notification', [
-            'title' => 'Checked Out',
-            'message' => 'Guest successfully checked out. Balance updated.',
-            'type' => 'success'
-        ]);
+            // Recalculate totals
+            $this->checkout_reservation->calculateTotal();
+
+            // Update room status to cleaning
+            if ($this->checkout_reservation->room) {
+                $this->checkout_reservation->room->update(['status' => 'cleaning']);
+            }
+        });
+
+        $this->alert('success', 'Guest successfully checked out. Balance updated.');
 
         $this->showEditReservation = false;
         $this->resetCheckoutForm();
@@ -297,6 +445,7 @@ class ReservationList extends Component
 
     public function cancelReservation($id)
     {
+        abort_unless(user_can('edit_reservation'), 403);
         $reservation = Reservation::find($id);
         
         if (!$reservation) {
@@ -305,11 +454,7 @@ class ReservationList extends Component
 
         // Only allow cancellation for specific statuses
         if (!in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
-            $this->dispatch('show-notification', [
-                'title' => 'Error',
-                'message' => 'Cannot cancel reservation in current status.',
-                'type' => 'error'
-            ]);
+            $this->alert('error', 'Cannot cancel reservation in current status.');
             return;
         }
 
@@ -320,11 +465,7 @@ class ReservationList extends Component
              $reservation->room->update(['status' => 'available']);
         }
 
-        $this->dispatch('show-notification', [
-            'title' => 'Cancelled',
-            'message' => 'Reservation cancelled successfully.',
-            'type' => 'success'
-        ]);
+        $this->alert('success', 'Reservation cancelled successfully.');
         
         $this->dispatch('$refresh');
     }

@@ -26,7 +26,9 @@
                 </div>
 
                 <div class="lg:inline-flex items-center gap-4">
+                    @if(user_can('create_room'))
                     <x-button type='button' wire:click="$set('showAddRoom', true)">Add Room</x-button>
+                    @endif
                 </div>
             </div>
         </div>
@@ -72,9 +74,11 @@
                     @endif
 
                    <div class="flex gap-1">
+                        @if(user_can('edit_room'))
                         <button wire:click="editRoom({{ $room->id }})" class="flex-1 px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition">
                             Edit
                         </button>
+                        @endif
                         @if($room->status !== 'occupied')
                             <div class="dropdown relative inline-block">
                                 <button class="px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">

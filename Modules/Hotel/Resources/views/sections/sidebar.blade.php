@@ -51,8 +51,7 @@
   @endif
 
   @if(user_can('manage_hotel_settings'))
-    {{-- Coming in Phase 4 --}}
-    {{-- @livewire('sidebar-dropdown-menu', ['name' => 'Settings', 'link' => route('hotel.settings'), 'active' => request()->routeIs('hotel.settings')]) --}}
+    @livewire('sidebar-dropdown-menu', ['name' => 'Settings', 'link' => route('hotel.settings'), 'active' => request()->routeIs('hotel.settings')])
   @endif
 
 </x-sidebar-dropdown-menu>

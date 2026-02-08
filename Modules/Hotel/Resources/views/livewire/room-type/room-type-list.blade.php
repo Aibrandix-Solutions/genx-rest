@@ -15,7 +15,9 @@
                 </div>
 
                 <div class="lg:inline-flex items-center gap-4">
+                    @if(user_can('create_room_type'))
                     <x-button type='button' wire:click="$set('showAddRoomType', true)">Add Room Type</x-button>
+                    @endif
                 </div>
             </div>
         </div>
@@ -66,12 +68,16 @@
                     @endif
 
                     <div class="flex items-center gap-2">
+                        @if(user_can('edit_room_type'))
                         <button wire:click="editRoomType({{ $roomType->id }})" class="flex-1 px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 border border-blue-600 dark:border-blue-400 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition">
                             Edit
                         </button>
+                        @endif
+                        @if(user_can('delete_room_type'))
                         <button wire:click="deleteRoomType({{ $roomType->id }})" wire:confirm="Are you sure you want to delete this room type?" class="px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 border border-red-600 dark:border-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition">
                             Delete
                         </button>
+                        @endif
                     </div>
                 </div>
             @empty

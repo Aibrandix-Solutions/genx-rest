@@ -195,6 +195,7 @@ return [
         'view_hotel_reports' => 'View Hotel Reports',
         'manage_hotel_settings' => 'Manage Hotel Settings',
         'manage_room_prices' => 'Manage Room Prices',
+        'manage_room_service' => 'Manage Room Service',
     ],
 
     'modules' => [

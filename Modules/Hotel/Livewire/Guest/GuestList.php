@@ -4,11 +4,13 @@ namespace Modules\Hotel\Livewire\Guest;
 
 use Livewire\Component;
 use Livewire\Attributes\On;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\Guest;
 use App\Models\Customer;
 
 class GuestList extends Component
 {
+    use LivewireAlert;
     public $showAddGuest = false;
     public $showEditGuest = false;
     public $editingGuestId = null;
@@ -24,6 +26,11 @@ class GuestList extends Component
     public $city = '';
     public $country = '';
     public $notes = '';
+
+    public function mount()
+    {
+        abort_unless(user_can('view_hotel_guests'), 403);
+    }
 
     #[On('guest-saved')]
     public function guestSaved()
@@ -52,12 +59,14 @@ class GuestList extends Component
 
     public function createGuest()
     {
+        abort_unless(user_can('create_guest'), 403);
         $this->resetForm();
         $this->showAddGuest = true;
     }
 
     public function editGuest($id)
     {
+        abort_unless(user_can('edit_guest'), 403);
         $this->resetForm();
         $this->editingGuestId = $id;
         $guest = Guest::find($id);
@@ -80,6 +89,8 @@ class GuestList extends Component
 
     public function saveGuest()
     {
+        abort_unless(user_can($this->editingGuestId ? 'edit_guest' : 'create_guest'), 403);
+
         $this->validate();
 
         $data = [
@@ -105,11 +116,7 @@ class GuestList extends Component
             $message = 'Guest created successfully';
         }
 
-        $this->dispatch('show-notification', [
-            'title' => 'Success',
-            'message' => $message,
-            'type' => 'success'
-        ]);
+        $this->alert('success', $message);
 
         $this->showAddGuest = false;
         $this->showEditGuest = false;
@@ -134,23 +141,16 @@ class GuestList extends Component
 
     public function deleteGuest($id)
     {
+        abort_unless(user_can('delete_guest'), 403);
         $guest = Guest::find($id);
         if ($guest) {
             // Check if guest has active reservations
             if ($guest->reservations()->whereIn('status', ['confirmed', 'checked_in'])->count() > 0) {
-                $this->dispatch('show-notification', [
-                    'title' => 'Cannot Delete',
-                    'message' => 'This guest has active reservations.',
-                    'type' => 'error'
-                ]);
+                $this->alert('error', 'This guest has active reservations.');
                 return;
             }
             $guest->delete();
-            $this->dispatch('show-notification', [
-                'title' => 'Success',
-                'message' => 'Guest deleted successfully',
-                'type' => 'success'
-            ]);
+            $this->alert('success', 'Guest deleted successfully');
         }
     }
 

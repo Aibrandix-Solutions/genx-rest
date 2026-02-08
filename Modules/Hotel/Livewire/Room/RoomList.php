@@ -4,11 +4,13 @@ namespace Modules\Hotel\Livewire\Room;
 
 use Livewire\Component;
 use Livewire\Attributes\On;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\Room;
 use Modules\Hotel\Entities\RoomType;
 
 class RoomList extends Component
 {
+    use LivewireAlert;
     public $showAddRoom = false;
     public $showEditRoom = false;
     public $editingRoomId = null;
@@ -40,14 +42,21 @@ class RoomList extends Component
         ];
     }
 
+    public function mount()
+    {
+        abort_unless(user_can('view_hotel_rooms'), 403);
+    }
+
     public function createRoom()
     {
+        abort_unless(user_can('create_room'), 403);
         $this->resetForm();
         $this->showAddRoom = true;
     }
 
     public function editRoom($id)
     {
+        abort_unless(user_can('edit_room'), 403);
         $this->resetForm();
         $this->editingRoomId = $id;
         $room = Room::find($id);
@@ -64,6 +73,8 @@ class RoomList extends Component
 
     public function saveRoom()
     {
+        abort_unless(user_can($this->editingRoomId ? 'edit_room' : 'create_room'), 403);
+
         // Custom validation for uniqueness within branch logic if needed, 
         // but basic unique rule works if we ignore ID.
         $this->validate([
@@ -109,11 +120,7 @@ class RoomList extends Component
             $message = 'Room created successfully';
         }
 
-        $this->dispatch('show-notification', [
-            'title' => 'Success',
-            'message' => $message,
-            'type' => 'success'
-        ]);
+        $this->alert('success', $message);
 
         $this->showAddRoom = false;
         $this->showEditRoom = false;
@@ -132,23 +139,16 @@ class RoomList extends Component
 
     public function deleteRoom($id)
     {
+        abort_unless(user_can('delete_room'), 403);
         $room = Room::find($id);
         if ($room) {
             // Check if room has active reservations
             if ($room->reservations()->whereIn('status', ['confirmed', 'checked_in'])->count() > 0) {
-                $this->dispatch('show-notification', [
-                    'title' => 'Cannot Delete',
-                    'message' => 'This room has active reservations.',
-                    'type' => 'error'
-                ]);
+                $this->alert('error', 'This room has active reservations.');
                 return;
             }
             $room->delete();
-            $this->dispatch('show-notification', [
-                'title' => 'Success',
-                'message' => 'Room deleted successfully',
-                'type' => 'success'
-            ]);
+            $this->alert('success', 'Room deleted successfully');
         }
     }
 

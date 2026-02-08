@@ -2,7 +2,7 @@ name: Deploy Genx Restaurant (via SFTP)
 
 on:
   push:
-    branches: [payment-account] # Manual merge to this branch triggers deploy
+    branches: [combo] # Manual merge to this branch triggers deploy
   workflow_dispatch:
 
 jobs:

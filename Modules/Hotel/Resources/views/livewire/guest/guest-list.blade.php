@@ -12,7 +12,9 @@
                 </div>
 
                 <div class="lg:inline-flex items-center gap-4">
+                    @if(user_can('create_guest'))
                     <x-button type='button' wire:click="$set('showAddGuest', true)">Add Guest</x-button>
+                    @endif
                 </div>
             </div>
         </div>
@@ -68,12 +70,16 @@
                                         {{ $guest->reservations->count() }}
                                     </td>
                                     <td class="p-4 space-x-2 whitespace-nowrap">
+                                        @if(user_can('edit_guest'))
                                         <button wire:click="editGuest({{ $guest->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-white rounded-lg bg-blue-700 hover:bg-blue-800 dark:bg-blue-600 dark:hover:bg-blue-700">
                                             Edit
                                         </button>
+                                        @endif
+                                        @if(user_can('delete_guest'))
                                         <button wire:click="deleteGuest({{ $guest->id }})" wire:confirm="Are you sure you want to delete this guest?" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-white bg-red-600 rounded-lg hover:bg-red-800 dark:hover:bg-red-700">
                                             Delete
                                         </button>
+                                        @endif
                                     </td>
                                 </tr>
                             @empty

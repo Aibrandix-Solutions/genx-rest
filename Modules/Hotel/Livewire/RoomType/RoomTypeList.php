@@ -4,10 +4,12 @@ namespace Modules\Hotel\Livewire\RoomType;
 
 use Livewire\Component;
 use Livewire\Attributes\On;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\RoomType;
 
 class RoomTypeList extends Component
 {
+    use LivewireAlert;
     public $showAddRoomType = false;
     public $showEditRoomType = false;
     public $editingRoomTypeId = null;
@@ -42,14 +44,21 @@ class RoomTypeList extends Component
         ];
     }
 
+    public function mount()
+    {
+        abort_unless(user_can('view_hotel_room_types'), 403);
+    }
+
     public function createRoomType()
     {
+        abort_unless(user_can('create_room_type'), 403);
         $this->resetForm();
         $this->showAddRoomType = true;
     }
 
     public function editRoomType($id)
     {
+        abort_unless(user_can('edit_room_type'), 403);
         $this->resetForm();
         $this->editingRoomTypeId = $id;
         $roomType = RoomType::find($id);
@@ -69,6 +78,8 @@ class RoomTypeList extends Component
 
     public function saveRoomType()
     {
+        abort_unless(user_can($this->editingRoomTypeId ? 'edit_room_type' : 'create_room_type'), 403);
+
         $this->validate();
 
         // Process amenities
@@ -94,11 +105,7 @@ class RoomTypeList extends Component
             $message = 'Room Type created successfully';
         }
 
-        $this->dispatch('show-notification', [
-            'title' => 'Success',
-            'message' => $message,
-            'type' => 'success'
-        ]);
+        $this->alert('success', $message);
 
         $this->showAddRoomType = false;
         $this->showEditRoomType = false;
@@ -120,23 +127,16 @@ class RoomTypeList extends Component
 
     public function deleteRoomType($id)
     {
+        abort_unless(user_can('delete_room_type'), 403);
         $roomType = RoomType::find($id);
         if ($roomType) {
             // Check if there are rooms using this type
             if ($roomType->rooms()->count() > 0) {
-                $this->dispatch('show-notification', [
-                    'title' => 'Cannot Delete',
-                    'message' => 'This room type has rooms assigned to it.',
-                    'type' => 'error'
-                ]);
+                $this->alert('error', 'This room type has rooms assigned to it.');
                 return;
             }
             $roomType->delete();
-            $this->dispatch('show-notification', [
-                'title' => 'Success',
-                'message' => 'Room Type deleted successfully',
-                'type' => 'success'
-            ]);
+            $this->alert('success', 'Room Type deleted successfully');
         }
     }
 
