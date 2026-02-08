@@ -31,8 +31,6 @@ class ModuleSeeder extends Seeder
             ['name' => 'Delivery Executive'],
             ['name' => 'Waiter Request'],
             ['name' => 'Expense'],
-            ['name' => 'Vendor'],
-            ['name' => 'Expense Category'],
             ['name' => 'Inventory'],
             ['name' => 'HRM'],
             ['name' => 'Hotel'],
