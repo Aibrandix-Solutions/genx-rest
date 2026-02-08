@@ -25,8 +25,7 @@ class HotelOrderTypeSeeder extends Seeder
                 ],
                 [
                     'order_type_name' => 'Room Service',
-                    'order_type' => 'Room Service', // Some legacy field maybe?
-                    'description' => 'Hotel Room Service',
+                    'type' => 'room_service',
                     'is_active' => true,
                 ]
             );

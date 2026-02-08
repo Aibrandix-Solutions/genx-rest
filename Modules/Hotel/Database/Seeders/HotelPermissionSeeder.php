@@ -16,13 +16,10 @@ class HotelPermissionSeeder extends Seeder
      */
     public function run()
     {
-        // Get Hotel module
-        $hotelModule = Module::where('name', 'Hotel')->first();
-        
-        if (!$hotelModule) {
-            $this->command->error('Hotel module not found in modules table. Please ensure the module is registered.');
-            return;
-        }
+        // Get or create Hotel module row
+        $hotelModule = Module::firstOrCreate(
+            ['name' => 'Hotel']
+        );
 
         // Define hotel permissions with module_id
         $permissionNames = [
