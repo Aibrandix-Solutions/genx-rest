@@ -181,10 +181,14 @@ jobs:
             echo "Publishing module migrations and assets..."
             php artisan module:publish || true
             php artisan module:publish-migration Inventory || true
+            php artisan module:publish-migration Hotel || true
 
             # Run migrations and seeders
             echo "Running database migrations..."
             php artisan migrate --force
+
+            # Seed Hotel permissions (idempotent — uses firstOrCreate)
+            php artisan module:seed Hotel --force || true
 
             echo "Database setup completed successfully!"
 
