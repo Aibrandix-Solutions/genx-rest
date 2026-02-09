@@ -74,7 +74,7 @@
                         </button>
                         @endif
                         @if(user_can('delete_room_type'))
-                        <button wire:click="deleteRoomType({{ $roomType->id }})" wire:confirm="Are you sure you want to delete this room type?" class="px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 border border-red-600 dark:border-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition">
+                        <button wire:click="confirmDeleteRoomType({{ $roomType->id }})" class="px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 border border-red-600 dark:border-red-400 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/30 transition">
                             Delete
                         </button>
                         @endif

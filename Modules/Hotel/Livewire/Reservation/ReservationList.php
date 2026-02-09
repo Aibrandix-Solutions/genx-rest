@@ -526,8 +526,24 @@ class ReservationList extends Component
         $this->dispatch('$refresh'); // Refresh list to show updated status
     }
 
-    public function cancelReservation($id)
+    public $pendingCancelId = null;
+
+    public function confirmCancelReservation($id)
     {
+        $this->pendingCancelId = $id;
+        $this->alert('warning', 'Cancel this reservation?', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Cancel',
+            'cancelButtonText' => 'No',
+            'onConfirmed' => 'cancelReservationConfirmed',
+        ]);
+    }
+
+    #[On('cancelReservationConfirmed')]
+    public function cancelReservation($id = null)
+    {
+        $id = $id ?? $this->pendingCancelId;
         abort_unless(user_can('edit_reservation'), 403);
         $reservation = Reservation::find($id);
         

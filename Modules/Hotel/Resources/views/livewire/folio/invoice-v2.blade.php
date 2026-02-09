@@ -14,26 +14,26 @@
             </div>
         </div>
         <div class="text-right">
-            <h2 class="text-xl font-bold text-gray-800">INVOICE</h2>
-            <p class="text-gray-600">Res #: {{ $reservation->reservation_number }}</p>
-            <p class="text-gray-600">Date: {{ now()->format('d-M-Y') }}</p>
+            <h2 class="text-xl font-bold text-gray-800">@lang('hotel::modules.invoice.title')</h2>
+            <p class="text-gray-600">@lang('hotel::modules.invoice.resNumber'): {{ $reservation->reservation_number }}</p>
+            <p class="text-gray-600">@lang('hotel::modules.folio.date'): {{ now()->format('d-M-Y') }}</p>
         </div>
     </div>
 
     <!-- Guest Info -->
     <div class="grid grid-cols-2 gap-8 mb-8">
         <div>
-            <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Guest Details</h3>
+            <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">@lang('hotel::modules.invoice.guestDetails')</h3>
              <p class="font-bold">{{ $reservation->guest->full_name }}</p>
              <p class="text-gray-600">{{ $reservation->guest->email }}</p>
              <p class="text-gray-600">{{ $reservation->guest->phone }}</p>
         </div>
         <div class="text-right">
-            <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">Stay Info</h3>
-            <p><span class="text-gray-600">Room:</span> <span class="font-bold">{{ $reservation->room->room_number }}</span> ({{ $reservation->room->roomType->name }})</p>
-            <p><span class="text-gray-600">Check In:</span> {{ $reservation->check_in_date->format('d-M-Y') }}</p>
-            <p><span class="text-gray-600">Check Out:</span> {{ $reservation->checkout_date->format('d-M-Y') }}</p>
-            <p><span class="text-gray-600">Nights:</span> {{ $reservation->getNumberOfNights() }}</p>
+            <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">@lang('hotel::modules.invoice.stayInfo')</h3>
+            <p><span class="text-gray-600">@lang('hotel::modules.reservation.room'):</span> <span class="font-bold">{{ $reservation->room->room_number }}</span> ({{ $reservation->room->roomType->name }})</p>
+            <p><span class="text-gray-600">@lang('hotel::modules.reservation.checkIn'):</span> {{ $reservation->check_in_date->format('d-M-Y') }}</p>
+            <p><span class="text-gray-600">@lang('hotel::modules.reservation.checkOut'):</span> {{ $reservation->checkout_date->format('d-M-Y') }}</p>
+            <p><span class="text-gray-600">@lang('hotel::modules.folio.nights'):</span> {{ $reservation->getNumberOfNights() }}</p>
         </div>
     </div>
 
@@ -41,9 +41,9 @@
     <table class="w-full mb-6">
         <thead>
             <tr class="border-b-2 border-gray-800">
-                <th class="text-left py-2">Date</th>
-                <th class="text-left py-2">Description</th>
-                <th class="text-right py-2">Amount</th>
+                <th class="text-left py-2">@lang('hotel::modules.folio.date')</th>
+                <th class="text-left py-2">@lang('hotel::modules.folio.description')</th>
+                <th class="text-right py-2">@lang('hotel::modules.folio.amount')</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-200">
@@ -66,14 +66,14 @@
 
     <!-- Payments Table -->
     @if($payments->isNotEmpty())
-    <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6">Payments Received</h3>
+    <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2 mt-6">@lang('hotel::modules.invoice.paymentsReceived')</h3>
     <table class="w-full mb-6">
         <thead>
             <tr class="border-b-2 border-gray-800">
-                <th class="text-left py-2">Date</th>
-                <th class="text-left py-2">Method</th>
-                <th class="text-left py-2">Type</th>
-                <th class="text-right py-2">Amount</th>
+                <th class="text-left py-2">@lang('hotel::modules.folio.date')</th>
+                <th class="text-left py-2">@lang('hotel::modules.folio.method')</th>
+                <th class="text-left py-2">@lang('hotel::modules.folio.type')</th>
+                <th class="text-right py-2">@lang('hotel::modules.folio.amount')</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-200">
@@ -95,15 +95,15 @@
     <div class="flex justify-end border-t pt-4">
         <div class="w-64 space-y-2">
             <div class="flex justify-between text-gray-600">
-                <span>Total Charges</span>
+                <span>@lang('hotel::modules.folio.totalCharges')</span>
                 <span>{{ currency_format($totalCharges) }}</span>
             </div>
             <div class="flex justify-between text-green-700">
-                <span>Total Paid</span>
+                <span>@lang('hotel::modules.folio.totalPaid')</span>
                 <span>- {{ currency_format($totalPayments) }}</span>
             </div>
             <div class="flex justify-between text-xl font-bold border-t border-gray-800 pt-2">
-                <span>Balance Due</span>
+                <span>@lang('hotel::modules.folio.balanceDue')</span>
                 <span>{{ currency_format($balance) }}</span>
             </div>
         </div>
@@ -111,7 +111,7 @@
 
     <!-- Footer -->
     <div class="mt-12 text-center text-sm text-gray-500 border-t pt-8">
-        <p>Thank you for staying with us!</p>
+        <p>@lang('hotel::modules.invoice.thankYou')</p>
     </div>
 
     <script>

@@ -13,6 +13,6 @@ class HotelController extends Controller
      */
     public function index()
     {
-        return view('hotel::dashboard');
+        return redirect()->route('hotel.dashboard');
     }
 }

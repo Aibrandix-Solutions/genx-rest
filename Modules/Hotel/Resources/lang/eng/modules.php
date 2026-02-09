@@ -122,9 +122,20 @@ return [
         'tax' => 'Tax',
         'other' => 'Other',
         'pendingOrders' => 'Pending Room Service Orders',
+        'roomService' => 'Room Service',
         'noCharges' => 'No charges found on this folio.',
         'noPayments' => 'No payments recorded yet.',
         'confirmDeleteCharge' => 'Are you sure you want to delete this charge?',
+        'generateRoomCharges' => 'Generate Room Charges',
+    ],
+
+    'invoice' => [
+        'title' => 'INVOICE',
+        'resNumber' => 'Res #',
+        'guestDetails' => 'Guest Details',
+        'stayInfo' => 'Stay Info',
+        'paymentsReceived' => 'Payments Received',
+        'thankYou' => 'Thank you for staying with us!',
     ],
 
     'settings' => [
@@ -177,6 +188,15 @@ return [
         'bookingLimits' => 'Booking Limits',
         'maxRoomsPerBooking' => 'Max Rooms Per Booking',
         'maxRoomsPerBookingHint' => 'Maximum number of rooms a guest can book in a single reservation (1–50).',
+
+        'businessMode' => 'Business Mode',
+        'businessModeHint' => 'Controls which module is primary — affects the dashboard landing page, sidebar order, and navigation priority.',
+        'modeHotelPrimary' => 'Hotel First',
+        'modeHotelPrimaryDesc' => 'Hotel dashboard as home. Hotel items at top of sidebar.',
+        'modeEqual' => 'Balanced',
+        'modeEqualDesc' => 'Unified dashboard with both hotel and restaurant stats.',
+        'modeRestaurantPrimary' => 'Restaurant First',
+        'modeRestaurantPrimaryDesc' => 'Original restaurant dashboard. Hotel as sidebar add-on.',
 
         'saveSettings' => 'Save Settings',
     ],

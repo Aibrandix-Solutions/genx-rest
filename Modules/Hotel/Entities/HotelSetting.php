@@ -11,8 +11,13 @@ class HotelSetting extends Model
 {
     use HasFactory;
 
+    const MODE_HOTEL_PRIMARY = 'hotel_primary';
+    const MODE_RESTAURANT_PRIMARY = 'restaurant_primary';
+    const MODE_EQUAL = 'equal';
+
     protected $fillable = [
         'branch_id',
+        'business_mode',
         'hotel_name',
         'hotel_logo',
         'default_check_in_time',
@@ -31,6 +36,7 @@ class HotelSetting extends Model
     ];
 
     protected $casts = [
+        'business_mode' => 'string',
         'early_checkin_charge_per_hour' => 'decimal:2',
         'late_checkout_charge_per_hour' => 'decimal:2',
         'deposit_percentage' => 'decimal:2',

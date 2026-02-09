@@ -44,6 +44,11 @@ class AddPayment extends Component
     public $canAddTip;
     public $predefinedAmounts = [];
 
+    // Room charge properties
+    public $showRoomCharge = false;
+    public $roomChargeReservationId = null;
+    public $inHouseReservations = [];
+
     #[On('showPaymentModal')]
     public function showPaymentModal($id)
     {
@@ -91,6 +96,19 @@ class AddPayment extends Component
         $this->refreshAvailableItems();
 
         $this->initializeSplits();
+
+        // Hotel room charge availability
+        $this->showRoomCharge = function_exists('hotel_business_mode')
+            && in_array(hotel_business_mode(), ['hotel_primary', 'equal'])
+            && in_array('hotel', array_map('strtolower', custom_module_plugins()));
+
+        if ($this->showRoomCharge) {
+            // Pre-select reservation if order already linked
+            $this->roomChargeReservationId = $this->order->hotel_reservation_id;
+            if ($this->order->hotel_reservation_id) {
+                $this->paymentMethod = 'room_charge';
+            }
+        }
     }
 
     private function refreshAvailableItems()
@@ -278,7 +296,35 @@ class AddPayment extends Component
     public function setPaymentMethod($method)
     {
         $this->paymentMethod = $method;
+
+        // Auto-load in-house reservations for room charge
+        if ($method === 'room_charge' && $this->showRoomCharge) {
+            $this->loadInHouseReservations();
+        }
+
         $this->updatedPaymentAmount();
+    }
+
+    public function loadInHouseReservations()
+    {
+        if (!class_exists(\Modules\Hotel\Entities\Reservation::class)) {
+            return;
+        }
+
+        $branchId = $this->order->branch_id ?? (auth()->user()->branch_id ?? 1);
+
+        $this->inHouseReservations = \Modules\Hotel\Entities\Reservation::with(['guest', 'room'])
+            ->where('branch_id', $branchId)
+            ->where('status', \Modules\Hotel\Entities\Reservation::STATUS_CHECKED_IN)
+            ->orderBy('room_id')
+            ->get()
+            ->map(fn($r) => [
+                'id' => $r->id,
+                'label' => 'Room ' . ($r->room->room_number ?? '?') . ' — ' . ($r->guest->full_name ?? 'Guest'),
+                'room_number' => $r->room->room_number ?? '',
+                'guest_name' => $r->guest->full_name ?? 'Guest',
+            ])
+            ->toArray();
     }
 
     public function quickAmount($amount)
@@ -443,12 +489,18 @@ class AddPayment extends Component
 
         } else {
             if ($this->paymentAmount >= 0) {
+
+                // Room charge — link order to reservation if not already linked
+                if ($this->paymentMethod === 'room_charge' && $this->roomChargeReservationId) {
+                    $this->order->update(['hotel_reservation_id' => $this->roomChargeReservationId]);
+                }
+
                 Payment::create([
                 'order_id' => $this->order->id,
-                'payment_method' => $this->paymentMethod,
+                'payment_method' => $this->paymentMethod === 'room_charge' ? 'due' : $this->paymentMethod,
                 'amount' => $this->paymentAmount - $this->returnAmount,
                 'balance' => $this->returnAmount,
-                'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod)
+                'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod === 'room_charge' ? 'due' : $this->paymentMethod)
                 ]);
             }
         }

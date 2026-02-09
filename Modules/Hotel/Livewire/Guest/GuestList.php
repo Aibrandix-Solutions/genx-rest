@@ -139,8 +139,24 @@ class GuestList extends Component
         $this->resetErrorBag();
     }
 
-    public function deleteGuest($id)
+    public $pendingDeleteGuestId = null;
+
+    public function confirmDeleteGuest($id)
     {
+        $this->pendingDeleteGuestId = $id;
+        $this->alert('warning', 'Are you sure you want to delete this guest?', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText' => 'Cancel',
+            'onConfirmed' => 'deleteGuestConfirmed',
+        ]);
+    }
+
+    #[On('deleteGuestConfirmed')]
+    public function deleteGuest($id = null)
+    {
+        $id = $id ?? $this->pendingDeleteGuestId;
         abort_unless(user_can('delete_guest'), 403);
         $guest = Guest::find($id);
         if ($guest) {
@@ -157,6 +173,7 @@ class GuestList extends Component
     public function render()
     {
         $guests = Guest::with(['customer', 'reservations'])
+            ->where('branch_id', auth()->user()->branch_id ?? restaurant()->default_branch_id)
             ->when($this->search, function ($query) {
                 $query->where(function ($q) {
                     $q->where('first_name', 'like', '%' . $this->search . '%')

@@ -26,9 +26,9 @@
             </div>
             <div class="flex flex-wrap gap-2">
                 @if(!$hasRoomNightCharges && in_array($reservation->status, ['checked_in', 'confirmed']) && user_can('add_room_charge'))
-                <button wire:click="generateRoomNightCharges" wire:confirm="This will generate room night charges for all {{ $reservation->getNumberOfNights() }} nights. Continue?" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition">
+                <button wire:click="confirmGenerateRoomNightCharges" class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-                    Generate Room Charges
+                    @lang('hotel::modules.folio.generateRoomCharges')
                 </button>
                 @endif
                 @if(user_can('add_room_charge'))
@@ -114,7 +114,7 @@
                             </td>
                             <td class="p-3 text-center">
                                 @if(!$charge->order_id && user_can('delete_room_charge'))
-                                    <button wire:click="deleteCharge({{ $charge->id }})" wire:confirm="@lang('hotel::modules.folio.confirmDeleteCharge')" class="text-red-500 hover:text-red-700 transition" title="@lang('app.delete')">
+                                    <button wire:click="confirmDeleteCharge({{ $charge->id }})" class="text-red-500 hover:text-red-700 transition" title="@lang('app.delete')">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                     </button>
                                 @endif
@@ -145,7 +145,7 @@
                             </td>
                             <td class="p-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap">
                                 <span class="px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300">
-                                    Room Service
+                                    @lang('hotel::modules.folio.roomService')
                                 </span>
                             </td>
                             <td class="p-3 text-sm text-gray-700 dark:text-gray-300">

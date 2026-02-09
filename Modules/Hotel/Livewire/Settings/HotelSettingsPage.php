@@ -4,6 +4,7 @@ namespace Modules\Hotel\Livewire\Settings;
 
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Livewire\Attributes\On;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\HotelSetting;
 use App\Helper\Files;
@@ -11,6 +12,9 @@ use App\Helper\Files;
 class HotelSettingsPage extends Component
 {
     use WithFileUploads, LivewireAlert;
+
+    // Business Mode
+    public $business_mode = 'restaurant_primary';
 
     // Hotel Identity
     public $hotel_name = '';
@@ -52,6 +56,7 @@ class HotelSettingsPage extends Component
         $settings = HotelSetting::where('branch_id', $branchId)->first();
 
         if ($settings) {
+            $this->business_mode = $settings->business_mode ?? 'restaurant_primary';
             $this->hotel_name = $settings->hotel_name ?? '';
             $this->existing_logo = $settings->hotel_logo ?? '';
             $this->default_check_in_time = substr($settings->default_check_in_time ?? '14:00', 0, 5);
@@ -75,6 +80,7 @@ class HotelSettingsPage extends Component
         abort_unless(user_can('manage_hotel_settings'), 403);
 
         $this->validate([
+            'business_mode' => 'required|in:hotel_primary,restaurant_primary,equal',
             'hotel_name' => 'required|string|max:255',
             'hotel_logo' => 'nullable|image|mimes:jpg,jpeg,png,svg,webp|max:2048',
             'default_check_in_time' => 'required|date_format:H:i',
@@ -94,6 +100,7 @@ class HotelSettingsPage extends Component
         $settings = HotelSetting::updateOrCreate(
             ['branch_id' => $branchId],
             [
+                'business_mode' => $this->business_mode,
                 'hotel_name' => $this->hotel_name,
                 'default_check_in_time' => $this->default_check_in_time,
                 'default_checkout_time' => $this->default_checkout_time,
@@ -127,6 +134,18 @@ class HotelSettingsPage extends Component
         $this->alert('success', __('hotel::modules.settings.saved'));
     }
 
+    public function confirmRemoveLogo()
+    {
+        $this->alert('warning', 'Remove the hotel logo?', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Remove',
+            'cancelButtonText' => 'No',
+            'onConfirmed' => 'removeLogoConfirmed',
+        ]);
+    }
+
+    #[On('removeLogoConfirmed')]
     public function removeLogo()
     {
         abort_unless(user_can('manage_hotel_settings'), 403);

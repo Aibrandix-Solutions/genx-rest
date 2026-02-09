@@ -127,13 +127,16 @@ class Reservation extends Model
     {
         $prefix = 'RES';
         $date = now()->format('Ymd');
-        $lastReservation = self::where('branch_id', $branchId)
-            ->whereDate('created_at', today())
-            ->latest()
-            ->first();
-        
-        $sequence = $lastReservation ? (int)substr($lastReservation->reservation_number, -4) + 1 : 1;
-        
+        $pattern = $prefix . $date . '%';
+
+        // Use MAX on reservation_number to avoid race conditions with identical created_at timestamps
+        $lastNumber = self::where('branch_id', $branchId)
+            ->where('reservation_number', 'like', $pattern)
+            ->orderByRaw("CAST(SUBSTRING(reservation_number, -4) AS UNSIGNED) DESC")
+            ->value('reservation_number');
+
+        $sequence = $lastNumber ? (int) substr($lastNumber, -4) + 1 : 1;
+
         return $prefix . $date . str_pad($sequence, 4, '0', STR_PAD_LEFT);
     }
 

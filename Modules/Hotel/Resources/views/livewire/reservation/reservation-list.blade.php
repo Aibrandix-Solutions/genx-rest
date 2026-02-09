@@ -124,7 +124,7 @@
                                             </a>
                                         @endif
                                         @if(in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('edit_reservation'))
-                                            <button wire:click="cancelReservation({{ $reservation->id }})" wire:confirm="Cancel this reservation?" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
+                                            <button wire:click="confirmCancelReservation({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
                                                 Cancel
                                             </button>
                                         @endif

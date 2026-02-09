@@ -76,7 +76,7 @@
                                         </button>
                                         @endif
                                         @if(user_can('delete_guest'))
-                                        <button wire:click="deleteGuest({{ $guest->id }})" wire:confirm="Are you sure you want to delete this guest?" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-white bg-red-600 rounded-lg hover:bg-red-800 dark:hover:bg-red-700">
+                                        <button wire:click="confirmDeleteGuest({{ $guest->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-center text-white bg-red-600 rounded-lg hover:bg-red-800 dark:hover:bg-red-700">
                                             Delete
                                         </button>
                                         @endif

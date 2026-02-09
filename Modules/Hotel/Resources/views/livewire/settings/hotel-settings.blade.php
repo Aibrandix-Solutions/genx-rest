@@ -10,6 +10,81 @@
 
     <form wire:submit.prevent="save" class="space-y-6">
 
+        {{-- ═══════════ Business Mode ═══════════ --}}
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div class="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-gray-700/50 dark:to-gray-700/50 border-b border-gray-200 dark:border-gray-600">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                    <x-heroicon-o-building-office class="w-5 h-5 text-blue-500"/>
+                    @lang('hotel::modules.settings.businessMode')
+                </h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">@lang('hotel::modules.settings.businessModeHint')</p>
+            </div>
+            <div class="p-6">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {{-- Hotel Primary --}}
+                    <label class="relative flex cursor-pointer rounded-lg border p-4 transition-all
+                        {{ $business_mode === 'hotel_primary' ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500/20 dark:bg-blue-900/20 dark:border-blue-400' : 'border-gray-200 hover:border-gray-300 dark:border-gray-600 dark:hover:border-gray-500' }}">
+                        <input type="radio" wire:model.live="business_mode" value="hotel_primary" class="sr-only">
+                        <div class="flex flex-col items-center text-center w-full gap-2">
+                            <div class="p-2 rounded-full {{ $business_mode === 'hotel_primary' ? 'bg-blue-100 dark:bg-blue-800/40' : 'bg-gray-100 dark:bg-gray-700' }}">
+                                <x-heroicon-o-building-office class="w-6 h-6 {{ $business_mode === 'hotel_primary' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400' }}"/>
+                            </div>
+                            <span class="text-sm font-semibold {{ $business_mode === 'hotel_primary' ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300' }}">
+                                @lang('hotel::modules.settings.modeHotelPrimary')
+                            </span>
+                            <span class="text-[11px] text-gray-500 dark:text-gray-400">@lang('hotel::modules.settings.modeHotelPrimaryDesc')</span>
+                        </div>
+                        @if($business_mode === 'hotel_primary')
+                            <div class="absolute top-2 right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                            </div>
+                        @endif
+                    </label>
+
+                    {{-- Equal --}}
+                    <label class="relative flex cursor-pointer rounded-lg border p-4 transition-all
+                        {{ $business_mode === 'equal' ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500/20 dark:bg-blue-900/20 dark:border-blue-400' : 'border-gray-200 hover:border-gray-300 dark:border-gray-600 dark:hover:border-gray-500' }}">
+                        <input type="radio" wire:model.live="business_mode" value="equal" class="sr-only">
+                        <div class="flex flex-col items-center text-center w-full gap-2">
+                            <div class="p-2 rounded-full {{ $business_mode === 'equal' ? 'bg-blue-100 dark:bg-blue-800/40' : 'bg-gray-100 dark:bg-gray-700' }}">
+                                <x-heroicon-o-scale class="w-6 h-6 {{ $business_mode === 'equal' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400' }}"/>
+                            </div>
+                            <span class="text-sm font-semibold {{ $business_mode === 'equal' ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300' }}">
+                                @lang('hotel::modules.settings.modeEqual')
+                            </span>
+                            <span class="text-[11px] text-gray-500 dark:text-gray-400">@lang('hotel::modules.settings.modeEqualDesc')</span>
+                        </div>
+                        @if($business_mode === 'equal')
+                            <div class="absolute top-2 right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                            </div>
+                        @endif
+                    </label>
+
+                    {{-- Restaurant Primary --}}
+                    <label class="relative flex cursor-pointer rounded-lg border p-4 transition-all
+                        {{ $business_mode === 'restaurant_primary' ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500/20 dark:bg-blue-900/20 dark:border-blue-400' : 'border-gray-200 hover:border-gray-300 dark:border-gray-600 dark:hover:border-gray-500' }}">
+                        <input type="radio" wire:model.live="business_mode" value="restaurant_primary" class="sr-only">
+                        <div class="flex flex-col items-center text-center w-full gap-2">
+                            <div class="p-2 rounded-full {{ $business_mode === 'restaurant_primary' ? 'bg-blue-100 dark:bg-blue-800/40' : 'bg-gray-100 dark:bg-gray-700' }}">
+                                <x-heroicon-o-cake class="w-6 h-6 {{ $business_mode === 'restaurant_primary' ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400' }}"/>
+                            </div>
+                            <span class="text-sm font-semibold {{ $business_mode === 'restaurant_primary' ? 'text-blue-700 dark:text-blue-300' : 'text-gray-700 dark:text-gray-300' }}">
+                                @lang('hotel::modules.settings.modeRestaurantPrimary')
+                            </span>
+                            <span class="text-[11px] text-gray-500 dark:text-gray-400">@lang('hotel::modules.settings.modeRestaurantPrimaryDesc')</span>
+                        </div>
+                        @if($business_mode === 'restaurant_primary')
+                            <div class="absolute top-2 right-2 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                                <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                            </div>
+                        @endif
+                    </label>
+                </div>
+                <x-input-error for="business_mode" class="mt-2"/>
+            </div>
+        </div>
+
         {{-- ═══════════ Hotel Identity ═══════════ --}}
         <div class="bg-white dark:bg-gray-800 shadow-md rounded-lg overflow-hidden">
             <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
@@ -48,7 +123,7 @@
                         </div>
 
                         @if($existing_logo)
-                            <button type="button" wire:click="removeLogo" wire:confirm="Remove the hotel logo?" class="text-red-500 hover:text-red-700 text-sm font-medium">
+                            <button type="button" wire:click="confirmRemoveLogo" class="text-red-500 hover:text-red-700 text-sm font-medium">
                                 Remove
                             </button>
                         @endif

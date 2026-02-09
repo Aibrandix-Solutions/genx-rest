@@ -3,6 +3,7 @@
 namespace Modules\Hotel\Livewire\Folio;
 
 use Livewire\Component;
+use Livewire\Attributes\On;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
@@ -97,6 +98,19 @@ class FolioManager extends Component
     /**
      * Generate room night charges for checked-in reservations that are missing them
      */
+    public function confirmGenerateRoomNightCharges()
+    {
+        $nights = $this->reservation->getNumberOfNights();
+        $this->alert('warning', "This will generate room night charges for all {$nights} nights. Continue?", [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Generate',
+            'cancelButtonText' => 'Cancel',
+            'onConfirmed' => 'generateRoomNightChargesConfirmed',
+        ]);
+    }
+
+    #[On('generateRoomNightChargesConfirmed')]
     public function generateRoomNightCharges()
     {
         abort_unless(user_can('add_room_charge'), 403);
@@ -225,8 +239,24 @@ class FolioManager extends Component
 
     // --- Delete Charge ---
 
-    public function deleteCharge($chargeId)
+    public $pendingDeleteChargeId = null;
+
+    public function confirmDeleteCharge($chargeId)
     {
+        $this->pendingDeleteChargeId = $chargeId;
+        $this->alert('warning', __('hotel::modules.folio.confirmDeleteCharge'), [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText' => 'Cancel',
+            'onConfirmed' => 'deleteChargeConfirmed',
+        ]);
+    }
+
+    #[On('deleteChargeConfirmed')]
+    public function deleteCharge($chargeId = null)
+    {
+        $chargeId = $chargeId ?? $this->pendingDeleteChargeId;
         abort_unless(user_can('delete_room_charge'), 403);
         $charge = RoomCharge::where('reservation_id', $this->reservation->id)->find($chargeId);
 

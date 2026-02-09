@@ -125,8 +125,24 @@ class RoomTypeList extends Component
         $this->resetErrorBag();
     }
 
-    public function deleteRoomType($id)
+    public $pendingDeleteRoomTypeId = null;
+
+    public function confirmDeleteRoomType($id)
     {
+        $this->pendingDeleteRoomTypeId = $id;
+        $this->alert('warning', 'Are you sure you want to delete this room type?', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText' => 'Cancel',
+            'onConfirmed' => 'deleteRoomTypeConfirmed',
+        ]);
+    }
+
+    #[On('deleteRoomTypeConfirmed')]
+    public function deleteRoomType($id = null)
+    {
+        $id = $id ?? $this->pendingDeleteRoomTypeId;
         abort_unless(user_can('delete_room_type'), 403);
         $roomType = RoomType::find($id);
         if ($roomType) {

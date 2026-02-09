@@ -57,8 +57,17 @@ class FortifyServiceProvider extends ServiceProvider
                     return redirect(url(RouteServiceProvider::SUPERADMIN_HOME));
                 }
 
-                return redirect(session()->has('url.intended') ? session()->get('url.intended') :
-url(RouteServiceProvider::HOME));
+                // If user has an intended URL (e.g. deep-link), honour it
+                if (session()->has('url.intended')) {
+                    return redirect(session()->get('url.intended'));
+                }
+
+                // Hotel-first redirect: land on Hotel dashboard when business mode is hotel_primary
+                if (function_exists('hotel_business_mode') && hotel_business_mode() === 'hotel_primary') {
+                    return redirect(url('/hotel'));
+                }
+
+                return redirect(url(RouteServiceProvider::HOME));
             }
         });
     }
