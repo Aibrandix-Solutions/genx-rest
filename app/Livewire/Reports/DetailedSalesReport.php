@@ -12,6 +12,7 @@ use App\Models\RestaurantCharge;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\PaymentGatewayCredential;
+use App\Models\Payment;
 use App\Models\User;
 use App\Exports\DetailedSalesReportExport;
 
@@ -30,6 +31,8 @@ class DetailedSalesReport extends Component
     public $selectedWaiter = '';
     public $search = '';
     public $perPage = 15;
+    public $filterPaymentMethod = '';
+    public $paymentMethods = [];
 
     public function mount()
     {
@@ -48,6 +51,14 @@ class DetailedSalesReport extends Component
         })->get();
 
         $this->selectedWaiter = '';
+
+        // Load distinct payment methods
+        $this->paymentMethods = Payment::select('payment_method')
+            ->distinct()
+            ->whereNotNull('payment_method')
+            ->where('payment_method', '!=', 'due')
+            ->pluck('payment_method')
+            ->toArray();
     }
 
     public function setDateRange()
@@ -132,7 +143,9 @@ class DetailedSalesReport extends Component
                 $dateTimeData['startTime'],
                 $dateTimeData['endTime'],
                 $dateTimeData['timezone'],
-                $dateTimeData['offset']
+                $dateTimeData['offset'],
+                $this->filterByWaiter,
+                $this->filterPaymentMethod
             ),
             'detailed-sales-report-' . now()->format('Y-m-d_His') . '.xlsx'
         );
@@ -149,7 +162,7 @@ class DetailedSalesReport extends Component
         $taxMode = $restaurant->tax_mode ?? 'order';
 
         // Get detailed sales report
-        $query = Order::with(['payments', 'items', 'items.menuItem', 'waiter'])
+        $query = Order::with(['payments', 'items', 'items.menuItem', 'waiter', 'customer'])
             ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
             ->whereIn('orders.status', ['paid', 'payment_due'])
             ->where(function ($q) use ($dateTimeData) {
@@ -168,6 +181,18 @@ class DetailedSalesReport extends Component
         // Filter by waiter if selected
         if ($this->filterByWaiter) {
             $query->where('orders.waiter_id', $this->filterByWaiter);
+        }
+
+        // Filter by payment method if selected
+        if ($this->filterPaymentMethod !== '') {
+            if ($this->filterPaymentMethod === 'due') {
+                $query->where('orders.status', 'payment_due')
+                    ->whereDoesntHave('payments');
+            } else {
+                $query->whereHas('payments', function($q) {
+                    $q->where('payment_method', $this->filterPaymentMethod);
+                });
+            }
         }
 
         if ($this->search) {
@@ -192,6 +217,7 @@ class DetailedSalesReport extends Component
             'currencyId' => $this->currencyId,
             'waiters' => $this->waiters,
             'filterByWaiter' => $this->filterByWaiter,
+            'paymentMethods' => $this->paymentMethods,
         ]);
     }
 }

@@ -617,6 +617,11 @@ return [
         'sales_trend' => 'Sales Trend',
         'order' => 'Order',
         'payment' => 'Payment',
+        'filterCustomers' => 'Filter Customers',
+        'allCustomers' => 'All Customers',
+        'withOutstanding' => 'With Outstanding Balance',
+        'noOutstanding' => 'No Outstanding Balance',
+        'customerName' => 'Customer Name',
     ],
 
     'reward' => [

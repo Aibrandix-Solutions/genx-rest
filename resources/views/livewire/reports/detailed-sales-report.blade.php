@@ -98,6 +98,14 @@
                         <option value="{{ $waiter->id }}">{{ $waiter->name }}</option>
                     @endforeach
                 </select>
+
+                <select wire:model.live="filterPaymentMethod" class="px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg focus:ring-4 focus:ring-primary-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-700">
+                    <option value="">@lang('modules.order.paymentMethod')</option>
+                    @foreach($paymentMethods ?? [] as $method)
+                        <option value="{{ $method }}">{{ ucfirst(str_replace('_', ' ', $method)) }}</option>
+                    @endforeach
+                    <option value="due">@lang('modules.order.due')</option>
+                </select>
             </div>
         </div>
     </div>
@@ -112,6 +120,9 @@
                 </th>
                 <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
                 @lang('app.date')
+                </th>
+                <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
+                @lang('modules.customer.customerName')
                 </th>
                 <th class="p-4 text-xs font-medium tracking-wider text-center text-gray-600 uppercase dark:text-gray-300">
                 @lang('modules.table.staff')
@@ -150,6 +161,7 @@
                 </th>
             </tr>
             <tr>
+                <th></th>
                 <th></th>
                 <th></th>
                 <th></th>
@@ -205,6 +217,9 @@
                 <td class="p-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">
                 {{ $order->date_time->format('M d, Y h:i A') }}
                 </td>
+                <td class="p-4 text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                {{ $order->customer->name ?? '--' }}
+                </td>
                 <td class="p-4 text-sm text-center text-gray-900 dark:text-white">
                 {{ $order->waiter->name ?? '--' }}
                 </td>
@@ -245,7 +260,7 @@
             </tr>
             @empty
             <tr>
-                <td colspan="{{ 9 + count($charges) }}" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
+                <td colspan="{{ 10 + count($charges) }}" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
                 @lang('messages.noItemAdded')
                 </td>
             </tr>

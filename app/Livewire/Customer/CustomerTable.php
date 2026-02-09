@@ -17,6 +17,7 @@ class CustomerTable extends Component
 
     public $search;
     public $customer;
+    public $filterCustomer = 'all';
     public $showEditCustomerModal = false;
     public $confirmDeleteCustomerModal = false;
     public $showCustomerOrderModal = false;
@@ -107,12 +108,26 @@ class CustomerTable extends Component
                 $q->where('name', 'like', '%' . $this->search . '%')
                   ->orWhere('email', 'like', '%' . $this->search . '%')
                   ->orWhere('phone', 'like', '%' . $this->search . '%');
-            })
-            ->orderBy('id', 'desc')
+            });
+
+        // Apply outstanding balance filter
+        if ($this->filterCustomer === 'with_outstanding') {
+            $query->whereHas('orders', function($q) {
+                $q->where('status', 'payment_due')
+                  ->whereRaw('total > amount_paid');
+            });
+        } elseif ($this->filterCustomer === 'no_outstanding') {
+            $query->whereDoesntHave('orders', function($q) {
+                $q->where('status', 'payment_due')
+                  ->whereRaw('total > amount_paid');
+            });
+        }
+
+        $customers = $query->orderBy('id', 'desc')
             ->paginate(10);
 
         return view('livewire.customer.customer-table', [
-            'customers' => $query
+            'customers' => $customers
         ]);
     }
 }
