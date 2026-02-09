@@ -235,6 +235,30 @@
             </div>
         </div>
 
+        {{-- ═══════════ Booking Limits ═══════════ --}}
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-600">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                    <x-heroicon-o-queue-list class="w-5 h-5 text-blue-500"/>
+                    @lang('hotel::modules.settings.bookingLimits')
+                </h3>
+            </div>
+            <div class="p-6 space-y-4">
+                <div>
+                    <label for="max_rooms_per_booking" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                        @lang('hotel::modules.settings.maxRoomsPerBooking')
+                    </label>
+                    <input type="number" id="max_rooms_per_booking" wire:model="max_rooms_per_booking"
+                           min="1" max="50"
+                           class="w-full sm:w-48 rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:border-blue-500 focus:ring-blue-500">
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        @lang('hotel::modules.settings.maxRoomsPerBookingHint')
+                    </p>
+                    <x-input-error for="max_rooms_per_booking" class="mt-1"/>
+                </div>
+            </div>
+        </div>
+
         {{-- ═══════════ Save Button ═══════════ --}}
         <div class="flex justify-end">
             <button type="submit" wire:loading.attr="disabled" class="inline-flex items-center px-6 py-3 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 focus:ring-4 focus:ring-blue-300 dark:focus:ring-blue-800 transition disabled:opacity-50">

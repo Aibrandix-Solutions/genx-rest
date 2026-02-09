@@ -34,6 +34,7 @@ class Reservation extends Model
         'total_amount',
         'paid_amount',
         'balance_due',
+        'group_booking_id',
         'created_by_user_id',
     ];
 
@@ -82,6 +83,26 @@ class Reservation extends Model
     public function charges(): HasMany
     {
         return $this->hasMany(RoomCharge::class);
+    }
+
+    /**
+     * Get all reservations in the same group booking
+     */
+    public function groupedReservations()
+    {
+        if (!$this->group_booking_id) {
+            return collect([$this]);
+        }
+
+        return static::where('group_booking_id', $this->group_booking_id)->get();
+    }
+
+    /**
+     * Generate a unique group booking ID
+     */
+    public static function generateGroupBookingId($branchId): string
+    {
+        return 'GRP' . now()->format('Ymd') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
     }
 
     public function orders(): HasMany

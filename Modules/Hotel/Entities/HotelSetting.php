@@ -25,6 +25,7 @@ class HotelSetting extends Model
         'enable_room_service',
         'enable_housekeeping_module',
         'enable_dynamic_pricing',
+        'max_rooms_per_booking',
         'tax_rate',
         'service_charge_rate',
     ];
@@ -36,6 +37,7 @@ class HotelSetting extends Model
         'enable_room_service' => 'boolean',
         'enable_housekeeping_module' => 'boolean',
         'enable_dynamic_pricing' => 'boolean',
+        'max_rooms_per_booking' => 'integer',
         'tax_rate' => 'decimal:2',
         'service_charge_rate' => 'decimal:2',
     ];

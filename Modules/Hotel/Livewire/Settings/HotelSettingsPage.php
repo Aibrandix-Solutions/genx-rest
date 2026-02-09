@@ -33,6 +33,9 @@ class HotelSettingsPage extends Component
     public $enable_housekeeping_module = true;
     public $enable_dynamic_pricing = false;
 
+    // Booking Limits
+    public $max_rooms_per_booking = 10;
+
     // Tax & Charges
     public $tax_rate = 0;
     public $service_charge_rate = 0;
@@ -61,6 +64,7 @@ class HotelSettingsPage extends Component
             $this->enable_room_service = (bool) $settings->enable_room_service;
             $this->enable_housekeeping_module = (bool) $settings->enable_housekeeping_module;
             $this->enable_dynamic_pricing = (bool) $settings->enable_dynamic_pricing;
+            $this->max_rooms_per_booking = $settings->max_rooms_per_booking ?? 10;
             $this->tax_rate = $settings->tax_rate ?? 0;
             $this->service_charge_rate = $settings->service_charge_rate ?? 0;
         }
@@ -82,6 +86,7 @@ class HotelSettingsPage extends Component
             'cancellation_policy' => 'nullable|string|max:2000',
             'tax_rate' => 'required|numeric|min:0|max:100',
             'service_charge_rate' => 'required|numeric|min:0|max:100',
+            'max_rooms_per_booking' => 'required|integer|min:1|max:50',
         ]);
 
         $branchId = auth()->user()->branch_id ?? 1;
@@ -100,6 +105,7 @@ class HotelSettingsPage extends Component
                 'enable_room_service' => $this->enable_room_service,
                 'enable_housekeeping_module' => $this->enable_housekeeping_module,
                 'enable_dynamic_pricing' => $this->enable_dynamic_pricing,
+                'max_rooms_per_booking' => $this->max_rooms_per_booking,
                 'tax_rate' => $this->tax_rate,
                 'service_charge_rate' => $this->service_charge_rate,
             ]

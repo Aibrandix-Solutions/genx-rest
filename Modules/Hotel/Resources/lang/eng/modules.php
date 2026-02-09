@@ -174,6 +174,10 @@ return [
         'enableDynamicPricing' => 'Dynamic Pricing',
         'enableDynamicPricingHint' => 'Allow room rates to vary by date range (peak/off-peak seasons).',
 
+        'bookingLimits' => 'Booking Limits',
+        'maxRoomsPerBooking' => 'Max Rooms Per Booking',
+        'maxRoomsPerBookingHint' => 'Maximum number of rooms a guest can book in a single reservation (1–50).',
+
         'saveSettings' => 'Save Settings',
     ],
 ];

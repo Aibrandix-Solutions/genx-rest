@@ -177,7 +177,7 @@ class ReservationList extends Component
     // --- Create reservation ---
 
     public $create_guest_id = '';
-    public $create_room_id = '';
+    public $create_room_id = ''; // kept for backward compat / single-room shortcut
     public $create_check_in_date = '';
     public $create_check_out_date = '';
     public $create_room_type_id = '';
@@ -188,15 +188,23 @@ class ReservationList extends Component
     
     public $available_rooms = [];
 
+    /**
+     * Multi-room selection: array of selected rooms with per-room occupancy
+     * Format: [ ['room_id' => int, 'adults' => int, 'children' => int], ... ]
+     */
+    public $selected_rooms = [];
+    public $maxRoomsPerBooking = 10;
+
     protected function rules()
     {
         return [
             'create_guest_id' => 'required|exists:hotel_guests,id',
             'create_check_in_date' => 'required|date|after_or_equal:today',
             'create_check_out_date' => 'required|date|after:create_check_in_date',
-            'create_room_id' => 'required|exists:hotel_rooms,id',
-            'create_adults' => 'required|integer|min:1',
-            'create_children' => 'integer|min:0',
+            'selected_rooms' => 'required|array|min:1',
+            'selected_rooms.*.room_id' => 'required|exists:hotel_rooms,id',
+            'selected_rooms.*.adults' => 'required|integer|min:1',
+            'selected_rooms.*.children' => 'integer|min:0',
             'create_notes' => 'nullable|string',
             'create_booking_source' => 'nullable|string|max:100',
         ];
@@ -288,7 +296,7 @@ class ReservationList extends Component
               });
         });
 
-        $this->available_rooms = $query->get();
+        $this->available_rooms = $query->with('roomType')->get();
     }
 
     public function createNewReservation()
@@ -297,7 +305,67 @@ class ReservationList extends Component
         $this->resetForm();
         $this->create_check_in_date = Carbon::today()->format('Y-m-d');
         $this->create_check_out_date = Carbon::tomorrow()->format('Y-m-d');
+
+        // Load max rooms setting
+        $branchId = auth()->user()->branch_id ?? 1;
+        $settings = HotelSetting::where('branch_id', $branchId)->first();
+        $this->maxRoomsPerBooking = $settings->max_rooms_per_booking ?? 10;
+
         $this->showCreateReservation = true;
+    }
+
+    /**
+     * Toggle a room in/out of the selected rooms list
+     */
+    public function toggleRoom($roomId)
+    {
+        $roomId = (int) $roomId;
+        $existingIndex = null;
+
+        foreach ($this->selected_rooms as $index => $entry) {
+            if ((int) $entry['room_id'] === $roomId) {
+                $existingIndex = $index;
+                break;
+            }
+        }
+
+        if ($existingIndex !== null) {
+            // Remove room
+            array_splice($this->selected_rooms, $existingIndex, 1);
+            $this->selected_rooms = array_values($this->selected_rooms);
+        } else {
+            // Add room if under limit
+            if (count($this->selected_rooms) >= $this->maxRoomsPerBooking) {
+                $this->alert('warning', "Maximum {$this->maxRoomsPerBooking} rooms per booking.");
+                return;
+            }
+            $this->selected_rooms[] = [
+                'room_id' => $roomId,
+                'adults' => (int) ($this->create_adults ?? 1),
+                'children' => (int) ($this->create_children ?? 0),
+            ];
+        }
+    }
+
+    /**
+     * Update occupancy for a specific selected room
+     */
+    public function updateRoomOccupancy($index, $field, $value)
+    {
+        if (isset($this->selected_rooms[$index])) {
+            $this->selected_rooms[$index][$field] = max($field === 'adults' ? 1 : 0, (int) $value);
+        }
+    }
+
+    /**
+     * Remove a room from the selection
+     */
+    public function removeRoom($index)
+    {
+        if (isset($this->selected_rooms[$index])) {
+            array_splice($this->selected_rooms, $index, 1);
+            $this->selected_rooms = array_values($this->selected_rooms);
+        }
     }
 
     public function saveReservation()
@@ -306,46 +374,60 @@ class ReservationList extends Component
 
         $this->validate();
 
-        $room = \Modules\Hotel\Entities\Room::with('roomType')->find($this->create_room_id);
-        if (!$room) {
-             $this->addError('create_room_id', 'Selected room is invalid.');
-             return;
+        if (empty($this->selected_rooms)) {
+            $this->addError('selected_rooms', 'Please select at least one room.');
+            return;
         }
 
-        // Calculate total amount using dynamic pricing per night
+        $branchId = auth()->user()->branch_id ?? 1;
         $checkIn = Carbon::parse($this->create_check_in_date);
         $checkOut = Carbon::parse($this->create_check_out_date);
-        $totalAmount = 0;
-        $current = $checkIn->copy();
-        while ($current->lt($checkOut)) {
-            $totalAmount += (float)$room->roomType->getPriceForDate($current);
-            $current->addDay();
-        }
 
-        Reservation::create([
-            'branch_id' => auth()->user()->branch_id ?? 1,
-            'guest_id' => $this->create_guest_id,
-            'room_id' => $this->create_room_id,
-            'check_in_date' => $this->create_check_in_date,
-            'checkout_date' => $this->create_check_out_date,
-            'adults' => $this->create_adults,
-            'children' => $this->create_children,
-            'special_requests' => $this->create_notes,
-            'booking_source' => $this->create_booking_source ?: 'walk-in',
-            'status' => Reservation::STATUS_CONFIRMED,
-            'total_amount' => $totalAmount,
-            'balance_due' => $totalAmount,
-            'created_by_user_id' => auth()->id(),
-        ]);
-        
-        // Update room status if check-in is today
-        if (Carbon::parse($this->create_check_in_date)->isToday()) {
-            // We keep it as confirmed until manual check-in or auto-update script runs, 
-            // but for simplicity we could mark room as occupied if it was immediate check-in.
-            // keeping standard flow: Confirmed -> Check In action.
-        }
+        // Generate group booking ID only if multiple rooms
+        $groupBookingId = count($this->selected_rooms) > 1
+            ? Reservation::generateGroupBookingId($branchId)
+            : null;
 
-        $this->alert('success', 'Reservation created successfully');
+        DB::transaction(function () use ($branchId, $checkIn, $checkOut, $groupBookingId) {
+            foreach ($this->selected_rooms as $entry) {
+                $room = \Modules\Hotel\Entities\Room::with('roomType')->find($entry['room_id']);
+                if (!$room) {
+                    continue;
+                }
+
+                // Calculate total using dynamic pricing per night
+                $totalAmount = 0;
+                $current = $checkIn->copy();
+                while ($current->lt($checkOut)) {
+                    $totalAmount += (float) $room->roomType->getPriceForDate($current);
+                    $current->addDay();
+                }
+
+                Reservation::create([
+                    'branch_id' => $branchId,
+                    'guest_id' => $this->create_guest_id,
+                    'room_id' => $entry['room_id'],
+                    'group_booking_id' => $groupBookingId,
+                    'check_in_date' => $this->create_check_in_date,
+                    'checkout_date' => $this->create_check_out_date,
+                    'adults' => $entry['adults'] ?? 1,
+                    'children' => $entry['children'] ?? 0,
+                    'special_requests' => $this->create_notes,
+                    'booking_source' => $this->create_booking_source ?: 'walk-in',
+                    'status' => Reservation::STATUS_CONFIRMED,
+                    'total_amount' => $totalAmount,
+                    'balance_due' => $totalAmount,
+                    'created_by_user_id' => auth()->id(),
+                ]);
+            }
+        });
+
+        $roomCount = count($this->selected_rooms);
+        $message = $roomCount > 1
+            ? "{$roomCount} room reservations created (Group: {$groupBookingId})"
+            : 'Reservation created successfully';
+
+        $this->alert('success', $message);
 
         $this->showCreateReservation = false;
         $this->resetForm();
@@ -363,6 +445,7 @@ class ReservationList extends Component
         $this->create_notes = '';
         $this->create_booking_source = 'walk-in';
         $this->available_rooms = [];
+        $this->selected_rooms = [];
         $this->resetErrorBag();
     }
     
