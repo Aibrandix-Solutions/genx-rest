@@ -3,6 +3,7 @@
 namespace Modules\Hotel\Entities;
 
 use App\Models\Customer;
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,12 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Guest extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     protected $table = 'hotel_guests';
 
     protected $fillable = [
-        'branch_id',
+        'restaurant_id',
         'customer_id',
         'first_name',
         'last_name',

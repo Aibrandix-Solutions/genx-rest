@@ -2,20 +2,9 @@
     {{-- Header with Filters --}}
     <div class="mb-8">
         <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4">Hotel Management Dashboard</h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
-            {{-- Branch Filter --}}
-            <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Branch</label>
-                <select wire:model.live="selectedBranch" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                    <option value="all">All Branches</option>
-                    @foreach($branches as $branch)
-                        <option value="{{ $branch->id }}">{{ $branch->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-
+        <div class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-sm">
             {{-- Period Filter --}}
-            <div>
+            <div class="max-w-xs">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Period</label>
                 <select wire:model.live="selectedPeriod" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
                     <option value="today">Today</option>

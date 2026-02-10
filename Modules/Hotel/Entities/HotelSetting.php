@@ -2,21 +2,20 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Models\Branch;
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HotelSetting extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     const MODE_HOTEL_PRIMARY = 'hotel_primary';
     const MODE_RESTAURANT_PRIMARY = 'restaurant_primary';
     const MODE_EQUAL = 'equal';
 
     protected $fillable = [
-        'branch_id',
+        'restaurant_id',
         'business_mode',
         'hotel_name',
         'hotel_logo',

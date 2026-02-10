@@ -2,8 +2,8 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Models\Branch;
 use App\Models\User;
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,12 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Reservation extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     protected $table = 'hotel_reservations';
 
     protected $fillable = [
-        'branch_id',
+        'restaurant_id',
         'guest_id',
         'room_id',
         'reservation_number',
@@ -59,15 +59,13 @@ class Reservation extends Model
         parent::boot();
         
         static::creating(function ($reservation) {
+            if (!$reservation->restaurant_id && restaurant()) {
+                $reservation->restaurant_id = restaurant()->id;
+            }
             if (!$reservation->reservation_number) {
-                $reservation->reservation_number = self::generateReservationNumber($reservation->branch_id);
+                $reservation->reservation_number = self::generateReservationNumber();
             }
         });
-    }
-
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
     }
 
     public function guest(): BelongsTo
@@ -123,15 +121,13 @@ class Reservation extends Model
     /**
      * Generate unique reservation number
      */
-    public static function generateReservationNumber($branchId)
+    public static function generateReservationNumber()
     {
         $prefix = 'RES';
         $date = now()->format('Ymd');
         $pattern = $prefix . $date . '%';
 
-        // Use MAX on reservation_number to avoid race conditions with identical created_at timestamps
-        $lastNumber = self::where('branch_id', $branchId)
-            ->where('reservation_number', 'like', $pattern)
+        $lastNumber = self::where('reservation_number', 'like', $pattern)
             ->orderByRaw("CAST(SUBSTRING(reservation_number, -4) AS UNSIGNED) DESC")
             ->value('reservation_number');
 

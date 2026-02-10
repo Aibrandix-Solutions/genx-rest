@@ -2,20 +2,20 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Models\Branch;
 use App\Models\User;
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HousekeepingTask extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     protected $table = 'hotel_housekeeping_tasks';
 
     protected $fillable = [
-        'branch_id',
+        'restaurant_id',
         'room_id',
         'assigned_to_user_id',
         'task_type',
@@ -43,11 +43,6 @@ class HousekeepingTask extends Model
     const STATUS_PENDING = 'pending';
     const STATUS_IN_PROGRESS = 'in_progress';
     const STATUS_COMPLETED = 'completed';
-
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
-    }
 
     public function room(): BelongsTo
     {

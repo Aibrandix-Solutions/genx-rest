@@ -11,7 +11,6 @@ use Carbon\Carbon;
 
 class HotelDashboard extends Component
 {
-    public $selectedBranch = 'all';
     public $selectedPeriod = 'today';
     public $businessMode = 'restaurant_primary';
 
@@ -47,10 +46,7 @@ class HotelDashboard extends Component
 
     private function getRoomStats()
     {
-        $query = Room::query()
-            ->when($this->selectedBranch !== 'all', function ($query) {
-                $query->where('branch_id', $this->selectedBranch);
-            });
+        $query = Room::query();
 
         return [
             'total' => $query->count(),
@@ -63,10 +59,7 @@ class HotelDashboard extends Component
 
     private function getReservationStats()
     {
-        $query = Reservation::query()
-            ->when($this->selectedBranch !== 'all', function ($query) {
-                $query->where('branch_id', $this->selectedBranch);
-            });
+        $query = Reservation::query();
 
         [$startDate, $endDate] = $this->getPeriodRange();
 
@@ -74,12 +67,26 @@ class HotelDashboard extends Component
             'total_confirmed' => (clone $query)->where('status', Reservation::STATUS_CONFIRMED)->count(),
             'total_checked_in' => (clone $query)->where('status', Reservation::STATUS_CHECKED_IN)->count(),
             'check_ins_period' => (clone $query)
-                ->whereBetween('check_in_date', [$startDate, $endDate])
-                ->where('status', Reservation::STATUS_CONFIRMED)
+                ->where(function ($q) use ($startDate, $endDate) {
+                    // Already checked in during this period
+                    $q->whereBetween('actual_check_in', [$startDate, $endDate->copy()->endOfDay()])
+                      // OR still pending arrival for this period
+                      ->orWhere(function ($q2) use ($startDate, $endDate) {
+                          $q2->whereBetween('check_in_date', [$startDate, $endDate])
+                              ->where('status', Reservation::STATUS_CONFIRMED);
+                      });
+                })
                 ->count(),
             'checkouts_period' => (clone $query)
-                ->whereBetween('checkout_date', [$startDate, $endDate])
-                ->where('status', Reservation::STATUS_CHECKED_IN)
+                ->where(function ($q) use ($startDate, $endDate) {
+                    // Already checked out during this period
+                    $q->whereBetween('actual_checkout', [$startDate, $endDate->copy()->endOfDay()])
+                      // OR still pending departure for this period
+                      ->orWhere(function ($q2) use ($startDate, $endDate) {
+                          $q2->whereBetween('checkout_date', [$startDate, $endDate])
+                              ->where('status', Reservation::STATUS_CHECKED_IN);
+                      });
+                })
                 ->count(),
             'arriving_next' => (clone $query)
                 ->whereDate('check_in_date', Carbon::today()->addDay())
@@ -106,9 +113,6 @@ class HotelDashboard extends Component
         return Reservation::with(['guest', 'room.roomType'])
             ->where('status', Reservation::STATUS_CONFIRMED)
             ->whereBetween('check_in_date', [$startDate, $endDate])
-            ->when($this->selectedBranch !== 'all', function ($query) {
-                $query->where('branch_id', $this->selectedBranch);
-            })
             ->orderBy('check_in_date')
             ->orderBy('check_in_time')
             ->limit(10)
@@ -122,9 +126,6 @@ class HotelDashboard extends Component
         return Reservation::with(['guest', 'room.roomType'])
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->whereBetween('checkout_date', [$startDate, $endDate])
-            ->when($this->selectedBranch !== 'all', function ($query) {
-                $query->where('branch_id', $this->selectedBranch);
-            })
             ->orderBy('checkout_date')
             ->orderBy('checkout_time')
             ->limit(10)
@@ -135,9 +136,6 @@ class HotelDashboard extends Component
     {
         return Reservation::with(['guest', 'room.roomType'])
             ->where('status', Reservation::STATUS_CHECKED_IN)
-            ->when($this->selectedBranch !== 'all', function ($query) {
-                $query->where('branch_id', $this->selectedBranch);
-            })
             ->orderBy('checkout_date') // Show those leaving soonest first
             ->limit(10)
             ->get();
@@ -147,9 +145,6 @@ class HotelDashboard extends Component
     {
         return HousekeepingTask::with(['room'])
             ->where('status', HousekeepingTask::STATUS_PENDING)
-            ->when($this->selectedBranch !== 'all', function ($query) {
-                $query->where('branch_id', $this->selectedBranch);
-            })
             ->orderBy('priority', 'desc')
             ->limit(10)
             ->get();
@@ -161,10 +156,8 @@ class HotelDashboard extends Component
     private function getRestaurantStats()
     {
         [$startDate, $endDate] = $this->getPeriodRange();
-        $branchFilter = $this->selectedBranch !== 'all' ? $this->selectedBranch : null;
 
-        $orderQuery = \App\Models\Order::whereBetween('date_time', [$startDate, $endDate->endOfDay()])
-            ->when($branchFilter, fn($q) => $q->where('branch_id', $branchFilter));
+        $orderQuery = \App\Models\Order::whereBetween('date_time', [$startDate, $endDate->endOfDay()]);
 
         $orders = (clone $orderQuery)->count();
         $earnings = (clone $orderQuery)->where('status', '!=', 'cancelled')->sum('total');
@@ -183,7 +176,6 @@ class HotelDashboard extends Component
      */
     private function getRevenueMetrics()
     {
-        $branchFilter = $this->selectedBranch !== 'all' ? $this->selectedBranch : null;
         [$startDate, $endDate] = $this->getPeriodRange();
         $daysInPeriod = max(1, $startDate->diffInDays($endDate) + 1);
 
@@ -196,7 +188,6 @@ class HotelDashboard extends Component
                 $q->whereBetween('check_in_date', [$startDate, $endDate])
                   ->orWhereBetween('checkout_date', [$startDate, $endDate]);
             })
-            ->when($branchFilter, fn($q) => $q->where('branch_id', $branchFilter))
             ->sum('total_amount');
 
         // Rooms sold in the period (reservation count)
@@ -208,10 +199,9 @@ class HotelDashboard extends Component
                 $q->whereBetween('check_in_date', [$startDate, $endDate])
                   ->orWhereBetween('checkout_date', [$startDate, $endDate]);
             })
-            ->when($branchFilter, fn($q) => $q->where('branch_id', $branchFilter))
             ->count();
 
-        $totalRooms = Room::when($branchFilter, fn($q) => $q->where('branch_id', $branchFilter))->count();
+        $totalRooms = Room::count();
 
         // ADR = Room Revenue / Rooms Sold
         $adr = $roomsSold > 0 ? $roomRevenue / $roomsSold : 0;
@@ -230,12 +220,7 @@ class HotelDashboard extends Component
 
     public function render()
     {
-        $branches = \App\Models\Branch::where('restaurant_id', restaurant()->id)
-            ->orderBy('name')
-            ->get();
-
         return view('hotel::livewire.dashboard.hotel-dashboard', [
-            'branches' => $branches,
             'roomStats' => $this->getRoomStats(),
             'reservationStats' => $this->getReservationStats(),
             'occupancyRate' => $this->getOccupancyRate(),

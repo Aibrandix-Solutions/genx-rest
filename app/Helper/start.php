@@ -782,20 +782,20 @@ if (!function_exists('custom_module_plugins')) {
 if (!function_exists('hotel_business_mode')) {
 
     /**
-     * Get the business mode for the current branch's hotel settings.
+     * Get the business mode for the current restaurant's hotel settings.
      * Returns 'hotel_primary', 'restaurant_primary', or 'equal'.
      */
     function hotel_business_mode(): string
     {
-        $cacheKey = 'hotel_business_mode_' . (auth()->check() ? (auth()->user()->branch_id ?? 1) : 1);
+        $cacheKey = 'hotel_business_mode_' . (restaurant() ? restaurant()->id : 0);
 
         return cache()->remember($cacheKey, 300, function () {
             if (!in_array('hotel', array_map('strtolower', custom_module_plugins()))) {
                 return 'restaurant_primary';
             }
 
-            $settings = \Modules\Hotel\Entities\HotelSetting::where(
-                'branch_id', auth()->check() ? (auth()->user()->branch_id ?? 1) : 1
+            $settings = \Modules\Hotel\Entities\HotelSetting::withoutGlobalScopes()->where(
+                'restaurant_id', restaurant() ? restaurant()->id : 0
             )->first();
 
             return $settings->business_mode ?? 'restaurant_primary';

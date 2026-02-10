@@ -94,7 +94,6 @@ class GuestList extends Component
         $this->validate();
 
         $data = [
-            'branch_id' => auth()->user()->branch_id ?? 1,
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'email' => $this->email,
@@ -173,7 +172,6 @@ class GuestList extends Component
     public function render()
     {
         $guests = Guest::with(['customer', 'reservations'])
-            ->where('branch_id', auth()->user()->branch_id ?? restaurant()->default_branch_id)
             ->when($this->search, function ($query) {
                 $query->where(function ($q) {
                     $q->where('first_name', 'like', '%' . $this->search . '%')

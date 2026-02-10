@@ -118,6 +118,11 @@
                                                 Checkout
                                             </button>
                                         @endif
+                                        @if(in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge'))
+                                            <button wire:click="openAddCharge({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700">
+                                                Add Charge
+                                            </button>
+                                        @endif
                                         @if(in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing'))
                                             <a href="{{ route('hotel.folio', $reservation->reservation_number) }}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600">
                                                 Folio
@@ -457,6 +462,12 @@
                     <form wire:submit.prevent="processCheckout">
                         <div class="space-y-4">
                             <div>
+                                <x-label for="checkout_date_actual" value="Checkout Date" />
+                                <x-input id="checkout_date_actual" type="date" class="block w-full mt-1" wire:model="checkout_date_actual" required />
+                                <x-input-error for="checkout_date_actual" class="mt-2" />
+                            </div>
+
+                            <div>
                                 <x-label for="checkout_amount_paid" value="Settlement Amount" />
                                 <x-input id="checkout_amount_paid" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="checkout_amount_paid" required />
                                 <p class="text-xs text-gray-500 mt-1">Enter 0 if balance was already settled.</p>
@@ -617,6 +628,49 @@
                     </form>
                 </div>
             @endif
+        </x-slot>
+    </x-right-modal>
+
+    {{-- Add Charge Modal --}}
+    <x-right-modal wire:model.live="showAddChargeModal">
+        <x-slot name="title">@lang('hotel::modules.folio.addCharge')</x-slot>
+        <x-slot name="content">
+            <form wire:submit.prevent="saveQuickCharge">
+                <div class="space-y-4">
+                    <div>
+                        <x-label for="charge_type" value="{{ __('hotel::modules.folio.chargeType') }}" />
+                        <select id="charge_type" wire:model="charge_type"
+                            class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                            <option value="room_night">@lang('hotel::modules.folio.roomNight')</option>
+                            <option value="minibar">@lang('hotel::modules.folio.minibar')</option>
+                            <option value="laundry">@lang('hotel::modules.folio.laundry')</option>
+                            <option value="service">@lang('hotel::modules.folio.service')</option>
+                            <option value="tax">@lang('hotel::modules.folio.tax')</option>
+                            <option value="other">@lang('hotel::modules.folio.other')</option>
+                        </select>
+                        @error('charge_type') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <x-label for="charge_description" value="{{ __('app.description') }}" />
+                        <x-input id="charge_description" type="text" wire:model="charge_description" class="mt-1 block w-full" placeholder="{{ __('hotel::modules.folio.chargeDescription') }}" />
+                        @error('charge_description') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                    </div>
+                    <div>
+                        <x-label for="charge_amount" value="{{ __('app.amount') }}" />
+                        <x-input id="charge_amount" type="number" step="0.01" min="0" wire:model="charge_amount" class="mt-1 block w-full" placeholder="0.00" />
+                        @error('charge_amount') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end gap-3">
+                    <button type="button" wire:click="$set('showAddChargeModal', false)" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600">
+                        @lang('app.cancel')
+                    </button>
+                    <button type="submit" wire:loading.attr="disabled" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700">
+                        @lang('hotel::modules.folio.addCharge')
+                    </button>
+                </div>
+            </form>
         </x-slot>
     </x-right-modal>
 </div>

@@ -106,6 +106,7 @@ return [
         'paymentType' => 'Payment Type',
         'paymentMethod' => 'Payment Method',
         'chargeType' => 'Charge Type',
+        'chargeDescription' => 'Enter charge description',
         'advance' => 'Advance',
         'deposit' => 'Deposit',
         'settlement' => 'Settlement',

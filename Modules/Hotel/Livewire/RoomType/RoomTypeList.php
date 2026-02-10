@@ -87,7 +87,6 @@ class RoomTypeList extends Component
         $amenities = array_filter($amenities); // Remove empty values
 
         $data = [
-            'branch_id' => auth()->user()->branch_id ?? 1,
             'name' => $this->name,
             'description' => $this->description,
             'base_price' => $this->base_price,
@@ -159,7 +158,6 @@ class RoomTypeList extends Component
     public function render()
     {
         $roomTypes = RoomType::with(['rooms'])
-            ->where('branch_id', auth()->user()->branch_id ?? 1)
             ->when($this->search, function ($query) {
                 $query->where('name', 'like', '%' . $this->search . '%');
             })

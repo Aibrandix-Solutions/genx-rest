@@ -84,8 +84,7 @@ class RoomList extends Component
                 'max:50',
                 // Ensure room number is unique for this branch
                 function ($attribute, $value, $fail) {
-                    $query = Room::where('branch_id', auth()->user()->branch_id ?? 1)
-                        ->where('room_number', $value);
+                    $query = Room::where('room_number', $value);
                         
                     if ($this->editingRoomId) {
                         $query->where('id', '!=', $this->editingRoomId);
@@ -102,7 +101,6 @@ class RoomList extends Component
         ]);
 
         $data = [
-            'branch_id' => auth()->user()->branch_id ?? 1,
             'room_number' => $this->room_number,
             'floor' => $this->floor,
             'room_type_id' => $this->room_type_id,
@@ -154,10 +152,7 @@ class RoomList extends Component
 
     public function render()
     {
-        $branchId = auth()->user()->branch_id ?? 1;
-
         $rooms = Room::with(['roomType', 'currentReservation.guest'])
-            ->where('branch_id', $branchId)
             ->when($this->search, function ($query) {
                 $query->where('room_number', 'like', '%' . $this->search . '%')
                     ->orWhere('floor', 'like', '%' . $this->search . '%');
@@ -171,7 +166,7 @@ class RoomList extends Component
             ->orderBy('room_number')
             ->get();
 
-        $roomTypes = RoomType::where('branch_id', $branchId)->get();
+        $roomTypes = RoomType::all();
 
         return view('hotel::livewire.room.room-list', [
             'rooms' => $rooms,

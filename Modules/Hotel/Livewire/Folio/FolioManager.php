@@ -54,14 +54,9 @@ class FolioManager extends Component
             ->where('reservation_number', $this->reservationNumber)
             ->firstOrFail();
 
-        // Security Check: Ensure user has permission or belongs to same branch
-        if (auth()->user()->branch_id && $this->reservation->branch_id !== auth()->user()->branch_id) {
-            abort(403, 'Unauthorized access to this folio.');
-        }
-
         // Load hotel name from settings
-        $settings = HotelSetting::where('branch_id', $this->reservation->branch_id)->first();
-        $this->hotelName = $settings->hotel_name ?? $this->reservation->branch->name ?? '';
+        $settings = HotelSetting::first();
+        $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
 
         // All posted charges (room nights, restaurant/room-service, minibar, etc.)
         $this->charges = RoomCharge::where('reservation_id', $this->reservation->id)
@@ -180,7 +175,6 @@ class FolioManager extends Component
         DB::transaction(function () {
             HotelPayment::create([
                 'reservation_id' => $this->reservation->id,
-                'branch_id' => $this->reservation->branch_id,
                 'amount' => $this->paymentAmount,
                 'payment_method' => $this->paymentMethod,
                 'payment_type' => $this->paymentType,

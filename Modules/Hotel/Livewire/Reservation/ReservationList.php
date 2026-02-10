@@ -58,8 +58,7 @@ class ReservationList extends Component
         $this->checkInTotalAmount = $this->calculateStayTotal($this->checkInReservation);
 
         // Determine suggested advance based on hotel settings
-        $branchId = auth()->user()->branch_id ?? 1;
-        $settings = HotelSetting::where('branch_id', $branchId)->first();
+        $settings = HotelSetting::first();
         $this->checkInAdvanceAmount = $settings ? $settings->calculateDeposit($this->checkInTotalAmount) : 0;
         $this->checkInPaymentMethod = 'cash';
         $this->checkInNotes = '';
@@ -89,7 +88,6 @@ class ReservationList extends Component
             if ($this->checkInAdvanceAmount > 0) {
                 HotelPayment::create([
                     'reservation_id' => $reservation->id,
-                    'branch_id' => $reservation->branch_id,
                     'amount' => $this->checkInAdvanceAmount,
                     'payment_method' => $this->checkInPaymentMethod,
                     'payment_type' => HotelPayment::TYPE_ADVANCE,
@@ -243,7 +241,6 @@ class ReservationList extends Component
         ]);
 
         $guest = \Modules\Hotel\Entities\Guest::create([
-            'branch_id' => auth()->user()->branch_id ?? 1,
             'first_name' => $this->new_guest_first_name,
             'last_name' => $this->new_guest_last_name,
             'email' => $this->new_guest_email,
@@ -275,8 +272,7 @@ class ReservationList extends Component
         $checkIn = Carbon::parse($this->create_check_in_date);
         $checkOut = Carbon::parse($this->create_check_out_date);
 
-        $query = \Modules\Hotel\Entities\Room::where('branch_id', auth()->user()->branch_id ?? 1)
-            ->where('status', '!=', 'maintenance')
+        $query = \Modules\Hotel\Entities\Room::where('status', '!=', 'maintenance')
             ->where('status', '!=', 'blocked');
 
         if ($this->create_room_type_id) {
@@ -307,8 +303,7 @@ class ReservationList extends Component
         $this->create_check_out_date = Carbon::tomorrow()->format('Y-m-d');
 
         // Load max rooms setting
-        $branchId = auth()->user()->branch_id ?? 1;
-        $settings = HotelSetting::where('branch_id', $branchId)->first();
+        $settings = HotelSetting::first();
         $this->maxRoomsPerBooking = $settings->max_rooms_per_booking ?? 10;
 
         $this->showCreateReservation = true;
@@ -379,16 +374,15 @@ class ReservationList extends Component
             return;
         }
 
-        $branchId = auth()->user()->branch_id ?? 1;
         $checkIn = Carbon::parse($this->create_check_in_date);
         $checkOut = Carbon::parse($this->create_check_out_date);
 
         // Generate group booking ID only if multiple rooms
         $groupBookingId = count($this->selected_rooms) > 1
-            ? Reservation::generateGroupBookingId($branchId)
+            ? Reservation::generateGroupBookingId()
             : null;
 
-        DB::transaction(function () use ($branchId, $checkIn, $checkOut, $groupBookingId) {
+        DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId) {
             foreach ($this->selected_rooms as $entry) {
                 $room = \Modules\Hotel\Entities\Room::with('roomType')->find($entry['room_id']);
                 if (!$room) {
@@ -404,7 +398,6 @@ class ReservationList extends Component
                 }
 
                 Reservation::create([
-                    'branch_id' => $branchId,
                     'guest_id' => $this->create_guest_id,
                     'room_id' => $entry['room_id'],
                     'group_booking_id' => $groupBookingId,
@@ -455,6 +448,14 @@ class ReservationList extends Component
     public $checkout_balance_due = 0;
     public $checkout_payment_method = 'cash';
     public $checkout_notes = '';
+    public $checkout_date_actual = '';
+
+    // Quick charge from reservation list
+    public $showAddChargeModal = false;
+    public $charge_reservation_id = null;
+    public $charge_type = 'minibar';
+    public $charge_description = '';
+    public $charge_amount = 0;
 
     public function editReservation($id)
     {
@@ -472,6 +473,7 @@ class ReservationList extends Component
             
             // Default payment to full balance
             $this->checkout_amount_paid = max(0, $this->checkout_balance_due);
+            $this->checkout_date_actual = Carbon::today()->format('Y-m-d');
             
             $this->showEditReservation = true;
         }
@@ -484,6 +486,7 @@ class ReservationList extends Component
         $this->validate([
             'checkout_amount_paid' => 'required|numeric|min:0',
             'checkout_payment_method' => 'required|string',
+            'checkout_date_actual' => 'required|date',
         ]);
 
         if (!$this->checkout_reservation) {
@@ -495,7 +498,6 @@ class ReservationList extends Component
             if ($this->checkout_amount_paid > 0) {
                 HotelPayment::create([
                     'reservation_id' => $this->checkout_reservation->id,
-                    'branch_id' => $this->checkout_reservation->branch_id,
                     'amount' => $this->checkout_amount_paid,
                     'payment_method' => $this->checkout_payment_method,
                     'payment_type' => HotelPayment::TYPE_SETTLEMENT,
@@ -507,7 +509,7 @@ class ReservationList extends Component
             // Update reservation status
             $this->checkout_reservation->update([
                 'status' => Reservation::STATUS_CHECKED_OUT,
-                'actual_checkout' => now(),
+                'actual_checkout' => Carbon::parse($this->checkout_date_actual)->setTimeFrom(now()),
             ]);
 
             // Recalculate totals
@@ -576,15 +578,57 @@ class ReservationList extends Component
         $this->checkout_amount_paid = 0;
         $this->checkout_balance_due = 0;
         $this->checkout_notes = '';
+        $this->checkout_date_actual = '';
         $this->editingReservationId = null;
+    }
+
+    // --- Quick Add Charge from Reservation List ---
+
+    public function openAddCharge($reservationId)
+    {
+        abort_unless(user_can('add_room_charge'), 403);
+        $this->charge_reservation_id = $reservationId;
+        $this->charge_type = 'minibar';
+        $this->charge_description = '';
+        $this->charge_amount = 0;
+        $this->showAddChargeModal = true;
+    }
+
+    public function saveQuickCharge()
+    {
+        abort_unless(user_can('add_room_charge'), 403);
+
+        $this->validate([
+            'charge_reservation_id' => 'required|exists:hotel_reservations,id',
+            'charge_type' => 'required|string',
+            'charge_description' => 'required|string|max:255',
+            'charge_amount' => 'required|numeric|min:0.01',
+        ]);
+
+        $reservation = Reservation::find($this->charge_reservation_id);
+        if (!$reservation || !in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
+            $this->alert('error', 'Cannot add charges to this reservation.');
+            return;
+        }
+
+        RoomCharge::create([
+            'reservation_id' => $reservation->id,
+            'charge_type' => $this->charge_type,
+            'description' => $this->charge_description,
+            'amount' => $this->charge_amount,
+            'charge_date' => now()->toDateString(),
+        ]);
+
+        $reservation->calculateTotal();
+
+        $this->showAddChargeModal = false;
+        $this->alert('success', 'Charge added successfully.');
+        $this->dispatch('$refresh');
     }
 
     public function render()
     {
-        $branchId = auth()->user()->branch_id ?? 1;
-
-        $reservations = Reservation::with(['guest', 'room.roomType', 'branch'])
-            ->where('branch_id', $branchId)
+        $reservations = Reservation::with(['guest', 'room.roomType'])
             ->when($this->search, function ($query) {
                 $query->whereHas('guest', function ($q) {
                     $q->where('first_name', 'like', '%' . $this->search . '%')
@@ -607,8 +651,8 @@ class ReservationList extends Component
             ->latest()
             ->paginate(15);
 
-        $guests = \Modules\Hotel\Entities\Guest::where('branch_id', auth()->user()->branch_id ?? 1)->orderBy('first_name')->get();
-        $roomTypes = \Modules\Hotel\Entities\RoomType::where('branch_id', auth()->user()->branch_id ?? 1)->get();
+        $guests = \Modules\Hotel\Entities\Guest::orderBy('first_name')->get();
+        $roomTypes = \Modules\Hotel\Entities\RoomType::all();
 
         return view('hotel::livewire.reservation.reservation-list', [
             'reservations' => $reservations,

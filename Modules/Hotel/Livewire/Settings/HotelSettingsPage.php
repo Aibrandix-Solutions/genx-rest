@@ -52,8 +52,7 @@ class HotelSettingsPage extends Component
 
     public function loadSettings()
     {
-        $branchId = auth()->user()->branch_id ?? 1;
-        $settings = HotelSetting::where('branch_id', $branchId)->first();
+        $settings = HotelSetting::first();
 
         if ($settings) {
             $this->business_mode = $settings->business_mode ?? 'restaurant_primary';
@@ -95,10 +94,8 @@ class HotelSettingsPage extends Component
             'max_rooms_per_booking' => 'required|integer|min:1|max:50',
         ]);
 
-        $branchId = auth()->user()->branch_id ?? 1;
-
         $settings = HotelSetting::updateOrCreate(
-            ['branch_id' => $branchId],
+            ['restaurant_id' => restaurant()->id],
             [
                 'business_mode' => $this->business_mode,
                 'hotel_name' => $this->hotel_name,
@@ -150,8 +147,7 @@ class HotelSettingsPage extends Component
     {
         abort_unless(user_can('manage_hotel_settings'), 403);
 
-        $branchId = auth()->user()->branch_id ?? 1;
-        $settings = HotelSetting::where('branch_id', $branchId)->first();
+        $settings = HotelSetting::first();
 
         if ($settings && $settings->hotel_logo) {
             Files::deleteFile($settings->hotel_logo, 'hotel-logo');

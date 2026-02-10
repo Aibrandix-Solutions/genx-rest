@@ -2,7 +2,7 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Models\Branch;
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,12 +10,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Room extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     protected $table = 'hotel_rooms';
 
     protected $fillable = [
-        'branch_id',
+        'restaurant_id',
         'room_type_id',
         'room_number',
         'floor',
@@ -35,11 +35,6 @@ class Room extends Model
     const STATUS_MAINTENANCE = 'maintenance';
     const STATUS_RESERVED = 'reserved';
     const STATUS_BLOCKED = 'blocked';
-
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
-    }
 
     public function roomType(): BelongsTo
     {

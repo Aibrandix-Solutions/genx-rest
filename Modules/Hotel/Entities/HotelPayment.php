@@ -2,21 +2,21 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Models\Branch;
 use App\Models\User;
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HotelPayment extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     protected $table = 'hotel_payments';
 
     protected $fillable = [
         'reservation_id',
-        'branch_id',
+        'restaurant_id',
         'amount',
         'payment_method',
         'payment_type',
@@ -43,11 +43,6 @@ class HotelPayment extends Model
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);
-    }
-
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
     }
 
     public function receivedBy(): BelongsTo
