@@ -6,6 +6,7 @@ use Livewire\Component;
 use Livewire\Attributes\On;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\Room;
+use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomType;
 
 class RoomList extends Component
@@ -17,11 +18,22 @@ class RoomList extends Component
     public $search = '';
     public $statusFilter = 'all';
     public $roomTypeFilter = 'all';
+    public $floorFilter = 'all';
 
     public $room_number = '';
     public $floor = '';
     public $room_type_id = '';
     public $status = 'available';
+
+    // Room reservations modal
+    public $showRoomReservations = false;
+    public $selectedRoomId = null;
+    public $selectedRoomNumber = '';
+    public $roomReservations = [];
+    public $reservationStatusFilter = 'all';
+
+    // Delete confirmation
+    public $pendingDeleteRoomId = null;
 
     #[On('room-saved')]
     public function roomSaved()
@@ -35,7 +47,7 @@ class RoomList extends Component
     protected function rules()
     {
         return [
-            'room_number' => 'required|string|max:50', // Unique check processed manually to handle edit exclusions
+            'room_number' => 'required|string|max:50',
             'floor' => 'nullable|string|max:50',
             'room_type_id' => 'required|exists:hotel_room_types,id',
             'status' => 'required|in:available,occupied,cleaning,maintenance,blocked',
@@ -75,14 +87,11 @@ class RoomList extends Component
     {
         abort_unless(user_can($this->editingRoomId ? 'edit_room' : 'create_room'), 403);
 
-        // Custom validation for uniqueness within branch logic if needed, 
-        // but basic unique rule works if we ignore ID.
         $this->validate([
             'room_number' => [
                 'required', 
                 'string', 
                 'max:50',
-                // Ensure room number is unique for this branch
                 function ($attribute, $value, $fail) {
                     $query = Room::where('room_number', $value);
                         
@@ -112,7 +121,6 @@ class RoomList extends Component
             $room->update($data);
             $message = 'Room updated successfully';
         } else {
-            // New rooms default to clean
             $data['last_cleaned_at'] = now();
             Room::create($data);
             $message = 'Room created successfully';
@@ -125,6 +133,14 @@ class RoomList extends Component
         $this->resetForm();
     }
 
+    public function clearFilters()
+    {
+        $this->statusFilter = 'all';
+        $this->roomTypeFilter = 'all';
+        $this->floorFilter = 'all';
+        $this->search = '';
+    }
+
     private function resetForm()
     {
         $this->editingRoomId = null;
@@ -135,18 +151,75 @@ class RoomList extends Component
         $this->resetErrorBag();
     }
 
-    public function deleteRoom($id)
+    public function confirmDeleteRoom($id)
     {
+        $this->pendingDeleteRoomId = $id;
+        $this->alert('warning', 'Are you sure you want to delete this room?', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText' => 'Cancel',
+            'onConfirmed' => 'deleteRoomConfirmed',
+        ]);
+    }
+
+    #[On('deleteRoomConfirmed')]
+    public function deleteRoom()
+    {
+        $id = $this->pendingDeleteRoomId;
         abort_unless(user_can('delete_room'), 403);
         $room = Room::find($id);
         if ($room) {
-            // Check if room has active reservations
             if ($room->reservations()->whereIn('status', ['confirmed', 'checked_in'])->count() > 0) {
                 $this->alert('error', 'This room has active reservations.');
                 return;
             }
             $room->delete();
             $this->alert('success', 'Room deleted successfully');
+        }
+        $this->pendingDeleteRoomId = null;
+    }
+
+    public function viewRoomReservations($id)
+    {
+        $room = Room::find($id);
+        if ($room) {
+            $this->selectedRoomId = $id;
+            $this->selectedRoomNumber = $room->room_number;
+            $this->reservationStatusFilter = 'all';
+            $this->loadRoomReservations();
+            $this->showRoomReservations = true;
+        }
+    }
+
+    public function updatedReservationStatusFilter()
+    {
+        $this->loadRoomReservations();
+    }
+
+    private function loadRoomReservations()
+    {
+        $query = Reservation::with(['guest'])
+            ->where('room_id', $this->selectedRoomId)
+            ->when($this->reservationStatusFilter !== 'all', function ($q) {
+                $q->where('status', $this->reservationStatusFilter);
+            })
+            ->orderByDesc('check_in_date');
+
+        $this->roomReservations = $query->get()->toArray();
+    }
+
+    public function updateRoomStatus($roomId, $newStatus)
+    {
+        abort_unless(user_can('edit_room'), 403);
+        $room = Room::find($roomId);
+        if ($room) {
+            if ($room->status === 'occupied' && $newStatus !== 'occupied') {
+                $this->alert('error', 'Cannot change status of an occupied room. Checkout the guest first.');
+                return;
+            }
+            $room->update(['status' => $newStatus]);
+            $this->alert('success', "Room {$room->room_number} marked as " . ucfirst($newStatus));
         }
     }
 
@@ -163,14 +236,36 @@ class RoomList extends Component
             ->when($this->roomTypeFilter !== 'all', function ($query) {
                 $query->where('room_type_id', $this->roomTypeFilter);
             })
+            ->when($this->floorFilter !== 'all', function ($query) {
+                $query->where('floor', $this->floorFilter);
+            })
             ->orderBy('room_number')
             ->get();
 
         $roomTypes = RoomType::all();
 
+        // Get available floors for filter
+        $floors = Room::whereNotNull('floor')
+            ->where('floor', '!=', '')
+            ->distinct()
+            ->orderBy('floor')
+            ->pluck('floor');
+
+        // Summary stats
+        $allRooms = Room::selectRaw("
+            COUNT(*) as total,
+            SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END) as available,
+            SUM(CASE WHEN status = 'occupied' THEN 1 ELSE 0 END) as occupied,
+            SUM(CASE WHEN status = 'cleaning' THEN 1 ELSE 0 END) as cleaning,
+            SUM(CASE WHEN status = 'maintenance' THEN 1 ELSE 0 END) as maintenance,
+            SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) as blocked
+        ")->first();
+
         return view('hotel::livewire.room.room-list', [
             'rooms' => $rooms,
             'roomTypes' => $roomTypes,
+            'floors' => $floors,
+            'stats' => $allRooms,
         ])->layout('layouts.app');
     }
 }
