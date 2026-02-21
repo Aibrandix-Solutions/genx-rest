@@ -212,7 +212,11 @@ class ComboPackSettings extends Component
             $menuItem = MenuItem::find($menuItemId);
             
             if ($menuItem) {
-                $quantity = $this->itemQuantities[$key] ?? 1;
+                $rawQuantity = $this->itemQuantities[$key] ?? 1;
+                if (is_string($rawQuantity)) {
+                    $rawQuantity = str_replace(',', '', $rawQuantity);
+                }
+                $quantity = is_numeric($rawQuantity) ? (float)$rawQuantity : 1.0;
                 $variationId = $variationId !== '0' ? (int)$variationId : null;
                 
                 if ($variationId) {
