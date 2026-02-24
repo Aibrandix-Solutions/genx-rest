@@ -225,6 +225,7 @@ class FolioManager extends Component
 
         DB::transaction(function () {
             HotelPayment::create([
+                'restaurant_id' => $this->reservation->restaurant_id,
                 'reservation_id' => $this->reservation->id,
                 'amount' => $this->paymentAmount,
                 'payment_method' => $this->paymentMethod,

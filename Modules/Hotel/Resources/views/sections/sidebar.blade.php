@@ -22,6 +22,10 @@
   @if(user_can('view_hotel_room_types'))
     @livewire('sidebar-dropdown-menu', ['name' => 'Room Types', 'link' => route('hotel.room-types'), 'active' => request()->routeIs('hotel.room-types')])
   @endif
+
+  @if(user_can('view_hotel_room_types'))
+    @livewire('sidebar-dropdown-menu', ['name' => 'Pricing', 'link' => route('hotel.pricing'), 'active' => request()->routeIs('hotel.pricing')])
+  @endif
     
   @if(user_can('view_hotel_rooms'))
     @livewire('sidebar-dropdown-menu', ['name' => 'Rooms', 'link' => route('hotel.rooms'), 'active' => request()->routeIs('hotel.rooms')])
@@ -36,18 +40,15 @@
   @endif
 
   @if(user_can('view_hotel_billing'))
-    {{-- Coming in Phase 4 --}}
-    {{-- @livewire('sidebar-dropdown-menu', ['name' => 'Billing', 'link' => route('hotel.billing'), 'active' => request()->routeIs('hotel.billing')]) --}}
+    @livewire('sidebar-dropdown-menu', ['name' => 'Billing', 'link' => route('hotel.billing'), 'active' => request()->routeIs('hotel.billing')])
   @endif
 
   @if(user_can('view_hotel_housekeeping'))
-    {{-- Coming in Phase 4 --}}
-    {{-- @livewire('sidebar-dropdown-menu', ['name' => 'Housekeeping', 'link' => route('hotel.housekeeping'), 'active' => request()->routeIs('hotel.housekeeping')]) --}}
+    @livewire('sidebar-dropdown-menu', ['name' => 'Housekeeping', 'link' => route('hotel.housekeeping'), 'active' => request()->routeIs('hotel.housekeeping')])
   @endif
 
   @if(user_can('view_hotel_reports'))
-    {{-- Coming in Phase 4 --}}
-    {{-- @livewire('sidebar-dropdown-menu', ['name' => 'Reports', 'link' => route('hotel.reports'), 'active' => request()->routeIs('hotel.reports')]) --}}
+    @livewire('sidebar-dropdown-menu', ['name' => 'Reports', 'link' => route('hotel.reports'), 'active' => request()->routeIs('hotel.reports')])
   @endif
 
   @if(user_can('manage_hotel_settings'))

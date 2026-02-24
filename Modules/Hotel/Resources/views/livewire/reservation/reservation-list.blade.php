@@ -128,6 +128,11 @@
                                                 Folio
                                             </a>
                                         @endif
+                                        @if($reservation->status === 'confirmed' && user_can('edit_reservation'))
+                                            <button wire:click="confirmMarkNoShow({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-amber-500 rounded-lg hover:bg-amber-600" title="Mark as No-Show">
+                                                No-Show
+                                            </button>
+                                        @endif
                                         @if(in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('edit_reservation'))
                                             <button wire:click="confirmCancelReservation({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
                                                 Cancel
@@ -268,10 +273,16 @@
                                             {{ $room->roomType->name }}
                                         </span>
 
-                                        {{-- Price --}}
-                                        <div class="mt-1.5 text-sm font-semibold text-gray-900 dark:text-white">
-                                            {{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}
+                                        {{-- Price (effective / overridden) --}}
+                                        <div class="mt-1.5">
+                                            @if($room->has_price_override)
+                                                <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
+                                            @endif
+                                            <span class="text-sm font-semibold {{ $room->has_price_override ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($room->effective_nightly_rate, restaurant()->currency_id) }}</span>
                                             <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
+                                            @if($room->has_price_override)
+                                                <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
+                                            @endif
                                         </div>
 
                                         {{-- Meta: occupancy + floor --}}

@@ -115,6 +115,7 @@ class RoomPricingManager extends Component
         ]);
 
         $data = [
+            'restaurant_id' => restaurant()->id,
             'room_type_id' => $this->selectedRoomTypeId,
             'date_from' => $this->dateFrom,
             'date_to' => $this->dateTo,

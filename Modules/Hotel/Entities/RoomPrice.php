@@ -2,17 +2,19 @@
 
 namespace Modules\Hotel\Entities;
 
+use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class RoomPrice extends Model
 {
-    use HasFactory;
+    use HasFactory, HasRestaurant;
 
     protected $table = 'hotel_room_prices';
 
     protected $fillable = [
+        'restaurant_id',
         'room_type_id',
         'date_from',
         'date_to',

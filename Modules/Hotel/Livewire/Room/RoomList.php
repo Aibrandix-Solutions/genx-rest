@@ -110,6 +110,7 @@ class RoomList extends Component
         ]);
 
         $data = [
+            'restaurant_id' => restaurant()->id,
             'room_number' => $this->room_number,
             'floor' => $this->floor,
             'room_type_id' => $this->room_type_id,

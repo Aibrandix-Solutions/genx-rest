@@ -99,22 +99,41 @@
                                     <div class="text-sm font-bold text-gray-900 dark:text-white">{{ $roomType->rooms->count() }} <span class="text-xs font-normal text-gray-500">Unit{{ $roomType->rooms->count() != 1 ? 's' : '' }}</span></div>
                                 </div>
                             </div>
+                            {{-- Extra Bed Charge --}}
+                            @if(($roomType->extra_bed_charge ?? 0) > 0)
+                            <div class="bg-amber-50 dark:bg-amber-900/20 rounded-lg p-2.5 flex items-center gap-3 border border-amber-100 dark:border-amber-700/40">
+                                <div class="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                                    <svg class="w-4 h-4 text-amber-600 dark:text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18m-9-4v8M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z"/></svg>
+                                </div>
+                                <div class="overflow-hidden">
+                                    <div class="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold truncate">Extra Bed</div>
+                                    <div class="text-sm font-bold text-amber-700 dark:text-amber-300">{{ currency_format($roomType->extra_bed_charge, restaurant()->currency_id) }}<span class="text-[10px] font-normal text-amber-500 ml-0.5">/night</span></div>
+                                </div>
+                            </div>
+                            @endif
+                            {{-- Extra Person Charge --}}
+                            @if(($roomType->extra_person_charge ?? 0) > 0)
+                            <div class="bg-rose-50 dark:bg-rose-900/20 rounded-lg p-2.5 flex items-center gap-3 border border-rose-100 dark:border-rose-700/40">
+                                <div class="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-900/30 flex items-center justify-center shrink-0">
+                                    <svg class="w-4 h-4 text-rose-600 dark:text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                                </div>
+                                <div class="overflow-hidden">
+                                    <div class="text-[10px] uppercase tracking-wider text-rose-600 dark:text-rose-400 font-semibold truncate">Extra Person</div>
+                                    <div class="text-sm font-bold text-rose-700 dark:text-rose-300">{{ currency_format($roomType->extra_person_charge, restaurant()->currency_id) }}<span class="text-[10px] font-normal text-rose-500 ml-0.5">/night</span></div>
+                                </div>
+                            </div>
+                            @endif
                         </div>
 
                         {{-- Amenities --}}
                         @if($roomType->amenities && count($roomType->amenities) > 0)
                             <div class="pt-4 border-t border-gray-100 dark:border-gray-700">
                                 <div class="flex flex-wrap gap-1.5">
-                                    @foreach(array_slice($roomType->amenities, 0, 3) as $amenity)
+                                    @foreach($roomType->amenities as $amenity)
                                         <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
                                             {{ $amenity }}
                                         </span>
                                     @endforeach
-                                    @if(count($roomType->amenities) > 3)
-                                        <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-50 text-gray-500 dark:bg-gray-800 dark:text-gray-500">
-                                            +{{ count($roomType->amenities) - 3 }} more
-                                        </span>
-                                    @endif
                                 </div>
                             </div>
                         @else
@@ -174,6 +193,30 @@
                             <x-label for="max_occupancy" value="Max Occupancy" />
                             <x-input id="max_occupancy" type="number" min="1" class="block w-full mt-1" wire:model="max_occupancy" required />
                             <x-input-error for="max_occupancy" class="mt-1" />
+                        </div>
+                    </div>
+
+                    {{-- Extra Charges --}}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <x-label for="extra_bed_charge" value="Extra Bed Charge" />
+                            <div class="relative mt-1">
+                                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                    <span class="text-gray-500">{{ restaurant()->currency->currency_symbol }}</span>
+                                </div>
+                                <x-input id="extra_bed_charge" type="number" step="0.01" min="0" class="block w-full pl-10" wire:model="extra_bed_charge" placeholder="0.00" />
+                            </div>
+                            <x-input-error for="extra_bed_charge" class="mt-2" />
+                        </div>
+                        <div>
+                            <x-label for="extra_person_charge" value="Extra Person Charge" />
+                            <div class="relative mt-1">
+                                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                    <span class="text-gray-500">{{ restaurant()->currency->currency_symbol }}</span>
+                                </div>
+                                <x-input id="extra_person_charge" type="number" step="0.01" min="0" class="block w-full pl-10" wire:model="extra_person_charge" placeholder="0.00" />
+                            </div>
+                            <x-input-error for="extra_person_charge" class="mt-2" />
                         </div>
                     </div>
 
@@ -247,6 +290,30 @@
                             <x-label for="edit_max_occupancy" value="Max Occupancy" />
                             <x-input id="edit_max_occupancy" type="number" min="1" class="block w-full mt-1" wire:model="max_occupancy" required />
                             <x-input-error for="max_occupancy" class="mt-1" />
+                        </div>
+                    </div>
+
+                    {{-- Extra Charges --}}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <x-label for="edit_extra_bed_charge" value="Extra Bed Charge" />
+                            <div class="relative mt-1">
+                                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                    <span class="text-gray-500">{{ restaurant()->currency->currency_symbol }}</span>
+                                </div>
+                                <x-input id="edit_extra_bed_charge" type="number" step="0.01" min="0" class="block w-full pl-10" wire:model="extra_bed_charge" />
+                            </div>
+                            <x-input-error for="extra_bed_charge" class="mt-2" />
+                        </div>
+                        <div>
+                            <x-label for="edit_extra_person_charge" value="Extra Person Charge" />
+                            <div class="relative mt-1">
+                                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                    <span class="text-gray-500">{{ restaurant()->currency->currency_symbol }}</span>
+                                </div>
+                                <x-input id="edit_extra_person_charge" type="number" step="0.01" min="0" class="block w-full pl-10" wire:model="extra_person_charge" />
+                            </div>
+                            <x-input-error for="extra_person_charge" class="mt-2" />
                         </div>
                     </div>
 

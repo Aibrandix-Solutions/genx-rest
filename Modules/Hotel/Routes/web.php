@@ -21,6 +21,9 @@ Route::middleware(['auth'])->prefix('hotel')->name('hotel.')->group(function() {
     Route::get('/rooms', \Modules\Hotel\Livewire\Room\RoomList::class)->name('rooms');
     Route::get('/guests', \Modules\Hotel\Livewire\Guest\GuestList::class)->name('guests');
     Route::get('/reservations', \Modules\Hotel\Livewire\Reservation\ReservationList::class)->name('reservations');
+    Route::get('/housekeeping', \Modules\Hotel\Livewire\Housekeeping\HousekeepingList::class)->name('housekeeping');
+    Route::get('/reports', \Modules\Hotel\Livewire\Reports\ReportsDashboard::class)->name('reports');
+    Route::get('/billing', \Modules\Hotel\Livewire\Billing\BillingDashboard::class)->name('billing');
     Route::get('/reservations/{reservationNumber}/folio', \Modules\Hotel\Livewire\Folio\FolioManager::class)->name('folio');
     Route::get('/invoice/{reservationId}', \Modules\Hotel\Livewire\Folio\InvoiceV2::class)->name('invoice');
     Route::get('/settings', \Modules\Hotel\Livewire\Settings\HotelSettingsPage::class)->name('settings');

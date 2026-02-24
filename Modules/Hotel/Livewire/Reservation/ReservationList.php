@@ -87,6 +87,7 @@ class ReservationList extends Component
             // 2. Record advance payment if amount > 0
             if ($this->checkInAdvanceAmount > 0) {
                 HotelPayment::create([
+                    'restaurant_id' => restaurant()->id,
                     'reservation_id' => $reservation->id,
                     'amount' => $this->checkInAdvanceAmount,
                     'payment_method' => $this->checkInPaymentMethod,
@@ -241,6 +242,7 @@ class ReservationList extends Component
         ]);
 
         $guest = \Modules\Hotel\Entities\Guest::create([
+            'restaurant_id' => restaurant()->id,
             'first_name' => $this->new_guest_first_name,
             'last_name' => $this->new_guest_last_name,
             'email' => $this->new_guest_email,
@@ -295,7 +297,15 @@ class ReservationList extends Component
               });
         });
 
-        $this->available_rooms = $query->with('roomType')->get();
+        // Attach effective nightly rate (considering pricing overrides) to each room
+        $rooms = $query->with(['roomType.prices'])->get();
+        foreach ($rooms as $room) {
+            $basePrice  = $room->roomType->base_price ?? 0;
+            $effective  = $room->roomType->getPriceForDate($checkIn->toDateString());
+            $room->effective_nightly_rate = $effective;
+            $room->has_price_override     = (float)$effective !== (float)$basePrice;
+        }
+        $this->available_rooms = $rooms;
     }
 
     public function createNewReservation()
@@ -511,6 +521,7 @@ class ReservationList extends Component
             // Record settlement payment if amount > 0
             if ($this->checkout_amount_paid > 0) {
                 HotelPayment::create([
+                    'restaurant_id' => restaurant()->id,
                     'reservation_id' => $this->checkout_reservation->id,
                     'amount' => $this->checkout_amount_paid,
                     'payment_method' => $this->checkout_payment_method,
@@ -594,6 +605,52 @@ class ReservationList extends Component
         $this->checkout_notes = '';
         $this->checkout_date_actual = '';
         $this->editingReservationId = null;
+    }
+
+    // --- Mark as No-Show ---
+
+    public $pendingNoShowId = null;
+
+    public function confirmMarkNoShow($id)
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+        $this->pendingNoShowId = $id;
+        $this->alert('warning', 'Mark this reservation as No-Show? The room will be freed.', [
+            'showConfirmButton' => true,
+            'showCancelButton'  => true,
+            'confirmButtonText' => 'Yes, No-Show',
+            'cancelButtonText'  => 'Cancel',
+            'onConfirmed'       => 'markNoShowConfirmed',
+        ]);
+    }
+
+    #[On('markNoShowConfirmed')]
+    public function markNoShow($id = null)
+    {
+        $id = $id ?? $this->pendingNoShowId;
+        abort_unless(user_can('edit_reservation'), 403);
+
+        $reservation = Reservation::find($id);
+
+        if (!$reservation) {
+            return;
+        }
+
+        if ($reservation->status !== Reservation::STATUS_CONFIRMED) {
+            $this->alert('error', 'Only confirmed reservations can be marked as No-Show.');
+            return;
+        }
+
+        $reservation->update(['status' => Reservation::STATUS_NO_SHOW]);
+
+        // Free the room
+        if ($reservation->room) {
+            $reservation->room->update(['status' => 'available']);
+        }
+
+        $this->pendingNoShowId = null;
+        $this->alert('success', 'Reservation marked as No-Show. Room is now available.');
+        $this->dispatch('$refresh');
     }
 
     // --- Quick Add Charge from Reservation List ---

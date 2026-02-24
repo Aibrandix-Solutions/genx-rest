@@ -18,6 +18,8 @@ class RoomTypeList extends Component
     public $name = '';
     public $description = '';
     public $base_price = 0;
+    public $extra_bed_charge = 0;
+    public $extra_person_charge = 0;
     public $max_occupancy = 2;
     public $amenities = [];
     public $amenitiesInput = '';
@@ -38,6 +40,8 @@ class RoomTypeList extends Component
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'base_price' => 'required|numeric|min:0',
+            'extra_bed_charge' => 'nullable|numeric|min:0',
+            'extra_person_charge' => 'nullable|numeric|min:0',
             'max_occupancy' => 'required|integer|min:1',
             'amenitiesInput' => 'nullable|string',
             'is_active' => 'boolean',
@@ -67,6 +71,8 @@ class RoomTypeList extends Component
             $this->name = $roomType->name;
             $this->description = $roomType->description;
             $this->base_price = $roomType->base_price;
+            $this->extra_bed_charge = $roomType->extra_bed_charge ?? 0;
+            $this->extra_person_charge = $roomType->extra_person_charge ?? 0;
             $this->max_occupancy = $roomType->max_occupancy;
             $this->amenities = $roomType->amenities ?? [];
             $this->amenitiesInput = implode(', ', $this->amenities);
@@ -87,9 +93,12 @@ class RoomTypeList extends Component
         $amenities = array_filter($amenities); // Remove empty values
 
         $data = [
+            'restaurant_id' => restaurant()->id,
             'name' => $this->name,
             'description' => $this->description,
             'base_price' => $this->base_price,
+            'extra_bed_charge' => $this->extra_bed_charge ?? 0,
+            'extra_person_charge' => $this->extra_person_charge ?? 0,
             'max_occupancy' => $this->max_occupancy,
             'amenities' => $amenities,
             'is_active' => $this->is_active,
@@ -117,6 +126,8 @@ class RoomTypeList extends Component
         $this->name = '';
         $this->description = '';
         $this->base_price = 0;
+        $this->extra_bed_charge = 0;
+        $this->extra_person_charge = 0;
         $this->max_occupancy = 2;
         $this->amenities = [];
         $this->amenitiesInput = '';

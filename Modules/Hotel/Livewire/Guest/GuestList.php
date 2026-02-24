@@ -94,6 +94,7 @@ class GuestList extends Component
         $this->validate();
 
         $data = [
+            'restaurant_id' => restaurant()->id,
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'email' => $this->email,
