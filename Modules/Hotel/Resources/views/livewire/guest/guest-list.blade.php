@@ -41,8 +41,8 @@
                                 <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
                                     <td class="p-4 text-sm font-normal text-gray-900 whitespace-nowrap dark:text-white">
                                         <div class="font-semibold">{{ $guest->full_name }}</div>
-                                        @if($guest->nationality)
-                                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $guest->nationality }}</div>
+                                        @if($guest->country)
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ $guest->country }}</div>
                                         @endif
                                     </td>
                                     <td class="p-4 text-sm font-normal text-gray-500 whitespace-nowrap dark:text-gray-400">

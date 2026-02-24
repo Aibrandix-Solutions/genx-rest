@@ -71,4 +71,42 @@ class HotelSetting extends Model
 
         return 0; // Pay at checkout
     }
+
+    /**
+     * Calculate tax on a given amount
+     */
+    public function calculateTax($amount)
+    {
+        if (!$this->tax_rate) {
+            return 0;
+        }
+        return $amount * ($this->tax_rate / 100);
+    }
+
+    /**
+     * Calculate service charge on a given amount
+     */
+    public function calculateServiceCharge($amount)
+    {
+        if (!$this->service_charge_rate) {
+            return 0;
+        }
+        return $amount * ($this->service_charge_rate / 100);
+    }
+
+    /**
+     * Get early check-in charge per hour
+     */
+    public function getEarlyCheckInCharge()
+    {
+        return $this->early_checkin_charge_per_hour ?? 0;
+    }
+
+    /**
+     * Get late checkout charge per hour
+     */
+    public function getLateCheckoutCharge()
+    {
+        return $this->late_checkout_charge_per_hour ?? 0;
+    }
 }

@@ -48,13 +48,59 @@ class RoomType extends Model
     /**
      * Get price for specific date (considering dynamic pricing)
      */
-    public function getPriceForDate($date)
+    public function getPriceForDate($date, $respectDynamicPricingSetting = true)
     {
+        // Check if dynamic pricing is enabled from settings
+        if ($respectDynamicPricingSetting) {
+            $setting = $this->restaurant()->first()?->hotelSettings ?? null;
+            if ($setting && !$setting->enable_dynamic_pricing) {
+                return $this->base_price;
+            }
+        }
+
         $dynamicPrice = $this->prices()
             ->whereDate('date_from', '<=', $date)
             ->whereDate('date_to', '>=', $date)
             ->first();
 
         return $dynamicPrice ? $dynamicPrice->price : $this->base_price;
+    }
+
+    /**
+     * Get extra bed charge
+     */
+    public function getExtraBedCharge()
+    {
+        return $this->extra_bed_charge ?? 0;
+    }
+
+    /**
+     * Get extra person charge
+     */
+    public function getExtraPersonCharge()
+    {
+        return $this->extra_person_charge ?? 0;
+    }
+
+    /**
+     * Calculate extra occupancy charges
+     */
+    public function calculateExtraOccupancyCharges($adults, $children, $extraBedsUsed = 0)
+    {
+        $totalCharge = 0;
+
+        // Extra person charge (beyond max occupancy)
+        $totalGuests = $adults + $children;
+        if ($totalGuests > $this->max_occupancy) {
+            $extraPersons = $totalGuests - $this->max_occupancy;
+            $totalCharge += $extraPersons * $this->getExtraPersonCharge();
+        }
+
+        // Extra bed charge (if applicable)
+        if ($extraBedsUsed > 0) {
+            $totalCharge += $extraBedsUsed * $this->getExtraBedCharge();
+        }
+
+        return $totalCharge;
     }
 }

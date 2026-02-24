@@ -123,7 +123,9 @@ class FolioManager extends Component
             $roomType = $this->reservation->room->roomType;
             $checkIn = Carbon::parse($this->reservation->check_in_date);
             $checkOut = Carbon::parse($this->reservation->checkout_date);
+            $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
 
+            $roomChargesTotal = 0;
             $currentDate = $checkIn->copy();
             while ($currentDate->lt($checkOut)) {
                 $nightlyRate = $roomType->getPriceForDate($currentDate);
@@ -136,7 +138,56 @@ class FolioManager extends Component
                     'charge_date' => $currentDate->toDateString(),
                 ]);
 
+                $roomChargesTotal += $nightlyRate;
                 $currentDate->addDay();
+            }
+
+            // Apply extra occupancy charges per night
+            $nights = $this->reservation->getNumberOfNights();
+            $extraOccupancyPerNight = $roomType->calculateExtraOccupancyCharges(
+                $this->reservation->adults,
+                $this->reservation->children,
+                0 // assuming no extra beds by default
+            );
+
+            if ($extraOccupancyPerNight > 0 && $nights > 0) {
+                RoomCharge::create([
+                    'reservation_id' => $this->reservation->id,
+                    'charge_type' => RoomCharge::TYPE_OTHER,
+                    'description' => 'Extra occupancy charges (' . $nights . ' nights)',
+                    'amount' => $extraOccupancyPerNight * $nights,
+                    'charge_date' => $checkIn->toDateString(),
+                ]);
+                $roomChargesTotal += $extraOccupancyPerNight * $nights;
+            }
+
+            // Apply tax on room charges
+            if ($settings && $settings->tax_rate > 0) {
+                $taxAmount = $settings->calculateTax($roomChargesTotal);
+                if ($taxAmount > 0) {
+                    RoomCharge::create([
+                        'reservation_id' => $this->reservation->id,
+                        'charge_type' => RoomCharge::TYPE_TAX,
+                        'description' => 'Tax (' . $settings->tax_rate . '%)',
+                        'amount' => $taxAmount,
+                        'charge_date' => $checkIn->toDateString(),
+                    ]);
+                    $roomChargesTotal += $taxAmount;
+                }
+            }
+
+            // Apply service charge on room charges
+            if ($settings && $settings->service_charge_rate > 0) {
+                $serviceAmount = $settings->calculateServiceCharge($roomChargesTotal);
+                if ($serviceAmount > 0) {
+                    RoomCharge::create([
+                        'reservation_id' => $this->reservation->id,
+                        'charge_type' => RoomCharge::TYPE_SERVICE,
+                        'description' => 'Service charge (' . $settings->service_charge_rate . '%)',
+                        'amount' => $serviceAmount,
+                        'charge_date' => $checkIn->toDateString(),
+                    ]);
+                }
             }
 
             $this->reservation->calculateTotal();

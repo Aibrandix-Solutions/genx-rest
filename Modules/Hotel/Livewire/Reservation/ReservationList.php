@@ -273,7 +273,10 @@ class ReservationList extends Component
         $checkOut = Carbon::parse($this->create_check_out_date);
 
         $query = \Modules\Hotel\Entities\Room::where('status', '!=', 'maintenance')
-            ->where('status', '!=', 'blocked');
+            ->where('status', '!=', 'blocked')
+            ->where('status', '!=', 'reserved')
+            ->where('status', '!=', 'occupied')
+            ->where('status', '!=', 'cleaning');
 
         if ($this->create_room_type_id) {
             $query->where('room_type_id', $this->create_room_type_id);
@@ -299,6 +302,7 @@ class ReservationList extends Component
     {
         abort_unless(user_can('create_reservation'), 403);
         $this->resetForm();
+        $settings = HotelSetting::first();
         $this->create_check_in_date = Carbon::today()->format('Y-m-d');
         $this->create_check_out_date = Carbon::tomorrow()->format('Y-m-d');
 
@@ -376,13 +380,14 @@ class ReservationList extends Component
 
         $checkIn = Carbon::parse($this->create_check_in_date);
         $checkOut = Carbon::parse($this->create_check_out_date);
+        $settings = HotelSetting::first();
 
         // Generate group booking ID only if multiple rooms
         $groupBookingId = count($this->selected_rooms) > 1
             ? Reservation::generateGroupBookingId()
             : null;
 
-        DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId) {
+        DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId, $settings) {
             foreach ($this->selected_rooms as $entry) {
                 $room = \Modules\Hotel\Entities\Room::with('roomType')->find($entry['room_id']);
                 if (!$room) {
@@ -397,12 +402,18 @@ class ReservationList extends Component
                     $current->addDay();
                 }
 
+                // Apply check-in time from settings
+                $checkInTime = $settings ? $settings->default_check_in_time : '14:00';
+                $checkOutTime = $settings ? $settings->default_checkout_time : '12:00';
+
                 Reservation::create([
                     'guest_id' => $this->create_guest_id,
                     'room_id' => $entry['room_id'],
                     'group_booking_id' => $groupBookingId,
                     'check_in_date' => $this->create_check_in_date,
+                    'check_in_time' => $checkInTime,
                     'checkout_date' => $this->create_check_out_date,
+                    'checkout_time' => $checkOutTime,
                     'adults' => $entry['adults'] ?? 1,
                     'children' => $entry['children'] ?? 0,
                     'special_requests' => $this->create_notes,
@@ -412,6 +423,9 @@ class ReservationList extends Component
                     'balance_due' => $totalAmount,
                     'created_by_user_id' => auth()->id(),
                 ]);
+
+                // Update room status to 'reserved' when reservation is created
+                $room->update(['status' => 'reserved']);
             }
         });
 

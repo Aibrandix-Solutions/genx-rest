@@ -98,7 +98,7 @@ class Reservation extends Model
     /**
      * Generate a unique group booking ID
      */
-    public static function generateGroupBookingId($branchId): string
+    public static function generateGroupBookingId(): string
     {
         return 'GRP' . now()->format('Ymd') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
     }
@@ -116,6 +116,11 @@ class Reservation extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function hotelSettings(): BelongsTo
+    {
+        return $this->belongsTo(HotelSetting::class, 'restaurant_id', 'restaurant_id');
     }
 
     /**
