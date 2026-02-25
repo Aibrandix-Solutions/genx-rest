@@ -7,7 +7,7 @@
             <div class="items-center justify-between block sm:flex">
                 <div class="flex items-center gap-3 mb-4 sm:mb-0">
                     <div class="relative w-48">
-                        <select wire:model="statusFilter" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 text-sm">
+                        <select wire:model.live="statusFilter" class="w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 text-sm">
                             <option value="all">All Statuses</option>
                             <option value="pending">Pending</option>
                             <option value="in_progress">In Progress</option>

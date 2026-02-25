@@ -271,7 +271,7 @@ class FolioManager extends Component
                 'charge_type' => $this->chargeType,
                 'description' => $this->chargeDescription,
                 'amount' => $this->chargeAmount,
-                'charge_date' => now(),
+                'charge_date' => now()->toDateString(),
             ]);
 
             $this->reservation->calculateTotal();

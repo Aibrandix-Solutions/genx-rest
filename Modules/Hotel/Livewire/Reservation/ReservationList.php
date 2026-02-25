@@ -448,6 +448,7 @@ class ReservationList extends Component
 
         $this->showCreateReservation = false;
         $this->resetForm();
+        $this->dispatch('$refresh');
     }
 
     private function resetForm()
@@ -572,7 +573,7 @@ class ReservationList extends Component
     {
         $id = $id ?? $this->pendingCancelId;
         abort_unless(user_can('edit_reservation'), 403);
-        $reservation = Reservation::find($id);
+        $reservation = Reservation::where('restaurant_id', restaurant()->id)->find($id);
         
         if (!$reservation) {
             return;
@@ -630,7 +631,7 @@ class ReservationList extends Component
         $id = $id ?? $this->pendingNoShowId;
         abort_unless(user_can('edit_reservation'), 403);
 
-        $reservation = Reservation::find($id);
+        $reservation = Reservation::where('restaurant_id', restaurant()->id)->find($id);
 
         if (!$reservation) {
             return;

@@ -99,31 +99,39 @@ class HousekeepingList extends Component
         ]);
 
         DB::transaction(function () {
-            $data = [
-                'restaurant_id' => restaurant()->id,
-                'room_id' => $this->room_id,
-                'task_type' => $this->task_type,
-                'priority' => $this->priority,
-                'assigned_to_user_id' => $this->assigned_to_user_id ?: null,
-                'notes' => $this->notes ?: null,
-                'status' => HousekeepingTask::STATUS_PENDING,
-            ];
-
             if ($this->editingTaskId) {
+                // Preserve existing status on edit — do not reset to pending
                 $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($this->editingTaskId);
                 if ($task) {
-                    $task->update($data);
+                    $task->update([
+                        'restaurant_id'        => restaurant()->id,
+                        'room_id'              => $this->room_id,
+                        'task_type'            => $this->task_type,
+                        'priority'             => $this->priority,
+                        'assigned_to_user_id'  => $this->assigned_to_user_id ?: null,
+                        'notes'                => $this->notes ?: null,
+                        // status intentionally omitted — keep whatever it already is
+                    ]);
                 }
             } else {
-                HousekeepingTask::create($data);
-            }
+                HousekeepingTask::create([
+                    'restaurant_id'        => restaurant()->id,
+                    'room_id'              => $this->room_id,
+                    'task_type'            => $this->task_type,
+                    'priority'             => $this->priority,
+                    'assigned_to_user_id'  => $this->assigned_to_user_id ?: null,
+                    'notes'                => $this->notes ?: null,
+                    'status'               => HousekeepingTask::STATUS_PENDING,
+                ]);
 
-            $room = Room::where('restaurant_id', restaurant()->id)->find($this->room_id);
-            if ($room) {
-                if ($this->task_type === HousekeepingTask::TYPE_CLEANING) {
-                    $room->update(['status' => Room::STATUS_CLEANING]);
-                } elseif ($this->task_type === HousekeepingTask::TYPE_MAINTENANCE) {
-                    $room->update(['status' => Room::STATUS_MAINTENANCE]);
+                // Set room status only when creating (not on edit, to avoid overriding existing flow)
+                $room = Room::where('restaurant_id', restaurant()->id)->find($this->room_id);
+                if ($room) {
+                    if ($this->task_type === HousekeepingTask::TYPE_CLEANING) {
+                        $room->update(['status' => Room::STATUS_CLEANING]);
+                    } elseif ($this->task_type === HousekeepingTask::TYPE_MAINTENANCE) {
+                        $room->update(['status' => Room::STATUS_MAINTENANCE]);
+                    }
                 }
             }
         });
@@ -156,10 +164,11 @@ class HousekeepingList extends Component
             return;
         }
 
+        // complete() internally sets room to available for cleaning tasks
         $task->complete();
 
-        if ($task->room &&
-            in_array($task->task_type, [HousekeepingTask::TYPE_CLEANING, HousekeepingTask::TYPE_MAINTENANCE])) {
+        // Handle maintenance separately — entity only handles cleaning internally
+        if ($task->room && $task->task_type === HousekeepingTask::TYPE_MAINTENANCE) {
             $task->room->update(['status' => Room::STATUS_AVAILABLE]);
         }
 
