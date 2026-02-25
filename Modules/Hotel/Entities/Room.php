@@ -64,16 +64,13 @@ class Room extends Model
      */
     public function isAvailableForDates($checkIn, $checkOut)
     {
+        // Half-open interval: conflict exists when existing.check_in < new.checkout
+        // AND existing.checkout > new.check_in
+        // Allows same-day turnover (checkout Jan 5 = available for Jan 5 check-in)
         $conflictingReservations = $this->reservations()
             ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
-            ->where(function($query) use ($checkIn, $checkOut) {
-                $query->whereBetween('check_in_date', [$checkIn, $checkOut])
-                      ->orWhereBetween('checkout_date', [$checkIn, $checkOut])
-                      ->orWhere(function($q) use ($checkIn, $checkOut) {
-                          $q->where('check_in_date', '<=', $checkIn)
-                            ->where('checkout_date', '>=', $checkOut);
-                      });
-            })
+            ->where('check_in_date', '<', $checkOut)
+            ->where('checkout_date', '>', $checkIn)
             ->exists();
 
         return !$conflictingReservations && in_array($this->status, [self::STATUS_AVAILABLE, self::STATUS_RESERVED]);

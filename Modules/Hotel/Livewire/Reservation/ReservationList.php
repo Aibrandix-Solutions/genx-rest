@@ -307,16 +307,13 @@ class ReservationList extends Component
         }
 
         // Exclude rooms that have confirmed reservations intersecting with the selected dates
+        // Half-open interval overlap: existing.check_in_date < new.checkout_date
+        // AND existing.checkout_date > new.check_in_date
+        // This allows same-day turnover (checkout Jan 5, new check-in Jan 5 = no conflict)
         $query->whereDoesntHave('reservations', function ($q) use ($checkIn, $checkOut) {
             $q->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
-              ->where(function ($q2) use ($checkIn, $checkOut) {
-                  $q2->whereBetween('check_in_date', [$checkIn, $checkOut])
-                     ->orWhereBetween('checkout_date', [$checkIn, $checkOut])
-                     ->orWhere(function ($q3) use ($checkIn, $checkOut) {
-                         $q3->where('check_in_date', '<', $checkIn)
-                            ->where('checkout_date', '>', $checkOut);
-                     });
-              });
+              ->where('check_in_date', '<', $checkOut)
+              ->where('checkout_date', '>', $checkIn);
         });
 
         // Attach effective nightly rate (considering pricing overrides) to each room
