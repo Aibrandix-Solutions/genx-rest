@@ -7,7 +7,12 @@
     || user_can('view_hotel_billing')
     || user_can('view_hotel_housekeeping')
     || user_can('view_hotel_reports')
+    || user_can('manage_room_pricing')
     || user_can('manage_hotel_settings');
+
+  // Read feature flags from hotel settings (cached to avoid N+1)
+  $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
+  $housekeepingEnabled = $hotelSettings ? (bool) $hotelSettings->enable_housekeeping_module : true;
 @endphp
 
 @if(in_array('Hotel', restaurant_modules()) && $canSeeHotelMenu)
@@ -23,7 +28,7 @@
     @livewire('sidebar-dropdown-menu', ['name' => 'Room Types', 'link' => route('hotel.room-types'), 'active' => request()->routeIs('hotel.room-types')])
   @endif
 
-  @if(user_can('view_hotel_room_types'))
+  @if(user_can('manage_room_pricing'))
     @livewire('sidebar-dropdown-menu', ['name' => 'Pricing', 'link' => route('hotel.pricing'), 'active' => request()->routeIs('hotel.pricing')])
   @endif
     
@@ -43,7 +48,7 @@
     @livewire('sidebar-dropdown-menu', ['name' => 'Billing', 'link' => route('hotel.billing'), 'active' => request()->routeIs('hotel.billing')])
   @endif
 
-  @if(user_can('view_hotel_housekeeping'))
+  @if(user_can('view_hotel_housekeeping') && $housekeepingEnabled)
     @livewire('sidebar-dropdown-menu', ['name' => 'Housekeeping', 'link' => route('hotel.housekeeping'), 'active' => request()->routeIs('hotel.housekeeping')])
   @endif
 

@@ -51,10 +51,6 @@ class HotelSetting extends Model
     const PAYMENT_PARTIAL_DEPOSIT = 'partial_deposit';
     const PAYMENT_AT_CHECKOUT = 'pay_at_checkout';
 
-    public function branch(): BelongsTo
-    {
-        return $this->belongsTo(Branch::class);
-    }
 
     /**
      * Calculate deposit amount based on policy

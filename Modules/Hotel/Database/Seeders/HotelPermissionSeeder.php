@@ -74,6 +74,11 @@ class HotelPermissionSeeder extends Seeder
             'manage_hotel_settings',
             'manage_room_prices',
             'manage_room_service',
+
+            // Pricing (dynamic pricing overrides)
+            'manage_room_pricing',
+            'edit_room_pricing',
+            'delete_room_pricing',
         ];
 
         // Create permissions with module_id

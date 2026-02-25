@@ -26,6 +26,7 @@ class GuestList extends Component
     public $city = '';
     public $country = '';
     public $notes = '';
+    public $preferencesInput = ''; // comma-separated string, stored as JSON array
 
     public function mount()
     {
@@ -44,16 +45,17 @@ class GuestList extends Component
     protected function rules()
     {
         return [
-            'first_name' => 'required|string|max:255',
-            'last_name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
-            'phone' => 'nullable|string|max:50',
-            'id_type' => 'nullable|string|max:50',
-            'id_number' => 'nullable|string|max:50',
-            'address' => 'nullable|string',
-            'city' => 'nullable|string|max:100',
-            'country' => 'nullable|string|max:100',
-            'notes' => 'nullable|string',
+            'first_name'       => 'required|string|max:255',
+            'last_name'        => 'required|string|max:255',
+            'email'            => 'nullable|email|max:255',
+            'phone'            => 'nullable|string|max:50',
+            'id_type'          => 'nullable|string|max:50',
+            'id_number'        => 'nullable|string|max:50',
+            'address'          => 'nullable|string',
+            'city'             => 'nullable|string|max:100',
+            'country'          => 'nullable|string|max:100',
+            'notes'            => 'nullable|string',
+            'preferencesInput' => 'nullable|string|max:500',
         ];
     }
 
@@ -82,6 +84,7 @@ class GuestList extends Component
             $this->city = $guest->city;
             $this->country = $guest->country;
             $this->notes = $guest->notes;
+            $this->preferencesInput = $guest->preferences ? implode(', ', $guest->preferences) : '';
             
             $this->showEditGuest = true;
         }
@@ -93,18 +96,21 @@ class GuestList extends Component
 
         $this->validate();
 
+        $preferences = array_filter(array_map('trim', explode(',', $this->preferencesInput ?? '')));
+
         $data = [
             'restaurant_id' => restaurant()->id,
-            'first_name' => $this->first_name,
-            'last_name' => $this->last_name,
-            'email' => $this->email,
-            'phone' => $this->phone,
-            'id_type' => $this->id_type,
-            'id_number' => $this->id_number,
-            'address' => $this->address,
-            'city' => $this->city,
-            'country' => $this->country,
-            'notes' => $this->notes,
+            'first_name'    => $this->first_name,
+            'last_name'     => $this->last_name,
+            'email'         => $this->email,
+            'phone'         => $this->phone,
+            'id_type'       => $this->id_type,
+            'id_number'     => $this->id_number,
+            'address'       => $this->address,
+            'city'          => $this->city,
+            'country'       => $this->country,
+            'notes'         => $this->notes,
+            'preferences'   => !empty($preferences) ? array_values($preferences) : null,
         ];
 
         if ($this->editingGuestId) {
@@ -136,6 +142,7 @@ class GuestList extends Component
         $this->city = '';
         $this->country = '';
         $this->notes = '';
+        $this->preferencesInput = '';
         $this->resetErrorBag();
     }
 

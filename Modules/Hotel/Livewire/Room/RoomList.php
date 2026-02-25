@@ -22,8 +22,10 @@ class RoomList extends Component
 
     public $room_number = '';
     public $floor = '';
+    public $section = '';
     public $room_type_id = '';
     public $status = 'available';
+    public $notes = '';
 
     // Room reservations modal
     public $showRoomReservations = false;
@@ -76,8 +78,10 @@ class RoomList extends Component
         if ($room) {
             $this->room_number = $room->room_number;
             $this->floor = $room->floor;
+            $this->section = $room->section ?? '';
             $this->room_type_id = $room->room_type_id;
             $this->status = $room->status;
+            $this->notes = $room->notes ?? '';
             
             $this->showEditRoom = true;
         }
@@ -104,17 +108,21 @@ class RoomList extends Component
                     }
                 }
             ],
-            'floor' => 'nullable|string|max:50',
+            'floor'        => 'nullable|string|max:50',
+            'section'      => 'nullable|string|max:100',
             'room_type_id' => 'required|exists:hotel_room_types,id',
-            'status' => 'required|in:available,occupied,cleaning,maintenance,blocked',
+            'status'       => 'required|in:available,occupied,cleaning,maintenance,blocked,reserved',
+            'notes'        => 'nullable|string|max:1000',
         ]);
 
         $data = [
             'restaurant_id' => restaurant()->id,
-            'room_number' => $this->room_number,
-            'floor' => $this->floor,
-            'room_type_id' => $this->room_type_id,
-            'status' => $this->status,
+            'room_number'   => $this->room_number,
+            'floor'         => $this->floor,
+            'section'       => $this->section,
+            'room_type_id'  => $this->room_type_id,
+            'status'        => $this->status,
+            'notes'         => $this->notes,
         ];
 
         if ($this->editingRoomId) {

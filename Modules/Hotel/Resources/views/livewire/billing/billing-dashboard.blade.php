@@ -1,4 +1,4 @@
-<div>
+<div wire:poll.30s>
     <div class="p-4 bg-white block sm:flex items-center justify-between dark:bg-gray-800 dark:border-gray-700">
         <div class="w-full mb-1">
             <div class="mb-4">

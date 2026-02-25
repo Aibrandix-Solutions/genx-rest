@@ -55,7 +55,7 @@ class FolioManager extends Component
             ->firstOrFail();
 
         // Load hotel name from settings
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
 
         // All posted charges (room nights, restaurant/room-service, minibar, etc.)

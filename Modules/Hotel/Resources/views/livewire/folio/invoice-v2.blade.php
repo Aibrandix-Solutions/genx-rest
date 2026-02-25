@@ -4,13 +4,11 @@
         <div>
             @if($hotelLogo)
                 <img src="{{ asset_url_local_s3('hotel-logo/' . $hotelLogo) }}" alt="Hotel Logo" class="h-12 mb-2">
-            @elseif($reservation->branch->logo_url)
-                <img src="{{ $reservation->branch->logo_url }}" alt="Logo" class="h-12 mb-2">
             @endif
             <h1 class="text-2xl font-bold">{{ $hotelName }}</h1>
             <div class="text-sm text-gray-600">
-                <p>{{ $reservation->branch->address }}</p>
-                <p>{{ $reservation->branch->phone }}</p>
+                <p>{{ $hotelAddress }}</p>
+                <p>{{ $hotelPhone }}</p>
             </div>
         </div>
         <div class="text-right">

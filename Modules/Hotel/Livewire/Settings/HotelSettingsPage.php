@@ -52,7 +52,7 @@ class HotelSettingsPage extends Component
 
     public function loadSettings()
     {
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
 
         if ($settings) {
             $this->business_mode = $settings->business_mode ?? 'restaurant_primary';
@@ -147,7 +147,7 @@ class HotelSettingsPage extends Component
     {
         abort_unless(user_can('manage_hotel_settings'), 403);
 
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
 
         if ($settings && $settings->hotel_logo) {
             Files::deleteFile($settings->hotel_logo, 'hotel-logo');

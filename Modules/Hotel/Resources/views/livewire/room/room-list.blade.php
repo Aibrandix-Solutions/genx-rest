@@ -250,6 +250,12 @@
                     </div>
 
                     <div>
+                        <x-label for="section" value="Section / Wing" />
+                        <x-input id="section" type="text" class="block w-full mt-1" wire:model="section" placeholder="e.g. North Wing, Block A" />
+                        <x-input-error for="section" class="mt-2" />
+                    </div>
+
+                    <div>
                         <x-label for="room_type_id" value="Room Type" />
                         <select id="room_type_id" wire:model="room_type_id" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" required>
                             <option value="">Select Room Type</option>
@@ -271,6 +277,12 @@
                         </select>
                         <x-input-error for="status" class="mt-2" />
                     </div>
+                    <div>
+                        <x-label for="notes" value="Notes" />
+                        <textarea id="notes" wire:model="notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" placeholder="Internal notes about this room..."></textarea>
+                        <x-input-error for="notes" class="mt-2" />
+                    </div>
+
                 </div>
 
                 <div class="mt-6 flex justify-end gap-3">
@@ -304,6 +316,12 @@
                     </div>
 
                     <div>
+                        <x-label for="edit_section" value="Section / Wing" />
+                        <x-input id="edit_section" type="text" class="block w-full mt-1" wire:model="section" placeholder="e.g. North Wing, Block A" />
+                        <x-input-error for="section" class="mt-2" />
+                    </div>
+
+                    <div>
                         <x-label for="edit_room_type_id" value="Room Type" />
                         <select id="edit_room_type_id" wire:model="room_type_id" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" required>
                             <option value="">Select Room Type</option>
@@ -325,6 +343,12 @@
                         </select>
                         <x-input-error for="status" class="mt-2" />
                     </div>
+                    <div>
+                        <x-label for="edit_notes" value="Notes" />
+                        <textarea id="edit_notes" wire:model="notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" placeholder="Internal notes about this room..."></textarea>
+                        <x-input-error for="notes" class="mt-2" />
+                    </div>
+
                 </div>
 
                 <div class="mt-6 flex justify-end gap-3">

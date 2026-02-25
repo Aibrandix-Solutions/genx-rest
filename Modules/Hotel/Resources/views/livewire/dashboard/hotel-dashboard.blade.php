@@ -1,4 +1,4 @@
-<div class="p-6 bg-gray-50 dark:bg-gray-900">
+<div class="p-6 bg-gray-50 dark:bg-gray-900" wire:poll.30s>
     {{-- Header with Filters --}}
     <div class="mb-8">
         <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-200 mb-4">Hotel Management Dashboard</h2>

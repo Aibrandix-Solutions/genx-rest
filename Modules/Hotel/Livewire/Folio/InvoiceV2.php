@@ -17,8 +17,10 @@ class InvoiceV2 extends Component
     public $totalCharges = 0;
     public $totalPayments = 0;
     public $balance = 0;
-    public $hotelName = '';
-    public $hotelLogo = '';
+    public $hotelName    = '';
+    public $hotelLogo    = '';
+    public $hotelAddress = '';
+    public $hotelPhone   = '';
 
     public function mount($reservationId)
     {
@@ -32,9 +34,11 @@ class InvoiceV2 extends Component
         $this->reservation = Reservation::with(['guest', 'room', 'room.roomType'])->findOrFail($this->reservationId);
 
         // Load hotel name from settings
-        $settings = HotelSetting::first();
-        $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
-        $this->hotelLogo = $settings->hotel_logo ?? '';
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $this->hotelName    = $settings->hotel_name ?? restaurant()->name ?? '';
+        $this->hotelLogo    = $settings->hotel_logo ?? '';
+        $this->hotelAddress = restaurant()->address ?? '';
+        $this->hotelPhone   = restaurant()->phone ?? '';
         
         $this->charges = RoomCharge::where('reservation_id', $this->reservationId)
             ->orderBy('charge_date', 'asc')

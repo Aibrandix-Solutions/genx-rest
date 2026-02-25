@@ -29,6 +29,13 @@ class HousekeepingList extends Component
     public function mount()
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
+
+        // Respect enable_housekeeping_module setting
+        $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        if ($hotelSettings && !$hotelSettings->enable_housekeeping_module) {
+            abort(403, 'Housekeeping module is disabled. Enable it in Hotel Settings.');
+        }
+
         $this->loadReferenceData();
         $this->loadTasks();
     }

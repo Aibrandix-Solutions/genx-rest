@@ -179,6 +179,13 @@
                         <textarea id="notes" wire:model="notes" rows="3" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
                         <x-input-error for="notes" class="mt-2" />
                     </div>
+
+                    <div>
+                        <x-label for="preferences" value="Guest Preferences" />
+                        <x-input id="preferences" type="text" class="block w-full mt-1" wire:model="preferencesInput" placeholder="e.g. Non-smoking, High floor, Extra pillow" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Separate preferences with commas.</p>
+                        <x-input-error for="preferencesInput" class="mt-2" />
+                    </div>
                 </div>
 
                 <div class="mt-6 flex justify-end gap-3">
@@ -267,6 +274,13 @@
                         <x-label for="edit_notes" value="Notes" />
                         <textarea id="edit_notes" wire:model="notes" rows="3" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
                         <x-input-error for="notes" class="mt-2" />
+                    </div>
+
+                    <div>
+                        <x-label for="edit_preferences" value="Guest Preferences" />
+                        <x-input id="edit_preferences" type="text" class="block w-full mt-1" wire:model="preferencesInput" placeholder="e.g. Non-smoking, High floor, Extra pillow" />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Separate preferences with commas.</p>
+                        <x-input-error for="preferencesInput" class="mt-2" />
                     </div>
                 </div>
 

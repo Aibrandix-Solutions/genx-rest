@@ -58,7 +58,7 @@ class ReservationList extends Component
         $this->checkInTotalAmount = $this->calculateStayTotal($this->checkInReservation);
 
         // Determine suggested advance based on hotel settings
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->checkInAdvanceAmount = $settings ? $settings->calculateDeposit($this->checkInTotalAmount) : 0;
         $this->checkInPaymentMethod = 'cash';
         $this->checkInNotes = '';
@@ -80,9 +80,31 @@ class ReservationList extends Component
 
         DB::transaction(function () {
             $reservation = $this->checkInReservation;
+            $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
 
             // 1. Generate room night charges
             $this->generateRoomNightCharges($reservation);
+
+            // 1b. Early check-in surcharge
+            if ($settings && (float) $settings->early_checkin_charge_per_hour > 0) {
+                $defaultCheckIn = Carbon::parse(
+                    $reservation->check_in_date->toDateString() . ' ' . ($settings->default_check_in_time ?? '14:00')
+                );
+                $actualCheckIn = now();
+
+                if ($actualCheckIn->lt($defaultCheckIn)) {
+                    $hoursEarly = max(1, (int) ceil($actualCheckIn->floatDiffInHours($defaultCheckIn)));
+                    $earlyCharge = $hoursEarly * (float) $settings->early_checkin_charge_per_hour;
+
+                    RoomCharge::create([
+                        'reservation_id' => $reservation->id,
+                        'charge_type'    => RoomCharge::TYPE_SERVICE,
+                        'description'    => "Early check-in surcharge ({$hoursEarly}h before " . ($settings->default_check_in_time ?? '14:00') . ')',
+                        'amount'         => $earlyCharge,
+                        'charge_date'    => now()->toDateString(),
+                    ]);
+                }
+            }
 
             // 2. Record advance payment if amount > 0
             if ($this->checkInAdvanceAmount > 0) {
@@ -312,12 +334,12 @@ class ReservationList extends Component
     {
         abort_unless(user_can('create_reservation'), 403);
         $this->resetForm();
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->create_check_in_date = Carbon::today()->format('Y-m-d');
         $this->create_check_out_date = Carbon::tomorrow()->format('Y-m-d');
 
         // Load max rooms setting
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->maxRoomsPerBooking = $settings->max_rooms_per_booking ?? 10;
 
         $this->showCreateReservation = true;
@@ -390,7 +412,7 @@ class ReservationList extends Component
 
         $checkIn = Carbon::parse($this->create_check_in_date);
         $checkOut = Carbon::parse($this->create_check_out_date);
-        $settings = HotelSetting::first();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
 
         // Generate group booking ID only if multiple rooms
         $groupBookingId = count($this->selected_rooms) > 1
@@ -519,6 +541,33 @@ class ReservationList extends Component
         }
 
         DB::transaction(function () {
+            $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+
+            // Auto-post late checkout surcharge before settlement
+            if ($settings && (float) $settings->late_checkout_charge_per_hour > 0) {
+                $defaultCheckout = Carbon::parse(
+                    $this->checkout_reservation->checkout_date->toDateString() . ' ' . ($settings->default_checkout_time ?? '12:00')
+                );
+                $actualCheckout = Carbon::parse($this->checkout_date_actual)->setTimeFrom(now());
+
+                if ($actualCheckout->gt($defaultCheckout)) {
+                    $hoursLate = max(1, (int) ceil($defaultCheckout->floatDiffInHours($actualCheckout)));
+                    $lateCharge = $hoursLate * (float) $settings->late_checkout_charge_per_hour;
+
+                    RoomCharge::create([
+                        'reservation_id' => $this->checkout_reservation->id,
+                        'charge_type'    => RoomCharge::TYPE_SERVICE,
+                        'description'    => "Late checkout surcharge ({$hoursLate}h after " . ($settings->default_checkout_time ?? '12:00') . ')',
+                        'amount'         => $lateCharge,
+                        'charge_date'    => now()->toDateString(),
+                    ]);
+
+                    // Recalculate totals to include late charge before recording payment
+                    $this->checkout_reservation->calculateTotal();
+                    $this->checkout_reservation->refresh();
+                }
+            }
+
             // Record settlement payment if amount > 0
             if ($this->checkout_amount_paid > 0) {
                 HotelPayment::create([
