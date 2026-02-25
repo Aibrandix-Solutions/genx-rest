@@ -8,6 +8,9 @@
     || user_can('view_hotel_housekeeping')
     || user_can('view_hotel_reports')
     || user_can('manage_room_pricing')
+    || user_can('view_hotel_expenses')
+    || user_can('view_unified_finance_report')
+    || user_can('view_property_pnl')
     || user_can('manage_hotel_settings');
 
   // Read feature flags from hotel settings (cached to avoid N+1)
@@ -54,6 +57,18 @@
 
   @if(user_can('view_hotel_reports'))
     @livewire('sidebar-dropdown-menu', ['name' => 'Reports', 'link' => route('hotel.reports'), 'active' => request()->routeIs('hotel.reports')])
+  @endif
+
+  @if(user_can('view_hotel_expenses'))
+    @livewire('sidebar-dropdown-menu', ['name' => 'Expenses', 'link' => route('hotel.expenses'), 'active' => request()->routeIs('hotel.expenses')])
+  @endif
+
+  @if(user_can('view_unified_finance_report'))
+    @livewire('sidebar-dropdown-menu', ['name' => 'Finance Report', 'link' => route('hotel.finance'), 'active' => request()->routeIs('hotel.finance')])
+  @endif
+
+  @if(user_can('view_property_pnl'))
+    @livewire('sidebar-dropdown-menu', ['name' => 'P&L Dashboard', 'link' => route('hotel.profit-loss'), 'active' => request()->routeIs('hotel.profit-loss')])
   @endif
 
   @if(user_can('manage_hotel_settings'))

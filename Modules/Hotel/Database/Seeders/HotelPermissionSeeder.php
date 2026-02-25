@@ -79,6 +79,16 @@ class HotelPermissionSeeder extends Seeder
             'manage_room_pricing',
             'edit_room_pricing',
             'delete_room_pricing',
+
+            // Hotel Expenses
+            'view_hotel_expenses',
+            'create_hotel_expense',
+            'edit_hotel_expense',
+            'delete_hotel_expense',
+
+            // Unified Finance Reports
+            'view_unified_finance_report',
+            'view_property_pnl',
         ];
 
         // Create permissions with module_id
