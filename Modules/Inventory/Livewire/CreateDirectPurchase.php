@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Livewire;
 
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\PurchaseOrder;
@@ -16,10 +17,11 @@ use App\Models\BranchPaymentAccountSetting;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Modules\Inventory\Entities\PurchaseAttachment;
 
 class CreateDirectPurchase extends Component
 {
-    use LivewireAlert;
+    use WithFileUploads, LivewireAlert;
 
     // Main form fields
     public $supplierId;
@@ -29,6 +31,9 @@ class CreateDirectPurchase extends Component
     public $notes;
     public $discount = 0;
     public $discount_type = 'fixed';
+
+    // Attachments
+    public $attachments = [];
     
     // Items
     public $items = [];
@@ -70,6 +75,7 @@ class CreateDirectPurchase extends Component
         'paymentMethod' => 'nullable|in:cash,card,bank_transfer,cheque,other',
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
         'paymentNote' => 'nullable|string|max:500',
+        'attachments.*' => 'nullable|file|mimes:pdf,csv,doc,docx,jpeg,jpg,png,gif,webp|max:10240',
     ];
 
     protected $messages = [
@@ -354,6 +360,22 @@ class CreateDirectPurchase extends Component
             // Record payment if provided
             if ($this->recordPayment && $this->paymentAmount > 0) {
                 $this->recordPaymentForPurchase($purchase);
+            }
+
+            // Save attachments
+            if (!empty($this->attachments)) {
+                foreach ($this->attachments as $file) {
+                    $path = $file->store('purchase-attachments', 'public');
+                    $mimeType = $file->getMimeType();
+                    PurchaseAttachment::create([
+                        'purchase_order_id' => $purchase->id,
+                        'file_path'         => $path,
+                        'original_name'     => $file->getClientOriginalName(),
+                        'mime_type'         => $mimeType,
+                        'file_type'         => PurchaseAttachment::resolveFileType($mimeType ?? ''),
+                        'uploaded_by'       => user()->id,
+                    ]);
+                }
             }
         });
 

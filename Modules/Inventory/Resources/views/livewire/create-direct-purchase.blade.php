@@ -299,6 +299,113 @@
                 </div>
             </div>
 
+            {{-- ===== ATTACHMENTS ===== --}}
+            <div class="space-y-3"
+                 x-data="{
+                    files: [],
+                    addFiles(newFiles) {
+                        Array.from(newFiles).forEach(f => {
+                            this.files.push({
+                                name: f.name,
+                                isImage: f.type.startsWith('image/'),
+                                url: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+                                file: f
+                            });
+                        });
+                        this.syncToLivewire();
+                    },
+                    removeFile(index) {
+                        this.files.splice(index, 1);
+                        this.syncToLivewire();
+                    },
+                    syncToLivewire() {
+                        const dt = new DataTransfer();
+                        this.files.forEach(f => dt.items.add(f.file));
+                        const input = document.getElementById('purchase-attachment-input');
+                        input.files = dt.files;
+                        input.dispatchEvent(new Event('change'));
+                    }
+                 }">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Attachments</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Attach invoices, delivery notes, images or any related files (PDF, Word, CSV, images – max 10 MB each).</p>
+
+                <div class="flex flex-wrap gap-3 items-center">
+                    {{-- File picker --}}
+                    <label for="purchase-attachment-input"
+                           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 transition">
+                        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"/>
+                        </svg>
+                        Choose Files
+                    </label>
+                    <input id="purchase-attachment-input"
+                           type="file"
+                           wire:model="attachments"
+                           multiple
+                           accept="image/*,.pdf,.doc,.docx,.csv"
+                           class="sr-only"
+                           x-ref="fileInput"
+                           @change="addFiles($event.target.files)" />
+
+                    {{-- Camera capture (images only) --}}
+                    <label for="purchase-camera-input"
+                           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-300 dark:border-blue-600 bg-blue-50 dark:bg-blue-900/40 text-sm text-blue-700 dark:text-blue-300 cursor-pointer hover:bg-blue-100 dark:hover:bg-blue-800/50 transition">
+                        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/>
+                        </svg>
+                        Capture Photo
+                    </label>
+                    <input id="purchase-camera-input"
+                           type="file"
+                           accept="image/*"
+                           capture="environment"
+                           class="sr-only"
+                           @change="addFiles($event.target.files); $event.target.value = ''" />
+                </div>
+
+                {{-- Upload progress indicator --}}
+                <div wire:loading wire:target="attachments" class="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+                    <svg class="animate-spin w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                    </svg>
+                    Uploading...
+                </div>
+
+                @error('attachments.*') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+
+                {{-- Alpine-managed persistent previews --}}
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mt-2">
+                    <template x-for="(file, index) in files" :key="index">
+                        <div class="relative border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-800 flex flex-col items-center justify-center p-2 text-center group">
+                            {{-- ×remove button --}}
+                            <button type="button"
+                                    @click="removeFile(index)"
+                                    class="absolute top-1 right-1 z-10 w-5 h-5 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center text-xs shadow transition"
+                                    title="Remove">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                                </svg>
+                            </button>
+                            {{-- Image preview --}}
+                            <template x-if="file.isImage">
+                                <img :src="file.url" class="w-full h-20 object-cover rounded" :alt="file.name">
+                            </template>
+                            {{-- Doc icon --}}
+                            <template x-if="!file.isImage">
+                                <div class="w-12 h-12 flex items-center justify-center text-gray-400 dark:text-gray-500 mt-1">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                    </svg>
+                                </div>
+                            </template>
+                            <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate w-full" x-text="file.name"></p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
             <div class="flex items-center justify-end gap-2">
                 <x-button type="submit" wire:loading.attr="disabled">Save Purchase</x-button>
             </div>

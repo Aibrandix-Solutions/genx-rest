@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Livewire;
 
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\PurchaseOrder;
@@ -16,10 +17,11 @@ use App\Models\BranchPaymentAccountSetting;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Modules\Inventory\Entities\PurchaseAttachment;
 
 class EditDirectPurchase extends Component
 {
-    use LivewireAlert;
+    use WithFileUploads, LivewireAlert;
 
     public $purchaseId;
     
@@ -54,6 +56,10 @@ class EditDirectPurchase extends Component
         public $paymentAccounts = [];
     public $purchase = null;
 
+    // Attachments
+    public $attachments = [];        // new files to upload
+    public $existingAttachments = []; // already saved attachments
+
     protected $rules = [
         'supplierId' => 'required|exists:suppliers,id',
         'orderDate' => 'required|date',
@@ -72,6 +78,7 @@ class EditDirectPurchase extends Component
         'paymentDate' => 'required_if:recordPayment,true|date',
         'paymentMethod' => 'required_if:recordPayment,true',
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
+        'attachments.*' => 'nullable|file|mimes:pdf,csv,doc,docx,jpeg,jpg,png,gif,webp|max:10240',
     ];
 
     public function mount($purchaseId)
@@ -83,7 +90,7 @@ class EditDirectPurchase extends Component
 
     public function loadPurchase()
     {
-        $this->purchase = PurchaseOrder::with('items')->findOrFail($this->purchaseId);
+        $this->purchase = PurchaseOrder::with('items', 'attachments')->findOrFail($this->purchaseId);
         
         $this->supplierId = $this->purchase->supplier_id;
         $this->orderDate = $this->purchase->order_date->format('Y-m-d');
@@ -104,6 +111,17 @@ class EditDirectPurchase extends Component
                 'unit_price' => $item->unit_price,
                 'discount' => $item->discount ?? 0,
                 'discount_type' => $item->discount_type ?? 'fixed',
+            ];
+        })->toArray();
+
+        // Load existing attachments
+        $this->existingAttachments = $this->purchase->attachments->map(function ($att) {
+            return [
+                'id'            => $att->id,
+                'original_name' => $att->original_name,
+                'file_type'     => $att->file_type,
+                'url'           => $att->url,
+                'mime_type'     => $att->mime_type,
             ];
         })->toArray();
     }
@@ -439,10 +457,42 @@ class EditDirectPurchase extends Component
                     }
                 }
             }
+
+            // Save new attachments
+            if (!empty($this->attachments)) {
+                foreach ($this->attachments as $file) {
+                    $path = $file->store('purchase-attachments', 'public');
+                    $mimeType = $file->getMimeType();
+                    PurchaseAttachment::create([
+                        'purchase_order_id' => $this->purchase->id,
+                        'file_path'         => $path,
+                        'original_name'     => $file->getClientOriginalName(),
+                        'mime_type'         => $mimeType,
+                        'file_type'         => PurchaseAttachment::resolveFileType($mimeType ?? ''),
+                        'uploaded_by'       => user()->id,
+                    ]);
+                }
+            }
         });
 
         $this->alert('success', 'Purchase updated successfully!');
         return redirect()->route('purchases.index');
+    }
+
+    public function deleteAttachment($attachmentId)
+    {
+        $attachment = PurchaseAttachment::find($attachmentId);
+
+        if ($attachment && $attachment->purchase_order_id === $this->purchaseId) {
+            $attachment->delete(); // Storage file deleted via model booted hook
+
+            // Refresh list
+            $this->existingAttachments = array_values(
+                array_filter($this->existingAttachments, fn($a) => $a['id'] !== $attachmentId)
+            );
+
+            $this->alert('success', 'Attachment deleted.');
+        }
     }
 
     public function render()
