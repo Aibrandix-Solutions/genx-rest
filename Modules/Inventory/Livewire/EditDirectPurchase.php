@@ -78,7 +78,7 @@ class EditDirectPurchase extends Component
         'paymentDate' => 'required_if:recordPayment,true|date',
         'paymentMethod' => 'required_if:recordPayment,true',
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
-        'attachments.*' => 'nullable|file|mimes:pdf,csv,doc,docx,jpeg,jpg,png,gif,webp|max:10240',
+        'attachments.*' => 'nullable|file|mimes:pdf,jpeg,jpg,png,gif,webp|max:5120',
     ];
 
     public function mount($purchaseId)

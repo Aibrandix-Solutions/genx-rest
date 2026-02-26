@@ -75,7 +75,7 @@ class CreateDirectPurchase extends Component
         'paymentMethod' => 'nullable|in:cash,card,bank_transfer,cheque,other',
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
         'paymentNote' => 'nullable|string|max:500',
-        'attachments.*' => 'nullable|file|mimes:pdf,csv,doc,docx,jpeg,jpg,png,gif,webp|max:10240',
+        'attachments.*' => 'nullable|file|mimes:pdf,jpeg,jpg,png,gif,webp|max:5120',
     ];
 
     protected $messages = [
