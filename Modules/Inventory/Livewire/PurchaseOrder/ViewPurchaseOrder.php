@@ -10,7 +10,7 @@ class ViewPurchaseOrder extends Component
 {
     public $showModal = false;
     public $purchaseOrder;
-    public $activeTab = 'details'; // details, payments
+    public $activeTab = 'details'; // details, payments, attachments
 
     protected $listeners = [
         'viewPurchaseOrder' => 'show',
@@ -25,6 +25,7 @@ class ViewPurchaseOrder extends Component
             'items.inventoryItem.unit',
             'payments.account',
             'payments.addedBy',
+            'attachments',
         ]);
         $this->activeTab = 'details';
         $this->showModal = true;
@@ -35,6 +36,9 @@ class ViewPurchaseOrder extends Component
         $this->activeTab = $tab;
         if ($tab === 'payments') {
             $this->purchaseOrder->load(['payments.account', 'payments.addedBy']);
+        }
+        if ($tab === 'attachments') {
+            $this->purchaseOrder->load(['attachments']);
         }
     }
 

@@ -101,10 +101,10 @@
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ __('app.date') }}
                 </label>
-                <div class="flex items-center gap-2">
-                     <x-input type="date" wire:model.live="startDate" class="block w-full sm:w-auto" />
-                     <span class="text-gray-500 font-medium">@lang('app.to')</span>
-                     <x-input type="date" wire:model.live="endDate" class="block w-full sm:w-auto" />
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                     <x-input type="date" wire:model.live="startDate" class="block w-full sm:w-auto min-w-[140px]" />
+                     <span class="text-gray-500 font-medium text-center">@lang('app.to')</span>
+                     <x-input type="date" wire:model.live="endDate" class="block w-full sm:w-auto min-w-[140px]" />
                 </div>
             </div>
 
