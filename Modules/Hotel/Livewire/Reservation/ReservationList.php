@@ -148,23 +148,53 @@ class ReservationList extends Component
     protected function generateRoomNightCharges(Reservation $reservation)
     {
         $roomType = $reservation->room->roomType;
-        $checkIn = $reservation->check_in_date->copy();
+        $checkIn  = $reservation->check_in_date->copy();
         $checkOut = $reservation->checkout_date->copy();
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
 
-        // Create one charge per night
+        $roomChargesTotal = 0;
         $currentDate = $checkIn->copy();
         while ($currentDate->lt($checkOut)) {
             $nightlyRate = $roomType->getPriceForDate($currentDate);
 
             RoomCharge::create([
                 'reservation_id' => $reservation->id,
-                'charge_type' => RoomCharge::TYPE_ROOM_NIGHT,
-                'description' => 'Room ' . $reservation->room->room_number . ' - ' . $currentDate->format('d M Y'),
-                'amount' => $nightlyRate,
-                'charge_date' => $currentDate->toDateString(),
+                'charge_type'    => RoomCharge::TYPE_ROOM_NIGHT,
+                'description'    => 'Room ' . $reservation->room->room_number . ' - ' . $currentDate->format('d M Y'),
+                'amount'         => $nightlyRate,
+                'charge_date'    => $currentDate->toDateString(),
             ]);
 
+            $roomChargesTotal += $nightlyRate;
             $currentDate->addDay();
+        }
+
+        // Apply tax on room charges (if configured in hotel settings)
+        if ($settings && $settings->tax_rate > 0) {
+            $taxAmount = $settings->calculateTax($roomChargesTotal);
+            if ($taxAmount > 0) {
+                RoomCharge::create([
+                    'reservation_id' => $reservation->id,
+                    'charge_type'    => RoomCharge::TYPE_TAX,
+                    'description'    => 'Tax (' . $settings->tax_rate . '%)',
+                    'amount'         => $taxAmount,
+                    'charge_date'    => $checkIn->toDateString(),
+                ]);
+            }
+        }
+
+        // Apply service charge on room charges (if configured in hotel settings)
+        if ($settings && $settings->service_charge_rate > 0) {
+            $serviceAmount = $settings->calculateServiceCharge($roomChargesTotal);
+            if ($serviceAmount > 0) {
+                RoomCharge::create([
+                    'reservation_id' => $reservation->id,
+                    'charge_type'    => RoomCharge::TYPE_SERVICE,
+                    'description'    => 'Service charge (' . $settings->service_charge_rate . '%)',
+                    'amount'         => $serviceAmount,
+                    'charge_date'    => $checkIn->toDateString(),
+                ]);
+            }
         }
     }
 

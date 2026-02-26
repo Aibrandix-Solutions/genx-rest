@@ -15,7 +15,9 @@
 
   // Read feature flags from hotel settings (cached to avoid N+1)
   $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
-  $housekeepingEnabled = $hotelSettings ? (bool) $hotelSettings->enable_housekeeping_module : true;
+  $housekeepingEnabled    = $hotelSettings ? (bool) $hotelSettings->enable_housekeeping_module : true;
+  $dynamicPricingEnabled  = $hotelSettings ? (bool) $hotelSettings->enable_dynamic_pricing    : false;
+  $roomServiceEnabled     = $hotelSettings ? (bool) $hotelSettings->enable_room_service        : true;
 @endphp
 
 @if(in_array('Hotel', restaurant_modules()) && $canSeeHotelMenu)
@@ -31,7 +33,7 @@
     @livewire('sidebar-dropdown-menu', ['name' => 'Room Types', 'link' => route('hotel.room-types'), 'active' => request()->routeIs('hotel.room-types')])
   @endif
 
-  @if(user_can('manage_room_pricing'))
+  @if(user_can('manage_room_pricing') && $dynamicPricingEnabled)
     @livewire('sidebar-dropdown-menu', ['name' => 'Pricing', 'link' => route('hotel.pricing'), 'active' => request()->routeIs('hotel.pricing')])
   @endif
     

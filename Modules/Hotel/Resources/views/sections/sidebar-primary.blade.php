@@ -12,6 +12,12 @@
     || user_can('view_unified_finance_report')
     || user_can('view_property_pnl')
     || user_can('manage_hotel_settings');
+
+  // Read feature flags from hotel settings
+  $_hotelSettingsPrimary = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
+  $housekeepingEnabledPrimary  = $_hotelSettingsPrimary ? (bool) $_hotelSettingsPrimary->enable_housekeeping_module : true;
+  $roomServiceEnabledPrimary   = $_hotelSettingsPrimary ? (bool) $_hotelSettingsPrimary->enable_room_service       : true;
+  $dynamicPricingEnabledPrimary = $_hotelSettingsPrimary ? (bool) $_hotelSettingsPrimary->enable_dynamic_pricing   : false;
 @endphp
 
 @if(in_array('Hotel', restaurant_modules()) && $canSeeHotelMenu)
@@ -47,13 +53,13 @@
             @if(user_can('view_hotel_room_types'))
                 @livewire('sidebar-dropdown-menu', ['name' => 'Room Types', 'link' => route('hotel.room-types'), 'active' => request()->routeIs('hotel.room-types')])
             @endif
-                @if(user_can('view_hotel_room_types'))
-                    @livewire('sidebar-dropdown-menu', ['name' => 'Pricing', 'link' => route('hotel.pricing'), 'active' => request()->routeIs('hotel.pricing')])
-                @endif
+            @if(user_can('manage_room_pricing') && $dynamicPricingEnabledPrimary)
+                @livewire('sidebar-dropdown-menu', ['name' => 'Pricing', 'link' => route('hotel.pricing'), 'active' => request()->routeIs('hotel.pricing')])
+            @endif
         </x-sidebar-dropdown-menu>
     @endif
 
-        @if(user_can('view_hotel_housekeeping'))
+        @if(user_can('view_hotel_housekeeping') && $housekeepingEnabledPrimary)
             @livewire('sidebar-menu-item', [
                 'name' => 'Housekeeping',
                 'icon' => 'housekeeping',

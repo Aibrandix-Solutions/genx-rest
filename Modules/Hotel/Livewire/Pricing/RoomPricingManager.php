@@ -32,6 +32,13 @@ class RoomPricingManager extends Component
     public function mount()
     {
         abort_unless(user_can('manage_room_pricing'), 403);
+
+        // Respect the enable_dynamic_pricing hotel setting
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        if ($settings && !$settings->enable_dynamic_pricing) {
+            abort(403, 'Dynamic pricing is disabled in Hotel Settings.');
+        }
+
         $this->loadRoomTypes();
         $this->loadSettings();
     }
