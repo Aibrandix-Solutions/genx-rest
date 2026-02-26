@@ -460,13 +460,20 @@ class EditDirectPurchase extends Component
 
             // Save new attachments
             if (!empty($this->attachments)) {
+                $dir = public_path('user-uploads/' . PurchaseAttachment::UPLOAD_DIR);
+                if (!\Illuminate\Support\Facades\File::exists($dir)) {
+                    \Illuminate\Support\Facades\File::makeDirectory($dir, 0775, true);
+                }
                 foreach ($this->attachments as $file) {
-                    $path = $file->store('purchase-attachments', 'public');
-                    $mimeType = $file->getMimeType();
+                    $mimeType     = $file->getMimeType();
+                    $originalName = $file->getClientOriginalName();
+                    $ext          = strtolower($file->getClientOriginalExtension());
+                    $filename     = md5(microtime()) . '.' . $ext;
+                    $file->move($dir, $filename);
                     PurchaseAttachment::create([
                         'purchase_order_id' => $this->purchase->id,
-                        'file_path'         => $path,
-                        'original_name'     => $file->getClientOriginalName(),
+                        'file_path'         => $filename,
+                        'original_name'     => $originalName,
                         'mime_type'         => $mimeType,
                         'file_type'         => PurchaseAttachment::resolveFileType($mimeType ?? ''),
                         'uploaded_by'       => user()->id,
