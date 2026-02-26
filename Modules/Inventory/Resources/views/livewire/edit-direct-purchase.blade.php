@@ -296,7 +296,7 @@
             {{-- ===== ATTACHMENTS ===== --}}
             <div class="space-y-3">
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Attachments</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Attach invoices, delivery notes, images or any related files (PDF, Word, CSV, images – max 10 MB each).</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">Attach invoices or images (PDF, JPG, PNG, GIF, WEBP – max 5 MB each).</p>
 
                 {{-- Existing saved attachments --}}
                 @if(!empty($existingAttachments))
@@ -329,7 +329,9 @@
                 {{-- Add new files (Alpine-managed preview) --}}
                 <div x-data="{
                         files: [],
+                        syncing: false,
                         addFiles(newFiles) {
+                            if (this.syncing) { this.syncing = false; return; }
                             Array.from(newFiles).forEach(f => {
                                 this.files.push({
                                     name: f.name,
@@ -349,6 +351,7 @@
                             this.files.forEach(f => dt.items.add(f.file));
                             const input = document.getElementById('edit-purchase-attachment-input');
                             input.files = dt.files;
+                            this.syncing = true;
                             input.dispatchEvent(new Event('change'));
                         }
                      }" class="space-y-3">
@@ -365,7 +368,7 @@
                                type="file"
                                wire:model="attachments"
                                multiple
-                               accept="image/*,.pdf,.doc,.docx,.csv"
+                               accept="image/*,.pdf"
                                class="sr-only"
                                @change="addFiles($event.target.files)" />
 
