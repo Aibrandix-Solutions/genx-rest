@@ -469,7 +469,7 @@ class EditDirectPurchase extends Component
                     $originalName = $file->getClientOriginalName();
                     $ext          = strtolower($file->getClientOriginalExtension());
                     $filename     = md5(microtime()) . '.' . $ext;
-                    $file->move($dir, $filename);
+                    copy($file->getRealPath(), $dir . '/' . $filename);
                     PurchaseAttachment::create([
                         'purchase_order_id' => $this->purchase->id,
                         'file_path'         => $filename,

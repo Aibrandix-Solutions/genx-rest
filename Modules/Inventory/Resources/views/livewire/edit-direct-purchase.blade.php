@@ -316,10 +316,18 @@
                                 @endif
                                 <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 truncate w-full">{{ $att['original_name'] }}</p>
                                 <button type="button"
-                                        wire:click="deleteAttachment({{ $att['id'] }})"
-                                        wire:confirm="Delete this attachment?"
+                                        x-on:click="Swal.fire({
+                                            title: '{{ __('app.delete') }} {{ __('app.file') }}?',
+                                            text: 'This action cannot be undone.',
+                                            icon: 'warning',
+                                            showCancelButton: true,
+                                            confirmButtonColor: '#ef4444',
+                                            cancelButtonColor: '#6b7280',
+                                            confirmButtonText: '{{ __('app.delete') }}',
+                                            cancelButtonText: '{{ __('app.cancel') }}'
+                                        }).then(result => { if (result.isConfirmed) $wire.deleteAttachment({{ $att['id'] }}) })"
                                         class="mt-1 text-xs text-red-500 hover:text-red-700 dark:hover:text-red-400 transition">
-                                    Delete
+                                    {{ __('app.delete') }}
                                 </button>
                             </div>
                         @endforeach
