@@ -1526,6 +1526,41 @@ class Pos extends Component
 
         $this->validate($rules, $messages);
 
+        // Defensive recalculation: ensure orderItemAmount matches qty × price
+        // This prevents desync when user edits qty and clicks KOT/Bill before
+        // wire:change fires updateQty() (Livewire batching race condition)
+        foreach ($this->orderItemList as $key => $item) {
+            // Skip combo items - they have special pricing
+            if (!empty($this->orderItemComboPack[$key])) {
+                continue;
+            }
+
+            if ($this->orderTypeId) {
+                $item->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                if (isset($this->orderItemVariation[$key])) {
+                    $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+            }
+
+            $basePrice = $this->orderItemVariation[$key]->price ?? $item->price;
+            $expectedAmount = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
+
+            if (abs(($this->orderItemAmount[$key] ?? 0) - $expectedAmount) > 0.01) {
+                \Log::warning('POS amount desync corrected in saveOrder', [
+                    'item' => $item->item_name ?? $key,
+                    'qty' => $this->orderItemQty[$key],
+                    'old_amount' => $this->orderItemAmount[$key] ?? 0,
+                    'corrected_amount' => $expectedAmount,
+                    'base_price' => $basePrice,
+                    'modifier_price' => $this->orderItemModifiersPrice[$key] ?? 0,
+                ]);
+                $this->orderItemAmount[$key] = $expectedAmount;
+            }
+        }
+
+        // Recalculate totals after any amount corrections
+        $this->calculateTotal();
+
         switch ($action) {
             case 'bill':
                 $successMessage = __('messages.billedSuccess');
