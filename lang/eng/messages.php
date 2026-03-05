@@ -310,6 +310,7 @@ return array(
     'tableUnlockedSuccess' => 'Table :table unlocked.',
     'tableUnlockFailed' => 'Could not unlock table.',
     'menuItemCreationFailed' => 'Failed to create menu item. Please fill in all required fields.',
+    'menuItemUpdateFailed' => 'Failed to update menu item. Please try again.',
     'logoRemoved' => 'Image Removed Successfully',
     'kotDeletePermissionDenied' => 'You do not have permission to deduct items from KOT.',
     'somethingWentWrong' => 'Something went wrong. Please try again.',

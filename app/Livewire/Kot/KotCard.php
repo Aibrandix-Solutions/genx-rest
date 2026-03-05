@@ -35,16 +35,33 @@ class KotCard extends Component
 
     public function changeKotStatus($status)
     {
-        $kot = Kot::with('order')->find($this->kot->id);
+        $kot = Kot::with(['order', 'items'])->find($this->kot->id);
         
         if (!$kot) {
             return;
+        }
+
+        // Server-side guard: if ALL items are claimed by other kitchens, reject
+        $currentKitchenId = $this->kotPlace?->id;
+        if ($currentKitchenId) {
+            $allClaimedByOthers = $kot->items->count() > 0 && $kot->items->every(function ($item) use ($currentKitchenId) {
+                return $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != $currentKitchenId;
+            });
+            if ($allClaimedByOthers) {
+                $this->dispatch('refreshKots');
+                return;
+            }
         }
 
         $previousStatus = $kot->status;
 
         $kot->status = $status;
         $kot->save();
+
+        // When a kitchen starts preparing, claim all multi-kitchen items for THIS kitchen
+        if ($status === 'in_kitchen' && $currentKitchenId) {
+            $this->claimMultiKitchenItems($kot, $currentKitchenId);
+        }
 
         // Sync Order status based on KOT status
         $order = $kot->order;
@@ -70,15 +87,25 @@ class KotCard extends Component
         }
 
         if ($status == 'food_ready') {
-            KotItem::where('kot_id', $this->kot->id)->update([
-                'status' => 'ready'
-            ]);
+            // Only update items that belong to this kitchen (not claimed by others)
+            $currentKitchenId = $this->kotPlace?->id;
+            KotItem::where('kot_id', $this->kot->id)
+                ->where(function ($q) use ($currentKitchenId) {
+                    $q->whereNull('claimed_by_kitchen_id')
+                      ->orWhere('claimed_by_kitchen_id', $currentKitchenId);
+                })
+                ->update(['status' => 'ready']);
         }
 
         if ($status == 'in_kitchen') {
-            KotItem::where('kot_id', $this->kot->id)->update([
-                'status' => 'cooking'
-            ]);
+            // Only update items that belong to this kitchen (not claimed by others)
+            $currentKitchenId = $this->kotPlace?->id;
+            KotItem::where('kot_id', $this->kot->id)
+                ->where(function ($q) use ($currentKitchenId) {
+                    $q->whereNull('claimed_by_kitchen_id')
+                      ->orWhere('claimed_by_kitchen_id', $currentKitchenId);
+                })
+                ->update(['status' => 'cooking']);
         }
 
         if ($status === 'food_ready' && $previousStatus !== 'food_ready') {
@@ -93,6 +120,24 @@ class KotCard extends Component
     {
 
         $kotItem = KotItem::find($itemId);
+
+        // Server-side guard: reject status change if item is claimed by another kitchen
+        if ($kotItem->is_multi_kitchen && $kotItem->isClaimed()) {
+            $currentKitchenId = $this->kotPlace?->id;
+            if ($currentKitchenId && $kotItem->claimed_by_kitchen_id != $currentKitchenId) {
+                $this->dispatch('refreshKots');
+                return;
+            }
+        }
+
+        // When a chef starts cooking a multi-kitchen item, claim it for THIS kitchen
+        if ($status === 'cooking' && $kotItem->is_multi_kitchen && !$kotItem->isClaimed()) {
+            $currentKitchenId = $this->kotPlace?->id;
+            if ($currentKitchenId) {
+                $kotItem->claimForKitchen($currentKitchenId);
+            }
+        }
+
         $kotItem->status = $status;
         $kotItem->save();
 
@@ -167,7 +212,21 @@ class KotCard extends Component
             return;
         }
 
-        $kot = Kot::findOrFail($id);
+        $kot = Kot::with('items')->findOrFail($id);
+
+        // Guard: prevent cancelling a KOT whose items are all claimed by another kitchen
+        $currentKitchenId = $this->kotPlace?->id;
+        if ($currentKitchenId) {
+            $allClaimedByOthers = $kot->items->count() > 0 && $kot->items->every(function ($item) use ($currentKitchenId) {
+                return $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != $currentKitchenId;
+            });
+            if ($allClaimedByOthers) {
+                $this->confirmDeleteKotModal = false;
+                $this->dispatch('refreshKots');
+                return;
+            }
+        }
+
         $order = $kot->order;
         $kotCounts = $order->kot->count();
 
@@ -214,55 +273,54 @@ class KotCard extends Component
     {
         if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
 
-            $kot = Kot::with(['items.menuItem.kotPlace'])->find($kot);
-            $kotPlaceItems = [];
+            $kot = Kot::with(['items.menuItem'])->find($kot);
 
-            foreach ($kot->items as $kotItem) {
-                if ($kotItem->menuItem && $kotItem->menuItem->kot_place_id) {
-                    $kotPlaceId = $kotItem->menuItem->kot_place_id;
-
-                    if (!isset($kotPlaceItems[$kotPlaceId])) {
-                        $kotPlaceItems[$kotPlaceId] = [];
-                    }
-
-                    $kotPlaceItems[$kotPlaceId][] = $kotItem;
-                }
+            // Use KOT's kitchen_place_id directly (multi-kitchen routing)
+            $kotPlaceId = $kot->kitchen_place_id;
+            if (!$kotPlaceId) {
+                // Fallback for legacy KOTs
+                $firstItem = $kot->items->first();
+                $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
             }
 
-            $kotPlaceIds = array_keys($kotPlaceItems);
+            if (!$kotPlaceId) return;
 
-            $kotPlaces = KotPlace::with('printerSetting')->whereIn('id', $kotPlaceIds)->get();
+            $kotPlace = KotPlace::with('printerSetting')->find($kotPlaceId);
+            if (!$kotPlace) return;
 
+            $printerSetting = $kotPlace->printerSetting;
 
-            foreach ($kotPlaces as $kotPlace) {
-                $printerSetting = $kotPlace->printerSetting;
+            if (!$printerSetting) {
+                $printerSetting = Printer::where('is_default', true)->first();
+            }
 
-                if (!$printerSetting) {
-                    $printerSetting = Printer::where('is_default', true)->first();
+            if ($printerSetting && $printerSetting->is_active == 0) {
+                $printerSetting = Printer::where('is_default', true)->first();
+            }
+
+            if (!$printerSetting) {
+                $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+                $this->dispatch('print_location', $url);
+                return;
+            }
+
+            try {
+                switch ($printerSetting->printing_choice) {
+                    case 'directPrint':
+                        $this->handleKotPrint($kot->id, $kotPlace->id);
+                        break;
+                    default:
+                        $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+                        $this->dispatch('print_location', $url);
+                        break;
                 }
-
-                if ($printerSetting->is_active == 0) {
-                    $printerSetting = Printer::where('is_default', true)->first();
-                }
-                try {
-                    switch ($printerSetting->printing_choice) {
-                        case 'directPrint':
-                            $this->handleKotPrint($kot->id, $kotPlace->id);
-                            break;
-                        default:
-
-                            $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                            $this->dispatch('print_location', $url);
-                            break;
-                    }
-                } catch (\Throwable $e) {
-                    $this->alert('error', __('messages.printerNotConnected') . ' executePrintKot error: ' . $e->getMessage(), [
-                        'toast' => true,
-                        'position' => 'top-end',
-                        'showCancelButton' => false,
-                        'cancelButtonText' => __('app.close')
-                    ]);
-                }
+            } catch (\Throwable $e) {
+                $this->alert('error', __('messages.printerNotConnected') . ' executePrintKot error: ' . $e->getMessage(), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close')
+                ]);
             }
         } else {
             $kot = Kot::with(['items.menuItem.kotPlace'])->find($kot);
@@ -293,6 +351,27 @@ class KotCard extends Component
                     'cancelButtonText' => __('app.close')
                 ]);
             }
+        }
+    }
+
+    /**
+     * Claim all multi-kitchen items in this KOT for the acting kitchen.
+     * This ensures first-come-first-served: the kitchen that starts preparing
+     * gets the claim, and other kitchens see the item as already taken.
+     */
+    protected function claimMultiKitchenItems(Kot $kot, int $kitchenId): void
+    {
+        if (!$kitchenId) {
+            return;
+        }
+
+        $multiKitchenItems = KotItem::where('kot_id', $kot->id)
+            ->where('is_multi_kitchen', true)
+            ->whereNull('claimed_by_kitchen_id')
+            ->get();
+
+        foreach ($multiKitchenItems as $kotItem) {
+            $kotItem->claimForKitchen($kitchenId);
         }
     }
 

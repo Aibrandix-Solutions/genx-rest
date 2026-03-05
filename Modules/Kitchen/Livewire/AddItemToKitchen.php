@@ -35,8 +35,23 @@ class AddItemToKitchen extends Component
             'selectedItems' => 'required|array|min:1',
         ]);
 
-        MenuItem::whereIn('id', $this->selectedItems)
-            ->update(['kot_place_id' => $this->kitchenId]);
+        $items = MenuItem::whereIn('id', $this->selectedItems)->get();
+
+        foreach ($items as $item) {
+            // Set legacy kot_place_id if not already set
+            if (!$item->kot_place_id) {
+                $item->kot_place_id = $this->kitchenId;
+                $item->save();
+            }
+
+            // Sync pivot table (add this kitchen without removing others)
+            $existingIds = $item->kotPlaces()->pluck('kot_places.id')->toArray();
+            if (!in_array($this->kitchenId, $existingIds)) {
+                $item->kotPlaces()->attach($this->kitchenId, [
+                    'is_primary' => empty($existingIds), // First kitchen is primary
+                ]);
+            }
+        }
 
         $this->reset('selectedItems', 'search');
         $this->dispatch('hideItemToKitchen');

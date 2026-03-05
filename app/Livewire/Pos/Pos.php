@@ -680,7 +680,6 @@ class Pos extends Component
     public function setupOrderItems()
     {
         if ($this->orderDetail) {
-
             foreach ($this->orderDetail->kot as $kot) {
                 $this->kotList['kot_' . $kot->id] = $kot;
 
@@ -1687,18 +1686,25 @@ class Pos extends Component
         $kotIds = [];
         if ($status == 'kot') {
             if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
-                // Group items by kot_place_id
+                // Group items by kitchen — each item goes to ONE kitchen only
+                // For multi-kitchen items, use the primary (first) kitchen
                 $groupedItems = [];
 
                 foreach ($this->orderItemList as $key => $item) {
                     $menuItem = $this->orderItemVariation[$key]->menuItem ?? $item;
-                    $kotPlaceId = $menuItem->kot_place_id ?? null;
 
-                    if (!$kotPlaceId) {
+                    // Get the primary kitchen for this item
+                    $kitchenIds = $menuItem->getKitchenPlaceIds();
+                    $isMultiKitchen = count($kitchenIds) > 1;
+
+                    if (empty($kitchenIds)) {
                         continue;
                     }
 
-                    $groupedItems[$kotPlaceId][] = [
+                    // Use the first (primary) kitchen — item goes to ONE KOT only
+                    $primaryKitchenId = $kitchenIds[0];
+
+                    $itemData = [
                         'key' => $key,
                         'menu_item_id' => $menuItem->id,
                         'variation_id' => $this->orderItemVariation[$key]->id ?? null,
@@ -1709,7 +1715,10 @@ class Pos extends Component
                         'original_price' => $this->orderItemOriginalPrice[$key] ?? null,
                         'combo_discount_amount' => $this->orderItemComboDiscount[$key] ?? null,
                         'is_combo_item' => !empty($this->orderItemComboPack[$key]),
+                        'is_multi_kitchen' => $isMultiKitchen,
                     ];
+
+                    $groupedItems[$primaryKitchenId][] = $itemData;
                 }
 
                 foreach ($groupedItems as $kotPlaceId => $items) {
@@ -1739,6 +1748,7 @@ class Pos extends Component
                             'note' => $note,
                             'order_type_id' => $order->order_type_id ?? null,
                             'order_type' => $order->order_type ?? null,
+                            'is_multi_kitchen' => $item['is_multi_kitchen'],
                         ]);
                         $kotItem->modifierOptions()->sync($this->buildModifierSyncData($item['modifiers'] ?? []));
                     }
@@ -1780,6 +1790,7 @@ class Pos extends Component
 
                 foreach ($order->kot as $kot) {
                     foreach ($kot->items as $item) {
+
                         // Check if this item has an order item with saved pricing (for combo items)
                         $orderItem = OrderItem::where('order_id', $order->id)
                             ->where('menu_item_id', $item->menu_item_id)
@@ -2180,30 +2191,24 @@ class Pos extends Component
             }
 
             foreach ($kots as $kot) {
-                $kotPlaceItems = [];
-
-                foreach ($kot->items as $kotItem) {
-                    if ($kotItem->menuItem && $kotItem->menuItem->kot_place_id) {
-                        $kotPlaceId = $kotItem->menuItem->kot_place_id;
-
-                        if (!isset($kotPlaceItems[$kotPlaceId])) {
-                            $kotPlaceItems[$kotPlaceId] = [];
-                        }
-
-                        $kotPlaceItems[$kotPlaceId][] = $kotItem;
-                    }
+                // Each KOT now has kitchen_place_id set directly (multi-kitchen routing)
+                $kotPlaceId = $kot->kitchen_place_id;
+                if (!$kotPlaceId) {
+                    // Fallback for legacy KOTs: derive from first item
+                    $firstItem = $kot->items->first();
+                    $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
                 }
 
-                // Get the kot places and their printer settings
-                $kotPlaceIds = array_keys($kotPlaceItems);
-                $kotPlaces = KotPlace::with('printerSetting')->whereIn('id', $kotPlaceIds)->get();
+                if (!$kotPlaceId) continue;
 
-                foreach ($kotPlaces as $kotPlace) {
-                    $printerSetting = $kotPlace->printerSetting;
+                $kotPlace = KotPlace::with('printerSetting')->find($kotPlaceId);
+                if (!$kotPlace) continue;
 
-                    if ($printerSetting && $printerSetting->is_active == 0) {
-                        $printerSetting = Printer::where('is_default', true)->first();
-                    }
+                $printerSetting = $kotPlace->printerSetting;
+
+                if ($printerSetting && $printerSetting->is_active == 0) {
+                    $printerSetting = Printer::where('is_default', true)->first();
+                }
 
                     // If no printer is set, fallback to print URL dispatch
                     if (!$printerSetting) {
@@ -2230,7 +2235,6 @@ class Pos extends Component
                             'cancelButtonText' => __('app.close')
                         ]);
                     }
-                }
             }
         } else {
             $kotPlace = KotPlace::where('is_default', 1)->first();

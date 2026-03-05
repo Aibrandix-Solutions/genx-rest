@@ -1,4 +1,15 @@
 @php
+    // Ensure $kotPlace is available (may not be passed in all contexts)
+    $kotPlace = $kotPlace ?? null;
+
+    // Check if this KOT has any multi-kitchen items
+    $hasMultiKitchenItems = $kot->items->where('is_multi_kitchen', true)->count() > 0;
+
+    // Check if ALL items in this KOT are claimed by another kitchen (makes KOT read-only)
+    $allClaimedByOthers = $kotPlace && $kot->items->count() > 0 && $kot->items->every(function ($item) use ($kotPlace) {
+        return $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != ($kotPlace->id ?? null);
+    });
+
     // Calculate elapsed time in minutes since KOT was created
     $kotStartTime = $kot->created_at;
     $elapsedMinutes = $kotStartTime ? now()->diffInMinutes($kotStartTime) : 0;
@@ -104,6 +115,14 @@
                 <div class="text-sm font-medium text-gray-800 dark:text-neutral-400">
                     {{ $kot->items_count }} @lang('modules.menu.item')
                 </div>
+                @if($hasMultiKitchenItems)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                        </svg>
+                        @lang('modules.menu.multiKitchenBadge')
+                    </span>
+                @endif
             </div>
             <div class="flex flex-col items-end gap-1">
                 @if($kot->order && $kot->order->order_type)
@@ -147,8 +166,16 @@
                     </span>
                 @endif
 
-                @if($kot->kotPlace && $showAllKitchens)
-                    <span class="text-xs text-gray-500 dark:text-gray-500 text-center w-full block">{{ $kot->kotPlace->name }}</span>
+                @if($showAllKitchens)
+                    @php
+                        // Show which kitchen is handling this KOT
+                        // If items are claimed, show the claiming kitchen; otherwise show the KOT's assigned kitchen
+                        $claimedItem = $kot->items->first(fn($i) => $i->is_multi_kitchen && $i->claimed_by_kitchen_id);
+                        $displayKitchenName = $claimedItem ? ($claimedItem->claimedByKitchen->name ?? $kot->kotPlace?->name) : $kot->kotPlace?->name;
+                    @endphp
+                    @if($displayKitchenName)
+                        <span class="text-xs text-gray-500 dark:text-gray-500 text-center w-full block">{{ $displayKitchenName }}</span>
+                    @endif
                 @endif
             </div>
             <div class="space-y-1 text-right">
@@ -236,8 +263,11 @@
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                     @foreach ($kot->items as $item)
-                        <tr>
-                            <td @class(['p-3',  'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready'])>
+                        @php
+                            $isClaimedByOther = $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != ($kotPlace->id ?? null);
+                        @endphp
+                        <tr @class(['opacity-50' => $isClaimedByOther])>
+                            <td @class(['p-3', 'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready'])>
                                 <div class="flex flex-col">
                                     <div class="flex items-center gap-1 text-xs text-gray-900 dark:text-white">
                                         @if ($item->status == 'cooking')
@@ -246,7 +276,24 @@
 
                                         {{ $item->quantity }} x
                                         {{ $item->menuItem->item_name }}
+
+                                        @if($item->is_multi_kitchen)
+                                            <span class="inline-flex items-center ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="@lang('modules.menu.availableInMultipleKitchens')">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                                </svg>
+                                                @lang('modules.menu.multiKitchenItemBadge')
+                                            </span>
+                                        @endif
                                     </div>
+                                    @if($isClaimedByOther)
+                                        <div class="mt-1 text-[10px] text-purple-600 dark:text-purple-400 font-medium">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 inline mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048" />
+                                            </svg>
+                                            {{ __('modules.menu.preparingInKitchen', ['kitchen' => $item->claimedByKitchen->name ?? __('modules.menu.kitchenType')]) }}
+                                        </div>
+                                    @endif
                                     @if (isset($item->menuItemVariation))
                                         <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                                             {{ $item->menuItemVariation->variation }}
@@ -282,6 +329,15 @@
 
                                 @if($kotSettings->enable_item_level_status)
                                     <div class="flex flex-col gap-1">
+                                        @if($isClaimedByOther)
+                                            {{-- Read-only badge for items claimed by another kitchen --}}
+                                            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-600">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                                </svg>
+                                                {{ ucfirst($item->status ?? 'pending') }}
+                                            </span>
+                                        @else
                                         <select
                                             wire:change="changeKotItemStatus({{ $item->id }}, $event.target.value)"
                                             class="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -297,6 +353,7 @@
                                                 @lang('modules.order.markAsReady')
                                             </option>
                                         </select>
+                                        @endif
 
                                         @if($item->status == 'ready')
                                             <div class="flex items-center justify-center mt-1">
@@ -361,6 +418,15 @@
                     </g>
                 </svg>
             </button>
+                @if($allClaimedByOthers)
+                    {{-- All items are being prepared by another kitchen --}}
+                    <span class="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                        </svg>
+                        @lang('modules.menu.handledByAnotherKitchen')
+                    </span>
+                @else
                 @if ($kot->status == 'pending_confirmation')
                     <x-secondary-button wire:click="changeKotStatus('in_kitchen')">
                         <img src="{{ asset('img/cooking-icon.svg') }}" alt="cooking" class="w-6 h-6 mr-1">
@@ -428,6 +494,7 @@
                         @lang('app.cancel')
                     </x-danger-button>
                 @endif
+                @endif {{-- end !$allClaimedByOthers --}}
 
         </div>
     </div>

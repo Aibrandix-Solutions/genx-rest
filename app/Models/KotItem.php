@@ -40,4 +40,38 @@ class KotItem extends BaseModel
     {
         return $this->belongsTo(Kot::class);
     }
+
+    /**
+     * The kitchen that claimed this item for preparation.
+     */
+    public function claimedByKitchen(): BelongsTo
+    {
+        return $this->belongsTo(KotPlace::class, 'claimed_by_kitchen_id');
+    }
+
+    /**
+     * Check if this item has been claimed by any kitchen.
+     */
+    public function isClaimed(): bool
+    {
+        return !is_null($this->claimed_by_kitchen_id);
+    }
+
+    /**
+     * Claim this item for a specific kitchen (first-come-first-served).
+     * Returns true if claim was successful, false if already claimed.
+     */
+    public function claimForKitchen(int $kitchenId): bool
+    {
+        if ($this->isClaimed()) {
+            return $this->claimed_by_kitchen_id === $kitchenId;
+        }
+
+        $this->update([
+            'claimed_by_kitchen_id' => $kitchenId,
+            'claimed_at' => now(),
+        ]);
+
+        return true;
+    }
 }
