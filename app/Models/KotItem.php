@@ -59,7 +59,8 @@ class KotItem extends BaseModel
 
     /**
      * Claim this item for a specific kitchen (first-come-first-served).
-     * Returns true if claim was successful, false if already claimed.
+     * Uses atomic update to prevent race conditions between kitchens.
+     * Returns true if claim was successful, false if already claimed by another.
      */
     public function claimForKitchen(int $kitchenId): bool
     {
@@ -67,11 +68,22 @@ class KotItem extends BaseModel
             return $this->claimed_by_kitchen_id === $kitchenId;
         }
 
-        $this->update([
-            'claimed_by_kitchen_id' => $kitchenId,
-            'claimed_at' => now(),
-        ]);
+        // Atomic: only update if still unclaimed (prevents race condition)
+        $affected = self::where('id', $this->id)
+            ->whereNull('claimed_by_kitchen_id')
+            ->update([
+                'claimed_by_kitchen_id' => $kitchenId,
+                'claimed_at' => now(),
+            ]);
 
-        return true;
+        if ($affected > 0) {
+            $this->claimed_by_kitchen_id = $kitchenId;
+            $this->claimed_at = now();
+            return true;
+        }
+
+        // Someone else claimed it between our check and update
+        $this->refresh();
+        return $this->claimed_by_kitchen_id === $kitchenId;
     }
 }

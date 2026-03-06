@@ -248,130 +248,107 @@
 
 
         <div class="bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-700">
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 dark:bg-gray-700/50">
-                    <tr>
-                        <th
-                            class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-gray-400">
-                            @lang('modules.menu.itemName')
-                        </th>
-                        <th
-                            class="px-4 py-3 text-xs font-medium tracking-wider text-right text-gray-500 uppercase dark:text-gray-400">
-                            &nbsp;
-                        </th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    @foreach ($kot->items as $item)
-                        @php
-                            $isClaimedByOther = $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != ($kotPlace->id ?? null);
-                        @endphp
-                        <tr @class(['opacity-50' => $isClaimedByOther])>
-                            <td @class(['p-3', 'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready'])>
-                                <div class="flex flex-col">
-                                    <div class="flex items-center gap-1 text-xs text-gray-900 dark:text-white">
-                                        @if ($item->status == 'cooking')
-                                            <img src="{{ asset('img/cooking-icon.svg') }}" alt="cooking" class="w-6 h-6">
-                                        @endif
-
-                                        {{ $item->quantity }} x
-                                        {{ $item->menuItem->item_name }}
-
-                                        @if($item->is_multi_kitchen)
-                                            <span class="inline-flex items-center ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="@lang('modules.menu.availableInMultipleKitchens')">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
-                                                </svg>
-                                                @lang('modules.menu.multiKitchenItemBadge')
-                                            </span>
-                                        @endif
-                                    </div>
-                                    @if($isClaimedByOther)
-                                        <div class="mt-1 text-[10px] text-purple-600 dark:text-purple-400 font-medium">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 inline mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048" />
-                                            </svg>
-                                            {{ __('modules.menu.preparingInKitchen', ['kitchen' => $item->claimedByKitchen->name ?? __('modules.menu.kitchenType')]) }}
-                                        </div>
-                                    @endif
-                                    @if (isset($item->menuItemVariation))
-                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                            {{ $item->menuItemVariation->variation }}
-                                        </div>
-                                    @endif
-                                    @if ($item->modifierOptions->isNotEmpty())
-                                        <div class="mt-2 flex flex-wrap items-center gap-1">
-                                            @foreach ($item->modifierOptions as $modifier)
-                                                @php
-                                                    $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
-                                                @endphp
-                                                <div
-                                                    class="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 mr-1"
-                                                        viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fill-rule="evenodd"
-                                                            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                                                            clip-rule="evenodd" />
-                                                    </svg>
-                                                    {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
-                                                </div>
-                                            @endforeach
-                                        </div>
-                                    @endif
-                                    @if($item->note)
-                                        <div class="mt-1 text-xs italic text-gray-500 dark:text-gray-400">
-                                            <span class="font-medium">Note:</span> {{ $item->note }}
-                                        </div>
-                                    @endif
-                                </div>
-                            </td>
-                            <td @class(['p-3 pl-0 text-right font-medium text-gray-900 dark:text-white', 'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready'])>
-
-                                @if($kotSettings->enable_item_level_status)
-                                    <div class="flex flex-col gap-1">
-                                        @if($isClaimedByOther)
-                                            {{-- Read-only badge for items claimed by another kitchen --}}
-                                            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-600">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
-                                                </svg>
-                                                {{ ucfirst($item->status ?? 'pending') }}
-                                            </span>
-                                        @else
-                                        <select
-                                            wire:change="changeKotItemStatus({{ $item->id }}, $event.target.value)"
-                                            class="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            value="{{ $item->status ?? 'pending' }}"
-                                        >
-                                            <option value="pending" {{ ($item->status ?? 'pending') == 'pending' ? 'selected' : '' }}>
-                                                @lang('modules.order.pending_confirmation')
-                                            </option>
-                                            <option value="cooking" {{ $item->status == 'cooking' ? 'selected' : '' }}>
-                                                @lang('modules.order.start_cooking')
-                                            </option>
-                                            <option value="ready" {{ $item->status == 'ready' ? 'selected' : '' }}>
-                                                @lang('modules.order.markAsReady')
-                                            </option>
-                                        </select>
-                                        @endif
-
-                                        @if($item->status == 'ready')
-                                            <div class="flex items-center justify-center mt-1">
-                                                <span class="inline-flex items-center gap-1 text-sm text-green-500">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="w-4 h-4 bi bi-check-all" viewBox="0 0 16 16">
-                                                        <path d="M8.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L2.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093L8.95 4.992zm-.92 5.14.92.92a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 1 0-1.091-1.028L9.477 9.417l-.485-.486z"/>
-                                                    </svg>
-                                                    @lang('modules.order.ready')
-                                                </span>
-                                            </div>
-                                        @endif
-                                    </div>
+            <div class="px-4 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-t-lg">
+                <span class="text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">@lang('modules.menu.itemName')</span>
+            </div>
+            <div class="divide-y divide-gray-200 dark:divide-gray-700">
+                @foreach ($kot->items as $item)
+                    @php
+                        $isClaimedByOther = $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != ($kotPlace->id ?? null);
+                    @endphp
+                    <div @class([
+                        'flex items-start gap-2 p-3',
+                        'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready',
+                    ])>
+                        {{-- Left: item info --}}
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1 flex-wrap text-xs text-gray-900 dark:text-white">
+                                @if ($item->status == 'cooking')
+                                    <img src="{{ asset('img/cooking-icon.svg') }}" alt="cooking" class="w-5 h-5 flex-shrink-0">
                                 @endif
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                                <span>{{ $item->quantity }} x {{ $item->menuItem->item_name }}</span>
+                                @if($item->is_multi_kitchen)
+                                    <span class="inline-flex items-center flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="@lang('modules.menu.availableInMultipleKitchens')">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                        </svg>
+                                        @lang('modules.menu.multiKitchenItemBadge')
+                                    </span>
+                                @endif
+                            </div>
+                            @if($item->is_multi_kitchen && $item->claimed_by_kitchen_id)
+                                @php $claimedKitchenName = $item->claimedByKitchen->name ?? __('modules.menu.kitchenType'); @endphp
+                                <div class="mt-0.5 flex items-center gap-0.5 text-[10px] font-medium {{ $isClaimedByOther ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400' }}">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048" />
+                                    </svg>
+                                    <span class="truncate">{{ __('modules.menu.preparingInKitchen', ['kitchen' => $claimedKitchenName]) }}</span>
+                                </div>
+                            @endif
+                            @if (isset($item->menuItemVariation))
+                                <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    {{ $item->menuItemVariation->variation }}
+                                </div>
+                            @endif
+                            @if ($item->modifierOptions->isNotEmpty())
+                                <div class="mt-1 flex flex-wrap items-center gap-1">
+                                    @foreach ($item->modifierOptions as $modifier)
+                                        @php $modifierQty = (int) ($modifier->pivot->quantity ?? 1); @endphp
+                                        <div class="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                                            </svg>
+                                            {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                            @if($item->note)
+                                <div class="mt-1 text-xs italic text-gray-500 dark:text-gray-400">
+                                    <span class="font-medium">Note:</span> {{ $item->note }}
+                                </div>
+                            @endif
+                        </div>
+
+                        {{-- Right: status control --}}
+                        @if($kotSettings->enable_item_level_status || $hasMultiKitchenItems)
+                            <div class="flex-shrink-0 flex flex-col items-end gap-1">
+                                @if($isClaimedByOther)
+                                    <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-600 whitespace-nowrap">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                        </svg>
+                                        {{ ucfirst($item->status ?? 'pending') }}
+                                    </span>
+                                @else
+                                    <select
+                                        wire:change="changeKotItemStatus({{ $item->id }}, $event.target.value)"
+                                        class="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-28"
+                                    >
+                                        <option value="pending" {{ ($item->status ?? 'pending') == 'pending' ? 'selected' : '' }}>
+                                            @lang('modules.order.pending_confirmation')
+                                        </option>
+                                        <option value="cooking" {{ $item->status == 'cooking' ? 'selected' : '' }}>
+                                            @lang('modules.order.start_cooking')
+                                        </option>
+                                        <option value="ready" {{ $item->status == 'ready' ? 'selected' : '' }}>
+                                            @lang('modules.order.markAsReady')
+                                        </option>
+                                    </select>
+                                @endif
+                                @if($item->status == 'ready')
+                                    <span class="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 whitespace-nowrap">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                                            <path d="M8.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L2.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093L8.95 4.992zm-.92 5.14.92.92a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 1 0-1.091-1.028L9.477 9.417l-.485-.486z"/>
+                                        </svg>
+                                        @lang('modules.order.ready')
+                                    </span>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
         </div>
 
         @if ($kot->note)
@@ -434,13 +411,17 @@
                     </x-secondary-button>
                 @endif
                 @if ($kot->status == 'in_kitchen')
-                    <x-secondary-button wire:click="changeKotStatus('food_ready')">
+                    <x-secondary-button wire:click="changeKotStatus('food_ready')" title="{{ $hasMultiKitchenItems ? __('modules.menu.markAllItemsReady') : __('modules.order.food_ready') }}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
                             class="mr-1 text-green-600 bi bi-check2-circle" viewBox="0 0 16 16">
                             <path d="M2.5 8a5.5 5.5 0 0 1 8.25-4.764.5.5 0 0 0 .5-.866A6.5 6.5 0 1 0 14.5 8a.5.5 0 0 0-1 0 5.5 5.5 0 1 1-11 0" />
                             <path d="M15.354 3.354a.5.5 0 0 0-.708-.708L8 9.293 5.354 6.646a.5.5 0 1 0-.708.708l3 3a.5.5 0 0 0 .708 0z" />
                         </svg>
-                        @lang('modules.order.food_ready')
+                        @if($hasMultiKitchenItems)
+                            @lang('modules.menu.markAllItemsReady')
+                        @else
+                            @lang('modules.order.food_ready')
+                        @endif
                     </x-secondary-button>
                 @endif
                 @if ($kot->status == 'food_ready')
