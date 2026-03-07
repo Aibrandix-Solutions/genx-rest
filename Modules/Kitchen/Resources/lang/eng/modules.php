@@ -55,5 +55,6 @@ return [
         'inKitchen' => 'In Kitchen',
         'unassigned' => 'Unassigned',
         'hasVariations' => 'Has Variations',
+        'kitchens' => 'kitchens',
     ],
 ];

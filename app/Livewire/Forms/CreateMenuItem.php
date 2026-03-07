@@ -57,8 +57,8 @@ class CreateMenuItem extends Component
     #[Validate('required|boolean')]
     public bool $isAvailable = true;
 
-    #[Validate('nullable|string')]
-    public ?string $kitchenType = null;
+    #[Validate('nullable|array')]
+    public array $selectedKitchenTypes = [];
 
     #[Validate('nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048')]
     public $itemImageTemp;
@@ -392,7 +392,7 @@ class CreateMenuItem extends Component
             'has_variations' => (bool) $this->hasVariations,
             'menu_id' => $this->menu ?: null,
             'category_id' => $this->itemCategory ?: null,
-            'kot_place_id' => $this->kitchenType ?: null,
+            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
             'item_code_provided' => trim((string) $this->itemCode) !== '',
             'item_name_len' => strlen((string) ($this->itemName ?? '')),
         ]);
@@ -423,6 +423,15 @@ class CreateMenuItem extends Component
             $this->handleImageUpload($menuItem);
             $this->handleVariationsOrPricing($menuItem);
             $this->handleTaxes($menuItem);
+
+            // Sync multi-kitchen pivot table
+            if (!empty($this->selectedKitchenTypes)) {
+                $pivotData = [];
+                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
+                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
+                }
+                $menuItem->kotPlaces()->sync($pivotData);
+            }
 
             DB::commit();
 
@@ -490,20 +499,10 @@ class CreateMenuItem extends Component
             'platformAvailability.*' => 'nullable|boolean',
         ];
 
-        // If Kitchen module is enabled, a kitchen type is mandatory.
+        // If Kitchen module is enabled, at least one kitchen type is mandatory.
         if (in_array('Kitchen', restaurant_modules(), true)) {
-            $branchId = branch()->id ?? null;
-
-            $rules['kitchenType'] = [
-                'required',
-                Rule::exists('kot_places', 'id')->where(function ($query) use ($branchId) {
-                    $query->where('is_active', true);
-
-                    if (!empty($branchId)) {
-                        $query->where('branch_id', $branchId);
-                    }
-                }),
-            ];
+            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
+            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
         }
 
         // Add validation rules for variations if they exist
@@ -532,8 +531,9 @@ class CreateMenuItem extends Component
             'itemPrice.required_if' => __('validation.itemPriceRequired'),
             'itemPrice.numeric' => __('validation.itemPriceMustBeNumeric'),
             'itemPrice.min' => __('validation.itemPriceMustBePositive'),
-            'kitchenType.required' => __('validation.kitchenTypeRequired'),
-            'kitchenType.exists' => __('validation.kitchenTypeInvalid'),
+            'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
+            'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
+            'selectedKitchenTypes.*.exists' => __('validation.kitchenTypeInvalid'),
         ];
     }
 
@@ -554,7 +554,7 @@ class CreateMenuItem extends Component
             'type' => $this->itemType,
             'menu_id' => $this->menu,
             'preparation_time' => $this->preparationTime,
-            'kot_place_id' => $this->kitchenType,
+            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
             'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : false,
         ]);
     }

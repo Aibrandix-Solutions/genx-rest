@@ -52,7 +52,7 @@ class EditMenuItem extends Component
     public $languages = [];
     public $globalLocale;
     public $kitchenTypes;
-    public $kitchenType;
+    public array $selectedKitchenTypes = [];
     public bool $showOnCustomerSite;
     public $taxes = [];
     public $selectedTaxes = [];
@@ -81,7 +81,13 @@ class EditMenuItem extends Component
         $this->isAvailable = $this->menuItem->is_available;
         $this->inStock = $this->menuItem->in_stock;
         $this->kitchenTypes = KotPlace::where('is_active', true)->get();
-        $this->kitchenType = $this->menuItem->kot_place_id;
+        // Load selected kitchens from pivot table, fallback to legacy kot_place_id
+        $pivotIds = $this->menuItem->kotPlaces()->pluck('kot_places.id')->toArray();
+        if (!empty($pivotIds)) {
+            $this->selectedKitchenTypes = array_map('strval', $pivotIds);
+        } elseif ($this->menuItem->kot_place_id) {
+            $this->selectedKitchenTypes = [(string) $this->menuItem->kot_place_id];
+        }
         $this->showOnCustomerSite = $this->menuItem->show_on_customer_site;
 
         foreach ($this->menuItem->translations as $translation) {
@@ -233,7 +239,7 @@ class EditMenuItem extends Component
             'menu_item_id' => $this->menuItem->id ?? null,
             'menu_id' => $this->menu ?: null,
             'category_id' => $this->itemCategory ?: null,
-            'kot_place_id' => $this->kitchenType ?: null,
+            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
             'item_code_provided' => !empty($this->itemCode),
         ]);
 
@@ -270,20 +276,10 @@ class EditMenuItem extends Component
             'showOnCustomerSite' => 'required|boolean',
         ];
 
-        // If Kitchen module is enabled, a kitchen type is mandatory.
+        // If Kitchen module is enabled, at least one kitchen type is mandatory.
         if (in_array('Kitchen', restaurant_modules(), true)) {
-            $branchId = branch()->id ?? null;
-
-            $rules['kitchenType'] = [
-                'required',
-                Rule::exists('kot_places', 'id')->where(function ($query) use ($branchId) {
-                    $query->where('is_active', true);
-
-                    if (!empty($branchId)) {
-                        $query->where('branch_id', $branchId);
-                    }
-                }),
-            ];
+            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
+            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
         }
 
         // Add validation for variations if hasVariations is true
@@ -298,8 +294,8 @@ class EditMenuItem extends Component
 
         $this->validate($rules, [
             'translationNames.' . $this->globalLocale . '.required' => __('validation.itemNameRequired', ['language' => $this->languages[$this->globalLocale]]),
-            'kitchenType.required' => __('validation.kitchenTypeRequired'),
-            'kitchenType.exists' => __('validation.kitchenTypeInvalid'),
+            'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
+            'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
         ]);
 
         try {
@@ -313,10 +309,20 @@ class EditMenuItem extends Component
                 'preparation_time' => $this->preparationTime,
                 'menu_id' => $this->menu,
                 'is_available' => $this->isAvailable,
-                'kot_place_id' => $this->kitchenType,
+                'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
                 'show_on_customer_site' => $this->showOnCustomerSite,
                 'tax_inclusive' => (restaurant()->tax_mode === 'item') ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
             ]);
+
+            // Sync multi-kitchen pivot table
+            $menuItem = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->find($this->menuItem->id);
+            if ($menuItem) {
+                $pivotData = [];
+                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
+                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
+                }
+                $menuItem->kotPlaces()->sync($pivotData);
+            }
         } catch (\Throwable $e) {
             report($e);
             Log::error('menu_item.edit.submit.exception', [
