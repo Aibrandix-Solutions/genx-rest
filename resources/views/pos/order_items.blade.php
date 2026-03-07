@@ -310,6 +310,7 @@
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
                         wire:key='menu-item-list-{{ microtime() }}'>
+                    @php $renderedOrderComboGroups = []; @endphp
 
                         @forelse ($orderItemList as $key => $item)
                             @continue(!strpos($key, 'kot_' . $kot->id))
@@ -317,13 +318,43 @@
                         @php
                             $itemName = $item->item_name;
                             $itemVariation = (isset($orderItemVariation[$key]) ? $orderItemVariation[$key]->variation : '');
-                            // Use display price (base price without tax for inclusive items)
                             $displayPrice = $this->getItemDisplayPrice($key);
-                            // Total amount per line (what customer pays)
                             $totalAmount = $orderItemAmount[$key];
                             $isComboItem = isset($orderItemComboPack[$key]) && !empty($orderItemComboPack[$key]);
+                            $orderComboId = $orderItemComboPack[$key] ?? null;
+                            $showOrderComboHeader = $orderComboId && !in_array($orderComboId, $renderedOrderComboGroups);
+                            if ($showOrderComboHeader) {
+                                $renderedOrderComboGroups[] = $orderComboId;
+                                $orderGroupSavings = 0;
+                                foreach ($orderItemList as $k => $v) {
+                                    if (($orderItemComboPack[$k] ?? null) == $orderComboId) {
+                                        $orderGroupSavings += $orderItemComboDiscount[$k] ?? 0;
+                                    }
+                                }
+                            }
                         @endphp
-                        <tr class="hover:bg-gray-100 dark:hover:bg-gray-700" wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class.delay='opacity-10'>
+
+                        @if ($showOrderComboHeader)
+                            <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                <td colspan="5" class="px-2 py-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                            </svg>
+                                            {{ $orderItemComboName[$orderComboId] ?? 'Combo Pack' }}
+                                        </span>
+                                        @if (!empty($orderGroupSavings) && $orderGroupSavings > 0)
+                                            <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                Save {{ currency_format($orderGroupSavings, restaurant()->currency_id) }}
+                                            </span>
+                                        @endif
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
+
+                        <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 @if($isComboItem) border-l-2 border-blue-200 dark:border-blue-800 @endif" wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class.delay='opacity-10'>
                             <td class="flex flex-col p-2 mr-12 lg:min-w-28">
                                 <div class="inline-flex items-center gap-2 text-xs text-gray-900 dark:text-white">
                                     {{ $itemName }}

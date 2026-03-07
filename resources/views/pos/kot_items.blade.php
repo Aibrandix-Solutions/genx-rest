@@ -228,11 +228,59 @@
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
                     wire:key='menu-item-list-pos'>
+                    @php $renderedComboGroups = []; @endphp
 
                     @forelse ($orderItemList as $key => $item)
+                        @php
+                            $comboId = $orderItemComboPack[$key] ?? null;
+                            $showGroupHeader = $comboId && !in_array($comboId, $renderedComboGroups);
+                            if ($showGroupHeader) {
+                                $renderedComboGroups[] = $comboId;
+                                // Calculate total savings for this combo group
+                                $groupSavings = 0;
+                                foreach ($orderItemList as $k => $v) {
+                                    if (($orderItemComboPack[$k] ?? null) == $comboId) {
+                                        $groupSavings += $orderItemComboDiscount[$k] ?? 0;
+                                    }
+                                }
+                            }
+                        @endphp
+
+                        @if ($showGroupHeader)
+                            <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                <td colspan="5" class="px-2 py-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                            </svg>
+                                            {{ $orderItemComboName[$comboId] ?? 'Combo Pack' }}
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            @if ($groupSavings > 0)
+                                                <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                    Save {{ currency_format($groupSavings, restaurant()->currency_id) }}
+                                                </span>
+                                            @endif
+                                            <button
+                                                wire:click="removeComboGroup('{{ $comboId }}')"
+                                                wire:loading.attr="disabled"
+                                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                title="Remove whole combo">
+                                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"/>
+                                                </svg>
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
+
                         <tr class="hover:bg-gray-100 dark:hover:bg-gray-700"
                             wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class='opacity-50'>
-                            <td class="flex flex-col p-2 mr-12 lg:min-w-20">
+                            <td class="flex flex-col p-2 mr-12 lg:min-w-20 @if($comboId) pl-4 border-l-2 border-blue-200 dark:border-blue-800 @endif">
                                 <div class="inline-flex items-center gap-2">
                                     <div
                                         class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
@@ -426,6 +474,19 @@
                     {{ currency_format($subTotal, restaurant()->currency_id) }}
                 </div>
             </div>
+
+            @php $totalComboSavings = array_sum($orderItemComboDiscount ?? []); @endphp
+            @if ($totalComboSavings > 0)
+                <div class="flex justify-between text-sm font-medium text-green-600 dark:text-green-400">
+                    <div class="inline-flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+                        </svg>
+                        Combo Savings
+                    </div>
+                    <div>-{{ currency_format($totalComboSavings, restaurant()->currency_id) }}</div>
+                </div>
+            @endif
 
             @if ($discountAmount)
                 <div wire:key="discountAmount"
