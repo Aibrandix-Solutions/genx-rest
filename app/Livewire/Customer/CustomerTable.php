@@ -18,6 +18,7 @@ class CustomerTable extends Component
     public $search;
     public $customer;
     public $filterCustomer = 'all';
+    public $perPage = 10;
     public $showEditCustomerModal = false;
     public $confirmDeleteCustomerModal = false;
     public $showCustomerOrderModal = false;
@@ -65,6 +66,17 @@ class CustomerTable extends Component
         $this->showLedgerModal = true;
     }
 
+    /**
+     * Close the ledger modal and open the order detail panel.
+     * Called by CustomerLedger when an order reference is clicked.
+     */
+    #[On('viewOrderFromLedger')]
+    public function viewOrderFromLedger($orderId)
+    {
+        $this->showLedgerModal = false;
+        $this->dispatch('showOrderDetail', id: $orderId);
+    }
+
     public function showCustomerSales($id)
     {
         $this->customer = Customer::findOrFail($id);
@@ -91,6 +103,11 @@ class CustomerTable extends Component
         ]);
     }
 
+    public function updatedPerPage()
+    {
+        $this->resetPage();
+    }
+
     #[On('hideEditCustomer')]
     public function hideEditCustomer()
     {
@@ -100,10 +117,6 @@ class CustomerTable extends Component
     public function render()
     {
         $query = Customer::withCount('orders')
-            ->with(['orders' => function($q) {
-                $q->where('status', 'payment_due')
-                  ->select('id', 'customer_id', 'total', 'amount_paid', 'status', 'date_time');
-            }])
             ->where(function($q) {
                 $q->where('name', 'like', '%' . $this->search . '%')
                   ->orWhere('email', 'like', '%' . $this->search . '%')
@@ -113,18 +126,17 @@ class CustomerTable extends Component
         // Apply outstanding balance filter
         if ($this->filterCustomer === 'with_outstanding') {
             $query->whereHas('orders', function($q) {
-                $q->where('status', 'payment_due')
-                  ->whereRaw('total > amount_paid');
+                $q->whereIn('status', ['payment_due', 'paid', 'billed']);
             });
         } elseif ($this->filterCustomer === 'no_outstanding') {
             $query->whereDoesntHave('orders', function($q) {
-                $q->where('status', 'payment_due')
-                  ->whereRaw('total > amount_paid');
+                $q->whereIn('status', ['payment_due', 'paid', 'billed']);
             });
         }
 
+        $perPage = in_array((int)$this->perPage, [10, 20, 50, 100, 200]) ? (int)$this->perPage : 10;
         $customers = $query->orderBy('id', 'desc')
-            ->paginate(10);
+            ->paginate($perPage);
 
         return view('livewire.customer.customer-table', [
             'customers' => $customers

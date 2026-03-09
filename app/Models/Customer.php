@@ -53,17 +53,31 @@ class Customer extends BaseModel
     }
 
     /**
-     * Calculate outstanding balance for this customer
-     * Sum of (order.total - order.amount_paid) for all payment_due orders
+     * Calculate outstanding balance for this customer.
+     * Uses actual payment records (not the denormalized amount_paid column)
+     * and checks all potentially-unpaid statuses so stale amount_paid values
+     * cannot hide a real debt.
      */
     public function getOutstandingBalanceAttribute(): float
     {
-        return $this->orders()
-            ->where('status', 'payment_due')
-            ->get()
-            ->sum(function ($order) {
-                return max(0, (float)$order->total - (float)$order->amount_paid);
-            });
+        $orders = $this->orders()
+            ->whereIn('status', ['payment_due', 'paid', 'billed'])
+            ->get(['id', 'total']);
+
+        if ($orders->isEmpty()) {
+            return 0.0;
+        }
+
+        // One extra query to get all paid amounts; avoids N+1 per order.
+        $paidAmounts = Payment::whereIn('order_id', $orders->pluck('id'))
+            ->where('payment_method', '!=', 'due')
+            ->selectRaw('order_id, SUM(amount) as paid_sum')
+            ->groupBy('order_id')
+            ->pluck('paid_sum', 'order_id');
+
+        return $orders->sum(function ($order) use ($paidAmounts) {
+            return max(0, (float)$order->total - (float)($paidAmounts[$order->id] ?? 0));
+        });
     }
 
     /**
