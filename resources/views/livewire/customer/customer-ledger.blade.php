@@ -110,7 +110,14 @@
                                 {{ Carbon\Carbon::parse($transaction['date'])->format('M d, Y h:i A') }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                {{ $transaction['reference'] }}
+                                @if($transaction['type'] === 'order')
+                                    <button wire:click="viewOrder({{ $transaction['id'] }})"
+                                        class="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 hover:underline">
+                                        {{ $transaction['reference'] }}
+                                    </button>
+                                @else
+                                    {{ $transaction['reference'] }}
+                                @endif
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-900 dark:text-white">
                                 <div>

@@ -7,19 +7,18 @@ use App\Models\Customer;
 use App\Models\Order;
 use App\Models\Payment;
 use Livewire\WithPagination;
+use Livewire\WithoutUrlPagination;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 
 class CustomerLedger extends Component
 {
-    use WithPagination;
+    use WithPagination, WithoutUrlPagination;
 
     public $customer;
     public $startDate;
     public $endDate;
     public $search = '';
-
-    protected $queryString = ['startDate', 'endDate', 'search'];
 
     public function mount($customer)
     {
@@ -55,6 +54,13 @@ class CustomerLedger extends Component
         return response()->streamDownload(function() use ($pdf) {
             echo $pdf->output();
         }, $filename);
+    }
+
+    public function viewOrder($orderId)
+    {
+        // Tell CustomerTable to close the ledger modal first, then open the order detail.
+        // Dispatching showOrderDetail directly here would leave the ledger modal open (2 modals).
+        $this->dispatch('viewOrderFromLedger', orderId: $orderId)->to('customer.customer-table');
     }
 
     private function getTransactionData()
@@ -107,34 +113,25 @@ class CustomerLedger extends Component
             }
         }
 
-        // Sort by date
-        $transactions = $transactions->sortByDesc('date')->values();
+        // Sort ascending (oldest first) so running balance accumulates correctly
+        $transactions = $transactions->sortBy('date')->values();
 
-        // Calculate running balance
-        $balance = 0;
+        // Calculate totals before balance calculation
+        $totalDebit = $transactions->sum('debit');
+        $totalCredit = $transactions->sum('credit');
+        $openingBalance = $this->getOpeningBalance();
+        $closingBalance = $openingBalance + $totalDebit - $totalCredit;
+
+        // Running balance starts from opening balance, grows oldest → newest
+        $balance = $openingBalance;
         $transactions = $transactions->map(function ($transaction) use (&$balance) {
             $balance = $balance + $transaction['debit'] - $transaction['credit'];
             $transaction['balance'] = $balance;
             return $transaction;
         });
 
-        // Paginate
-        $perPage = 20;
-        $currentPage = $this->page ?? 1;
-        $items = $transactions->forPage($currentPage, $perPage);
-        $paginatedTransactions = new \Illuminate\Pagination\LengthAwarePaginator(
-            $items,
-            $transactions->count(),
-            $perPage,
-            $currentPage,
-            ['path' => request()->url(), 'query' => request()->query()]
-        );
-
-        // Calculate totals
-        $totalDebit = $transactions->sum('debit');
-        $totalCredit = $transactions->sum('credit');
-        $openingBalance = $this->getOpeningBalance();
-        $closingBalance = $openingBalance + $totalDebit - $totalCredit;
+        // Reverse to show newest first in the UI
+        $transactions = $transactions->reverse()->values();
 
         return [
             'transactions' => $transactions,
@@ -151,18 +148,18 @@ class CustomerLedger extends Component
     public function render()
     {
         $data = $this->getTransactionData();
-        
-        // Paginate for display
+
         $perPage = 20;
-        $currentPage = $this->page ?? 1;
+        $currentPage = $this->getPage();
         $items = $data['transactions']->forPage($currentPage, $perPage);
         $paginatedTransactions = new \Illuminate\Pagination\LengthAwarePaginator(
             $items,
             $data['transactions']->count(),
             $perPage,
             $currentPage,
-            ['path' => request()->url(), 'query' => request()->query()]
+            ['path' => \Illuminate\Pagination\Paginator::resolveCurrentPath()]
         );
+        $paginatedTransactions->withQueryString();
 
         return view('livewire.customer.customer-ledger', [
             'transactions' => $paginatedTransactions,
@@ -175,32 +172,28 @@ class CustomerLedger extends Component
 
     private function getOpeningBalance()
     {
-        // Get total outstanding before start date
-        $beforeOrders = $this->customer->orders()
-            ->where('date_time', '<', Carbon::parse($this->startDate)->startOfDay())
-            ->where('status', 'payment_due')
-            ->get()
-            ->sum(function ($order) {
-                $paid = (float)$order->payments()
-                    ->where('payment_method', '!=', 'due')
-                    ->sum('amount');
-                return max(0, (float)$order->total - $paid);
-            });
+        $cutoff = Carbon::parse($this->startDate)->startOfDay();
 
-        // Get total orders before start date
+        // Only consider orders that contribute to balance (exclude cancelled)
+        $beforeOrders = $this->customer->orders()
+            ->where('date_time', '<', $cutoff)
+            ->whereIn('status', ['paid', 'payment_due', 'billed'])
+            ->pluck('id');
+
+        if ($beforeOrders->isEmpty()) {
+            return 0.0;
+        }
+
         $totalOrders = $this->customer->orders()
-            ->where('date_time', '<', Carbon::parse($this->startDate)->startOfDay())
+            ->where('date_time', '<', $cutoff)
+            ->whereIn('status', ['paid', 'payment_due', 'billed'])
             ->sum('total');
 
-        // Get total payments before start date
-        $totalPayments = Payment::whereHas('order', function ($query) {
-                $query->where('customer_id', $this->customer->id)
-                      ->where('date_time', '<', Carbon::parse($this->startDate)->startOfDay());
-            })
+        $totalPayments = Payment::whereIn('order_id', $beforeOrders)
             ->where('payment_method', '!=', 'due')
             ->sum('amount');
 
-        return $totalOrders - $totalPayments;
+        return (float)$totalOrders - (float)$totalPayments;
     }
 }
 
