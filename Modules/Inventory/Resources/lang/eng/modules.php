@@ -807,6 +807,13 @@ return [
         'item_fallback' => 'this item',
         'unit' => 'Unit',
         'transfer_item_label' => 'Transfer Item',
+        'edit_transfer' => 'Edit Transfer',
+        'update_transfer' => 'Update Transfer',
+        'transfer_updated_successfully' => 'Transfer updated successfully',
+        'transfer_update_failed' => 'Failed to update transfer',
+        'only_pending_can_be_edited' => 'Only pending transfers can be edited',
+        'no_keep_transfer' => 'No, Keep Transfer',
+        'yes_cancel_transfer' => 'Yes, Cancel Transfer',
     ],
     'payments' => [
         'method' => 'Method',

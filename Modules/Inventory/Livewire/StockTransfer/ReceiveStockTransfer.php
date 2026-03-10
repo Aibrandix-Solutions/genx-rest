@@ -120,6 +120,8 @@ class ReceiveStockTransfer extends Component
 
     public function confirmReceive()
     {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
         if (!$this->transfer) return;
 
         $this->validate();
@@ -228,6 +230,15 @@ class ReceiveStockTransfer extends Component
                 $this->transfer->confirmed_at = now();
                 $this->transfer->save();
             });
+
+            // Reload from DB so re-render reflects updated quantities before modal closes
+            $this->transfer = InventoryTransfer::with([
+                'items.sourceItem.unit',
+                'items.destinationItem.unit',
+                'sourceLocation',
+                'destinationLocation',
+            ])->find($this->transfer->id);
+            $this->loadReceivedItems();
 
             $this->alert('success', __('inventory::modules.transfers.transfer_confirmed_successfully'));
             $this->dispatch('transferReceived');

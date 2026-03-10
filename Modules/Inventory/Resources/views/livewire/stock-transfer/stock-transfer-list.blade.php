@@ -217,14 +217,24 @@
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                 <div class="flex items-center space-x-2">
-                                    <button wire:click="viewTransfer({{ $transfer->id }})" class="text-blue-600 hover:text-blue-900 dark:text-blue-400">
+                                    @if(user_can('Show Stock Transfer'))
+                                    <button wire:click="viewTransfer({{ $transfer->id }})" class="text-blue-600 hover:text-blue-900 dark:text-blue-400" title="{{ __('inventory::modules.transfers.view_transfer') }}">
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
                                         </svg>
                                     </button>
+                                    @endif
                                     
-                                    @if($transfer->status === 'pending')
+                                    @if($transfer->status === 'pending' && user_can('Update Stock Transfer'))
+                                        <button wire:click="openEditModal({{ $transfer->id }})" class="text-yellow-600 hover:text-yellow-900 dark:text-yellow-400" title="{{ __('inventory::modules.transfers.edit_transfer') }}">
+                                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                            </svg>
+                                        </button>
+                                    @endif
+                                    
+                                    @if($transfer->status === 'pending' && user_can('Update Stock Transfer'))
                                         <button wire:click="confirmInitiate({{ $transfer->id }})" class="text-green-600 hover:text-green-900 dark:text-green-400" title="{{ __('inventory::modules.transfers.initiate_transfer') }}">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
@@ -232,7 +242,7 @@
                                         </button>
                                     @endif
                                     
-                                    @if($transfer->status === 'in_transit')
+                                    @if($transfer->status === 'in_transit' && user_can('Update Stock Transfer'))
                                         <button wire:click="openReceiveModal({{ $transfer->id }})" class="text-purple-600 hover:text-purple-900 dark:text-purple-400" title="{{ __('inventory::modules.transfers.receive_transfer') }}">
                                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -287,7 +297,9 @@
         </x-slot>
         <x-slot name="content">
             @if($selectedTransfer)
-                <livewire:inventory::stock-transfer.receive-stock-transfer :transfer="$selectedTransfer" />
+                <livewire:inventory::stock-transfer.receive-stock-transfer
+                    :transfer="$selectedTransfer"
+                    wire:key="receive-transfer-{{ $receiveModalKey }}" />
             @endif
         </x-slot>
     </x-right-modal>
@@ -316,14 +328,11 @@
 
         <x-slot name="footer">
             <x-secondary-button wire:click="$set('confirmingInitiation', false)" wire:loading.attr="disabled">
-                {{ __('app.cancel') }}
+                {{ __('app.no') }}
             </x-secondary-button>
-
-            @if($selectedTransferForInitiation)
                 <x-button class="ml-3 bg-green-600 hover:bg-green-700" wire:click="initiateTransfer({{ $selectedTransferForInitiation }})" wire:loading.attr="disabled">
                     {{ __('inventory::modules.transfers.initiate') }}
                 </x-button>
-            @endif
         </x-slot>
     </x-confirmation-modal>
 
@@ -339,15 +348,29 @@
 
         <x-slot name="footer">
             <x-secondary-button wire:click="$set('confirmingCancellation', false)" wire:loading.attr="disabled">
-                {{ __('app.cancel') }}
+                {{ __('inventory::modules.transfers.no_keep_transfer') }}
             </x-secondary-button>
 
             @if($selectedTransferForCancellation)
                 <x-button class="ml-3 bg-red-600 hover:bg-red-700" wire:click="cancelTransfer({{ $selectedTransferForCancellation }})" wire:loading.attr="disabled">
-                    {{ __('inventory::modules.transfers.cancel') }}
+                    {{ __('inventory::modules.transfers.yes_cancel_transfer') }}
                 </x-button>
             @endif
         </x-slot>
     </x-confirmation-modal>
+
+    <!-- Edit Transfer Modal -->
+    @if($showEditModal && $editTransferId)
+        <x-right-modal wire:model.live="showEditModal">
+            <x-slot name="title">
+                {{ __('inventory::modules.transfers.edit_transfer') }}
+            </x-slot>
+            <x-slot name="content">
+                <livewire:inventory::stock-transfer.edit-stock-transfer
+                    :transfer="\Modules\Inventory\Entities\InventoryTransfer::findOrFail($editTransferId)"
+                    wire:key="edit-transfer-{{ $editTransferId }}" />
+            </x-slot>
+        </x-right-modal>
+    @endif
 </div>
 

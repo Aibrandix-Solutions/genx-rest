@@ -14,7 +14,6 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
-use Modules\Inventory\Entities\Unit;
 
 class CreateStockTransfer extends Component
 {
@@ -27,7 +26,6 @@ class CreateStockTransfer extends Component
     public $transferItems = [];
     public $availableLocations = [];
     public $availableItems = [];
-    public $availableUnits = [];
     public $destinationItems = [];
 
     protected $listeners = [
@@ -43,7 +41,6 @@ class CreateStockTransfer extends Component
             ->orderBy('name')
             ->get();
 
-        $this->availableUnits = Unit::orderBy('name')->get();
         // Items are NOT loaded until a source location is chosen
         $this->availableItems = collect();
         $this->resetForm();
@@ -196,6 +193,8 @@ class CreateStockTransfer extends Component
 
     public function createTransfer()
     {
+        abort_if(!user_can('Create Stock Transfer'), 403);
+
         $this->validate();
 
         // Get source and destination location details
