@@ -712,6 +712,7 @@ return [
         'destination_location' => 'Destination Location',
         'select_source_location' => 'Select Source Location',
         'select_destination_location' => 'Select Destination Location',
+        'select_source_location_first' => 'Please select a source location to see available items.',
         'select_destination_location_first' => 'Select destination location first',
         'source_location_required' => 'Source location is required',
         'destination_location_required' => 'Destination location is required',
@@ -800,7 +801,9 @@ return [
         'confirmed_quantity_numeric' => 'The confirmed quantity for :item must be a number.',
         'confirmed_quantity_min' => 'The confirmed quantity for :item must be at least 0.',
         'confirmed_quantity_max' => 'The confirmed quantity for :item must not be greater than :max.',
-        'item' => 'this item',
+        'item_fallback' => 'this item',
+        'unit' => 'Unit',
+        'transfer_item_label' => 'Transfer Item',
     ],
     'payments' => [
         'method' => 'Method',

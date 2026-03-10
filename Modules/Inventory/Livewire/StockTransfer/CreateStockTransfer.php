@@ -25,6 +25,7 @@ class CreateStockTransfer extends Component
     public $transferItems = [];
     public $availableLocations = [];
     public $availableItems = [];
+    public $availableUnits = [];
     public $destinationItems = [];
 
     protected $listeners = [
@@ -39,12 +40,30 @@ class CreateStockTransfer extends Component
             ->orderBy('type')
             ->orderBy('name')
             ->get();
-            
-        // Load source items from current branch (BranchScope will filter automatically)
-        $this->availableItems = InventoryItem::with(['category', 'unit'])
-            ->orderBy('name')
-            ->get();
+
+        $this->availableUnits = \Modules\Inventory\Entities\Unit::orderBy('name')->get();
+        // Items are NOT loaded until a source location is chosen
+        $this->availableItems = collect();
         $this->resetForm();
+    }
+
+    public function updatedSourceLocation()
+    {
+        // Load items that have stock at this location
+        if ($this->sourceLocation) {
+            $this->availableItems = InventoryItem::with(['category', 'unit'])
+                ->whereHas('stocks', function ($q) {
+                    $q->where('location_id', $this->sourceLocation)
+                      ->where('quantity', '>', 0);
+                })
+                ->orderBy('name')
+                ->get();
+        } else {
+            $this->availableItems = collect();
+        }
+
+        // Reset items already added since source changed
+        $this->transferItems = [];
     }
 
     public function updatedDestinationLocation()
@@ -70,6 +89,7 @@ class CreateStockTransfer extends Component
             'source_item_id' => null,
             'destination_item_id' => null,
             'quantity' => null,
+            'unit_id' => null,
             'available_stock' => 0,
         ];
     }
@@ -123,7 +143,12 @@ class CreateStockTransfer extends Component
                     $availableStock = max(0, $currentStock - $pendingTransfersQuantity);
                     
                     $this->transferItems[$index]['available_stock'] = $availableStock;
-                    
+
+                    // Auto-set unit from selected item
+                    if ($sourceItem && $sourceItem->unit_id) {
+                        $this->transferItems[$index]['unit_id'] = $sourceItem->unit_id;
+                    }
+
                     // Auto-suggest matching destination item by name (if destination location is selected)
                     if ($this->destinationLocation && $sourceItem && count($this->destinationItems) > 0) {
                         $matchingItem = $this->destinationItems->first(function($item) use ($sourceItem) {
@@ -137,6 +162,7 @@ class CreateStockTransfer extends Component
                 } elseif (isset($this->transferItems[$index])) {
                     $this->transferItems[$index]['available_stock'] = 0;
                     $this->transferItems[$index]['destination_item_id'] = null;
+                    $this->transferItems[$index]['unit_id'] = null;
                 }
             }
         }
@@ -234,6 +260,7 @@ class CreateStockTransfer extends Component
                         'inventory_transfer_id' => $transfer->id,
                         'source_inventory_item_id' => $item['source_item_id'],
                         'destination_inventory_item_id' => $item['source_item_id'], // Same item!
+                        'unit_id' => $item['unit_id'] ?: null,
                         'requested_quantity' => $item['quantity'],
                         'status' => 'pending',
                     ]);

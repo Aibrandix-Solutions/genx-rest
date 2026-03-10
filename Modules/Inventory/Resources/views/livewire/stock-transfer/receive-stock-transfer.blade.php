@@ -33,7 +33,7 @@
                                     </p>
                                     <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                         {{ __('inventory::modules.transfers.requested') }}: 
-                                        <span class="font-medium">{{ number_format($item->requested_quantity, 2) }} {{ $item->sourceItem->unit->symbol ?? '' }}</span>
+                                        <span class="font-medium">{{ number_format($item->requested_quantity, 2) }} {{ $item->unit?->symbol ?? $item->sourceItem->unit?->symbol ?? '' }}</span>
                                     </p>
                                 </div>
                                 

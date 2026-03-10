@@ -87,7 +87,7 @@ class ReceiveStockTransfer extends Component
         
         foreach ($this->receivedItems as $itemId => $data) {
             $item = $this->transfer->items->find($itemId);
-            $itemName = __('inventory::modules.transfers.item');
+            $itemName = __('inventory::modules.transfers.item_fallback');
             
             if ($item && $item->destinationItem) {
                 $itemName = $item->destinationItem->name;

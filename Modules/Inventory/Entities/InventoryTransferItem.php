@@ -14,6 +14,7 @@ class InventoryTransferItem extends Model
         'inventory_transfer_id',
         'source_inventory_item_id',
         'destination_inventory_item_id',
+        'unit_id',
         'requested_quantity',
         'confirmed_quantity',
         'status',
@@ -24,6 +25,11 @@ class InventoryTransferItem extends Model
         'requested_quantity' => 'decimal:2',
         'confirmed_quantity' => 'decimal:2',
     ];
+
+    public function unit(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Inventory\Entities\Unit::class);
+    }
 
     public function transfer(): BelongsTo
     {
