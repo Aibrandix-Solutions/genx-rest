@@ -16,6 +16,7 @@ use Modules\Inventory\Livewire\Reports\UsageReport;
 use Modules\Inventory\Livewire\Reports\TurnoverReport;
 use Modules\Inventory\Livewire\Reports\ForecastingReport;
 use Modules\Inventory\Livewire\StockTransfer\CreateStockTransfer;
+use Modules\Inventory\Livewire\StockTransfer\EditStockTransfer;
 use Modules\Inventory\Livewire\StockTransfer\StockTransferList;
 use Modules\Inventory\Livewire\StockTransfer\ReceiveStockTransfer;
 use Modules\Inventory\Livewire\Setting\LocationManager;
@@ -70,6 +71,7 @@ class InventoryServiceProvider extends ServiceProvider
         Livewire::component('inventory::reports.forecasting-report', ForecastingReport::class);
         
         Livewire::component('inventory::stock-transfer.create-stock-transfer', CreateStockTransfer::class);
+        Livewire::component('inventory::stock-transfer.edit-stock-transfer', EditStockTransfer::class);
         Livewire::component('inventory::stock-transfer.stock-transfer-list', StockTransferList::class);
         Livewire::component('inventory::stock-transfer.receive-stock-transfer', ReceiveStockTransfer::class);
 

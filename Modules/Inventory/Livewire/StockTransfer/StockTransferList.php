@@ -29,6 +29,8 @@ class StockTransferList extends Component
     public $showViewModal = false;
     public $showReceiveModal = false;
     public $showModal = false;
+    public $showEditModal = false;
+    public $editTransferId = null;
     public $confirmingInitiation = false;
     public $selectedTransferForInitiation = null;
     public $confirmingCancellation = false;
@@ -63,9 +65,13 @@ class StockTransferList extends Component
 
     public function viewTransfer($transferId)
     {
+        abort_if(!user_can('Show Stock Transfer'), 403);
+
         $this->selectedTransfer = InventoryTransfer::with([
             'sourceBranch',
             'destinationBranch',
+            'sourceLocation',
+            'destinationLocation',
             'createdBy',
             'confirmedBy',
             'items.sourceItem.unit',
@@ -89,6 +95,8 @@ class StockTransferList extends Component
 
     public function cancelTransfer($transferId)
     {
+        abort_if(!user_can('Cancel Stock Transfer'), 403);
+
         try {
             DB::transaction(function () use ($transferId) {
                 $transfer = InventoryTransfer::with('items')->findOrFail($transferId);
@@ -213,6 +221,8 @@ class StockTransferList extends Component
 
     public function initiateTransfer($transferId)
     {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
         try {
             DB::transaction(function () use ($transferId) {
                 $transfer = InventoryTransfer::with('items', 'sourceLocation')->findOrFail($transferId);
@@ -342,6 +352,8 @@ class StockTransferList extends Component
 
     public function openReceiveModal($transferId)
     {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
         $transfer = InventoryTransfer::with([
             'items.sourceItem.unit',
             'items.destinationItem.unit',
@@ -362,18 +374,40 @@ class StockTransferList extends Component
     }
 
     protected $listeners = [
-        'transferCreated' => '$refresh',
-        'transferInitiated' => '$refresh',
-        'transferReceived' => '$refresh',
-        'transferCancelled' => '$refresh',
+        'transferCreated'         => '$refresh',
+        'transferInitiated'       => '$refresh',
+        'transferReceived'        => '$refresh',
+        'transferCancelled'       => '$refresh',
+        'transferUpdated'         => 'handleTransferUpdated',
         'closeCreateTransferModal' => 'closeCreateTransferModal',
-        'closeReceiveModal' => 'closeReceiveModal',
-        'closeModal' => 'closeCreateTransferModal',
+        'closeReceiveModal'       => 'closeReceiveModal',
+        'closeEditTransferModal'  => 'closeEditTransferModal',
+        'closeModal'              => 'closeCreateTransferModal',
     ];
 
     public function closeCreateTransferModal()
     {
         $this->showModal = false;
+        $this->resetPage();
+    }
+
+    public function openEditModal($transferId)
+    {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
+        $this->editTransferId = $transferId;
+        $this->showEditModal  = true;
+    }
+
+    public function closeEditTransferModal()
+    {
+        $this->showEditModal  = false;
+        $this->editTransferId = null;
+    }
+
+    public function handleTransferUpdated()
+    {
+        $this->closeEditTransferModal();
         $this->resetPage();
     }
 
@@ -400,6 +434,19 @@ class StockTransferList extends Component
         // Filter by status
         if ($this->statusFilter !== 'all') {
             $query->where('status', $this->statusFilter);
+        }
+
+        // Filter by direction relative to the current branch
+        if ($this->filterType === 'outgoing') {
+            $query->where(function ($q) {
+                $q->where('source_branch_id', branch()->id)
+                  ->orWhereHas('sourceLocation', fn ($sq) => $sq->where('branch_id', branch()->id));
+            });
+        } elseif ($this->filterType === 'incoming') {
+            $query->where(function ($q) {
+                $q->where('destination_branch_id', branch()->id)
+                  ->orWhereHas('destinationLocation', fn ($sq) => $sq->where('branch_id', branch()->id));
+            });
         }
 
         // Search

@@ -120,6 +120,8 @@ class ReceiveStockTransfer extends Component
 
     public function confirmReceive()
     {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
         if (!$this->transfer) return;
 
         $this->validate();
