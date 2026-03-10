@@ -80,8 +80,9 @@
 
             @if(count($transferItems) > 0)
                 <div class="space-y-4">
+                    @php $availableItemsJson = $availableItems->map(fn($i) => ['id' => $i->id, 'name' => $i->name, 'unit_id' => $i->unit_id, 'unit_symbol' => $i->unit?->symbol ?? ''])->toJson(); @endphp
                     @foreach($transferItems as $index => $item)
-                        <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
+                        <div wire:key="transfer-item-{{ $index }}" class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
                             <div class="flex items-center justify-between mb-4">
                                 <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">
                                     {{ __('inventory::modules.transfers.transfer_item_label') }} #{{ $index + 1 }}
@@ -101,7 +102,7 @@
                                         open: false,
                                         search: '',
                                         selectedLabel: '',
-                                        items: {{ $availableItems->map(fn($i) => ['id' => $i->id, 'name' => $i->name, 'unit_id' => $i->unit_id, 'unit_symbol' => $i->unit?->symbol ?? ''])->toJson() }},
+                                        items: {{ $availableItemsJson }},
                                         get filtered() {
                                             if (!this.search) return this.items;
                                             const q = this.search.toLowerCase();

@@ -13,6 +13,8 @@ use App\Models\Branch;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
+use Modules\Inventory\Entities\Unit;
 
 class CreateStockTransfer extends Component
 {
@@ -41,7 +43,7 @@ class CreateStockTransfer extends Component
             ->orderBy('name')
             ->get();
 
-        $this->availableUnits = \Modules\Inventory\Entities\Unit::orderBy('name')->get();
+        $this->availableUnits = Unit::orderBy('name')->get();
         // Items are NOT loaded until a source location is chosen
         $this->availableItems = collect();
         $this->resetForm();
@@ -52,6 +54,7 @@ class CreateStockTransfer extends Component
         // Load items that have stock at this location
         if ($this->sourceLocation) {
             $this->availableItems = InventoryItem::with(['category', 'unit'])
+                ->where('restaurant_id', restaurant()->id)
                 ->whereHas('stocks', function ($q) {
                     $q->where('location_id', $this->sourceLocation)
                       ->where('quantity', '>', 0);
@@ -71,6 +74,7 @@ class CreateStockTransfer extends Component
         if ($this->destinationLocation) {
             // Load all items (items are now restaurant-scoped, not branch-scoped)
             $this->destinationItems = InventoryItem::with(['category', 'unit'])
+                ->where('restaurant_id', restaurant()->id)
                 ->orderBy('name')
                 ->get();
         } else {
@@ -110,21 +114,14 @@ class CreateStockTransfer extends Component
                 $itemId = $value;
                 
                 if ($itemId && isset($this->transferItems[$index])) {
-                    // Get source item details
-                    $sourceItem = InventoryItem::query()->find($itemId);
-                    
-                    // Get available stock from the specific source location if selected
-                    if ($this->sourceLocation) {
-                        $stock = InventoryStock::where('inventory_item_id', $itemId)
-                            ->where('location_id', $this->sourceLocation)
-                            ->first();
-                    } else {
-                        // Default to current branch
-                        $stock = InventoryStock::where('inventory_item_id', $itemId)
-                            ->where('branch_id', branch()->id)
-                            ->first();
-                    }
-                    
+                    // Use already-loaded collection to avoid extra DB queries
+                    $sourceItem = $this->availableItems->find($itemId);
+
+                    // Source location is always set when transfer rows can be added
+                    $stock = InventoryStock::where('inventory_item_id', $itemId)
+                        ->where('location_id', $this->sourceLocation)
+                        ->first();
+
                     $currentStock = $stock ? (float)$stock->quantity : 0;
                     
                     // Calculate pending transfers from this location
@@ -170,14 +167,16 @@ class CreateStockTransfer extends Component
 
     public function rules()
     {
+        $restaurantId = restaurant()->id;
+
         return [
-            'sourceLocation' => 'required|exists:purchase_locations,id',
-            'destinationLocation' => 'required|exists:purchase_locations,id|different:sourceLocation',
+            'sourceLocation'      => ['required', Rule::exists('purchase_locations', 'id')->where('restaurant_id', $restaurantId)],
+            'destinationLocation' => ['required', 'different:sourceLocation', Rule::exists('purchase_locations', 'id')->where('restaurant_id', $restaurantId)],
             'expectedDeliveryDate' => 'nullable|date|after_or_equal:today',
-            'notes' => 'nullable|string|max:1000',
+            'notes'        => 'nullable|string|max:1000',
             'transferItems' => 'required|array|min:1',
-            'transferItems.*.source_item_id' => 'required|exists:inventory_items,id',
-            'transferItems.*.destination_item_id' => 'nullable', // Allow null - will auto-create if needed
+            'transferItems.*.source_item_id' => ['required', Rule::exists('inventory_items', 'id')->where('restaurant_id', $restaurantId)],
+            'transferItems.*.destination_item_id' => 'nullable',
             'transferItems.*.quantity' => 'required|numeric|min:0.01',
         ];
     }
@@ -203,29 +202,44 @@ class CreateStockTransfer extends Component
         $sourceLocation = PurchaseLocation::find($this->sourceLocation);
         $destinationLocation = PurchaseLocation::find($this->destinationLocation);
 
-        // Validate stock availability at the source location
+        // Aggregate total requested per source item to catch duplicate item rows
+        $requestedTotals = [];
+        foreach ($this->transferItems as $item) {
+            $id = $item['source_item_id'];
+            $requestedTotals[$id] = ($requestedTotals[$id] ?? 0) + (float)$item['quantity'];
+        }
+
+        // Validate stock availability — one DB check per unique item
+        $checked = [];
         foreach ($this->transferItems as $index => $item) {
-            $stock = InventoryStock::where('inventory_item_id', $item['source_item_id'])
+            $itemId = $item['source_item_id'];
+            if (isset($checked[$itemId])) {
+                continue;
+            }
+            $checked[$itemId] = true;
+
+            $stock = InventoryStock::where('inventory_item_id', $itemId)
                 ->where('location_id', $this->sourceLocation)
                 ->first();
-            
+
             $currentStock = $stock ? (float)$stock->quantity : 0;
-            
+
             // Calculate pending transfers from this location
             $pendingTransfersQuantity = (float)InventoryTransferItem::whereHas('transfer', function($query) {
                     $query->where('source_location_id', $this->sourceLocation)
                           ->where('status', 'pending');
                 })
-                ->where('source_inventory_item_id', $item['source_item_id'])
+                ->where('source_inventory_item_id', $itemId)
                 ->sum('requested_quantity');
-            
-            $available = max(0, $currentStock - $pendingTransfersQuantity);
-            
-            if ($available < $item['quantity']) {
-                $this->addError("transferItems.{$index}.quantity", 
+
+            $available     = max(0, $currentStock - $pendingTransfersQuantity);
+            $totalRequested = $requestedTotals[$itemId];
+
+            if ($available < $totalRequested) {
+                $this->addError("transferItems.{$index}.quantity",
                     __('inventory::modules.transfers.insufficient_stock', [
                         'available' => $available,
-                        'requested' => $item['quantity']
+                        'requested' => $totalRequested,
                     ])
                 );
                 return;

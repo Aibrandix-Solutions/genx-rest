@@ -10,6 +10,7 @@ use Modules\Inventory\Entities\InventoryStock;
 use Modules\Inventory\Entities\InventoryMovement;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class ReceiveStockTransfer extends Component
 {
@@ -36,10 +37,21 @@ class ReceiveStockTransfer extends Component
         if (!$this->transfer) return;
 
         foreach ($this->transfer->items as $item) {
+            $alreadyConfirmed = (float)($item->confirmed_quantity ?? 0);
+            $requested        = (float)$item->requested_quantity;
+            $remaining        = max(0, $requested - $alreadyConfirmed);
+
+            // Skip items that are already fully received
+            if ($item->status === 'completed') {
+                continue;
+            }
+
             $this->receivedItems[$item->id] = [
-                'requested_quantity' => $item->requested_quantity,
-                'confirmed_quantity' => $item->confirmed_quantity ?? $item->requested_quantity,
-                'notes' => $item->notes ?? '',
+                'requested_quantity'  => $requested,
+                'already_confirmed'   => $alreadyConfirmed,
+                'remaining_quantity'  => $remaining,
+                'confirmed_quantity'  => $remaining, // pre-fill with what's left
+                'notes'               => $item->notes ?? '',
             ];
         }
     }
@@ -69,11 +81,13 @@ class ReceiveStockTransfer extends Component
     public function rules()
     {
         $rules = [];
-        
+
         foreach ($this->receivedItems as $itemId => $data) {
-            $rules["receivedItems.{$itemId}.confirmed_quantity"] = "required|numeric|min:0|max:{$data['requested_quantity']}";
+            // Validate against remaining, not the full requested quantity
+            $max = $data['remaining_quantity'] ?? $data['requested_quantity'];
+            $rules["receivedItems.{$itemId}.confirmed_quantity"] = "required|numeric|min:0|max:{$max}";
         }
-        
+
         return $rules;
     }
 
@@ -93,7 +107,7 @@ class ReceiveStockTransfer extends Component
                 $itemName = $item->destinationItem->name;
             }
             
-            $maxQty = $data['requested_quantity'] ?? 0;
+            $maxQty = $data['remaining_quantity'] ?? ($data['requested_quantity'] ?? 0);
             
             $messages["receivedItems.{$itemId}.confirmed_quantity.required"] = __('inventory::modules.transfers.confirmed_quantity_required', ['item' => $itemName]);
             $messages["receivedItems.{$itemId}.confirmed_quantity.numeric"] = __('inventory::modules.transfers.confirmed_quantity_numeric', ['item' => $itemName]);
@@ -112,8 +126,6 @@ class ReceiveStockTransfer extends Component
 
         try {
             DB::transaction(function () {
-                $allCompleted = true;
-                $allPartial = true;
 
                 foreach ($this->transfer->items as $item) {
                     if (!isset($this->receivedItems[$item->id])) {
@@ -122,7 +134,7 @@ class ReceiveStockTransfer extends Component
                     
                     $receivedData = $this->receivedItems[$item->id];
                     $confirmedQty = $receivedData['confirmed_quantity'] ?? 0;
-                    
+
                     if (!is_numeric($confirmedQty)) {
                         $confirmedQty = 0;
                     }
@@ -131,19 +143,17 @@ class ReceiveStockTransfer extends Component
                         continue; // Skip items with zero quantity
                     }
 
-                    // Update transfer item
-                    $item->confirmed_quantity = $confirmedQty;
+                    $alreadyConfirmed   = (float)($item->confirmed_quantity ?? 0);
+                    $newTotalConfirmed  = $alreadyConfirmed + (float)$confirmedQty;
+
+                    // Update transfer item — accumulate confirmed quantity
+                    $item->confirmed_quantity = $newTotalConfirmed;
                     $item->notes = $receivedData['notes'] ?? null;
 
-                    if ($confirmedQty >= $item->requested_quantity) {
+                    if ($newTotalConfirmed >= $item->requested_quantity) {
                         $item->status = 'completed';
-                    } elseif ($confirmedQty > 0) {
-                        $item->status = 'partially_received';
-                        $allCompleted = false;
                     } else {
-                        $item->status = 'pending';
-                        $allCompleted = false;
-                        $allPartial = false;
+                        $item->status = 'partially_received';
                     }
 
                     $item->save();
@@ -174,58 +184,20 @@ class ReceiveStockTransfer extends Component
                     $stock->quantity += $confirmedQty;
                     $stock->save();
 
-                    // Find and update destination movement using transfer linking
-                    $movement = InventoryMovement::where('branch_id', branch()->id)
-                        ->where('inventory_item_id', $item->destination_inventory_item_id)
-                        ->where('transaction_type', 'in')
-                        ->where('inventory_transfer_id', $this->transfer->id)
-                        ->where('inventory_transfer_item_id', $item->id)
-                        ->first();
-
-                    if ($movement) {
-                        // Update movement quantity if different
-                        if ($movement->quantity != $confirmedQty) {
-                            $movement->quantity = $confirmedQty;
-                            $movement->save();
-                        }
-                        
-                        // Ensure unit price is set (use source item's price for cost tracking)
-                        if (!$movement->unit_purchase_price) {
-                            $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
-                            if ($sourceItem && $sourceItem->unit_purchase_price) {
-                                $movement->unit_purchase_price = $sourceItem->unit_purchase_price;
-                                $movement->save();
-                            }
-                        }
-                    } else {
-                        // Fallback: Try finding by transfer_branch_id (for backwards compatibility)
-                        $movement = InventoryMovement::where('branch_id', branch()->id)
-                            ->where('inventory_item_id', $item->destination_inventory_item_id)
-                            ->where('transaction_type', 'in')
-                            ->where('transfer_branch_id', $this->transfer->source_branch_id)
-                            ->where('quantity', $item->requested_quantity)
-                            ->orderBy('created_at', 'desc')
-                            ->first();
-                        
-                        if ($movement) {
-                            // Link it to the transfer for future reference
-                            $movement->inventory_transfer_id = $this->transfer->id;
-                            $movement->inventory_transfer_item_id = $item->id;
-                            if ($movement->quantity != $confirmedQty) {
-                                $movement->quantity = $confirmedQty;
-                            }
-                            
-                            // Set unit price from source item if not set
-                            if (!$movement->unit_purchase_price) {
-                                $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
-                                if ($sourceItem && $sourceItem->unit_purchase_price) {
-                                    $movement->unit_purchase_price = $sourceItem->unit_purchase_price;
-                                }
-                            }
-                            
-                            $movement->save();
-                        }
-                    }
+                    // Create a movement record for this receive session (one row per partial receive for audit trail)
+                    $sourceItem = InventoryItem::find($item->source_inventory_item_id);
+                    InventoryMovement::create([
+                        'branch_id'                  => branch()->id,
+                        'location_id'                => $this->transfer->destination_location_id,
+                        'inventory_item_id'          => $item->destination_inventory_item_id,
+                        'transaction_type'           => 'in',
+                        'quantity'                   => $confirmedQty,
+                        'unit_purchase_price'        => $sourceItem->unit_purchase_price ?? null,
+                        'added_by'                   => user()->id,
+                        'transfer_branch_id'         => $this->transfer->source_branch_id,
+                        'inventory_transfer_id'      => $this->transfer->id,
+                        'inventory_transfer_item_id' => $item->id,
+                    ]);
 
                     // Update menu item status
                     if ($item->destinationItem) {
@@ -237,20 +209,18 @@ class ReceiveStockTransfer extends Component
 
                 // Update transfer status based on item statuses
                 $itemStatuses = $this->transfer->items()->pluck('status')->toArray();
-                $hasCompleted = in_array('completed', $itemStatuses);
+                $hasCompleted         = in_array('completed', $itemStatuses);
                 $hasPartiallyReceived = in_array('partially_received', $itemStatuses);
-                $hasPending = in_array('pending', $itemStatuses);
-                $hasInTransit = in_array('in_transit', $itemStatuses);
-                
-                if ($allCompleted && !$hasPending && !$hasPartiallyReceived && !$hasInTransit) {
-                    // All items completed - transfer is completed
+                $hasPending           = in_array('pending', $itemStatuses);
+                $hasInTransit         = in_array('in_transit', $itemStatuses);
+
+                if (!$hasPending && !$hasPartiallyReceived && !$hasInTransit) {
+                    // Every item is completed
                     $this->transfer->status = 'completed';
                 } elseif ($hasCompleted || $hasPartiallyReceived) {
-                    // Some items completed or partially received - keep as in_transit
-                    // This allows for additional receives if needed
+                    // Some received — remain in transit for further receives
                     $this->transfer->status = 'in_transit';
                 } else {
-                    // No items received yet - keep as pending
                     $this->transfer->status = 'pending';
                 }
 
@@ -264,7 +234,8 @@ class ReceiveStockTransfer extends Component
             $this->dispatch('closeReceiveModal');
             
         } catch (\Exception $e) {
-            $this->alert('error', __('inventory::modules.transfers.transfer_confirmation_failed') . ': ' . $e->getMessage());
+            Log::error('Stock transfer receive failed: ' . $e->getMessage());
+            $this->alert('error', __('inventory::modules.transfers.transfer_confirmation_failed'));
         }
     }
 
