@@ -231,6 +231,15 @@ class ReceiveStockTransfer extends Component
                 $this->transfer->save();
             });
 
+            // Reload from DB so re-render reflects updated quantities before modal closes
+            $this->transfer = InventoryTransfer::with([
+                'items.sourceItem.unit',
+                'items.destinationItem.unit',
+                'sourceLocation',
+                'destinationLocation',
+            ])->find($this->transfer->id);
+            $this->loadReceivedItems();
+
             $this->alert('success', __('inventory::modules.transfers.transfer_confirmed_successfully'));
             $this->dispatch('transferReceived');
             $this->dispatch('closeReceiveModal');

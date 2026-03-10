@@ -28,6 +28,7 @@ class StockTransferList extends Component
     public $selectedTransfer = null;
     public $showViewModal = false;
     public $showReceiveModal = false;
+    public $receiveModalKey = 0;
     public $showModal = false;
     public $showEditModal = false;
     public $editTransferId = null;
@@ -358,11 +359,17 @@ class StockTransferList extends Component
             'items.sourceItem.unit',
             'items.destinationItem.unit',
         ])->findOrFail($transferId);
-        
-        // Restaurant-scoped: any user can receive transfers
 
         $this->selectedTransfer = $transfer;
+        $this->receiveModalKey++;
         $this->showReceiveModal = true;
+    }
+
+    public function updatedShowReceiveModal($value)
+    {
+        if (!$value) {
+            $this->selectedTransfer = null;
+        }
     }
 
     public function closeModals()

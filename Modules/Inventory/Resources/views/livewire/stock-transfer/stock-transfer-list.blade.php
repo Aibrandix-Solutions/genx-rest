@@ -297,7 +297,9 @@
         </x-slot>
         <x-slot name="content">
             @if($selectedTransfer)
-                <livewire:inventory::stock-transfer.receive-stock-transfer :transfer="$selectedTransfer" />
+                <livewire:inventory::stock-transfer.receive-stock-transfer
+                    :transfer="$selectedTransfer"
+                    wire:key="receive-transfer-{{ $receiveModalKey }}" />
             @endif
         </x-slot>
     </x-right-modal>
