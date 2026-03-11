@@ -206,6 +206,16 @@ class OrderDetail extends Component
             return;
         }
 
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->pendingOrderItemId = $id;
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
@@ -234,6 +244,16 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->performOrderItemDeletion($id);
     }
 
@@ -255,16 +275,27 @@ class OrderDetail extends Component
                 })
                 ->get();
 
-            foreach ($kotItems as $kotItem) {
-                KotAdjustmentLogger::log(
-                    $kotItem,
-                    'deleted',
+            if ($kotItems->isNotEmpty()) {
+                foreach ($kotItems as $kotItem) {
+                    KotAdjustmentLogger::log(
+                        $kotItem,
+                        'deleted',
+                        $note ?: __('modules.order.deleteOrderItemMessage'),
+                        $kotItem->quantity,
+                        0
+                    );
+
+                    $kotItem->delete();
+                }
+            } else {
+                // No KOT items — item was billed directly; log against the order item itself
+                KotAdjustmentLogger::logOrderItem(
+                    $orderItem,
+                    'deleted_from_order',
                     $note ?: __('modules.order.deleteOrderItemMessage'),
-                    $kotItem->quantity,
+                    $orderItem->quantity,
                     0
                 );
-
-                $kotItem->delete();
             }
         }
 
@@ -279,6 +310,11 @@ class OrderDetail extends Component
             }
 
             $this->recalculateOrderTotals();
+
+            // Keep payment records in sync with the revised total
+            if (in_array($this->order->status, ['paid', 'payment_due'])) {
+                $this->scalePaymentsToNewTotal($this->total);
+            }
         }
 
         $this->alert('success', __('messages.orderItemDeleted'), [
@@ -754,6 +790,16 @@ class OrderDetail extends Component
 
     public function removeCharge($chargeId)
     {
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $charge = OrderCharge::find($chargeId);
 
         if ($charge) {
@@ -817,6 +863,43 @@ class OrderDetail extends Component
     /**
      * Recalculate order totals including all components
      */
+    /**
+     * Reduce overpaid payment amounts so their sum equals the new order total.
+     * Works from the most-recent payment backwards, never letting any amount go below zero.
+     */
+    private function scalePaymentsToNewTotal(float $newTotal): void
+    {
+        $payments = $this->order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->orderBy('id')
+            ->get();
+
+        $excess = round($payments->sum('amount') - $newTotal, 2);
+
+        if ($excess <= 0) {
+            return;
+        }
+
+        // Reduce from the most recent payment first
+        foreach ($payments->sortByDesc('id') as $payment) {
+            if ($excess <= 0) {
+                break;
+            }
+            $canReduce = min((float) $payment->amount, $excess);
+            $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
+            $excess = round($excess - $canReduce, 2);
+        }
+
+        $this->order->update([
+            'amount_paid' => $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount'),
+        ]);
+
+        $this->order->refresh();
+        $this->order->load('payments');
+    }
+
     public function recalculateOrderTotals()
     {
         if (!$this->order) {
