@@ -406,7 +406,7 @@
                                     @lang('modules.order.amount')
                                 </th>
 
-                                @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')) && user_can('Delete Order'))
                                     <th scope="col"
                                         class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                         @lang('app.action')
@@ -468,7 +468,7 @@
                                         {{ currency_format($item->amount, $currencyId) }}
                                     </td>
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')) && user_can('Delete Order'))
                                         <td class="p-2 text-right whitespace-nowrap">
                                             <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20"
                                                 wire:click="promptOrderItemRemoval({{ $item->id }})">
@@ -537,7 +537,7 @@
                                         ({{ $item->charge->charge_value }}%)
                                     @endif
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')))
                                         <span class="text-red-500 cursor-pointer hover:scale-110 active:scale-100"
                                             wire:click="removeCharge('{{ $item->id }}')">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
