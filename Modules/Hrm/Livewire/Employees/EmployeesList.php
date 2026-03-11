@@ -33,8 +33,8 @@ class EmployeesList extends Component
     public ?string $phone = null;
     public ?string $hire_date = null;
     public string $employment_type = 'full_time';
-    public float $basic_salary_per_day = 0;
-    public float $basic_salary_per_month = 0;
+    public string $basic_salary_per_day = '0';
+    public string $basic_salary_per_month = '0';
     public string $status = 'active';
     public bool $is_epf_eligible = true;
     public ?string $note = null;
@@ -92,8 +92,8 @@ class EmployeesList extends Component
         $this->phone = $employee->phone;
         $this->hire_date = $employee->hire_date?->toDateString();
         $this->employment_type = (string) $employee->employment_type;
-        $this->basic_salary_per_day = (float) ($employee->basic_salary_per_day ?? 0);
-        $this->basic_salary_per_month = (float) ($employee->basic_salary_per_month ?? 0);
+        $this->basic_salary_per_day = (string) ($employee->basic_salary_per_day ?? '0');
+        $this->basic_salary_per_month = (string) ($employee->basic_salary_per_month ?? '0');
         $this->status = (string) $employee->status;
         $this->is_epf_eligible = (bool) ($employee->is_epf_eligible ?? true);
         $this->note = $employee->note;
@@ -207,8 +207,8 @@ class EmployeesList extends Component
         $this->phone = null;
         $this->hire_date = null;
         $this->employment_type = 'full_time';
-        $this->basic_salary_per_day = 0;
-        $this->basic_salary_per_month = 0;
+        $this->basic_salary_per_day = '0';
+        $this->basic_salary_per_month = '0';
         $this->status = 'active';
         $this->is_epf_eligible = true;
         $this->note = null;
