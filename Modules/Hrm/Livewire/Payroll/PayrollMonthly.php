@@ -380,6 +380,12 @@ class PayrollMonthly extends Component
         $rows = [];
         $sn = 1;
 
+        // Pre-fetch EPF settings once outside the loop to avoid N+1 queries
+        $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
+        $epfBasic = $epfAutoCalc ? HrmSetting::get('epf_basic_salary', 0) : 0;
+        $epfRate = $epfAutoCalc ? HrmSetting::get('epf_employee_rate', 8) : 0;
+        $epfCalculated = $epfAutoCalc ? ($epfBasic * $epfRate) / 100 : 0;
+
         foreach ($employees as $e) {
             $presentDays = (int) ($presentCounts[$e->id] ?? 0);
             $leaveDays = (int) ($leaveDaysByEmployee[$e->id] ?? 0);
@@ -394,14 +400,9 @@ class PayrollMonthly extends Component
             
             // Only deduct EPF if employee is eligible
             $isEpfEligible = (bool) ($e->is_epf_eligible ?? true);
-            
-            // Auto-calculate EPF if enabled and employee is eligible
-            $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
-            
+
             if ($isEpfEligible && $epfAutoCalc) {
-                $epfBasic = HrmSetting::get('epf_basic_salary', 0);
-                $epfRate = HrmSetting::get('epf_employee_rate', 8);
-                $epf = ($epfBasic * $epfRate) / 100;
+                $epf = $epfCalculated;
             } elseif ($isEpfEligible) {
                 $epf = (float) ($adj?->epf ?? 0);
             } else {
@@ -515,6 +516,8 @@ class PayrollMonthly extends Component
 
         $import = new PayrollMonthlyImport(restaurant()->id, (int) $this->branchId, (int) $from->format('Y'), (int) $from->format('m'));
         Excel::import($import, $fullPath);
+
+        Storage::disk('local')->delete($path);
 
         $r = $import->results();
         $this->importMessage = "Imported {$r['imported']} rows. Skipped {$r['skipped']} (missing employee: {$r['skipped_missing_employee']}). Failed {$r['failed']}.";

@@ -88,7 +88,7 @@
             <div class="grid grid-cols-1 gap-4">
                 <div>
                     <x-label value="Date" />
-                    <x-input type="date" class="w-full" wire:model.live="date" />
+                    <x-input type="date" class="w-full" wire:model="date" />
                     @error('date') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
@@ -100,7 +100,7 @@
 
                 <div>
                     <x-label value="Scope" />
-                    <x-select class="w-full" wire:model.live="branch_id">
+                    <x-select class="w-full" wire:model="branch_id">
                         <option value="">Global (All branches)</option>
                         @foreach($branches as $b)
                             <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>

@@ -293,7 +293,7 @@
         @endif
     @endif
 
-    <x-dialog-modal wire:model="showModal">
+    <x-dialog-modal wire:model.live="showModal">
         <x-slot name="title">
             {{ __('Mark Attendance') }}
         </x-slot>
@@ -355,7 +355,7 @@
         </x-slot>
     </x-dialog-modal>
 
-    <x-confirmation-modal wire:model="showClearModal">
+    <x-confirmation-modal wire:model.live="showClearModal">
         <x-slot name="title">{{ __('Clear Attendance') }}</x-slot>
         <x-slot name="content">{{ __('Are you sure you want to clear this employee\'s attendance for the selected date?') }}</x-slot>
         <x-slot name="footer">
