@@ -72,19 +72,19 @@
             <div class="space-y-4">
                 <div>
                     <x-label value="Name" />
-                    <x-input type="text" class="w-full" wire:model.live="name" />
+                    <x-input type="text" class="w-full" wire:model="name" />
                     @error('name') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Description" />
-                    <x-textarea class="w-full" rows="3" wire:model.live="description"></x-textarea>
+                    <x-textarea class="w-full" rows="3" wire:model="description"></x-textarea>
                     @error('description') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" class="rounded border-gray-300" wire:model.live="is_active" />
+                        <input type="checkbox" class="rounded border-gray-300" wire:model="is_active" />
                         <span class="text-sm text-gray-700 dark:text-gray-300">Active</span>
                     </label>
                     @error('is_active') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror

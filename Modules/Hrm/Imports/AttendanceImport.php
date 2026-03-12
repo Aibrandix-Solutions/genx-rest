@@ -85,7 +85,11 @@ class AttendanceImport implements ToCollection, WithHeadingRow
         }
 
         if (ctype_digit($raw)) {
-            return (int) $raw;
+            // Validate that the numeric ID belongs to this restaurant
+            return DB::table('hrm_employees')
+                ->where('restaurant_id', $this->restaurantId)
+                ->where('id', (int) $raw)
+                ->value('id');
         }
 
         // Treat as staff_code (e.g. EMP001)

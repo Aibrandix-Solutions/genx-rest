@@ -139,7 +139,7 @@ class LeaveRequestsList extends Component
 
         $this->validate([
             'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
-            'employee_id' => ['required', 'integer', Rule::exists('hrm_employees', 'id')],
+            'employee_id' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
             'leave_type_id' => ['required', 'integer', Rule::exists('hrm_leave_types', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
             'from_date' => ['required', 'date'],
             'to_date' => ['required', 'date', 'after_or_equal:from_date'],

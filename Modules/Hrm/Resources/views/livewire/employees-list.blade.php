@@ -96,7 +96,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                     <x-label value="Branch" />
-                    <x-select class="w-full" wire:model.live="branch_id">
+                    <x-select class="w-full" wire:model="branch_id">
                         <option value="">Select branch</option>
                         @foreach($branches as $b)
                             <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
@@ -107,7 +107,7 @@
 
                 <div>
                     <x-label value="Linked User (optional)" />
-                    <x-select class="w-full" wire:model.live="user_id">
+                    <x-select class="w-full" wire:model="user_id">
                         <option value="">—</option>
                         @foreach($users as $u)
                             <option value="{{ $u->id }}">{{ $u->name }}{{ $u->email ? ' - '.$u->email : '' }}</option>
@@ -118,31 +118,31 @@
 
                 <div>
                     <x-label value="Name" />
-                    <x-input type="text" class="w-full" wire:model.live="name" />
+                    <x-input type="text" class="w-full" wire:model="name" />
                     @error('name') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Staff Code (auto-generated if empty)" />
-                    <x-input type="text" class="w-full" wire:model.live="staff_code" />
+                    <x-input type="text" class="w-full" wire:model="staff_code" />
                     @error('staff_code') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Email (optional)" />
-                    <x-input type="email" class="w-full" wire:model.live="email" />
+                    <x-input type="email" class="w-full" wire:model="email" />
                     @error('email') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Phone (optional)" />
-                    <x-input type="text" class="w-full" wire:model.live="phone" />
+                    <x-input type="text" class="w-full" wire:model="phone" />
                     @error('phone') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Department (optional)" />
-                    <x-select class="w-full" wire:model.live="department_id">
+                    <x-select class="w-full" wire:model="department_id">
                         <option value="">—</option>
                         @foreach($departments as $dep)
                             <option value="{{ $dep->id }}">{{ $dep->name }}</option>
@@ -153,7 +153,7 @@
 
                 <div>
                     <x-label value="Designation (optional)" />
-                    <x-select class="w-full" wire:model.live="designation_id">
+                    <x-select class="w-full" wire:model="designation_id">
                         <option value="">—</option>
                         @foreach($designations as $des)
                             <option value="{{ $des->id }}">{{ $des->name }}</option>
@@ -164,13 +164,13 @@
 
                 <div>
                     <x-label value="Hire Date (optional)" />
-                    <x-input type="date" class="w-full" wire:model.live="hire_date" />
+                    <x-input type="date" class="w-full" wire:model="hire_date" />
                     @error('hire_date') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Employment Type" />
-                    <x-select class="w-full" wire:model.live="employment_type">
+                    <x-select class="w-full" wire:model="employment_type">
                         <option value="full_time">Full time</option>
                         <option value="part_time">Part time</option>
                         <option value="contract">Contract</option>
@@ -181,7 +181,7 @@
 
                 <div>
                     <x-label value="Status" />
-                    <x-select class="w-full" wire:model.live="status">
+                    <x-select class="w-full" wire:model="status">
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                         <option value="terminated">Terminated</option>
@@ -216,7 +216,7 @@
                     <label class="flex items-center gap-3 cursor-pointer">
                         <input 
                             type="checkbox" 
-                            wire:model.live="is_epf_eligible"
+                            wire:model="is_epf_eligible"
                             class="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
                         />
                         <div>
@@ -228,7 +228,7 @@
 
                 <div class="lg:col-span-2">
                     <x-label value="Note (optional)" />
-                    <x-textarea class="w-full" rows="3" wire:model.live="note"></x-textarea>
+                    <x-textarea class="w-full" rows="3" wire:model="note"></x-textarea>
                     @error('note') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
             </div>
