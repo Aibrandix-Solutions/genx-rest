@@ -45,8 +45,13 @@ class SendOrderBill extends BaseNotification
      */
     public function toMail($notifiable)
     {
+        $this->order->loadMissing('extras');
+
         // Get tax mode from restaurant settings
         $taxMode = $this->settings->tax_mode ?? 'order';
+
+        $extrasTotal = (float) ($this->order->extras?->sum('amount') ?? 0);
+        $chargeTaxBase = max(0, (float) $this->order->sub_total + $extrasTotal - ((float) ($this->order->discount_amount ?? 0)));
 
         // Calculate tax amounts based on tax mode
         $taxesWithAmount = [];
@@ -54,7 +59,7 @@ class SendOrderBill extends BaseNotification
 
         if ($taxMode === 'order') {
             foreach ($this->order->taxes as $tax) {
-                $taxAmount = ($this->order->sub_total - ($this->order->discount_amount ?? 0)) * ($tax->tax->tax_percent / 100);
+                $taxAmount = $chargeTaxBase * ($tax->tax->tax_percent / 100);
                 $taxesWithAmount[] = [
                     'name' => $tax->tax->tax_name,
                     'amount' => $taxAmount,
@@ -70,7 +75,9 @@ class SendOrderBill extends BaseNotification
 
         foreach ($this->order->charges as $charge) {
 
-            $chargeAmount = $charge->charge->charge_type == 'percent' ? ($charge->charge->charge_value / 100) * $this->order->sub_total : $charge->charge->charge_value;
+            $chargeAmount = $charge->charge->charge_type == 'percent'
+                ? ($charge->charge->charge_value / 100) * $chargeTaxBase
+                : $charge->charge->charge_value;
             $chargesWithAmount[] = [
                 'name' => $charge->charge->charge_name,
                 'amount' => $chargeAmount,
@@ -89,6 +96,8 @@ class SendOrderBill extends BaseNotification
             ->markdown('emails.order-bill', [
                 'order' => $this->order,
                 'subtotal' => $this->order->sub_total,
+                'extras' => $this->order->extras,
+                'extrasTotal' => $extrasTotal,
                 'taxesWithAmount' => $taxesWithAmount,
                 'chargesWithAmount' => $chargesWithAmount,
                 'totalPrice' => $this->order->total,

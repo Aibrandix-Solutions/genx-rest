@@ -41,7 +41,8 @@ class Dashboard extends Component
     private function getExpiringStockItems()
     {
         return InventoryMovement::query()
-            ->with(['item'])
+            ->with(['item.category', 'item.unit'])
+            ->whereHas('item')
             ->where('transaction_type', InventoryMovement::TRANSACTION_TYPE_STOCK_ADDED)
             ->where('expiration_date', '<=', now()->addDays(7))
             ->when($this->selectedBranch !== 'all', function ($query) {

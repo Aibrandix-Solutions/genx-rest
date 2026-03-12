@@ -2,7 +2,7 @@ name: Deploy Genx Restaurant (rest.digipartner.lk via SFTP)
 
 on:
   push:
-    branches: [sample]
+    branches: [payment-account] # Manual merge to this branch triggers deploy
   workflow_dispatch:
 
 jobs:

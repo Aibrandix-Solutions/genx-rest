@@ -60,7 +60,7 @@ class CreateMenuItem extends Component
     #[Validate('nullable|string')]
     public ?string $kitchenType = null;
 
-    #[Validate('nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048')]
+    #[Validate('nullable|image|mimes:jpeg,png,jpg,gif,svg')]
     public $itemImageTemp;
 
     public ?string $itemImage = null;
@@ -760,7 +760,16 @@ class CreateMenuItem extends Component
     public function updatedItemImageTemp()
     {
         $this->itemImage = null;
-        $this->validateImage();
+
+        try {
+            $this->validateImage();
+        } catch (\League\Flysystem\UnableToRetrieveMetadata $e) {
+            $this->itemImageTemp = null;
+            $this->addError('itemImageTemp', 'The image could not be processed. Please rename the file (avoid very long filenames) and try again.');
+        } catch (\Throwable $e) {
+            $this->itemImageTemp = null;
+            $this->addError('itemImageTemp', 'The image could not be uploaded. Please try again with a different file.');
+        }
     }
 
     public function removeSelectedImage()
@@ -773,12 +782,30 @@ class CreateMenuItem extends Component
     {
         if (!$this->itemImageTemp) return;
 
-        $this->validate([
-            'itemImageTemp' => 'image|mimes:jpeg,png,jpg,gif,svg|max:2048',
-        ]);
+        try {
+            $this->validate([
+                'itemImageTemp' => 'image|mimes:jpeg,png,jpg,gif,svg',
+            ]);
+        } catch (\League\Flysystem\UnableToRetrieveMetadata $e) {
+            $this->itemImageTemp = null;
+            $this->addError('itemImageTemp', 'The image could not be processed. Please rename the file (avoid very long filenames) and try again.');
+            return;
+        }
+
+        // Use native filesize() via getRealPath() to avoid Livewire's livewire-tmp disk lookup,
+        // which can fail on some hosting environments (UnableToRetrieveMetadata).
+        $realPath = $this->itemImageTemp->getRealPath();
+        if ($realPath && file_exists($realPath)) {
+            $sizeInKb = filesize($realPath) / 1024;
+            if ($sizeInKb > 2048) {
+                $this->addError('itemImageTemp', 'The image must not be greater than 2MB.');
+                $this->itemImageTemp = null;
+                return;
+            }
+        }
 
         // Check image dimensions
-        $imageInfo = getimagesize($this->itemImageTemp->getRealPath());
+        $imageInfo = $realPath ? @getimagesize($realPath) : false;
         if ($imageInfo) {
             $width = $imageInfo[0];
             $height = $imageInfo[1];

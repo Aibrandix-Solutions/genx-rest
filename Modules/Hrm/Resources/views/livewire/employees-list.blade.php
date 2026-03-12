@@ -193,7 +193,7 @@
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div>
                             <x-label value="Daily Basic Salary" />
-                            <x-input type="number" step="0.01" min="0" class="w-full" wire:model.live="basic_salary_per_day" />
+                            <x-input type="number" step="0.01" min="0" class="w-full" wire:model.blur="basic_salary_per_day" />
                             @error('basic_salary_per_day') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Used to calculate monthly salary based on worked days</p>
                         </div>
@@ -204,7 +204,7 @@
                                 step="0.01" 
                                 min="0" 
                                 class="w-full bg-gray-100 dark:bg-gray-700" 
-                                wire:model.live="basic_salary_per_month" 
+                                wire:model.blur="basic_salary_per_month" 
                             />
                             @error('basic_salary_per_month') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Reference only - payroll uses daily rate × worked days</p>

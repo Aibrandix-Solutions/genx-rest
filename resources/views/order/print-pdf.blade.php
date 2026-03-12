@@ -337,10 +337,25 @@
         </table>
 
         <div class="summary">
+            @php
+                $extrasTotal = (float) ($order->extras?->sum('amount') ?? 0);
+                $chargeTaxBase = $order->sub_total + $extrasTotal - ($order->discount_amount ?? 0);
+            @endphp
             <div class="summary-row">
                 <span>@lang('modules.order.subTotal'):</span>
                 <span>  {{ currency_format($order->sub_total, restaurant()->currency_id, false, true) }} </span>
             </div>
+
+            @if(($order->extras?->count() ?? 0) > 0)
+                @foreach ($order->extras as $extra)
+                    @if(($extra->amount ?? 0) > 0 || $extra->note)
+                        <div class="summary-row">
+                            <span>{{ $extra->note ?: 'Extra' }}:</span>
+                            <span>{{ currency_format($extra->amount, restaurant()->currency_id, false, true) }}</span>
+                        </div>
+                    @endif
+                @endforeach
+            @endif
 
             @if (!is_null($order->discount_amount))
                 <div class="summary-row">
@@ -360,7 +375,7 @@
                             ({{ $item->charge->charge_value }}%)
                         @endif:
                     </span>
-                    <span>{{ currency_format(($item->charge->getAmount($order->sub_total - ($order->discount_amount ?? 0))), restaurant()->currency_id, true, true) }}</span>
+                    <span>{{ currency_format(($item->charge->getAmount($chargeTaxBase)), restaurant()->currency_id, true, true) }}</span>
                 </div>
             @endforeach
 
@@ -388,7 +403,7 @@
                 @foreach ($order->taxes as $item)
                     <div class="summary-row">
                         <span>{{ $item->tax->tax_name }} ({{ $item->tax->tax_percent }}%):</span>
-                        <span>{{ currency_format(($item->tax->tax_percent / 100) * ($order->sub_total - ($order->discount_amount ?? 0)), restaurant()->currency_id, false, true) }}</span>
+                        <span>{{ currency_format(($item->tax->tax_percent / 100) * ($chargeTaxBase), restaurant()->currency_id, false, true) }}</span>
                     </div>
                 @endforeach
             @else

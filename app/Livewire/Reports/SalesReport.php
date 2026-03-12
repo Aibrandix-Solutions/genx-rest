@@ -248,7 +248,7 @@ class SalesReport extends Component
                     ->whereDate('orders.date_time', $item->date)
                     ->where('orders.branch_id', branch()->id)
                     ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
-                THEN (restaurant_charges.charge_value / 100) * orders.sub_total
+                THEN (restaurant_charges.charge_value / 100) * GREATEST(0, (orders.sub_total + COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0)) - COALESCE(orders.discount_amount, 0))
                 ELSE restaurant_charges.charge_value END')) ?? 0;
             }
 

@@ -16,6 +16,7 @@ use App\Models\OrderTax;
 use App\Models\OrderItem;
 use App\Models\OrderType;
 use App\Models\OrderCharge;
+use App\Models\OrderExtra;
 use App\Scopes\BranchScope;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
@@ -98,6 +99,7 @@ class Pos extends Component
     public $orderItemOriginalPrice = [];
     public $orderItemComboDiscount = [];
     public $extraCharges;
+    public $orderExtras = [];
     public $discountedTotal;
     public $tipAmount = 0;
     public $orderStatus;
@@ -132,6 +134,15 @@ class Pos extends Component
     public $menuList;
     public $menuId;
 
+    // Lightweight order type selector (dropdown) + persistence
+    public $showOrderTypeDropdown = false;
+    public $availableOrderTypes = [];
+    public $availableDeliveryPlatforms = [];
+    public $setAsDefaultOrderType = false;
+    public $userDefaultOrderTypeId = null;
+    public $orderTypeName = null;
+    public $selectedDeliveryPlatformName = null;
+
     public function setCustomer($customerId = null)
     {
         $this->customerId = $customerId;
@@ -150,19 +161,69 @@ class Pos extends Component
         $this->maxDate = now()->addDays($this->pickupRange - 1)->endOfDay()->format('Y-m-d\TH:i');
         $this->defaultDate = old('deliveryDateTime', $this->deliveryDateTime ?? $this->minDate);
 
-        // Check if user has a default order type set and no order is being edited
+        // Restore last selection from session (so navigating away/back doesn't reset)
         if (!$this->orderID && !$this->tableOrderID) {
-            $user = auth()->user();
-            if ($user && $user->default_order_type_id) {
-                $defaultOrderType = OrderType::find($user->default_order_type_id);
-                if ($defaultOrderType && $defaultOrderType->is_active) {
-                    // Auto-set the default order type
-                    $this->orderTypeId = $defaultOrderType->id;
-                    $this->orderType = $defaultOrderType->type;
-                    $this->orderTypeSlug = $defaultOrderType->slug;
+            $sessionOrderTypeId = session()->get('pos.order_type_id');
+            $sessionDeliveryAppId = session()->get('pos.delivery_app_id');
+
+            if ($sessionOrderTypeId) {
+                $sessionOrderType = OrderType::find($sessionOrderTypeId);
+                if ($sessionOrderType && $sessionOrderType->is_active) {
+                    $this->orderTypeId = $sessionOrderType->id;
+                    $this->orderType = $sessionOrderType->type;
+                    $this->orderTypeSlug = $sessionOrderType->slug;
+                    $this->orderTypeName = $sessionOrderType->order_type_name;
+
+                    if ($this->orderTypeSlug === 'delivery') {
+                        $this->selectedDeliveryApp = $sessionDeliveryAppId;
+                    }
+                }
+            }
+
+            // If session has no selection, fall back to user's default order type
+            if (!$this->orderTypeId) {
+                $user = auth()->user();
+                if ($user && $user->default_order_type_id) {
+                    $defaultOrderType = OrderType::find($user->default_order_type_id);
+                    if ($defaultOrderType && $defaultOrderType->is_active) {
+                        $this->orderTypeId = $defaultOrderType->id;
+                        $this->orderType = $defaultOrderType->type;
+                        $this->orderTypeSlug = $defaultOrderType->slug;
+                        $this->orderTypeName = $defaultOrderType->order_type_name;
+                    }
+                }
+            }
+
+            // Final fallback: ensure an order type is always selected (default to Dine In)
+            if (!$this->orderTypeId) {
+                $dineIn = OrderType::where('type', 'dine_in')->where('is_active', true)->first();
+                if ($dineIn) {
+                    $this->orderTypeId = $dineIn->id;
+                    $this->orderType = $dineIn->type;
+                    $this->orderTypeSlug = $dineIn->slug;
+                    $this->orderTypeName = $dineIn->order_type_name;
+                } else {
+                    // Extremely defensive fallback
+                    $this->orderType = 'dine_in';
+                    $this->orderTypeSlug = 'dine_in';
                 }
             }
         }
+
+        // Dropdown options (avoid queries in Blade)
+        $this->availableOrderTypes = OrderType::where('is_active', true)
+            ->orderBy('order_type_name')
+            ->get(['id', 'order_type_name', 'slug', 'type'])
+            ->toArray();
+
+        $this->availableDeliveryPlatforms = DeliveryPlatform::where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->toArray();
+
+        $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
+        $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
+        $this->showOrderTypeDropdown = !$this->orderTypeId;
 
         $this->users = User::withoutGlobalScope(BranchScope::class)
             ->where(function ($q) {
@@ -226,9 +287,40 @@ class Pos extends Component
             $this->orderStatus = $order->order_status;
             $this->orderTypeId = $order->order_type_id;
             $this->orderType = $order->order_type;
+
+            // Ensure existing orders always resolve to a concrete order type ID
+            if (!$this->orderTypeId && $this->orderType) {
+                $resolved = OrderType::where('type', $this->orderType)
+                    ->orWhere('slug', $this->orderType)
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($resolved) {
+                    $this->orderTypeId = $resolved->id;
+                    $this->orderTypeSlug = $resolved->slug;
+                    $this->orderType = $resolved->type;
+                    $this->orderTypeName = $resolved->order_type_name;
+                }
+            }
+
+            if ($this->orderTypeId) {
+                $this->orderTypeName = $this->orderTypeName ?? OrderType::where('id', $this->orderTypeId)->value('order_type_name');
+            }
             $this->deliveryDateTime = $order->pickup_date;
             $this->taxMode = $order->tax_mode ?? $this->taxMode;
             $this->selectedDeliveryApp = $order->delivery_app_id;
+
+            $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
+            $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
+
+            $this->orderExtras = $order->extras()
+                ->orderBy('id')
+                ->get(['note', 'amount'])
+                ->map(fn($extra) => [
+                    'note' => $extra->note,
+                    'amount' => (float) $extra->amount,
+                ])
+                ->toArray();
 
             if ($this->orderDetail) {
 
@@ -241,6 +333,8 @@ class Pos extends Component
 
         $this->updatedOrderTypeId($this->orderTypeId);
 
+        $this->refreshSelectedDeliveryPlatformName();
+
         if ($this->orderID) {
             $this->extraCharges = ($order->status === 'kot' && !$this->orderDetail) ? [] : $order->extraCharges;
         }
@@ -248,6 +342,67 @@ class Pos extends Component
 
         $this->cancelReasons = KotCancelReason::where('cancel_order', true)->get();
         $this->menuList = Menu::withoutGlobalScopes()->where('branch_id', branch()->id)->orderBy('sort_order')->get();
+    }
+
+    public function toggleOrderTypeDropdown(): void
+    {
+        $this->showOrderTypeDropdown = !$this->showOrderTypeDropdown;
+    }
+
+    public function updatedSetAsDefaultOrderType($value): void
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return;
+        }
+
+        $value = (bool) $value;
+
+        if ($value && $this->orderTypeId) {
+            $user->update(['default_order_type_id' => (int) $this->orderTypeId]);
+            $this->userDefaultOrderTypeId = (int) $this->orderTypeId;
+            return;
+        }
+
+        if (!$value && $user->default_order_type_id && $this->orderTypeId && ((int) $user->default_order_type_id === (int) $this->orderTypeId)) {
+            $user->update(['default_order_type_id' => null]);
+            $this->userDefaultOrderTypeId = null;
+        }
+    }
+
+    public function updatedSelectedDeliveryApp(): void
+    {
+        // Only relevant for delivery orders
+        if (($this->orderTypeSlug ?? null) !== 'delivery') {
+            $this->selectedDeliveryApp = null;
+            $this->selectedDeliveryPlatformName = null;
+            return;
+        }
+
+        // Persist last chosen platform for this session
+        session()->put('pos.delivery_app_id', $this->selectedDeliveryApp);
+
+        $this->refreshSelectedDeliveryPlatformName();
+        $this->updateCartItemsPricing();
+        $this->calculateTotal();
+    }
+
+    private function refreshSelectedDeliveryPlatformName(): void
+    {
+        if (($this->orderTypeSlug ?? null) !== 'delivery') {
+            $this->selectedDeliveryPlatformName = null;
+            return;
+        }
+
+        if ($this->selectedDeliveryApp === 'default' || $this->selectedDeliveryApp === null || $this->selectedDeliveryApp === '') {
+            $this->selectedDeliveryPlatformName = __('modules.order.default');
+            return;
+        }
+
+        $platformId = is_numeric($this->selectedDeliveryApp) ? (int) $this->selectedDeliveryApp : null;
+        $this->selectedDeliveryPlatformName = $platformId
+            ? (DeliveryPlatform::where('id', $platformId)->value('name') ?? null)
+            : null;
     }
 
     public function setOrderTypeChoice($value)
@@ -456,12 +611,55 @@ class Pos extends Component
 
     public function updatedOrderTypeId($value)
     {
+        // Defensive: ensure orderTypeId never stays empty (prevents UI/state mismatch)
+        if (!$value) {
+            $fallback = OrderType::where('type', 'dine_in')->where('is_active', true)->first();
+            if ($fallback) {
+                $this->orderTypeId = $fallback->id;
+                $this->orderTypeSlug = $fallback->slug;
+                $this->orderType = $fallback->type;
+                $this->orderTypeName = $fallback->order_type_name;
+                $this->selectedDeliveryApp = null;
+                $this->selectedDeliveryPlatformName = null;
+                session()->put('pos.order_type_id', (int) $this->orderTypeId);
+                $value = $this->orderTypeId;
+            } else {
+                // If dine-in is missing, keep previous behavior of a safe early return
+                return;
+            }
+        }
+
         // Get the order type information efficiently
-        $orderType = OrderType::select('slug', 'type')->find($value);
+        $orderType = OrderType::select('slug', 'type', 'order_type_name')->find($value);
 
         // Update the local variables to keep them in sync
-        $this->orderTypeSlug = $orderType ? $orderType->slug : $this->orderType;
+        $this->orderTypeSlug = $orderType ? $orderType->slug : $this->orderTypeSlug;
         $this->orderType = $orderType ? $orderType->type : $this->orderType;
+        $this->orderTypeName = $orderType ? $orderType->order_type_name : null;
+
+        // Keep default checkbox in sync with user preference
+        $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
+        $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
+
+        // Clear delivery platform when leaving delivery order type
+        if ($this->orderTypeSlug !== 'delivery') {
+            $this->selectedDeliveryApp = null;
+            $this->selectedDeliveryPlatformName = null;
+        } else {
+            $this->refreshSelectedDeliveryPlatformName();
+        }
+
+        // Close dropdown after a selection is made
+        $this->showOrderTypeDropdown = false;
+
+        // Persist last choice for this session (navigation/refresh)
+        session()->put('pos.order_type_id', (int) $this->orderTypeId);
+
+        // If user keeps "set as default" checked and changes type, update their default
+        if ($this->setAsDefaultOrderType && auth()->user() && $this->orderTypeId) {
+            auth()->user()->update(['default_order_type_id' => (int) $this->orderTypeId]);
+            $this->userDefaultOrderTypeId = (int) $this->orderTypeId;
+        }
 
         $mainExtraCharges = RestaurantCharge::whereJsonContains('order_types', $this->orderTypeSlug)
             ->where('is_enabled', true)
@@ -635,17 +833,8 @@ class Pos extends Component
     #[On('confirmChangeOrderType')]
     public function resetOrderTypeSelection()
     {
-        // Reset order type related properties
-        $this->orderTypeId = null;
-        $this->orderTypeSlug = null;
-        $this->orderType = null;
-        $this->selectedDeliveryApp = null;
-        
-        // Clear delivery fee if it was set
-        $this->deliveryFee = 0;
-        
-        // Recalculate with new settings
-        $this->calculateTotal();
+        // Keep order type selected; just open the selector so user can change it.
+        $this->showOrderTypeDropdown = true;
     }
 
     public function showTableOrder()
@@ -744,7 +933,7 @@ class Pos extends Component
                             // Scale to current KOT item quantity
                             $this->orderItemOriginalPrice[$key] = $unitOriginalPrice * $item->quantity;
                             $this->orderItemComboDiscount[$key] = $unitDiscount * $item->quantity;
-                            
+
                             // Use the discounted price per unit, scaled to KOT item quantity
                             $this->orderItemAmount[$key] = $unitPrice * $item->quantity;
                         } else {
@@ -1279,20 +1468,30 @@ class Pos extends Component
             }
         }
 
-        $this->discountedTotal = $this->total;
+        $itemsSubTotalForDiscount = $this->subTotal;
+        $extrasTotal = $this->getOrderExtrasTotal();
+
+        // Extras are part of order total, but excluded from discount calculations
+        if ($extrasTotal > 0) {
+            $this->total += $extrasTotal;
+        }
 
         // Apply discounts
         if ($this->discountValue > 0 && $this->discountType) {
             if ($this->discountType === 'percent') {
-                $this->discountAmount = round(($this->subTotal * $this->discountValue) / 100, 2);
+                $this->discountAmount = round(($itemsSubTotalForDiscount * $this->discountValue) / 100, 2);
             } elseif ($this->discountType === 'fixed') {
-                $this->discountAmount = min($this->discountValue, $this->subTotal);
+                $this->discountAmount = min($this->discountValue, $itemsSubTotalForDiscount);
             }
 
             $this->total -= $this->discountAmount;
         }
 
-        $this->discountedTotal = $this->total;
+        // Charges/taxes base should match POS UI breakdown:
+        // base = (items subtotal + custom extras) - discount
+        // Note: custom extras are excluded from discount calculations (handled above).
+        $chargeAndTaxBase = max(0, round(($this->subTotal + $extrasTotal) - ((float) ($this->discountAmount ?? 0)), 2));
+        $this->discountedTotal = $chargeAndTaxBase;
 
         // Calculate taxes using centralized method
         $this->recalculateTaxTotals();
@@ -1336,6 +1535,7 @@ class Pos extends Component
             'order_number' => $this->orderNumber,
             'formatted_order_number' => $this->formattedOrderNumber,
             'items' => $this->getCustomerDisplayItems(),
+            'custom_extras' => $this->getCustomerDisplayCustomExtras(),
             'sub_total' => $this->subTotal,
             'discount' => $this->discountAmount ?? 0,
             'total' => $this->total,
@@ -1373,10 +1573,107 @@ class Pos extends Component
             'order_number' => $this->orderNumber,
             'formatted_order_number' => $this->formattedOrderNumber,
             'items' => $this->getCustomerDisplayItems(),
+            'custom_extras' => $this->getCustomerDisplayCustomExtras(),
             'sub_total' => $this->subTotal,
             'discount' => $this->discountAmount ?? 0,
             'total' => $this->total,
         ]);
+    }
+
+    public function updated($name, $value)
+    {
+        if (is_string($name) && Str::startsWith($name, 'orderExtras.')) {
+            $this->calculateTotal();
+        }
+    }
+
+    public function updatedOrderExtras()
+    {
+        $this->calculateTotal();
+    }
+
+    public function addOrderExtraRow()
+    {
+        if (!(restaurant()->allow_custom_order_extras ?? false)) {
+            return;
+        }
+
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        $this->orderExtras[] = [
+            'amount' => 0,
+            'note' => '',
+        ];
+
+        $this->calculateTotal();
+    }
+
+    public function removeOrderExtraRow($index)
+    {
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        if (!isset($this->orderExtras[$index])) {
+            return;
+        }
+
+        unset($this->orderExtras[$index]);
+        $this->orderExtras = array_values($this->orderExtras);
+        $this->calculateTotal();
+    }
+
+    private function normalizeOrderExtras(): array
+    {
+        $normalized = [];
+
+        foreach (($this->orderExtras ?? []) as $extra) {
+            if (!is_array($extra)) {
+                continue;
+            }
+
+            $note = trim((string) ($extra['note'] ?? ''));
+            $amount = (float) ($extra['amount'] ?? 0);
+            $amount = max(0, round($amount, 2));
+
+            if ($note === '' && $amount <= 0) {
+                continue;
+            }
+
+            $normalized[] = [
+                'note' => ($note !== '' ? $note : null),
+                'amount' => $amount,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function getOrderExtrasTotal(): float
+    {
+        return (float) collect($this->normalizeOrderExtras())->sum('amount');
+    }
+
+    private function getCustomerDisplayCustomExtras(): array
+    {
+        return $this->normalizeOrderExtras();
+    }
+
+    private function syncOrderExtras(Order $order): void
+    {
+        if (!(restaurant()->allow_custom_order_extras ?? false)) {
+            return;
+        }
+
+        $extras = $this->normalizeOrderExtras();
+
+        $order->extras()->delete();
+
+        if (!empty($extras)) {
+            $order->extras()->createMany($extras);
+        }
     }
 
     private function recalculateTaxTotals()
@@ -1526,6 +1823,10 @@ class Pos extends Component
 
         $this->validate($rules, $messages);
 
+        // Ensure totals are up-to-date (especially nested orderExtras changes)
+        // before persisting to the database.
+        $this->calculateTotal();
+
         switch ($action) {
             case 'bill':
                 $successMessage = __('messages.billedSuccess');
@@ -1637,6 +1938,8 @@ class Pos extends Component
             $order->taxes()->delete();
         }
 
+        $this->syncOrderExtras($order);
+
         if ($status == 'canceled') {
             $order->delete();
 
@@ -1655,12 +1958,29 @@ class Pos extends Component
                 // Group items by kot_place_id
                 $groupedItems = [];
 
+                $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)
+                    ->where('is_default', true)
+                    ->value('id');
+
+                if (!$defaultKotPlaceId) {
+                    $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)->value('id');
+                }
+
                 foreach ($this->orderItemList as $key => $item) {
                     $menuItem = $this->orderItemVariation[$key]->menuItem ?? $item;
                     $kotPlaceId = $menuItem->kot_place_id ?? null;
 
                     if (!$kotPlaceId) {
-                        continue;
+                        if ($defaultKotPlaceId) {
+                            // Persist the fallback so this doesn't break future orders/KOTs.
+                            MenuItem::withoutGlobalScopes()
+                                ->whereKey($menuItem->id)
+                                ->update(['kot_place_id' => $defaultKotPlaceId]);
+
+                            $kotPlaceId = $defaultKotPlaceId;
+                        } else {
+                            continue;
+                        }
                     }
 
                     $groupedItems[$kotPlaceId][] = [
@@ -1679,6 +1999,7 @@ class Pos extends Component
 
                 foreach ($groupedItems as $kotPlaceId => $items) {
                     $kot = Kot::create([
+                        'branch_id' => $order->branch_id,
                         'kot_number' => Kot::generateKotNumber($order->branch),
                         'order_id' => $order->id,
                         'order_type_id' => $order->order_type_id,
@@ -1711,6 +2032,7 @@ class Pos extends Component
             } else {
                 // No kitchen module: single KOT for all items
                 $kot = Kot::create([
+                    'branch_id' => $order->branch_id,
                     'kot_number' => Kot::generateKotNumber($order->branch) + 1,
                     'order_id' => $order->id,
                     'order_type_id' => $order->order_type_id,
@@ -1843,6 +2165,7 @@ class Pos extends Component
                         : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
                     
                     $orderItem = OrderItem::create([
+                        'branch_id' => $order->branch_id,
                         'order_id' => $order->id,
                         'menu_item_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $this->orderItemList[$key]->id),
                         'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
@@ -1904,6 +2227,7 @@ class Pos extends Component
                     : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
                 
                 $orderItem = OrderItem::create([
+                    'branch_id' => $order->branch_id,
                     'order_type' => $this->orderType,
                     'order_type_id' => $this->orderTypeId,
                     'order_id' => $order->id,
@@ -1957,6 +2281,14 @@ class Pos extends Component
             foreach ($order->load('items')->items as $value) {
                 $this->subTotal = ($this->subTotal + $value->amount);
                 $this->total = ($this->total + $value->amount);
+            }
+
+            // Include custom extras in billed totals (extras are not part of sub_total)
+            $stateExtrasTotal = $this->getOrderExtrasTotal();
+            $dbExtrasTotal = (float) $order->extras()->sum('amount');
+            $extrasTotal = max($stateExtrasTotal, $dbExtrasTotal);
+            if ($extrasTotal > 0) {
+                $this->total += $extrasTotal;
             }
 
             $this->discountedTotal = $this->total;
@@ -2148,8 +2480,12 @@ class Pos extends Component
                 $kotPlaceItems = [];
 
                 foreach ($kot->items as $kotItem) {
-                    if ($kotItem->menuItem && $kotItem->menuItem->kot_place_id) {
-                        $kotPlaceId = $kotItem->menuItem->kot_place_id;
+                    if ($kotItem->menuItem) {
+                        $kotPlaceId = $kotItem->menuItem->kot_place_id ?: $kot->kitchen_place_id;
+
+                        if (!$kotPlaceId) {
+                            continue;
+                        }
 
                         if (!isset($kotPlaceItems[$kotPlaceId])) {
                             $kotPlaceItems[$kotPlaceId] = [];
@@ -2253,20 +2589,54 @@ class Pos extends Component
         $this->orderItemVariation = [];
         $this->orderItemQty = [];
         $this->orderItemAmount = [];
-        // Set default order type to Dine In
-        $defaultOrderType = OrderType::where('type', 'dine_in')
-            ->where('is_active', true)
-            ->first();
+        // Prefer restoring last selection from session (New Order should not force Dine In)
+        $this->selectedDeliveryApp = null;
+        $this->selectedDeliveryPlatformName = null;
+        $this->orderTypeName = null;
 
-        if ($defaultOrderType) {
-            $this->orderType = $defaultOrderType->type;
-            $this->orderTypeSlug = $defaultOrderType->slug;
-            $this->orderTypeId = $defaultOrderType->id;
+        $sessionOrderTypeId = session()->get('pos.order_type_id');
+        $sessionDeliveryAppId = session()->get('pos.delivery_app_id');
+
+        $sessionOrderType = $sessionOrderTypeId
+            ? OrderType::where('id', (int) $sessionOrderTypeId)->where('is_active', true)->first()
+            : null;
+
+        if ($sessionOrderType) {
+            $this->orderTypeId = $sessionOrderType->id;
+            $this->orderType = $sessionOrderType->type;
+            $this->orderTypeSlug = $sessionOrderType->slug;
+            $this->orderTypeName = $sessionOrderType->order_type_name;
+
+            if ($this->orderTypeSlug === 'delivery') {
+                $this->selectedDeliveryApp = $sessionDeliveryAppId;
+                $this->refreshSelectedDeliveryPlatformName();
+            }
         } else {
-            //  if no default order type found
-            $this->orderType = 'dine_in';
-            $this->orderTypeSlug = 'dine_in';
-            $this->orderTypeId = null;
+            // Fallback: keep existing default behavior
+            $defaultOrderType = OrderType::where('type', 'dine_in')
+                ->where('is_active', true)
+                ->first();
+
+            if ($defaultOrderType) {
+                $this->orderType = $defaultOrderType->type;
+                $this->orderTypeSlug = $defaultOrderType->slug;
+                $this->orderTypeId = $defaultOrderType->id;
+                $this->orderTypeName = $defaultOrderType->order_type_name;
+            } else {
+                // If no dine-in exists, fall back to the first active order type.
+                $fallbackOrderType = OrderType::where('is_active', true)->orderBy('order_type_name')->first();
+
+                if ($fallbackOrderType) {
+                    $this->orderType = $fallbackOrderType->type;
+                    $this->orderTypeSlug = $fallbackOrderType->slug;
+                    $this->orderTypeId = $fallbackOrderType->id;
+                    $this->orderTypeName = $fallbackOrderType->order_type_name;
+                } else {
+                    // Extremely defensive fallback if no order types exist at all
+                    $this->orderType = 'dine_in';
+                    $this->orderTypeSlug = 'dine_in';
+                }
+            }
         }
 
         $this->discountType = null;

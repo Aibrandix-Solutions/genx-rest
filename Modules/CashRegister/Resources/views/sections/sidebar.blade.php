@@ -22,11 +22,13 @@
             ])
         @endcanany
 
-        @livewire('sidebar-dropdown-menu', [
-            'name' => __('menu.reports'),
-            'link' => route('cashregister.reports'),
-            'active' => request()->routeIs('cashregister.reports'),
-        ])
+        @can('View Cash Register Reports')
+            @livewire('sidebar-dropdown-menu', [
+                'name' => __('menu.reports'),
+                'link' => route('cashregister.reports'),
+                'active' => request()->routeIs('cashregister.reports'),
+            ])
+        @endcan
 
         @can('Approve Cash Register')
         @livewire('sidebar-dropdown-menu', [
