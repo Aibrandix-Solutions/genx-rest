@@ -104,12 +104,6 @@ class ShiftsList extends Component
             'assign_to_date' => ['required', 'date', 'after_or_equal:assign_from_date'],
         ]);
 
-        $employee = Employee::query()->findOrFail((int) $this->assign_employee_id);
-        if ((int) $employee->branch_id !== (int) $this->assign_branch_id) {
-            $this->addError('assign_employee_id', 'Selected employee is not in the selected branch.');
-            return;
-        }
-
         $overlap = ShiftAssignment::query()
             ->where('restaurant_id', restaurant()->id)
             ->where('employee_id', (int) $this->assign_employee_id)
@@ -305,7 +299,13 @@ class ShiftsList extends Component
     {
         $shifts = Shift::query()
             ->with(['branch:id,name'])
-            ->when($this->branchFilterId, fn($q) => $q->where('branch_id', $this->branchFilterId))
+            ->when($this->branchFilterId !== null, function ($q) {
+                if ($this->branchFilterId === 0) {
+                    $q->whereNull('branch_id');
+                } else {
+                    $q->where('branch_id', $this->branchFilterId);
+                }
+            })
             ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
             ->orderBy('name')
             ->paginate(15);
@@ -314,9 +314,10 @@ class ShiftsList extends Component
         $assignShifts = collect();
         if ($this->assign_branch_id) {
             $assignEmployees = Employee::query()
-                ->where('branch_id', $this->assign_branch_id)
+                ->where('restaurant_id', restaurant()->id)
+                ->where('status', 'active')
                 ->orderBy('name')
-                ->get(['id', 'name', 'staff_code']);
+                ->get(['id', 'name', 'staff_code', 'branch_id']);
 
             $assignShifts = Shift::query()
                 ->where('is_active', true)
