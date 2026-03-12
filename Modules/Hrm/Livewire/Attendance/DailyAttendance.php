@@ -229,7 +229,7 @@ class DailyAttendance extends Component
         $this->validate([
             'date' => ['required', 'date'],
             'branchId' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'editingEmployeeId' => ['required', 'integer', Rule::exists('hrm_employees', 'id')],
+            'editingEmployeeId' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'shift_id' => ['nullable', 'integer', Rule::exists('hrm_shifts', 'id')],
             'status' => ['required', 'string', 'max:50'],
             'clock_in_at' => ['nullable', 'date'],
@@ -274,12 +274,14 @@ class DailyAttendance extends Component
             ->value('name');
 
         $employees = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
             ->where('branch_id', $this->branchId)
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code']);
 
         $logsByEmployee = AttendanceLog::query()
             ->with('shift:id,name')
+            ->where('restaurant_id', restaurant()->id)
             ->where('branch_id', $this->branchId)
             ->where('date', $this->date)
             ->get()
@@ -329,6 +331,7 @@ class DailyAttendance extends Component
 
         $logs = AttendanceLog::query()
             ->with(['employee:id,name,staff_code', 'shift:id,name'])
+            ->where('restaurant_id', restaurant()->id)
             ->where('branch_id', $this->branchId)
             ->whereBetween('date', [$from, $to])
             ->when($this->shiftId, fn($q) => $q->where('shift_id', $this->shiftId))
@@ -383,11 +386,13 @@ class DailyAttendance extends Component
             ->value('name');
 
         $employees = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
             ->where('branch_id', $this->branchId)
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code']);
 
         $logs = AttendanceLog::query()
+            ->where('restaurant_id', restaurant()->id)
             ->where('branch_id', $this->branchId)
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->get(['employee_id', 'date', 'status']);
@@ -480,7 +485,7 @@ class DailyAttendance extends Component
         $this->authorize('Manage Attendance');
 
         $this->validate([
-            'branchId' => ['required', 'integer'],
+            'branchId' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'importFile' => ['required', 'file', 'mimes:xlsx,xls,csv'],
         ]);
 
@@ -489,6 +494,8 @@ class DailyAttendance extends Component
 
         $import = new AttendanceImport(restaurant()->id, (int) $this->branchId);
         Excel::import($import, $fullPath);
+
+        Storage::disk('local')->delete($path);
 
         $r = $import->results();
         $this->importMessage = "Imported {$r['imported']} rows. Skipped {$r['skipped']} (missing employee: {$r['skipped_missing_employee']}, missing date: {$r['skipped_missing_date']}). Failed {$r['failed']}.";
@@ -514,6 +521,7 @@ class DailyAttendance extends Component
         }
 
         AttendanceLog::query()
+            ->where('restaurant_id', restaurant()->id)
             ->where('employee_id', $this->clearEmployeeId)
             ->where('branch_id', $this->branchId)
             ->where('date', $this->date)
@@ -570,6 +578,7 @@ class DailyAttendance extends Component
 
         if ($this->branchId) {
             $employees = Employee::query()
+                ->where('restaurant_id', restaurant()->id)
                 ->where('branch_id', $this->branchId)
                 ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
                 ->orderBy('name')
@@ -577,6 +586,7 @@ class DailyAttendance extends Component
 
             $attendanceByEmployee = AttendanceLog::query()
                 ->with('shift:id,name')
+                ->where('restaurant_id', restaurant()->id)
                 ->where('branch_id', $this->branchId)
                 ->where('date', $this->date)
                 ->get()
@@ -591,6 +601,7 @@ class DailyAttendance extends Component
             if ($this->tab === 'byShift' && $this->summaryShiftId) {
                 $logs = AttendanceLog::query()
                     ->with('employee:id,name')
+                    ->where('restaurant_id', restaurant()->id)
                     ->where('branch_id', $this->branchId)
                     ->where('date', $this->date)
                     ->where('shift_id', $this->summaryShiftId)
@@ -608,6 +619,7 @@ class DailyAttendance extends Component
 
                 $logs = AttendanceLog::query()
                     ->with('employee:id,name')
+                    ->where('restaurant_id', restaurant()->id)
                     ->where('branch_id', $this->branchId)
                     ->whereBetween('date', [$from, $to])
                     ->orderBy('date')
@@ -651,6 +663,7 @@ class DailyAttendance extends Component
                     $today = now()->startOfDay();
 
                     $employeesAll = Employee::query()
+                        ->where('restaurant_id', restaurant()->id)
                         ->where('branch_id', $this->branchId)
                         ->when($this->search, function ($q) {
                             $q->where('name', 'like', "%{$this->search}%")
@@ -660,6 +673,7 @@ class DailyAttendance extends Component
                         ->get(['id', 'name', 'staff_code']);
 
                     $logs = AttendanceLog::query()
+                        ->where('restaurant_id', restaurant()->id)
                         ->where('branch_id', $this->branchId)
                         ->whereBetween('date', [$fromC->toDateString(), $toC->toDateString()])
                         ->when($this->shiftId, fn($q) => $q->where('shift_id', $this->shiftId))
@@ -703,6 +717,7 @@ class DailyAttendance extends Component
                 } else {
                     $rangeLogs = AttendanceLog::query()
                         ->with(['employee:id,name,staff_code', 'shift:id,name'])
+                        ->where('restaurant_id', restaurant()->id)
                         ->where('branch_id', $this->branchId)
                         ->whereBetween('date', [$from, $to])
                         ->when($this->shiftId, fn($q) => $q->where('shift_id', $this->shiftId))

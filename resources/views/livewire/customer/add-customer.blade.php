@@ -66,6 +66,11 @@
                                                 <p class="text-sm font-medium text-gray-900 dark:text-white mb-1">
                                                     {{ $result->name }}
                                                 </p>
+                                                @if(($result->is_employee ?? false) || ($result->employee_id ?? null))
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 mb-2">
+                                                        Employee
+                                                    </span>
+                                                @endif
                                                 <div class="flex flex-wrap gap-3">
                                                     @if($result->phone)
                                                         <span class="inline-flex items-center text-xs text-gray-600 dark:text-gray-400">

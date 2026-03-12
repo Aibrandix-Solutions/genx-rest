@@ -306,7 +306,6 @@ class ShiftsList extends Component
         $shifts = Shift::query()
             ->with(['branch:id,name'])
             ->when($this->branchFilterId, fn($q) => $q->where('branch_id', $this->branchFilterId))
-            ->when($this->branchFilterId === 0, fn($q) => $q->whereNull('branch_id'))
             ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
             ->orderBy('name')
             ->paginate(15);

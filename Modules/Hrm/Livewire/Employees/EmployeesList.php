@@ -2,6 +2,7 @@
 
 namespace Modules\Hrm\Livewire\Employees;
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\DB;
@@ -160,6 +161,8 @@ class EmployeesList extends Component
         $employee->note = $this->note;
         $employee->save();
 
+        $this->syncCustomerForEmployee($employee);
+
         $this->showModal = false;
         $this->resetForm();
     }
@@ -182,6 +185,14 @@ class EmployeesList extends Component
         }
 
         $employee = Employee::query()->findOrFail($this->deleteId);
+
+        Customer::query()
+            ->where('employee_id', $employee->id)
+            ->update([
+                'employee_id' => null,
+                'is_employee' => false,
+            ]);
+
         $employee->delete();
 
         $this->showDeleteModal = false;
@@ -212,6 +223,50 @@ class EmployeesList extends Component
         $this->status = 'active';
         $this->is_epf_eligible = true;
         $this->note = null;
+    }
+
+    private function syncCustomerForEmployee(Employee $employee): void
+    {
+        $customer = Customer::query()
+            ->where('employee_id', $employee->id)
+            ->first();
+
+        if (!$customer && $employee->email) {
+            $customer = Customer::query()
+                ->where('email', $employee->email)
+                ->first();
+        }
+
+        if (!$customer && $employee->phone) {
+            $matches = Customer::query()
+                ->where('phone', $employee->phone)
+                ->whereNull('employee_id')
+                ->limit(2)
+                ->get();
+
+            if ($matches->count() === 1) {
+                $customer = $matches->first();
+            }
+        }
+
+        if (!$customer) {
+            $customer = new Customer();
+            $customer->restaurant_id = $employee->restaurant_id;
+        }
+
+        $customer->name = $employee->name;
+
+        if ($employee->phone) {
+            $customer->phone = $employee->phone;
+        }
+
+        if ($employee->email) {
+            $customer->email = $employee->email;
+        }
+
+        $customer->is_employee = true;
+        $customer->employee_id = $employee->id;
+        $customer->save();
     }
 
     public function render()

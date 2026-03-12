@@ -113,7 +113,7 @@
 
                 <div>
                     <x-label value="Leave Type" />
-                    <x-select class="w-full" wire:model.live="leave_type_id">
+                    <x-select class="w-full" wire:model="leave_type_id">
                         <option value="">Select type</option>
                         @foreach($leaveTypes as $t)
                             <option value="{{ $t['id'] }}">{{ $t['name'] }}</option>
@@ -124,7 +124,7 @@
 
                 <div class="lg:col-span-2">
                     <x-label value="Employee" />
-                    <x-select class="w-full" wire:model.live="employee_id">
+                    <x-select class="w-full" wire:model="employee_id">
                         <option value="">Select employee</option>
                         @foreach($employees as $e)
                             <option value="{{ $e['id'] }}">{{ $e['name'] }} ({{ $e['staff_code'] ?? '—' }})</option>
@@ -135,19 +135,19 @@
 
                 <div>
                     <x-label value="From" />
-                    <x-input type="date" class="w-full" wire:model.live="from_date" />
+                    <x-input type="date" class="w-full" wire:model="from_date" />
                     @error('from_date') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="To" />
-                    <x-input type="date" class="w-full" wire:model.live="to_date" />
+                    <x-input type="date" class="w-full" wire:model="to_date" />
                     @error('to_date') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Status" />
-                    <x-select class="w-full" wire:model.live="request_status">
+                    <x-select class="w-full" wire:model="request_status">
                         <option value="pending">Pending</option>
                         <option value="approved">Approved</option>
                         <option value="rejected">Rejected</option>

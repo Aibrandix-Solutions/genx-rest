@@ -3,14 +3,14 @@
 namespace Modules\Hrm\Livewire\CreditPurchases;
 
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use Livewire\Attributes\Locked;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Hrm\Entities\CreditPayment;
 use Modules\Hrm\Entities\CreditPurchase;
 use Modules\Hrm\Entities\Employee;
 
-#[Locked]
 class CreditPurchaseManager extends Component
 {
     use AuthorizesRequests;
@@ -51,7 +51,9 @@ class CreditPurchaseManager extends Component
         $this->authorize('Manage Payroll');
 
         if ($creditPurchaseId) {
-            $purchase = CreditPurchase::find($creditPurchaseId);
+            $purchase = CreditPurchase::query()
+                ->where('restaurant_id', restaurant()->id)
+                ->findOrFail((int) $creditPurchaseId);
             $this->editingId = $purchase->id;
             $this->employee_id = $purchase->employee_id;
             $this->purchase_date = $purchase->purchase_date->toDateString();
@@ -90,7 +92,7 @@ class CreditPurchaseManager extends Component
         $this->authorize('Manage Payroll');
 
         $this->validate([
-            'employee_id' => ['required', 'exists:hrm_employees,id'],
+            'employee_id' => ['required', Rule::exists('hrm_employees', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
             'purchase_date' => ['required', 'date'],
             'description' => ['required', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0.01'],
@@ -100,7 +102,9 @@ class CreditPurchaseManager extends Component
         ]);
 
         if ($this->editingId) {
-            $creditPurchase = CreditPurchase::find($this->editingId);
+            $creditPurchase = CreditPurchase::query()
+                ->where('restaurant_id', restaurant()->id)
+                ->findOrFail((int) $this->editingId);
             $creditPurchase->update([
                 'employee_id' => $this->employee_id,
                 'purchase_date' => $this->purchase_date,
@@ -136,7 +140,10 @@ class CreditPurchaseManager extends Component
     {
         $this->authorize('Manage Payroll');
 
-        CreditPurchase::find($creditPurchaseId)->delete();
+        CreditPurchase::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail((int) $creditPurchaseId)
+            ->delete();
         $this->dispatch('alert', type: 'success', message: 'Credit purchase deleted');
         $this->resetPage();
     }
@@ -145,8 +152,10 @@ class CreditPurchaseManager extends Component
     {
         $this->authorize('Manage Payroll');
 
-        $creditPurchase = CreditPurchase::find($creditPurchaseId);
-        $this->paymentCreditPurchaseId = $creditPurchaseId;
+        $creditPurchase = CreditPurchase::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail((int) $creditPurchaseId);
+        $this->paymentCreditPurchaseId = $creditPurchase->id;
         $this->paymentAmount = $creditPurchase->remaining_balance;
         $this->paymentMethod = 'cash';
         $this->paymentReference = '';
@@ -175,7 +184,9 @@ class CreditPurchaseManager extends Component
             'paymentNotes' => ['nullable', 'string'],
         ]);
 
-        $creditPurchase = CreditPurchase::find($this->paymentCreditPurchaseId);
+        $creditPurchase = CreditPurchase::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail((int) $this->paymentCreditPurchaseId);
         $creditPurchase->recordPayment(
             $this->paymentAmount,
             $this->paymentMethod,
@@ -193,7 +204,9 @@ class CreditPurchaseManager extends Component
     {
         $this->authorize('Manage Payroll');
 
-        $creditPurchase = CreditPurchase::find($creditPurchaseId);
+        $creditPurchase = CreditPurchase::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail((int) $creditPurchaseId);
         $creditPurchase->approve(auth()->id());
 
         $this->dispatch('alert', type: 'success', message: 'Credit purchase approved');
@@ -233,9 +246,32 @@ class CreditPurchaseManager extends Component
             ->orderBy('name')
             ->get();
 
+        $employeeIds = $employees->pluck('id')->all();
+        $posDueByEmployee = [];
+
+        if (!empty($employeeIds)) {
+            $posDueByEmployee = DB::table('customers as c')
+                ->leftJoin('orders as o', function ($join) {
+                    $join->on('o.customer_id', '=', 'c.id')
+                        ->where('o.status', '=', 'payment_due');
+                })
+                ->leftJoin('branches as b', 'b.id', '=', 'o.branch_id')
+                ->where('c.restaurant_id', restaurant()->id)
+                ->whereIn('c.employee_id', $employeeIds)
+                ->where(function ($q) {
+                    $q->whereNull('o.id')
+                        ->orWhere('b.restaurant_id', restaurant()->id);
+                })
+                ->groupBy('c.employee_id')
+                ->select('c.employee_id', DB::raw('SUM(CASE WHEN (o.total - o.amount_paid) > 0 THEN (o.total - o.amount_paid) ELSE 0 END) as due'))
+                ->pluck('due', 'employee_id')
+                ->toArray();
+        }
+
         return view('hrm::livewire.credit-purchases.manager', [
             'creditPurchases' => $creditPurchases,
             'employees' => $employees,
+            'posDueByEmployee' => $posDueByEmployee,
         ])->layout('layouts.app');
     }
 }

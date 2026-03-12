@@ -153,7 +153,7 @@
 
                 <div>
                     <x-label value="Employee" />
-                    <x-select class="w-full" wire:model.live="assign_employee_id">
+                    <x-select class="w-full" wire:model="assign_employee_id">
                         <option value="">Select employee</option>
                         @foreach($assignEmployees as $e)
                             <option value="{{ $e->id }}">{{ $e->name }}{{ $e->staff_code ? ' (' . $e->staff_code . ')' : '' }}</option>
@@ -164,7 +164,7 @@
 
                 <div>
                     <x-label value="Shift" />
-                    <x-select class="w-full" wire:model.live="assign_shift_id">
+                    <x-select class="w-full" wire:model="assign_shift_id">
                         <option value="">Select shift</option>
                         @foreach($assignShifts as $s)
                             <option value="{{ $s->id }}">{{ $s->name }}{{ $s->branch_id ? '' : ' (Global)' }}</option>
@@ -175,13 +175,13 @@
 
                 <div>
                     <x-label value="From Date" />
-                    <x-input type="date" class="w-full" wire:model.live="assign_from_date" />
+                    <x-input type="date" class="w-full" wire:model="assign_from_date" />
                     @error('assign_from_date') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="To Date" />
-                    <x-input type="date" class="w-full" wire:model.live="assign_to_date" />
+                    <x-input type="date" class="w-full" wire:model="assign_to_date" />
                     @error('assign_to_date') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
             </div>
@@ -213,7 +213,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
                     <x-label value="Branch (optional)" />
-                    <x-select class="w-full" wire:model.live="branch_id">
+                    <x-select class="w-full" wire:model="branch_id">
                         <option value="">Global (All branches)</option>
                         @foreach($branches as $b)
                             <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
@@ -224,37 +224,37 @@
 
                 <div>
                     <x-label value="Name" />
-                    <x-input type="text" class="w-full" wire:model.live="name" />
+                    <x-input type="text" class="w-full" wire:model="name" />
                     @error('name') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Start Time" />
-                    <x-input type="time" class="w-full" wire:model.live="start_time" />
+                    <x-input type="time" class="w-full" wire:model="start_time" />
                     @error('start_time') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="End Time" />
-                    <x-input type="time" class="w-full" wire:model.live="end_time" />
+                    <x-input type="time" class="w-full" wire:model="end_time" />
                     @error('end_time') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Break Minutes" />
-                    <x-input type="number" class="w-full" wire:model.live="break_minutes" min="0" />
+                    <x-input type="number" class="w-full" wire:model="break_minutes" min="0" />
                     @error('break_minutes') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div>
                     <x-label value="Grace Minutes" />
-                    <x-input type="number" class="w-full" wire:model.live="grace_minutes" min="0" />
+                    <x-input type="number" class="w-full" wire:model="grace_minutes" min="0" />
                     @error('grace_minutes') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 </div>
 
                 <div class="lg:col-span-2">
                     <label class="inline-flex items-center gap-2">
-                        <input type="checkbox" class="rounded border-gray-300" wire:model.live="is_active" />
+                        <input type="checkbox" class="rounded border-gray-300" wire:model="is_active" />
                         <span class="text-sm text-gray-700 dark:text-gray-300">Active</span>
                     </label>
                     @error('is_active') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror

@@ -15,14 +15,14 @@
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div>
                 <x-label value="EPF Basic Salary (per month)" />
-                <x-input type="number" step="0.01" class="w-full" wire:model.debounce.500ms="epf_basic_salary" />
+                <x-input type="number" step="0.01" class="w-full" wire:model.live.debounce.500ms="epf_basic_salary" />
                 @error('epf_basic_salary') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Base salary amount used for EPF calculation</p>
             </div>
 
             <div>
                 <x-label value="ETF Basic Salary (per month)" />
-                <x-input type="number" step="0.01" class="w-full" wire:model.debounce.500ms="etf_basic_salary" />
+                <x-input type="number" step="0.01" class="w-full" wire:model.live.debounce.500ms="etf_basic_salary" />
                 @error('etf_basic_salary') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Base salary amount used for ETF calculation</p>
             </div>
@@ -38,21 +38,21 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div>
                 <x-label value="Employee EPF Rate (%)" />
-                <x-input type="number" step="0.01" class="w-full" wire:model.debounce.500ms="epf_employee_rate" />
+                <x-input type="number" step="0.01" class="w-full" wire:model.live.debounce.500ms="epf_employee_rate" />
                 @error('epf_employee_rate') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Deducted from employee salary</p>
             </div>
 
             <div>
                 <x-label value="Employer EPF Rate (%)" />
-                <x-input type="number" step="0.01" class="w-full" wire:model.debounce.500ms="epf_employer_rate" />
+                <x-input type="number" step="0.01" class="w-full" wire:model.live.debounce.500ms="epf_employer_rate" />
                 @error('epf_employer_rate') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Employer contribution</p>
             </div>
 
             <div>
                 <x-label value="Employer ETF Rate (%)" />
-                <x-input type="number" step="0.01" class="w-full" wire:model.debounce.500ms="etf_employer_rate" />
+                <x-input type="number" step="0.01" class="w-full" wire:model.live.debounce.500ms="etf_employer_rate" />
                 @error('etf_employer_rate') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Employer contribution</p>
             </div>
@@ -64,7 +64,7 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="flex items-center gap-3">
-                <input type="checkbox" wire:model.debounce.500ms="epf_auto_calculate" class="rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500" />
+                <input type="checkbox" wire:model.live="epf_auto_calculate" class="rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500" />
                 <div>
                     <x-label value="Auto-calculate EPF" class="mb-0" />
                     <p class="text-xs text-gray-500 dark:text-gray-400">Automatically calculate EPF in payroll based on standard basic salary</p>
@@ -72,7 +72,7 @@
             </div>
 
             <div class="flex items-center gap-3">
-                <input type="checkbox" wire:model.debounce.500ms="etf_auto_calculate" class="rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500" />
+                <input type="checkbox" wire:model.live="etf_auto_calculate" class="rounded border-gray-300 text-blue-600 shadow-sm focus:ring-blue-500" />
                 <div>
                     <x-label value="Auto-calculate ETF" class="mb-0" />
                     <p class="text-xs text-gray-500 dark:text-gray-400">Automatically calculate ETF in payroll based on standard basic salary</p>

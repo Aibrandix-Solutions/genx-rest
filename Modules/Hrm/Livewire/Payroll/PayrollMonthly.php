@@ -309,9 +309,36 @@ class PayrollMonthly extends Component
                 });
             })
             ->orderBy('name')
-            ->get(['id', 'name', 'staff_code', 'basic_salary_per_day', 'basic_salary_per_month', 'is_epf_eligible']);
+            ->get(['id', 'name', 'staff_code', 'department_id', 'designation_id', 'basic_salary_per_day', 'basic_salary_per_month', 'is_epf_eligible']);
 
         $employeeIds = $employees->pluck('id')->all();
+
+        $deptNames = DB::table('hrm_departments')
+            ->whereIn('id', $employees->pluck('department_id')->filter()->unique()->all())
+            ->pluck('name', 'id');
+        $desigNames = DB::table('hrm_designations')
+            ->whereIn('id', $employees->pluck('designation_id')->filter()->unique()->all())
+            ->pluck('name', 'id');
+
+        // POS customer due for employees as of month end
+        // (sum of max(0, total - amount_paid) for payment_due orders up to $to)
+        $posDueByEmployee = DB::table('customers as c')
+            ->join('hrm_employees as e', 'e.id', '=', 'c.employee_id')
+            ->leftJoin('orders as o', function ($join) use ($to) {
+                $join->on('o.customer_id', '=', 'c.id')
+                    ->where('o.status', '=', 'payment_due')
+                    ->where('o.date_time', '<=', $to->copy()->endOfDay()->toDateTimeString());
+            })
+            ->leftJoin('branches as b', 'b.id', '=', 'o.branch_id')
+            ->where('c.restaurant_id', restaurant()->id)
+            ->whereIn('c.employee_id', $employeeIds)
+            ->where(function ($q) {
+                $q->whereNull('o.id')
+                    ->orWhere('b.restaurant_id', restaurant()->id);
+            })
+            ->groupBy('c.employee_id')
+            ->select('c.employee_id', DB::raw('SUM(CASE WHEN (o.total - o.amount_paid) > 0 THEN (o.total - o.amount_paid) ELSE 0 END) as due'))
+            ->pluck('due', 'employee_id');
 
         $presentCounts = AttendanceLog::query()
             ->where('restaurant_id', restaurant()->id)
@@ -360,6 +387,12 @@ class PayrollMonthly extends Component
         $rows = [];
         $sn = 1;
 
+        // Pre-fetch EPF settings once outside the loop to avoid N+1 queries
+        $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
+        $epfBasic = $epfAutoCalc ? HrmSetting::get('epf_basic_salary', 0) : 0;
+        $epfRate = $epfAutoCalc ? HrmSetting::get('epf_employee_rate', 8) : 0;
+        $epfCalculated = $epfAutoCalc ? ($epfBasic * $epfRate) / 100 : 0;
+
         foreach ($employees as $e) {
             $presentDays = (int) ($presentCounts[$e->id] ?? 0);
             $leaveDays = (int) ($leaveDaysByEmployee[$e->id] ?? 0);
@@ -374,14 +407,9 @@ class PayrollMonthly extends Component
             
             // Only deduct EPF if employee is eligible
             $isEpfEligible = (bool) ($e->is_epf_eligible ?? true);
-            
-            // Auto-calculate EPF if enabled and employee is eligible
-            $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
-            
+
             if ($isEpfEligible && $epfAutoCalc) {
-                $epfBasic = HrmSetting::get('epf_basic_salary', 0);
-                $epfRate = HrmSetting::get('epf_employee_rate', 8);
-                $epf = ($epfBasic * $epfRate) / 100;
+                $epf = $epfCalculated;
             } elseif ($isEpfEligible) {
                 $epf = (float) ($adj?->epf ?? 0);
             } else {
@@ -393,7 +421,9 @@ class PayrollMonthly extends Component
             $etf = 0;
             
             $timeDeduction = (float) ($adj?->time_deduction ?? 0);
-            $creditPurchase = (float) ($adj?->credit_purchase ?? 0);
+            $creditPurchaseAuto = (float) ($posDueByEmployee[$e->id] ?? 0);
+            $creditPurchaseManual = (float) ($adj?->credit_purchase ?? 0);
+            $creditPurchase = $creditPurchaseManual > 0 ? $creditPurchaseManual : $creditPurchaseAuto;
             $otherDeduction = (float) ($adj?->other_deduction ?? 0);
 
             $totalEarning = $monthlyBasic + $additionalPay;
@@ -424,13 +454,17 @@ class PayrollMonthly extends Component
                 'total_of_deduction' => round($totalDeduction, 2),
                 'payable_salary' => round($payable, 2),
                 'payment_date' => $adj?->payment_date?->toDateString(),
+                'department' => $deptNames[$e->department_id] ?? null,
+                'designation' => $desigNames[$e->designation_id] ?? null,
             ];
         }
 
         return [
-            'title' => 'Monthly Payroll - ' . $from->format('F Y') . ' (' . ($branchName ?: 'Branch') . ')',
+            'title' => restaurant()->name . ' - Monthly Payroll - ' . $from->format('F Y') . ' (' . ($branchName ?: 'Branch') . ')',
             'holiday_count' => $holidayCount,
             'rows' => $rows,
+            'branch_name' => $branchName,
+            'month_label' => $from->format('F Y'),
         ];
     }
 
@@ -457,12 +491,46 @@ class PayrollMonthly extends Component
             return;
         }
 
+        $restaurant = restaurant();
+        $logoPath = $restaurant->logo ? public_path('user-uploads/logo/' . $restaurant->logo) : null;
+
         $pdf = Pdf::loadView('hrm::payroll.monthly-pdf', [
             'title' => $data['title'],
             'rows' => $data['rows'],
+            'restaurant' => $restaurant,
+            'logoPath' => ($logoPath && file_exists($logoPath)) ? $logoPath : null,
+            'branchName' => $data['branch_name'],
+            'monthLabel' => $data['month_label'],
         ])->setPaper('a4', 'landscape');
 
         $fileName = 'payroll-' . $this->month . '-branch-' . $this->branchId . '.pdf';
+
+        return response()->streamDownload(function () use ($pdf) {
+            echo $pdf->output();
+        }, $fileName);
+    }
+
+    public function exportPayslips()
+    {
+        $this->authorize('Manage Payroll');
+
+        $data = $this->buildPayrollRows();
+        if (!$data) {
+            return;
+        }
+
+        $restaurant = restaurant();
+        $logoPath = $restaurant->logo ? public_path('user-uploads/logo/' . $restaurant->logo) : null;
+
+        $pdf = Pdf::loadView('hrm::payroll.payslips-pdf', [
+            'rows' => $data['rows'],
+            'restaurant' => $restaurant,
+            'logoPath' => ($logoPath && file_exists($logoPath)) ? $logoPath : null,
+            'branchName' => $data['branch_name'],
+            'monthLabel' => $data['month_label'],
+        ])->setPaper('a4', 'portrait');
+
+        $fileName = 'payslips-' . $this->month . '-branch-' . $this->branchId . '.pdf';
 
         return response()->streamDownload(function () use ($pdf) {
             echo $pdf->output();
@@ -493,6 +561,8 @@ class PayrollMonthly extends Component
 
         $import = new PayrollMonthlyImport(restaurant()->id, (int) $this->branchId, (int) $from->format('Y'), (int) $from->format('m'));
         Excel::import($import, $fullPath);
+
+        Storage::disk('local')->delete($path);
 
         $r = $import->results();
         $this->importMessage = "Imported {$r['imported']} rows. Skipped {$r['skipped']} (missing employee: {$r['skipped_missing_employee']}). Failed {$r['failed']}.";
