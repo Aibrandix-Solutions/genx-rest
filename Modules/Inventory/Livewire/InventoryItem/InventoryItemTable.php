@@ -14,9 +14,12 @@ class InventoryItemTable extends Component
     public $showEditInventoryItemModal = false;
     public $showDeleteInventoryItemModal = false;
     public $inventoryItem;
-    public function mount($search)
+    public $perPage = 20;
+
+    public function mount($search, $perPage = 20)
     {
         $this->search = $search;
+        $this->perPage = $perPage;
     }
 
     public function updatedSearch()
@@ -51,12 +54,12 @@ class InventoryItemTable extends Component
 
     public function render()
     {
-        $inventoryItems = InventoryItem::query()
+        $inventoryItems = InventoryItem::with(['category', 'unit', 'supplier'])
             ->when($this->search, function ($query) {
                 $query->where('name', 'like', '%' . $this->search . '%');
             })
             ->orderBy('created_at', 'desc')
-            ->paginate(10);
+            ->paginate($this->perPage);
 
         return view('inventory::livewire.inventory-item.inventory-item-table', [
             'inventoryItems' => $inventoryItems

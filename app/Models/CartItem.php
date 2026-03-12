@@ -70,7 +70,9 @@ class CartItem extends Model
      */
     public function modifiers()
     {
-        return $this->belongsToMany(ModifierOption::class, 'cart_item_modifier_options');
+        return $this->belongsToMany(ModifierOption::class, 'cart_item_modifier_options')
+            ->withPivot('quantity')
+            ->withTimestamps();
     }
 
     /**
@@ -79,7 +81,10 @@ class CartItem extends Model
     public function calculateTotalPrice(): float
     {
         $basePrice = $this->menuItemVariation ? $this->menuItemVariation->price : $this->menuItem->price;
-        $modifierPrice = $this->modifiers->sum('price');
+        $modifierPrice = $this->modifiers->sum(function ($modifier) {
+            $qty = (int) ($modifier->pivot->quantity ?? 1);
+            return $modifier->price * max(1, $qty);
+        });
         
         return ($basePrice + $modifierPrice) * $this->quantity;
     }

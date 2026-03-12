@@ -44,10 +44,10 @@ class RegisterDashboard extends Component
         $todayStart = now()->startOfDay();
         $todayEnd = now()->endOfDay();
 
-        // Include cash_in along with cash_sale for today's total cash inflow - from all of the current user's sessions in this branch
+        // Cash sales should only include POS cash sales (cash_in is tracked separately)
         $this->totalCashSalesToday = (float) CashRegisterTransaction::query()
             ->whereBetween('happened_at', [$todayStart, $todayEnd])
-            ->whereIn('type', ['cash_sale', 'cash_in'])
+            ->where('type', 'cash_sale')
             ->whereHas('session', function ($q) use ($userId, $restaurantId, $branchId) {
                 $q->where('opened_by', $userId)
                   ->when($restaurantId, fn($qq) => $qq->where('restaurant_id', $restaurantId))
@@ -68,7 +68,7 @@ class RegisterDashboard extends Component
 
         $yesterdayCash = (float) CashRegisterTransaction::query()
             ->whereBetween('happened_at', [$yesterdayStart, $yesterdayEnd])
-            ->whereIn('type', ['cash_sale', 'cash_in'])
+            ->where('type', 'cash_sale')
             ->whereHas('session', function ($q) use ($userId, $restaurantId, $branchId) {
                 $q->where('opened_by', $userId)
                   ->when($restaurantId, fn($qq) => $qq->where('restaurant_id', $restaurantId))

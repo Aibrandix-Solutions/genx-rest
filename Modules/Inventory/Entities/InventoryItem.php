@@ -4,24 +4,27 @@ namespace Modules\Inventory\Entities;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use App\Traits\HasBranch;
+// Removed: use App\Traits\HasBranch;
 use Modules\Inventory\Entities\InventoryItemCategory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use App\Models\MenuItem;
+use App\Traits\HasRestaurant;
 // use Modules\Inventory\Database\Factories\InventoryItemFactory;
 
 class InventoryItem extends Model
 {
     use HasFactory;
-    use HasBranch;
+    use HasRestaurant;
+    // Removed HasBranch trait - items are now restaurant-scoped
 
     /**
      * The attributes that are mass assignable.
      */
     protected $fillable = [
-        'branch_id',
+        // 'branch_id', - Removed - items shared across restaurant
+        'restaurant_id',
         'name',
         'inventory_item_category_id',
         'unit_id',
@@ -31,16 +34,27 @@ class InventoryItem extends Model
         'reorder_quantity'
     ];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function (self $model) {
+            if (!$model->restaurant_id && restaurant()) {
+                $model->restaurant_id = restaurant()->id;
+            }
+        });
+    }
+
 
 
     public function category()
     {
-        return $this->belongsTo(InventoryItemCategory::class, 'inventory_item_category_id')->withoutGlobalScopes();
+        return $this->belongsTo(InventoryItemCategory::class, 'inventory_item_category_id');
     }
 
     public function unit()
     {
-        return $this->belongsTo(Unit::class)->withoutGlobalScopes();
+        return $this->belongsTo(Unit::class);
     }
 
     public function stocks(): HasMany
@@ -83,5 +97,10 @@ class InventoryItem extends Model
     public function menuItems(): BelongsToMany
     {
         return $this->belongsToMany(MenuItem::class, 'recipes', 'inventory_item_id', 'menu_item_id');
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(Supplier::class, 'preferred_supplier_id');
     }
 }

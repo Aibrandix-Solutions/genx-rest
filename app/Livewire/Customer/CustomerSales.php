@@ -43,9 +43,14 @@ class CustomerSales extends Component
         $totalSales = $orders->sum('total');
         $totalOrders = $orders->count();
         $averageOrderValue = $totalOrders > 0 ? $totalSales / $totalOrders : 0;
-        $totalPaid = $orders->sum('amount_paid');
-        $outstandingBalance = $orders->where('status', 'payment_due')->sum(function ($order) {
-            return max(0, (float)$order->total - (float)$order->amount_paid);
+
+        // Use actual payment records (payments already eager-loaded above)
+        $totalPaid = $orders->sum(function ($order) {
+            return $order->payments->where('payment_method', '!=', 'due')->sum('amount');
+        });
+        $outstandingBalance = $orders->whereIn('status', ['payment_due', 'paid', 'billed'])->sum(function ($order) {
+            $paid = $order->payments->where('payment_method', '!=', 'due')->sum('amount');
+            return max(0, (float)$order->total - (float)$paid);
         });
 
         // Last order

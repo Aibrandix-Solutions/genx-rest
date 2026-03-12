@@ -295,6 +295,7 @@ class RestaurantSignup extends Component
 
         Role::create(['name' => 'Waiter_' . $restaurant->id, 'display_name' => 'Waiter', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
         Role::create(['name' => 'Chef_' . $restaurant->id, 'display_name' => 'Chef', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
+        Role::create(['name' => 'Cashier_' . $restaurant->id, 'display_name' => 'Cashier', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
 
         $allPermissions = Permission::get()->pluck('name')->toArray();
 

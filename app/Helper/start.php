@@ -113,6 +113,19 @@ function shop_branch()
     return false;
 }
 
+if (!function_exists('default_phone_code')) {
+    /**
+     * Get the default phone code for the system
+     * Returns +94 (Sri Lanka) as the default country code
+     * 
+     * @return string
+     */
+    function default_phone_code()
+    {
+        return '94';
+    }
+}
+
 function currency()
 {
     if (session()->has('currency')) {

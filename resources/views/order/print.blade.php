@@ -332,8 +332,14 @@
                                 <br><small>({{ $item->menuItemVariation->variation }})</small>
                             @endif
                             @foreach ($item->modifierOptions as $modifier)
-                            <div class="modifiers">• {{ $modifier->name }}
-                                (+{{ currency_format_for_receipt_item($modifier->price, restaurant()->currency_id) }})
+                            @php
+                                $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty);
+                            @endphp
+                            <div class="modifiers">• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                @if($modifierLinePrice > 0)
+                                    (+{{ currency_format_for_receipt_item($modifierLinePrice, restaurant()->currency_id) }})
+                                @endif
                             </div>
                         @endforeach
                     </td>

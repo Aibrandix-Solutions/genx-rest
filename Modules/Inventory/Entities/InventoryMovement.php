@@ -23,6 +23,7 @@ class InventoryMovement extends Model
      */
     protected $fillable = [
         'branch_id',
+        'location_id',
         'inventory_item_id',
         'quantity',
         'transaction_type',
@@ -45,12 +46,17 @@ class InventoryMovement extends Model
 
     public function item()
     {
-        return $this->belongsTo(InventoryItem::class, 'inventory_item_id')->withoutGlobalScopes();
+           return $this->belongsTo(InventoryItem::class, 'inventory_item_id');
     }
 
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseLocation::class, 'location_id');
     }
 
     public function addedBy(): BelongsTo

@@ -36,6 +36,7 @@ class CashRegisterController extends Controller
 
     public function reports()
     {
+        abort_if(!user_can('View Cash Register Reports'), 403);
         return view('cashregister::reports');
     }
 
@@ -51,8 +52,19 @@ class CashRegisterController extends Controller
         try {
             $content = $request->input('content');
             $type = $request->input('type');
-            $restaurantId = $request->input('restaurant_id');
-            $branchId = $request->input('branch_id');
+
+            // Do not trust client-supplied tenant context
+            $restaurantId = restaurant()->id;
+            $branchId = branch()->id;
+
+            abort_if(!user_can('View Cash Register Reports'), 403);
+
+            if (!is_string($content) || trim($content) === '') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Missing report content.'
+                ], 422);
+            }
 
             // Find an available thermal printer for this branch
             $printer = \App\Models\Printer::where('restaurant_id', $restaurantId)
@@ -152,6 +164,8 @@ class CashRegisterController extends Controller
     public function exportDiscrepancy(Request $request): StreamedResponse
     {
 
+        abort_if(!user_can('View Cash Register Reports'), 403);
+
         $filename = 'discrepancy_report_' . now()->format('Ymd_His') . '.csv';
         return $this->streamCsv($filename, function ($handle) use ($request) {
             // Header
@@ -182,6 +196,8 @@ class CashRegisterController extends Controller
 
     public function exportCashLedger(Request $request): StreamedResponse
     {
+
+        abort_if(!user_can('View Cash Register Reports'), 403);
 
         $filename = 'cash_ledger_' . now()->format('Ymd_His') . '.csv';
         return $this->streamCsv($filename, function ($handle) use ($request) {
@@ -217,6 +233,8 @@ class CashRegisterController extends Controller
     public function exportCashInOut(Request $request): StreamedResponse
     {
 
+        abort_if(!user_can('View Cash Register Reports'), 403);
+
         $filename = 'cash_in_out_' . now()->format('Ymd_His') . '.csv';
         return $this->streamCsv($filename, function ($handle) use ($request) {
             fputcsv($handle, ['Date & Time', 'Branch', 'Cashier', 'Type', 'Amount', 'Reason']);
@@ -251,6 +269,8 @@ class CashRegisterController extends Controller
 
     public function exportSessionSummary(Request $request): StreamedResponse
     {
+
+        abort_if(!user_can('View Cash Register Reports'), 403);
 
         $filename = 'session_summary_' . now()->format('Ymd_His') . '.csv';
         return $this->streamCsv($filename, function ($handle) use ($request) {
@@ -290,6 +310,8 @@ class CashRegisterController extends Controller
         $session = \Modules\CashRegister\Entities\CashRegisterSession::with(['branch', 'register', 'cashier'])
             ->findOrFail($sessionId);
 
+        abort_if((int) $session->restaurant_id !== (int) (restaurant()->id ?? 0), 403);
+
         // Generate report data (similar to XReport Livewire component)
         $reportData = [
             'generated_at' => now(),
@@ -314,6 +336,8 @@ class CashRegisterController extends Controller
         // Get the session data
         $session = \Modules\CashRegister\Entities\CashRegisterSession::with(['branch', 'register', 'cashier'])
             ->findOrFail($sessionId);
+
+        abort_if((int) $session->restaurant_id !== (int) (restaurant()->id ?? 0), 403);
 
         // Generate report data (similar to ZReport Livewire component)
         $reportData = [

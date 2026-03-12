@@ -37,15 +37,72 @@
             </nav>
         </div>
 
-        <!-- Global Filter for Ledger and Stock -->
-        @if(in_array($activeTab, ['ledger', 'stock']))
-        <div class="mb-6 flex justify-end">
+        <!-- Filters for specific tabs -->
+        @if(in_array($activeTab, ['ledger', 'payments', 'purchases']))
+        <div class="bg-gray-50 dark:bg-gray-900 rounded-lg shadow p-4 mb-6">
+            <div class="flex flex-col lg:flex-row flex-wrap gap-4 items-end">
+                @if(in_array($activeTab, ['ledger']))
+                <div class="w-full sm:w-auto min-w-[150px]">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Location</label>
+                    <select wire:model.live="locationId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <option value="">All Locations</option>
+                        @foreach($locations as $location)
+                            <option value="{{ $location->id }}">{{ $location->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                @endif
+                
+                <div class="flex-1 min-w-[200px]">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Search</label>
+                    <input type="text" wire:model.live.debounce.300ms="search" 
+                           class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                           placeholder="Search...">
+                </div>
+
+                <div class="w-full sm:w-auto">
+                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Date Range</label>
+                    <div class="flex items-center gap-2">
+                        <input type="date" wire:model.live="startDate" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <span class="text-gray-500">-</span>
+                        <input type="date" wire:model.live="endDate" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    </div>
+                </div>
+
+                <div class="w-full sm:w-auto">
+                     <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Per Page</label>
+                     <select wire:model.live="perPage" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                         <option value="10">10</option>
+                         <option value="20">20</option>
+                         <option value="50">50</option>
+                         <option value="100">100</option>
+                     </select>
+                </div>
+                
+                <div class="flex gap-2">
+                     <x-secondary-button wire:click="export" wire:loading.attr="disabled">
+                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                        Export
+                    </x-secondary-button>
+                    
+                    @if($search || $startDate || $endDate)
+                        <button
+                            wire:click="clearFilters"
+                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-gray-700 bg-gray-100 hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600">
+                            Clear
+                        </button>
+                    @endif
+                </div>
+            </div>
+        </div>
+        @elseif($activeTab === 'stock')
+         <div class="mb-6 flex justify-end">
             <div class="w-64">
-                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Filter by Branch</label>
-                <select wire:model.live="branchId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                    <option value="">All Branches</option>
-                    @foreach($branches as $branch)
-                        <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Filter by Location</label>
+                <select wire:model.live="locationId" class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="">All Locations</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">{{ $location->name }}</option>
                     @endforeach
                 </select>
             </div>
@@ -123,11 +180,46 @@
                     <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead class="bg-gray-50 dark:bg-gray-700">
                             <tr>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Date</th>
-                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Description</th>
-                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Debit (+)</th>
-                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Credit (-)</th>
-                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Balance</th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    <button type="button" wire:click="sortLedgerBy('date')" class="inline-flex items-center gap-1 hover:underline">
+                                        <span>Date</span>
+                                        @if($ledgerSortField === 'date')
+                                            <span class="text-xs">{{ $ledgerSortDirection === 'asc' ? '↑' : '↓' }}</span>
+                                        @endif
+                                    </button>
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    <button type="button" wire:click="sortLedgerBy('description')" class="inline-flex items-center gap-1 hover:underline">
+                                        <span>Description</span>
+                                        @if($ledgerSortField === 'description')
+                                            <span class="text-xs">{{ $ledgerSortDirection === 'asc' ? '↑' : '↓' }}</span>
+                                        @endif
+                                    </button>
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    <button type="button" wire:click="sortLedgerBy('debit')" class="inline-flex items-center gap-1 hover:underline">
+                                        <span>Debit (+)</span>
+                                        @if($ledgerSortField === 'debit')
+                                            <span class="text-xs">{{ $ledgerSortDirection === 'asc' ? '↑' : '↓' }}</span>
+                                        @endif
+                                    </button>
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    <button type="button" wire:click="sortLedgerBy('credit')" class="inline-flex items-center gap-1 hover:underline">
+                                        <span>Credit (-)</span>
+                                        @if($ledgerSortField === 'credit')
+                                            <span class="text-xs">{{ $ledgerSortDirection === 'asc' ? '↑' : '↓' }}</span>
+                                        @endif
+                                    </button>
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                    <button type="button" wire:click="sortLedgerBy('balance')" class="inline-flex items-center gap-1 hover:underline">
+                                        <span>Balance</span>
+                                        @if($ledgerSortField === 'balance')
+                                            <span class="text-xs">{{ $ledgerSortDirection === 'asc' ? '↑' : '↓' }}</span>
+                                        @endif
+                                    </button>
+                                </th>
                             </tr>
                         </thead>
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -177,7 +269,7 @@
                             </tr>
                         </thead>
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            @forelse($supplier->payments()->latest('paid_on')->get() as $payment)
+                            @forelse($payments as $payment)
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
                                         {{ $payment->paid_on->format('M d, Y H:i') }}
@@ -211,6 +303,9 @@
                             @endforelse
                         </tbody>
                     </table>
+                    <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 sm:px-6">
+                        {{ $payments->links() }}
+                    </div>
                 </div>
             @endif
 
@@ -218,13 +313,13 @@
             @if($activeTab === 'purchases')
                 <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
                      <div class="flex justify-between mb-4">
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Purchase Orders</h3>
-                         <x-button class="items-center inline-flex gap-1" wire:click="$dispatch('showPurchaseOrderModal')">
+                                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Purchases</h3>
+                                 <a href="{{ route('purchases.create') }}" wire:navigate class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
                             <svg class="h-4 w-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
                             </svg>
-                            {{ trans('inventory::modules.purchaseOrder.create_title') }}
-                        </x-button>
+                                     Create Purchase
+                                 </a>
                      </div>
                      
                      <div class="overflow-x-auto">
@@ -239,16 +334,15 @@
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                @forelse($supplier->orders as $order)
+                                @forelse($purchases as $order)
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">{{ $order->po_number }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ $order->order_date->format('M d, Y') }}</td>
                                         <td class="px-6 py-4 whitespace-nowrap">
                                             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                            {{ $order->status === 'draft' ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300' : '' }}
-                                            {{ $order->status === 'sent' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300' : '' }}
+                                            {{ $order->status === 'ordered' ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300' : '' }}
+                                            {{ $order->status === 'pending' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
                                             {{ $order->status === 'received' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300' : '' }}
-                                            {{ $order->status === 'partially_received' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
                                             {{ $order->status === 'cancelled' ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-300' : '' }}">
                                                 {{ $statuses[$order->status] ?? ucfirst(str_replace('_', ' ', $order->status)) }}
                                             </span>
@@ -279,49 +373,17 @@
                                                      })"
                                                      :style="style">
                                                     <div class="py-1 flex flex-col gap-1">
-                                                        @if($order->status === 'draft' && user_can('Update Purchase Order'))
-                                                            <button wire:click="$dispatch('sendPurchaseOrder', { purchaseOrder: {{ $order->id }} })" @click="open = false"
-                                                                    class="w-full flex items-center px-4 py-2 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/50">
-                                                                <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                                                </svg>
-                                                                <span>{{ trans('inventory::modules.purchaseOrder.send') }}</span>
-                                                            </button>
-                                                        @endif
-                                                        
                                                         @if(!in_array($order->status, ['received', 'cancelled']) && user_can('Update Purchase Order'))
-                                                            <button wire:click="$dispatch('editPurchaseOrder', { purchaseOrder: {{ $order->id }} })" @click="open = false"
+                                                            <a href="{{ route('purchases.edit', $order->id) }}" wire:navigate @click="open = false"
                                                                     class="w-full flex items-center px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/50">
                                                                 <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                                                                 </svg>
                                                                 <span>{{ trans('inventory::modules.purchaseOrder.edit') }}</span>
-                                                            </button>
+                                                            </a>
                                                         @endif
-                                                        
-                                                        @if(in_array($order->status, ['sent', 'partially_received']) && user_can('Update Purchase Order'))
-                                                            <button wire:click="$dispatch('showReceiveModal', { purchaseOrder: {{ $order->id }} })" @click="open = false"
-                                                                    class="w-full flex items-center px-4 py-2 text-sm text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/50">
-                                                                <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
-                                                                </svg>
-                                                                <span>{{ trans('inventory::modules.purchaseOrder.receive') }}</span>
-                                                            </button>
-                                                        @endif
-
                                                         @if(user_can('Show Purchase Order'))
-                                                            <button wire:click="$dispatch('viewPurchaseOrder', { purchaseOrder: {{ $order->id }} })" @click="open = false"
-                                                                    class="w-full flex items-center px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                                                                <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                                                </svg>
-                                                                <span>{{ trans('inventory::modules.purchaseOrder.view') }}</span>
-                                                            </button>
-                                                        @endif
-
-                                                        @if(user_can('Show Purchase Order'))
-                                                            <a href="{{ route('purchase-orders.pdf', $order->id) }}" target="_blank" @click="open = false"
+                                                            <a href="{{ route('purchases.pdf', $order->id) }}" target="_blank" @click="open = false"
                                                                class="w-full flex items-center px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/50">
                                                                 <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -330,18 +392,8 @@
                                                             </a>
                                                         @endif
 
-                                                        @if(in_array($order->status, ['draft', 'sent']) && user_can('Update Purchase Order'))
-                                                            <button wire:click="$dispatch('cancelPurchaseOrder', { purchaseOrder: {{ $order->id }} })" @click="open = false"
-                                                                    class="w-full flex items-center px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900/50">
-                                                                <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                                                                </svg>
-                                                                <span>{{ trans('app.cancel') }}</span>
-                                                            </button>
-                                                        @endif
-
                                                         @if(!in_array($order->status, ['received', 'cancelled']) && user_can('Delete Purchase Order'))
-                                                            <button wire:click="$dispatch('deletePurchaseOrder', { purchaseOrder: {{ $order->id }} })" @click="open = false"
+                                                            <button wire:click="confirmDeletePurchase({{ $order->id }})" @click="open = false"
                                                                     class="w-full flex items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50">
                                                                 <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -355,13 +407,37 @@
                                         </td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="5" class="text-center py-4 text-gray-500">No purchase orders yet.</td></tr>
+                                    <tr><td colspan="5" class="text-center py-4 text-gray-500">No purchases yet.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
+                        <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 sm:px-6">
+                            {{ $purchases->links() }}
+                        </div>
                     </div>
                 </div>
             @endif
+
+            <!-- Delete Confirmation Modal -->
+            <x-confirmation-modal wire:model="confirmingDeletion">
+                <x-slot name="title">
+                    {{ trans('inventory::modules.purchaseOrder.delete_title') }}
+                </x-slot>
+
+                <x-slot name="content">
+                    {{ trans('inventory::modules.purchaseOrder.delete_confirm') }}
+                </x-slot>
+
+                <x-slot name="footer">
+                    <x-secondary-button wire:click="$set('confirmingDeletion', false)" wire:loading.attr="disabled">
+                        {{ trans('app.cancel') }}
+                    </x-secondary-button>
+
+                    <x-danger-button class="ml-3" wire:click="deletePurchase" wire:loading.attr="disabled">
+                        {{ trans('inventory::modules.purchaseOrder.delete') }}
+                    </x-danger-button>
+                </x-slot>
+            </x-confirmation-modal>
             
              <!-- Stock Tab -->
             @if($activeTab === 'stock')
@@ -547,70 +623,4 @@
         </div>
     @endif
 
-    <!-- Send Confirmation Modal -->
-    <x-confirmation-modal wire:model="confirmingSend">
-        <x-slot name="title">
-            {{ trans('inventory::modules.purchaseOrder.send_title') }}
-        </x-slot>
-
-        <x-slot name="content">
-            {{ trans('inventory::modules.purchaseOrder.send_confirm') }}
-        </x-slot>
-
-        <x-slot name="footer">
-            <x-secondary-button wire:click="$set('confirmingSend', false)" wire:loading.attr="disabled">
-                {{ trans('app.cancel') }}
-            </x-secondary-button>
-
-            <x-button class="ml-3" wire:click="sendPurchaseOrder" wire:loading.attr="disabled">
-                {{ trans('inventory::modules.purchaseOrder.send') }}
-            </x-button>
-        </x-slot>
-    </x-confirmation-modal>
-
-    <!-- Cancel Confirmation Modal -->
-    <x-confirmation-modal wire:model="confirmingCancel">
-        <x-slot name="title">
-            {{ trans('inventory::modules.purchaseOrder.cancel_title') }}
-        </x-slot>
-
-        <x-slot name="content">
-            {{ trans('inventory::modules.purchaseOrder.cancel_confirm') }}
-        </x-slot>
-
-        <x-slot name="footer">
-            <x-secondary-button wire:click="$set('confirmingCancel', false)" wire:loading.attr="disabled">
-                {{ trans('app.cancel') }}
-            </x-secondary-button>
-
-            <x-danger-button class="ml-3" wire:click="cancelPurchaseOrder" wire:loading.attr="disabled">
-                {{ trans('inventory::modules.purchaseOrder.cancel') }}
-            </x-danger-button>
-        </x-slot>
-    </x-confirmation-modal>
-
-    <!-- Delete Confirmation Modal -->
-    <x-confirmation-modal wire:model="confirmingDeletion">
-        <x-slot name="title">
-            {{ trans('inventory::modules.purchaseOrder.delete_title') }}
-        </x-slot>
-
-        <x-slot name="content">
-            {{ trans('inventory::modules.purchaseOrder.delete_confirm') }}
-        </x-slot>
-
-        <x-slot name="footer">
-            <x-secondary-button wire:click="$set('confirmingDeletion', false)" wire:loading.attr="disabled">
-                {{ trans('app.cancel') }}
-            </x-secondary-button>
-
-            <x-danger-button class="ml-3" wire:click="deletePurchaseOrder" wire:loading.attr="disabled">
-                {{ trans('inventory::modules.purchaseOrder.delete') }}
-            </x-danger-button>
-        </x-slot>
-    </x-confirmation-modal>
-
-    <livewire:inventory::purchase-order.manage-purchase-order :supplierId="$supplier->id" />
-    <livewire:inventory::purchase-order.view-purchase-order />
-    <livewire:inventory::purchase-order.receive-purchase-order />
 </div>

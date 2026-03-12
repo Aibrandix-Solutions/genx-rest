@@ -132,12 +132,16 @@ class ShiftSummaryReport extends Component
             return;
         }
 
+        [$startDate, $endDate] = $this->parseDateRange();
+        if (!$startDate || !$endDate) {
+            $this->shifts = collect();
+            $this->summary = [];
+            return;
+        }
+
         $query = CashRegisterSession::with(['cashier', 'register', 'closer'])
             ->where('restaurant_id', restaurant()->id)
-            ->whereBetween('opened_at', [
-                Carbon::createFromFormat('m/d/Y', $this->startDate)->startOfDay(),
-                Carbon::createFromFormat('m/d/Y', $this->endDate)->endOfDay()
-            ]);
+            ->whereBetween('opened_at', [$startDate, $endDate]);
 
         if ($this->branchId) {
             $query->whereHas('register', function($q) {
@@ -156,6 +160,26 @@ class ShiftSummaryReport extends Component
         $this->shifts = $query->orderBy('opened_at', 'desc')->get();
         
         $this->calculateSummary();
+    }
+
+    private function parseDateRange(): array
+    {
+        $formats = ['m/d/Y', 'd-m-Y', 'Y-m-d', 'm/d/y', 'd/m/Y', 'd/m/y', 'Y-m-d H:i:s', 'm/d/Y H:i:s'];
+        foreach ($formats as $format) {
+            try {
+                $start = Carbon::createFromFormat($format, (string) $this->startDate)->startOfDay();
+                $end = Carbon::createFromFormat($format, (string) $this->endDate)->endOfDay();
+                return [$start, $end];
+            } catch (\Exception $e) {
+                // try next format
+            }
+        }
+
+        try {
+            return [Carbon::parse((string) $this->startDate)->startOfDay(), Carbon::parse((string) $this->endDate)->endOfDay()];
+        } catch (\Exception $e) {
+            return [null, null];
+        }
     }
 
     private function calculateSummary()

@@ -9,6 +9,10 @@ class OrderItemModifierOption extends BaseModel
 {
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'quantity' => 'int',
+    ];
+
     public function orderItem(): BelongsTo
     {
         return $this->belongsTo(OrderItem::class, 'order_item_id');

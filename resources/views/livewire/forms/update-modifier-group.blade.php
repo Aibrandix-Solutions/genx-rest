@@ -349,7 +349,7 @@
                     <div class="col-span-2">
                         <div class="space-y-4 mt-4" x-data="{ openOption: null }">
                             @foreach($modifierOptions as $index => $modifierOption)
-                            <div wire:key="modifierOption-{{ $modifierOption['id'] }}"
+                            <div wire:key="modifier-opt-{{ $index }}-{{ $modifierOption['id'] ?? 'new' }}"
                                 class="bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4 transition-all duration-200"
                                 :class="openOption === {{ $index }} ? 'ring-1 ring-skin-base shadow-md' : ''">
 
@@ -429,8 +429,14 @@
 
                     <div>
                         <x-label for="modifierOptions.{{ $index }}.price" :value="__('modules.modifier.defaultPrice')" />
-                        <x-input id="modifierOptions.{{ $index }}.price" type="number" step="0.001" class="mt-1 block w-full"
-                            wire:model.live.debounce.500ms="modifierOptions.{{ $index }}.price" placeholder="{{ __('placeholders.modifierOptionPricePlaceholder') }}" />
+                        <x-input 
+                            id="modifierOptions.{{ $index }}.price" 
+                            type="number" 
+                            step="0.001" 
+                            class="mt-1 block w-full"
+                            wire:key="price-input-{{ $index }}-{{ $modifierOption['id'] ?? 'new' }}"
+                            wire:model.live.debounce.500ms="modifierOptions.{{ $index }}.price" 
+                            placeholder="{{ __('placeholders.modifierOptionPricePlaceholder') }}" />
                         <x-input-error for="modifierOptions.{{ $index }}.price" class="mt-2" />
                     </div>
 

@@ -51,6 +51,7 @@
                         <x-select id="dateRangeType" class="block w-fit" wire:model="dateRangeType"
                          wire:change="setDateRange">
                             <option value="today">@lang('app.today')</option>
+                            <option value="yesterday">@lang('app.yesterday')</option>
                             <option value="currentWeek">@lang('app.currentWeek')</option>
                             <option value="lastWeek">@lang('app.lastWeek')</option>
                             <option value="last7Days">@lang('app.last7Days')</option>
@@ -177,14 +178,23 @@
     <script>
         const datepickerEl1 = document.getElementById('datepicker-range-start');
 
-        datepickerEl1.addEventListener('changeDate', (event) => {
-            $wire.dispatch('setStartDate', { start: datepickerEl1.value });
-        });
+        if (datepickerEl1) {
+            datepickerEl1.addEventListener('changeDate', (event) => {
+                $wire.dispatch('setStartDate', { start: datepickerEl1.value });
+            });
+        }
 
         const datepickerEl2 = document.getElementById('datepicker-range-end');
 
-        datepickerEl2.addEventListener('changeDate', (event) => {
-            $wire.dispatch('setEndDate', { end: datepickerEl2.value });
+        if (datepickerEl2) {
+            datepickerEl2.addEventListener('changeDate', (event) => {
+                $wire.dispatch('setEndDate', { end: datepickerEl2.value });
+            });
+        }
+
+        // Food ready sound listener
+        $wire.on('food_ready_sound', () => {
+            new Audio("{{ asset('sound/food-ready.mp3')}}").play();
         });
 
         // Handle polling

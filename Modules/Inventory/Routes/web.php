@@ -12,9 +12,9 @@ use Modules\Inventory\Http\Controllers\InventorySettingController;
 use Modules\Inventory\Http\Controllers\PurchaseOrderController;
 use Modules\Inventory\Http\Controllers\PurchaseReturnController;
 use Modules\Inventory\Http\Controllers\ReportController;
-use Modules\Inventory\Livewire\PurchaseOrder\PurchaseOrderList;
 use Modules\Inventory\Http\Controllers\InventoryDashboardController;
 use Modules\Inventory\Http\Controllers\SupplierController;
+use Modules\Inventory\Http\Controllers\PurchaseLocationController;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
@@ -35,13 +35,15 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::get('inventory-movements/export', [InventoryMovementController::class, 'export'])->name('inventory-movements.export');
     Route::resource('inventory-movements', InventoryMovementController::class);
     Route::resource('recipes', InventoryRecipeController::class);
-    Route::resource('purchase-orders', PurchaseOrderController::class);
+    Route::resource('purchases', PurchaseOrderController::class);
     Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
     Route::resource('stock-transfers', \Modules\Inventory\Http\Controllers\StockTransferController::class);
     Route::resource('inventory-settings', InventorySettingController::class);
+    Route::get('locations', [PurchaseLocationController::class, 'index'])->name('inventory.locations.index');
+    
     Route::controller(PurchaseOrderController::class)->group(function () {
-        Route::get('purchase-orders/{purchase_order}/pdf', 'generatePdf')->name('purchase-orders.pdf');
+        Route::get('purchases/{purchase_order}/pdf', 'generatePdf')->name('purchases.pdf');
     });
 
     // Payment Accounts & Reports

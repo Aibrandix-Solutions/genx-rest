@@ -82,9 +82,9 @@
         <div class="p-4 mb-4 bg-white rounded-lg shadow-sm dark:bg-gray-800">
             @php
                 $statuses = match($orderDetail->order_type) {
-                    'delivery' => ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'],
-                    'pickup' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'delivered'],
-                    default => ['placed', 'confirmed', 'preparing', 'served']
+                    'delivery' => ['placed', 'confirmed', 'preparing', 'food_ready', 'out_for_delivery', 'delivered'],
+                    'pickup' => ['placed', 'confirmed', 'preparing', 'food_ready', 'ready_for_pickup', 'delivered'],
+                    default => ['placed', 'confirmed', 'preparing', 'food_ready', 'served']
                 };
 
                 $currentIndex = array_search($orderDetail->order_status->value, $statuses);
@@ -92,7 +92,7 @@
                 $nextIndex = min($currentIndex + 1, count($statuses) - 1);
             @endphp
 
-            @if ($orderDetail->order_status->value === 'canceled')
+            @if ($orderDetail->order_status->value === 'cancelled')
                 <div class="flex items-center justify-center">
                     <h3 class="text-lg font-semibold text-red-600 dark:text-red-400">
                         {{ __('modules.order.orderCancelled') }}
@@ -140,6 +140,12 @@
                                                 @break
                                             @case('preparing')
                                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 7.68 7.68" xmlns="http://www.w3.org/2000/svg"><path d="M7.584 3.072 6.72 3.72v1.8a0.961 0.961 0 0 1 -0.96 0.96H1.92a0.961 0.961 0 0 1 -0.96 -0.96v-1.8L0.096 3.072a0.24 0.24 0 0 1 0.288 -0.384L0.96 3.12V2.64a0.481 0.481 0 0 1 0.48 -0.48h4.8a0.481 0.481 0 0 1 0.48 0.48v0.48l0.576 -0.432a0.24 0.24 0 0 1 0.288 0.384M4.8 1.68a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24m-0.96 0a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24m-0.96 0a0.24 0.24 0 0 0 0.24 -0.24V0.48a0.24 0.24 0 0 0 -0.48 0v0.96a0.24 0.24 0 0 0 0.24 0.24" stroke-width="0.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                                @break
+
+                                            @case('food_ready')
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
                                                 @break
                                             @case('out_for_delivery')
                                             @case('ready_for_pickup')
@@ -234,9 +240,10 @@
                             @if ($item->modifierOptions->isNotEmpty())
                                 <div class="mt-1 text-xs text-gray-600 dark:text-white">
                                     @foreach ($item->modifierOptions as $modifier)
+                                        @php $modifierQty = max(1, (int) ($modifier->pivot->quantity ?? 1)); @endphp
                                         <div class="flex items-center justify-between text-xs mb-1 py-0.5 px-1 border-l-2 border-blue-500 bg-gray-200 dark:bg-gray-900 rounded-md">
-                                            <span class="text-gray-900 dark:text-white">{{ $modifier->name }}</span>
-                                            <span class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price, restaurant()->currency_id) }}</span>
+                                            <span class="text-gray-900 dark:text-white">{{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif</span>
+                                            <span class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price * $modifierQty, restaurant()->currency_id) }}</span>
                                         </div>
                                     @endforeach
                                 </div>
@@ -254,7 +261,8 @@
                             {{ currency_format($displayPrice, restaurant()->currency_id) }}
                         </td>
                         <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
-                            {{ currency_format($item->amount + $item->modifierOptions->sum('price'), restaurant()->currency_id) }}
+                            @php $modifierSum = $item->modifierOptions->sum(fn($m) => $m->price * max(1, (int) ($m->pivot->quantity ?? 1))); @endphp
+                            {{ currency_format($item->amount + $modifierSum, restaurant()->currency_id) }}
                         </td>
                         @if (user_can('Delete Order') && $orderDetail->status !== 'paid')
                         <td class="p-2 text-right whitespace-nowrap">

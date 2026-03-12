@@ -38,11 +38,22 @@ class TableSession extends BaseModel
         return $this->belongsTo(User::class, 'locked_by_user_id');
     }
 
+    public function order(): BelongsTo
+    {
+        return $this->belongsTo(Order::class);
+    }
+
     /**
      * Check if the session is locked
      */
     public function isLocked(): bool
     {
+        // Order locks must behave as a lock even if someone cleared the user fields.
+        // (Some flows historically called releaseLock() directly.)
+        if ($this->isOrderLock()) {
+            return true;
+        }
+
         return !is_null($this->locked_by_user_id) && !is_null($this->locked_at);
     }
 
@@ -59,6 +70,16 @@ class TableSession extends BaseModel
      */
     public function isLockExpired(int $lockTimeoutMinutes = 5): bool
     {
+        // Disable time-based expiry when timeout is 0/negative
+        if ($lockTimeoutMinutes <= 0) {
+            return false;
+        }
+
+        // Order locks NEVER expire
+        if ($this->isOrderLock()) {
+            return false;
+        }
+
         if (!$this->isLocked() || !$this->last_activity_at) {
             return false;
         }
@@ -98,6 +119,11 @@ class TableSession extends BaseModel
      */
     public function releaseLock(): bool
     {
+        // Prevent accidentally clearing an order lock via the generic/manual unlock.
+        if ($this->isOrderLock()) {
+            return false;
+        }
+
         return $this->update([
             'locked_by_user_id' => null,
             'locked_at' => null,
@@ -127,5 +153,55 @@ class TableSession extends BaseModel
         }
 
         return false;
+    }
+
+    /**
+     * Check if lock is tied to an order
+     */
+    public function isOrderLock(): bool
+    {
+        return $this->locked_by_order && !is_null($this->order_id);
+    }
+
+    /**
+     * Check if this is a manual lock (not order-based)
+     */
+    public function isManualLock(): bool
+    {
+        return $this->isLocked() && !$this->locked_by_order;
+    }
+
+    /**
+     * Lock session for an order (prevents expiration)
+     */
+    public function lockForOrder(int $userId, int $orderId): bool
+    {
+        return $this->update([
+            'locked_by_user_id' => $userId,
+            'locked_at' => now(),
+            'last_activity_at' => now(),
+            'session_token' => Str::random(32),
+            'order_id' => $orderId,
+            'locked_by_order' => true,
+        ]);
+    }
+
+    /**
+     * Release order lock
+     */
+    public function releaseOrderLock(): bool
+    {
+        if (!$this->isOrderLock()) {
+            return false;
+        }
+
+        return $this->update([
+            'locked_by_user_id' => null,
+            'locked_at' => null,
+            'last_activity_at' => null,
+            'session_token' => null,
+            'order_id' => null,
+            'locked_by_order' => false,
+        ]);
     }
 }

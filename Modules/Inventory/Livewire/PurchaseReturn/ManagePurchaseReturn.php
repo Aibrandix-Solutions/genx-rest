@@ -28,7 +28,7 @@ class ManagePurchaseReturn extends Component
     public $note;
     public $status = 'pending';
     public $items = [];
-
+    public $processImmediately = false;
     protected $listeners = [
         'showPurchaseReturnModal' => 'showModal',
         'editPurchaseReturn' => 'edit',
@@ -41,7 +41,23 @@ class ManagePurchaseReturn extends Component
             'returnDate' => 'required|date',
             'items' => 'required|array|min:1',
             'items.*.inventoryItemId' => 'required_with:items.*|exists:inventory_items,id',
-            'items.*.quantity' => 'required_with:items.*.inventoryItemId|numeric|min:0.01',
+            'items.*.quantity' => [
+                'required_with:items.*.inventoryItemId',
+                'numeric',
+                'min:0.01',
+                function ($attribute, $value, $fail) {
+                    // Extract index from attribute (e.g., "items.0.quantity" -> 0)
+                    preg_match('/items\.(\d+)\.quantity/', $attribute, $matches);
+                    $index = $matches[1] ?? null;
+                    
+                    if ($index !== null && isset($this->items[$index]['maxQuantity'])) {
+                        $max = (float)$this->items[$index]['maxQuantity'];
+                        if ($value > $max) {
+                            $fail("Quantity cannot exceed maximum returnable amount of " . number_format($max, 2));
+                        }
+                    }
+                },
+            ],
             'items.*.unitPrice' => 'required_with:items.*.inventoryItemId|numeric|min:0',
         ];
     }
@@ -120,29 +136,68 @@ class ManagePurchaseReturn extends Component
         $this->resetValidation();
     }
 
-    public function updatedPurchaseOrderId($value)
-    {
-        if ($value) {
-            $po = PurchaseOrder::find($value);
-            if ($po) {
-                $this->supplierId = $po->supplier_id;
-                // Pre-populate items from PO
-                $this->items = $po->items->filter(function($item) {
-                    return $item->received_quantity > 0; // Only show received items
-                })->map(function ($item) {
-                    return [
-                        'inventoryItemId' => $item->inventory_item_id,
-                        'quantity' => null,
-                        'maxQuantity' => $item->received_quantity,
-                        'unitPrice' => $item->unit_price ?? 0,
-                        'subtotal' => 0,
-                    ];
-                })->toArray();
+   public function updatedPurchaseOrderId($value)
+{
+    if ($value) {
+        $po = PurchaseOrder::find($value);
+        if ($po) {
+            $this->supplierId = $po->supplier_id;
+            
+            // Get all previous returns for this purchase (excluding current edit)
+            $previousReturns = PurchaseReturn::where('purchase_order_id', $value)
+                ->when($this->isEditing && $this->purchaseReturn, function($query) {
+                    $query->where('id', '!=', $this->purchaseReturn->id);
+                })
+                ->with('items')
+                ->get();
+            
+            // Calculate already returned quantities per item
+            $alreadyReturned = [];
+            foreach ($previousReturns as $return) {
+                foreach ($return->items as $returnItem) {
+                    $itemId = $returnItem->inventory_item_id;
+                    $alreadyReturned[$itemId] = ($alreadyReturned[$itemId] ?? 0) + (float)$returnItem->quantity;
+                }
             }
-        } else {
-            $this->items = [];
+            
+            // Pre-populate items from purchase with cumulative tracking
+            $this->items = $po->items->filter(function($item) {
+                return ($item->quantity ?? 0) > 0;
+            })->map(function ($item) use ($po, $alreadyReturned) {
+                $purchasedQty = (float)($item->quantity ?? 0);
+                $alreadyReturnedQty = $alreadyReturned[$item->inventory_item_id] ?? 0;
+                
+                // Get current stock at purchase location
+                $stock = InventoryStock::where('inventory_item_id', $item->inventory_item_id)
+                    ->where('location_id', $po->location_id)
+                    ->first();
+                $availableStock = $stock ? (float)$stock->quantity : 0;
+                
+                // Max = min(purchased - already_returned, available_stock)
+                $maxQuantity = min(
+                    max(0, $purchasedQty - $alreadyReturnedQty),
+                    $availableStock
+                );
+                
+                return [
+                    'inventoryItemId' => $item->inventory_item_id,
+                    'quantity' => null,
+                    'maxQuantity' => $maxQuantity,
+                    'purchasedQuantity' => $purchasedQty,
+                    'alreadyReturned' => $alreadyReturnedQty,
+                    'availableStock' => $availableStock,
+                    'unitPrice' => $item->unit_price ?? 0,
+                    'subtotal' => 0,
+                ];
+            })->filter(function($item) {
+                // Only show items that can still be returned
+                return $item['maxQuantity'] > 0;
+            })->values()->toArray();
         }
+    } else {
+        $this->items = [];
     }
+}
 
     public function updatedSupplierId($value)
     {
@@ -318,12 +373,52 @@ class ManagePurchaseReturn extends Component
             }
 
             $return->update(['total_amount' => $totalAmount]);
+            // Process immediately if requested
+            if (!$this->isEditing && $this->processImmediately) {
+                $this->processReturnLogic($return);
+                $return->update(['status' => 'completed']);
+                $this->alert('success', 'Purchase return processed! Stock has been reduced.');
+            } else {
+                $this->alert('success', 'Purchase return saved successfully');
+            }
         });
 
         $this->showModal = false;
         $this->isEditing = false;
         $this->dispatch('purchaseReturnSaved');
         $this->alert('success', 'Purchase return saved successfully');
+    }
+
+    protected function processReturnLogic($return)
+    {
+        $po = PurchaseOrder::find($return->purchase_order_id);
+        $locationId = $po ? $po->location_id : null;
+        
+        foreach ($return->items as $item) {
+            $quantity = (float)$item->quantity;
+            
+            // Reduce stock
+            if ($locationId) {
+                $stock = InventoryStock::where('inventory_item_id', $item->inventory_item_id)
+                    ->where('location_id', $locationId)
+                    ->first();
+                
+                if ($stock) {
+                    $stock->decrement('quantity', $quantity);
+                }
+            }
+            
+            // Create movement record
+            InventoryMovement::create([
+                'branch_id' => branch()->id,
+                'inventory_item_id' => $item->inventory_item_id,
+                'quantity' => $quantity,
+                'transaction_type' => 'out',
+                'unit_purchase_price' => $item->unit_price,
+                'supplier_id' => $return->supplier_id,
+                'added_by' => auth()->id(),
+            ]);
+        }
     }
 
     public function processReturn()
@@ -355,40 +450,12 @@ class ManagePurchaseReturn extends Component
                 // Reload items to ensure we have fresh data
                 $return->load('items');
 
-                // Process each item
-                foreach ($return->items as $returnItem) {
-                    $inventoryItem = InventoryItem::find($returnItem->inventory_item_id);
-                    
-                    if (!$inventoryItem) {
-                        continue;
-                    }
+                                // Reload items to ensure we have fresh data
+                $return->load('items');
 
-                    // Create inventory movement (OUT)
-                    InventoryMovement::create([
-                        'branch_id' => branch()->id,
-                        'inventory_item_id' => $returnItem->inventory_item_id,
-                        'quantity' => $returnItem->quantity,
-                        'transaction_type' => 'OUT',
-                        'supplier_id' => $return->supplier_id,
-                        'added_by' => user()->id,
-                    ]);
-
-                    // Reduce inventory stock with lock to prevent race conditions
-                    $stock = InventoryStock::where('inventory_item_id', $returnItem->inventory_item_id)
-                        ->where('branch_id', branch()->id)
-                        ->lockForUpdate()
-                        ->first();
-
-                    if ($stock && $stock->quantity >= $returnItem->quantity) {
-                        $stock->quantity -= $returnItem->quantity;
-                        $stock->save();
-                    } else {
-                        DB::rollBack();
-                        $this->alert('error', 'Insufficient stock for item: ' . ($inventoryItem->name ?? 'Unknown'));
-                        return;
-                    }
-                }
-
+                // Process the return using shared logic
+                $this->processReturnLogic($return);
+                $return->update(['status' => 'completed']);
                 // Mark return as completed - do this LAST inside transaction to prevent double processing
                 $return->update(['status' => 'completed']);
                 
@@ -415,8 +482,7 @@ class ManagePurchaseReturn extends Component
 
     public function render()
     {
-        $inventoryItems = InventoryItem::where('branch_id', branch()->id)
-            ->with(['unit', 'category'])
+        $inventoryItems = InventoryItem::with(['unit', 'category'])
             ->orderBy('name')
             ->get()
             ->map(function ($item) {

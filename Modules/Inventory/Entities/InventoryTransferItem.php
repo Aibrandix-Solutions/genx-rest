@@ -14,6 +14,7 @@ class InventoryTransferItem extends Model
         'inventory_transfer_id',
         'source_inventory_item_id',
         'destination_inventory_item_id',
+        'unit_id',
         'requested_quantity',
         'confirmed_quantity',
         'status',
@@ -25,6 +26,11 @@ class InventoryTransferItem extends Model
         'confirmed_quantity' => 'decimal:2',
     ];
 
+    public function unit(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Inventory\Entities\Unit::class);
+    }
+
     public function transfer(): BelongsTo
     {
         return $this->belongsTo(InventoryTransfer::class, 'inventory_transfer_id');
@@ -32,12 +38,12 @@ class InventoryTransferItem extends Model
 
     public function sourceItem(): BelongsTo
     {
-        return $this->belongsTo(InventoryItem::class, 'source_inventory_item_id')->withoutGlobalScopes();
+        return $this->belongsTo(InventoryItem::class, 'source_inventory_item_id');
     }
 
     public function destinationItem(): BelongsTo
     {
-        return $this->belongsTo(InventoryItem::class, 'destination_inventory_item_id')->withoutGlobalScopes();
+        return $this->belongsTo(InventoryItem::class, 'destination_inventory_item_id');
     }
 
     public function getIsPendingAttribute()

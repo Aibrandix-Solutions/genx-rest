@@ -103,8 +103,8 @@ return [
     'countedTotal' => 'Counted Total',
     'closingNote' => 'Closing Note',
     'closingNotePlaceholder' => 'Enter reason for discrepancy or closing notes...',
-    'submitForApproval' => 'Submit for Approval'
-    ,
+    'submitForApproval' => 'Submit for Approval',
+    'blindCountingMode' => 'Blind Counting Mode - Expected amount hidden',
     // Approvals list
     'approvals' => 'Approvals',
     'approvalsSubtitle' => 'Review and approve register closings',

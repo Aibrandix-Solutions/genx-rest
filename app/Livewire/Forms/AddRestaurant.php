@@ -52,7 +52,9 @@ class AddRestaurant extends Component
 
         $defaultCountry = Country::where('countries_code', $ipCountry)->first();
         if (!$defaultCountry) {
-            $defaultCountry = Country::first();
+            // Fallback to system default country code (+94) if IP detection fails
+            $defaultPhoneCode = default_phone_code();
+            $defaultCountry = Country::where('phonecode', $defaultPhoneCode)->first() ?? Country::first();
         }
         $this->country = $defaultCountry->id;
         $this->phoneCode = user()?->phone_code ?? $defaultCountry->phonecode;
@@ -173,6 +175,7 @@ class AddRestaurant extends Component
 
         Role::create(['name' => 'Waiter_' . $restaurant->id, 'display_name' => 'Waiter', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
         Role::create(['name' => 'Chef_' . $restaurant->id, 'display_name' => 'Chef', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
+        Role::create(['name' => 'Cashier_' . $restaurant->id, 'display_name' => 'Cashier', 'guard_name' => 'web', 'restaurant_id' => $restaurant->id]);
 
         $allPermissions = Permission::get()->pluck('name')->toArray();
 

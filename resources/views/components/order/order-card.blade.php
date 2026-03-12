@@ -1,6 +1,100 @@
-<div @class([
-    'flex-col gap-3 items-center border bg-white shadow-sm rounded-lg hover:shadow-md transition dark:bg-gray-700 dark:border-gray-600 p-3',
-])>
+@php
+    // Calculate elapsed time in minutes since order was placed
+    $orderStartTime = $order->date_time;
+    $elapsedMinutes = $orderStartTime ? now()->diffInMinutes($orderStartTime) : 0;
+    
+    // Determine urgency level based on elapsed time
+    $urgencyLevel = 'normal'; // default
+    if ($elapsedMinutes >= 20) {
+        $urgencyLevel = 'danger';
+    } elseif ($elapsedMinutes >= 10) {
+        $urgencyLevel = 'warning';
+    }
+    
+    // Only show timer for active orders that haven't been served yet
+    // The timer tracks food preparation & serving time, not payment time
+    $isActiveOrderStatus = in_array($order->status, ['kot', 'draft', 'billed']);
+    $isNotServed = !in_array($order->order_status?->value ?? $order->order_status, ['served', 'delivered']);
+    $showTimer = $isActiveOrderStatus && $isNotServed;
+@endphp
+
+<div 
+    x-data="{ 
+        startTime: {{ $orderStartTime ? $orderStartTime->timestamp * 1000 : 'null' }},
+        elapsed: '00:00',
+        urgencyLevel: '{{ $urgencyLevel }}',
+        updateTimer() {
+            if (!this.startTime) return;
+            const now = Date.now();
+            const diff = Math.floor((now - this.startTime) / 1000);
+            const hours = Math.floor(diff / 3600);
+            const mins = Math.floor((diff % 3600) / 60);
+            const secs = diff % 60;
+            
+            if (hours > 0) {
+                this.elapsed = String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+            } else {
+                this.elapsed = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+            }
+            
+            // Update urgency level dynamically
+            const elapsedMins = diff / 60;
+            if (elapsedMins >= 20) {
+                this.urgencyLevel = 'danger';
+            } else if (elapsedMins >= 10) {
+                this.urgencyLevel = 'warning';
+            } else {
+                this.urgencyLevel = 'normal';
+            }
+        }
+    }"
+    x-init="updateTimer(); setInterval(() => updateTimer(), 1000)"
+    @class([
+        'flex-col gap-3 items-center border shadow-sm rounded-lg hover:shadow-md transition-all duration-300 p-3',
+        // Normal state
+        'bg-white dark:bg-gray-700 dark:border-gray-600' => !$showTimer,
+    ])
+    :class="{
+        'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600': urgencyLevel === 'normal' && {{ $showTimer ? 'true' : 'false' }},
+        'bg-yellow-50 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-600 ring-2 ring-yellow-200 dark:ring-yellow-700': urgencyLevel === 'warning' && {{ $showTimer ? 'true' : 'false' }},
+        'bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-500 ring-2 ring-red-200 dark:ring-red-700 animate-pulse': urgencyLevel === 'danger' && {{ $showTimer ? 'true' : 'false' }}
+    }"
+>
+    {{-- Timer Badge --}}
+    @if($showTimer)
+    <div class="flex items-center justify-between w-full mb-1">
+        <div 
+            class="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded-full transition-colors duration-300"
+            :class="{
+                'bg-gray-100 text-gray-700 dark:bg-gray-600 dark:text-gray-200': urgencyLevel === 'normal',
+                'bg-yellow-200 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100': urgencyLevel === 'warning',
+                'bg-red-200 text-red-800 dark:bg-red-700 dark:text-red-100': urgencyLevel === 'danger'
+            }"
+        >
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span x-text="elapsed"></span>
+        </div>
+        <template x-if="urgencyLevel === 'danger'">
+            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-red-700 bg-red-100 rounded-full dark:bg-red-800 dark:text-red-200 animate-pulse">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                @lang('app.urgent')
+            </span>
+        </template>
+        <template x-if="urgencyLevel === 'warning'">
+            <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-yellow-700 bg-yellow-100 rounded-full dark:bg-yellow-800 dark:text-yellow-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                @lang('app.attention')
+            </span>
+        </template>
+    </div>
+    @endif
+
     <a @class(['group flex flex-col gap-3 items-center '])
         @if ($order->status == 'kot') href="{{ route('pos.kot', $order->id).'?show-order-detail=true' }}" wire:navigate
         @else wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })" @endif
@@ -141,7 +235,8 @@
                         'text-yellow-300' => $order->order_status->value == 'placed',
                         'text-indigo-500' => $order->order_status->value == 'confirmed',
                         'text-purple-500' => $order->order_status->value == 'preparing',
-                        'text-blue-400' => $order->order_status->value == 'ready_for_pickup',
+                        'text-blue-400' => $order->order_status->value == 'food_ready',
+                        'text-sky-500' => $order->order_status->value == 'ready_for_pickup',
                         'text-blue-500' => $order->order_status->value == 'out_for_delivery',
                         'text-green-400' => $order->order_status->value == 'served',
                         'text-green-500' => $order->order_status->value == 'delivered',
@@ -149,7 +244,13 @@
                     ]) viewBox="0 0 16 16">
                     <circle cx="8" cy="8" r="8" />
                 </svg>
-                @lang('modules.order.info_' . $order->order_status->value)
+                @if($order->order_status->value === 'food_ready')
+                    @lang('modules.order.foodIsReady')
+                @elseif($order->order_status->value === 'ready_for_pickup')
+                    @lang('modules.order.readyForPickup')
+                @else
+                    @lang('modules.order.info_' . $order->order_status->value)
+                @endif
             </div>
 
             @if ($order->status == 'kot' && user_can('Create Order'))

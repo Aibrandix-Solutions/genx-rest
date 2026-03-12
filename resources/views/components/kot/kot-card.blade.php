@@ -1,7 +1,109 @@
+@php
+    // Ensure $kotPlace is available (may not be passed in all contexts)
+    $kotPlace = $kotPlace ?? null;
+
+    // Check if this KOT has any multi-kitchen items
+    $hasMultiKitchenItems = $kot->items->where('is_multi_kitchen', true)->count() > 0;
+
+    // Check if ALL items in this KOT are claimed by another kitchen (makes KOT read-only)
+    $allClaimedByOthers = $kotPlace && $kot->items->count() > 0 && $kot->items->every(function ($item) use ($kotPlace) {
+        return $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != ($kotPlace->id ?? null);
+    });
+
+    // Calculate elapsed time in minutes since KOT was created
+    $kotStartTime = $kot->created_at;
+    $elapsedMinutes = $kotStartTime ? now()->diffInMinutes($kotStartTime) : 0;
+    
+    // Determine urgency level based on elapsed time
+    $urgencyLevel = 'normal'; // default
+    if ($elapsedMinutes >= 20) {
+        $urgencyLevel = 'danger';
+    } elseif ($elapsedMinutes >= 10) {
+        $urgencyLevel = 'warning';
+    }
+    
+    // Only show timer for active KOTs (not served/cancelled)
+    $showTimer = !in_array($kot->status, ['served', 'cancelled', 'delivered']);
+@endphp
+
 <div>
-    <div @class([
-        'group flex flex-col gap-3 border bg-white shadow-sm rounded-lg hover:shadow-md transition dark:bg-gray-700 dark:border-gray-600 p-3',
-       ]) wire:key='kot-item-{{ $kot->id . microtime() }}'>
+    <div 
+        x-data="{ 
+            startTime: {{ $kotStartTime ? $kotStartTime->timestamp * 1000 : 'null' }},
+            elapsed: '00:00',
+            urgencyLevel: '{{ $urgencyLevel }}',
+            updateTimer() {
+                if (!this.startTime) return;
+                const now = Date.now();
+                const diff = Math.floor((now - this.startTime) / 1000);
+                const hours = Math.floor(diff / 3600);
+                const mins = Math.floor((diff % 3600) / 60);
+                const secs = diff % 60;
+                
+                if (hours > 0) {
+                    this.elapsed = String(hours).padStart(2, '0') + ':' + String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+                } else {
+                    this.elapsed = String(mins).padStart(2, '0') + ':' + String(secs).padStart(2, '0');
+                }
+                
+                // Update urgency level dynamically
+                const elapsedMins = diff / 60;
+                if (elapsedMins >= 20) {
+                    this.urgencyLevel = 'danger';
+                } else if (elapsedMins >= 10) {
+                    this.urgencyLevel = 'warning';
+                } else {
+                    this.urgencyLevel = 'normal';
+                }
+            }
+        }"
+        x-init="updateTimer(); setInterval(() => updateTimer(), 1000)"
+        @class([
+            'group flex flex-col gap-3 border shadow-sm rounded-lg hover:shadow-md transition-all duration-300 p-3',
+            // Default state for completed orders
+            'bg-white dark:bg-gray-700 dark:border-gray-600' => !$showTimer,
+        ])
+        :class="{
+            'bg-white dark:bg-gray-700 border-gray-200 dark:border-gray-600': urgencyLevel === 'normal' && {{ $showTimer ? 'true' : 'false' }},
+            'bg-yellow-50 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-600 ring-2 ring-yellow-200 dark:ring-yellow-700': urgencyLevel === 'warning' && {{ $showTimer ? 'true' : 'false' }},
+            'bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-500 ring-2 ring-red-200 dark:ring-red-700 animate-pulse': urgencyLevel === 'danger' && {{ $showTimer ? 'true' : 'false' }}
+        }"
+        wire:key='kot-item-{{ $kot->id . microtime() }}'
+    >
+        {{-- Timer Badge --}}
+        @if($showTimer)
+        <div class="flex items-center justify-between w-full -mb-1">
+            <div 
+                class="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold rounded-full transition-colors duration-300"
+                :class="{
+                    'bg-gray-100 text-gray-700 dark:bg-gray-600 dark:text-gray-200': urgencyLevel === 'normal',
+                    'bg-yellow-200 text-yellow-800 dark:bg-yellow-700 dark:text-yellow-100': urgencyLevel === 'warning',
+                    'bg-red-200 text-red-800 dark:bg-red-700 dark:text-red-100': urgencyLevel === 'danger'
+                }"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span x-text="elapsed"></span>
+            </div>
+            <template x-if="urgencyLevel === 'danger'">
+                <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-red-700 bg-red-100 rounded-full dark:bg-red-800 dark:text-red-200 animate-pulse">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    @lang('app.urgent')
+                </span>
+            </template>
+            <template x-if="urgencyLevel === 'warning'">
+                <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-bold text-yellow-700 bg-yellow-100 rounded-full dark:bg-yellow-800 dark:text-yellow-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    @lang('app.attention')
+                </span>
+            </template>
+        </div>
+        @endif
         <div class="flex items-center justify-between w-full">
             <div class="space-y-1">
                 <div class="font-semibold text-skin-base">@lang('menu.kot') #{{ $kot->kot_number }}</div>
@@ -13,6 +115,14 @@
                 <div class="text-sm font-medium text-gray-800 dark:text-neutral-400">
                     {{ $kot->items_count }} @lang('modules.menu.item')
                 </div>
+                @if($hasMultiKitchenItems)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-300 dark:border-amber-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                        </svg>
+                        @lang('modules.menu.multiKitchenBadge')
+                    </span>
+                @endif
             </div>
             <div class="flex flex-col items-end gap-1">
                 @if($kot->order && $kot->order->order_type)
@@ -56,13 +166,27 @@
                     </span>
                 @endif
 
-                @if($kot->kotPlace && $showAllKitchens)
-                    <span class="text-xs text-gray-500 dark:text-gray-500 text-center w-full block">{{ $kot->kotPlace->name }}</span>
+                @if($showAllKitchens)
+                    @php
+                        // Show which kitchen is handling this KOT
+                        // If items are claimed, show the claiming kitchen; otherwise show the KOT's assigned kitchen
+                        $claimedItem = $kot->items->first(fn($i) => $i->is_multi_kitchen && $i->claimed_by_kitchen_id);
+                        $displayKitchenName = $claimedItem ? ($claimedItem->claimedByKitchen->name ?? $kot->kotPlace?->name) : $kot->kotPlace?->name;
+                    @endphp
+                    @if($displayKitchenName)
+                        <span class="text-xs text-gray-500 dark:text-gray-500 text-center w-full block">{{ $displayKitchenName }}</span>
+                    @endif
                 @endif
             </div>
             <div class="space-y-1 text-right">
                 <div class="text-sm font-medium text-gray-600 dark:text-neutral-400">
                     {{ $kot->order ? $kot->order->show_formatted_order_number : '--' }}
+
+                    @if (($kot->order?->placed_via ?? null) === 'shop')
+                        <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+                            SHOP
+                        </span>
+                    @endif
 
                     @if ($kot->order && $kot->order->table)
                         <span class="font-bold text-skin-base">({{ $kot->order->table->table_code }})</span>
@@ -124,97 +248,107 @@
 
 
         <div class="bg-white border rounded-lg dark:bg-gray-800 dark:border-gray-700">
-            <table class="w-full text-sm">
-                <thead class="bg-gray-50 dark:bg-gray-700/50">
-                    <tr>
-                        <th
-                            class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-500 uppercase dark:text-gray-400">
-                            @lang('modules.menu.itemName')
-                        </th>
-                        <th
-                            class="px-4 py-3 text-xs font-medium tracking-wider text-right text-gray-500 uppercase dark:text-gray-400">
-                            &nbsp;
-                        </th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    @foreach ($kot->items as $item)
-                        <tr>
-                            <td @class(['p-3',  'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready'])>
-                                <div class="flex flex-col">
-                                    <div class="flex items-center gap-1 text-xs text-gray-900 dark:text-white">
-                                        @if ($item->status == 'cooking')
-                                            <img src="{{ asset('img/cooking-icon.svg') }}" alt="cooking" class="w-6 h-6">
-                                        @endif
-
-                                        {{ $item->quantity }} x
-                                        {{ $item->menuItem->item_name }}
-                                    </div>
-                                    @if (isset($item->menuItemVariation))
-                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                            {{ $item->menuItemVariation->variation }}
-                                        </div>
-                                    @endif
-                                    @if ($item->modifierOptions->isNotEmpty())
-                                        <div class="mt-2 flex flex-wrap items-center gap-1">
-                                            @foreach ($item->modifierOptions as $modifier)
-                                                <div
-                                                    class="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 mr-1"
-                                                        viewBox="0 0 20 20" fill="currentColor">
-                                                        <path fill-rule="evenodd"
-                                                            d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z"
-                                                            clip-rule="evenodd" />
-                                                    </svg>
-                                                    {{ $modifier->name }}
-                                                </div>
-                                            @endforeach
-                                        </div>
-                                    @endif
-                                    @if($item->note)
-                                        <div class="mt-1 text-xs italic text-gray-500 dark:text-gray-400">
-                                            <span class="font-medium">Note:</span> {{ $item->note }}
-                                        </div>
-                                    @endif
-                                </div>
-                            </td>
-                            <td @class(['p-3 pl-0 text-right font-medium text-gray-900 dark:text-white', 'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready'])>
-
-                                @if($kotSettings->enable_item_level_status)
-                                    <div class="flex flex-col gap-1">
-                                        <select
-                                            wire:change="changeKotItemStatus({{ $item->id }}, $event.target.value)"
-                                            class="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                                            value="{{ $item->status ?? 'pending' }}"
-                                        >
-                                            <option value="pending" {{ ($item->status ?? 'pending') == 'pending' ? 'selected' : '' }}>
-                                                @lang('modules.order.pending_confirmation')
-                                            </option>
-                                            <option value="cooking" {{ $item->status == 'cooking' ? 'selected' : '' }}>
-                                                @lang('modules.order.start_cooking')
-                                            </option>
-                                            <option value="ready" {{ $item->status == 'ready' ? 'selected' : '' }}>
-                                                @lang('modules.order.markAsReady')
-                                            </option>
-                                        </select>
-
-                                        @if($item->status == 'ready')
-                                            <div class="flex items-center justify-center mt-1">
-                                                <span class="inline-flex items-center gap-1 text-sm text-green-500">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="w-4 h-4 bi bi-check-all" viewBox="0 0 16 16">
-                                                        <path d="M8.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L2.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093L8.95 4.992zm-.92 5.14.92.92a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 1 0-1.091-1.028L9.477 9.417l-.485-.486z"/>
-                                                    </svg>
-                                                    @lang('modules.order.ready')
-                                                </span>
-                                            </div>
-                                        @endif
-                                    </div>
+            <div class="px-4 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-t-lg">
+                <span class="text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">@lang('modules.menu.itemName')</span>
+            </div>
+            <div class="divide-y divide-gray-200 dark:divide-gray-700">
+                @foreach ($kot->items as $item)
+                    @php
+                        $isClaimedByOther = $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != ($kotPlace->id ?? null);
+                    @endphp
+                    <div @class([
+                        'flex items-start gap-2 p-3',
+                        'bg-green-50 dark:bg-green-800/30' => $item->status == 'ready',
+                    ])>
+                        {{-- Left: item info --}}
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-1 flex-wrap text-xs text-gray-900 dark:text-white">
+                                @if ($item->status == 'cooking')
+                                    <img src="{{ asset('img/cooking-icon.svg') }}" alt="cooking" class="w-5 h-5 flex-shrink-0">
                                 @endif
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
+                                <span>{{ $item->quantity }} x {{ $item->menuItem->item_name }}</span>
+                                @if($item->is_multi_kitchen)
+                                    <span class="inline-flex items-center flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" title="@lang('modules.menu.availableInMultipleKitchens')">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-2.5 h-2.5 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                        </svg>
+                                        @lang('modules.menu.multiKitchenItemBadge')
+                                    </span>
+                                @endif
+                            </div>
+                            @if($item->is_multi_kitchen && $item->claimed_by_kitchen_id)
+                                @php $claimedKitchenName = $item->claimedByKitchen->name ?? __('modules.menu.kitchenType'); @endphp
+                                <div class="mt-0.5 flex items-center gap-0.5 text-[10px] font-medium {{ $isClaimedByOther ? 'text-purple-600 dark:text-purple-400' : 'text-blue-600 dark:text-blue-400' }}">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048" />
+                                    </svg>
+                                    <span class="truncate">{{ __('modules.menu.preparingInKitchen', ['kitchen' => $claimedKitchenName]) }}</span>
+                                </div>
+                            @endif
+                            @if (isset($item->menuItemVariation))
+                                <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    {{ $item->menuItemVariation->variation }}
+                                </div>
+                            @endif
+                            @if ($item->modifierOptions->isNotEmpty())
+                                <div class="mt-1 flex flex-wrap items-center gap-1">
+                                    @foreach ($item->modifierOptions as $modifier)
+                                        @php $modifierQty = (int) ($modifier->pivot->quantity ?? 1); @endphp
+                                        <div class="inline-flex items-center text-xs text-gray-500 dark:text-gray-400">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                                            </svg>
+                                            {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @endif
+                            @if($item->note)
+                                <div class="mt-1 text-xs italic text-gray-500 dark:text-gray-400">
+                                    <span class="font-medium">Note:</span> {{ $item->note }}
+                                </div>
+                            @endif
+                        </div>
+
+                        {{-- Right: status control --}}
+                        @if($kotSettings->enable_item_level_status || $hasMultiKitchenItems)
+                            <div class="flex-shrink-0 flex flex-col items-end gap-1">
+                                @if($isClaimedByOther)
+                                    <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-600 whitespace-nowrap">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                                        </svg>
+                                        {{ ucfirst($item->status ?? 'pending') }}
+                                    </span>
+                                @else
+                                    <select
+                                        wire:change="changeKotItemStatus({{ $item->id }}, $event.target.value)"
+                                        class="text-xs border border-gray-300 rounded-md px-2 py-1 bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-28"
+                                    >
+                                        <option value="pending" {{ ($item->status ?? 'pending') == 'pending' ? 'selected' : '' }}>
+                                            @lang('modules.order.pending_confirmation')
+                                        </option>
+                                        <option value="cooking" {{ $item->status == 'cooking' ? 'selected' : '' }}>
+                                            @lang('modules.order.start_cooking')
+                                        </option>
+                                        <option value="ready" {{ $item->status == 'ready' ? 'selected' : '' }}>
+                                            @lang('modules.order.markAsReady')
+                                        </option>
+                                    </select>
+                                @endif
+                                @if($item->status == 'ready')
+                                    <span class="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400 whitespace-nowrap">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                                            <path d="M8.97 4.97a.75.75 0 0 1 1.07 1.05l-3.99 4.99a.75.75 0 0 1-1.08.02L2.324 8.384a.75.75 0 1 1 1.06-1.06l2.094 2.093L8.95 4.992zm-.92 5.14.92.92a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 1 0-1.091-1.028L9.477 9.417l-.485-.486z"/>
+                                        </svg>
+                                        @lang('modules.order.ready')
+                                    </span>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
         </div>
 
         @if ($kot->note)
@@ -261,6 +395,15 @@
                     </g>
                 </svg>
             </button>
+                @if($allClaimedByOthers)
+                    {{-- All items are being prepared by another kitchen --}}
+                    <span class="inline-flex items-center gap-1 px-3 py-2 text-xs font-medium rounded-md bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300 border border-purple-300 dark:border-purple-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+                        </svg>
+                        @lang('modules.menu.handledByAnotherKitchen')
+                    </span>
+                @else
                 @if ($kot->status == 'pending_confirmation')
                     <x-secondary-button wire:click="changeKotStatus('in_kitchen')">
                         <img src="{{ asset('img/cooking-icon.svg') }}" alt="cooking" class="w-6 h-6 mr-1">
@@ -268,13 +411,17 @@
                     </x-secondary-button>
                 @endif
                 @if ($kot->status == 'in_kitchen')
-                    <x-secondary-button wire:click="changeKotStatus('food_ready')">
+                    <x-secondary-button wire:click="changeKotStatus('food_ready')" title="{{ $hasMultiKitchenItems ? __('modules.menu.markAllItemsReady') : __('modules.order.food_ready') }}">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
                             class="mr-1 text-green-600 bi bi-check2-circle" viewBox="0 0 16 16">
                             <path d="M2.5 8a5.5 5.5 0 0 1 8.25-4.764.5.5 0 0 0 .5-.866A6.5 6.5 0 1 0 14.5 8a.5.5 0 0 0-1 0 5.5 5.5 0 1 1-11 0" />
                             <path d="M15.354 3.354a.5.5 0 0 0-.708-.708L8 9.293 5.354 6.646a.5.5 0 1 0-.708.708l3 3a.5.5 0 0 0 .708 0z" />
                         </svg>
-                        @lang('modules.order.food_ready')
+                        @if($hasMultiKitchenItems)
+                            @lang('modules.menu.markAllItemsReady')
+                        @else
+                            @lang('modules.order.food_ready')
+                        @endif
                     </x-secondary-button>
                 @endif
                 @if ($kot->status == 'food_ready')
@@ -328,6 +475,7 @@
                         @lang('app.cancel')
                     </x-danger-button>
                 @endif
+                @endif {{-- end !$allClaimedByOthers --}}
 
         </div>
     </div>

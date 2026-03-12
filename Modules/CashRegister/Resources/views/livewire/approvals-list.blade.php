@@ -13,6 +13,7 @@
                     <div class="lg:flex gap-2 items-center">
                         <x-select class="block w-fit" wire:model="dateRangeType" wire:change="setDateRange">
                             <option value="today">@lang('app.today')</option>
+                            <option value="yesterday">@lang('app.yesterday')</option>
                             <option value="currentWeek">@lang('app.currentWeek')</option>
                             <option value="lastWeek">@lang('app.lastWeek')</option>
                             <option value="last7Days">@lang('app.last7Days')</option>
@@ -96,9 +97,16 @@
                             <td class="py-2 pr-4 max-w-xs truncate" title="{{ $s->closing_note }}">{{ $s->closing_note }}</td>
                             <td class="py-2">
                                 <div class="flex items-center gap-2">
-                                    <x-button type="button" onclick="window.location='{{ route('cashregister.reports') }}'">@lang('cashregister::app.viewReport')</x-button>
-                                    <x-button type="button" wire:click="approve({{ $s->id }})" class="bg-emerald-600 hover:bg-emerald-700">@lang('cashregister::app.approve')</x-button>
-                                    <x-button type="button" wire:click="reject({{ $s->id }})" class="bg-rose-600 hover:bg-rose-700">@lang('cashregister::app.reopen')</x-button>
+                                    @if(in_array($s->status, ['pending_approval', 'closed'], true))
+                                        <x-button type="button" onclick="window.location='{{ route('cashregister.reports', ['tab' => 'z', 'session' => $s->id]) }}'">@lang('cashregister::app.viewReport')</x-button>
+                                    @endif
+
+                                    @if($s->status === 'pending_approval')
+                                        @can('Approve Cash Register')
+                                            <x-button type="button" wire:click="approve({{ $s->id }})" class="bg-emerald-600 hover:bg-emerald-700">@lang('cashregister::app.approve')</x-button>
+                                            <x-button type="button" wire:click="reject({{ $s->id }})" class="bg-rose-600 hover:bg-rose-700">@lang('cashregister::app.reopen')</x-button>
+                                        @endcan
+                                    @endif
                                 </div>
                             </td>
                         </tr>

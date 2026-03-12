@@ -19,7 +19,13 @@
 | {{ __('modules.menu.itemName') }}           | {{ __('modules.order.qty') }}      | {{ __('modules.order.price') }}     |
 |:-------------- |:-------------:| ---------:|
 @foreach ($items as $item)
-| **{{ $item->menuItem->item_name }}** @if ($item->modifierOptions->isNotEmpty()) @foreach ($item->modifierOptions as $modifier) <br> &nbsp;• {{ $modifier->name }} @if ($modifier->price > 0) (+{{ currency_format($modifier->price, $settings->currency_id) }}) @endif @endforeach @endif @if($item->note) <br> <em>{{ __('modules.order.note') }}: {{ $item->note }}</em> @endif | {{ $item->quantity }} | {{ currency_format(($item->price + $item->modifierOptions->sum('price')) * $item->quantity, $settings->currency_id) }} |
+@php
+    $modifierTotal = $item->modifierOptions->sum(function ($modifier) {
+        $qty = (int) ($modifier->pivot->quantity ?? 1);
+        return ($modifier->price ?? 0) * max(1, $qty);
+    });
+@endphp
+| **{{ $item->menuItem->item_name }}** @if ($item->modifierOptions->isNotEmpty()) @foreach ($item->modifierOptions as $modifier) @php $modifierQty = (int) ($modifier->pivot->quantity ?? 1); $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty); @endphp <br> &nbsp;• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif @if ($modifierLinePrice > 0) (+{{ currency_format($modifierLinePrice, $settings->currency_id) }}) @endif @endforeach @endif @if($item->note) <br> <em>{{ __('modules.order.note') }}: {{ $item->note }}</em> @endif | {{ $item->quantity }} | {{ currency_format(($item->price + $modifierTotal) * $item->quantity, $settings->currency_id) }} |
 @endforeach
 | **{{ __('modules.order.subTotal') }}**   |               | **{{ currency_format($subtotal, $settings->currency_id) }}** |
 @if (!is_null($order->discount_amount))

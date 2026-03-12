@@ -237,10 +237,18 @@
                 @else
                     <div class="py-4 mb-4 bg-white rounded-lg shadow-sm dark:bg-gray-800">
                         @php
-                            $statuses = match ($order->order_type) {
-                                'delivery' => ['placed', 'confirmed', 'preparing', 'out_for_delivery', 'delivered'],
-                                'pickup' => ['placed', 'confirmed', 'preparing', 'ready_for_pickup', 'delivered'],
-                                default => ['placed', 'confirmed', 'preparing', 'served'],
+                            // Get the actual order type (dine_in, pickup, delivery)
+                            $baseOrderType = $order->orderType?->type ?? $order->order_type;
+
+                            $statuses = match ($baseOrderType) {
+                                'delivery' => ['placed', 'confirmed', 'preparing', 'food_ready', 'out_for_delivery', 'delivered'],
+                                'pickup' => ['placed', 'confirmed', 'preparing', 'food_ready', 'ready_for_pickup', 'delivered'],
+                                default => ['placed', 'confirmed', 'preparing', 'food_ready', 'served'],
+                            };
+
+                            // Label function for statuses
+                            $getStatusLabel = function($status) {
+                                return __('modules.order.' . \App\Enums\OrderStatus::from($status)->label());
                             };
 
                             $currentIndex = array_search($orderProgressStatus, $statuses);
@@ -266,7 +274,7 @@
                                         $orderProgressStatus !== 'served' &&
                                         $orderProgressStatus !== 'placed',
                                 ])>
-                                    {{ __('modules.order.' . App\Enums\OrderStatus::from($orderProgressStatus)->label()) }}
+                                    {{ $getStatusLabel($orderProgressStatus) }}
                                 </span>
                             </div>
 
@@ -308,8 +316,21 @@
                                                         </svg>
                                                     @break
 
-                                                    @case('out_for_delivery')
+                                                    @case('food_ready')
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                        </svg>
+                                                    @break
+
                                                     @case('ready_for_pickup')
+                                                        <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                                            viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                                stroke-width="2" d="M12 8c-2.21 0-4 1.79-4 4h8c0-2.21-1.79-4-4-4zM4 16h16v2H4v-2z" />
+                                                        </svg>
+                                                    @break
+
+                                                    @case('out_for_delivery')
                                                         <svg class="w-4 h-4" fill="none" stroke="currentColor"
                                                             viewBox="0 0 24 24">
                                                             <path stroke-linecap="round" stroke-linejoin="round"
@@ -328,7 +349,7 @@
                                                 @endswitch
                                             </div>
                                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                                                {{ __('modules.order.' . App\Enums\OrderStatus::from($status)->label()) }}
+                                                {{ $getStatusLabel($status) }}
                                             </span>
                                         </div>
                                     @endforeach
@@ -348,7 +369,7 @@
 
                                 @if($currentIndex < count($statuses) - 1)
                                     <x-secondary-button class="inline-flex items-center gap-2" wire:click="$set('orderProgressStatus', '{{ $statuses[$nextIndex] }}')">
-                                        <span>{{ __('modules.order.moveTo') }} {{ __('modules.order.' . App\Enums\OrderStatus::from($statuses[$nextIndex])->label()) }}</span>
+                                        <span>{{ __('modules.order.moveTo') }} {{ $getStatusLabel($statuses[$nextIndex]) }}</span>
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                                         </svg>
@@ -385,7 +406,7 @@
                                     @lang('modules.order.amount')
                                 </th>
 
-                                @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')) && user_can('Delete Order'))
                                     <th scope="col"
                                         class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                         @lang('app.action')
@@ -416,12 +437,16 @@
                                         @if ($item->modifierOptions->isNotEmpty())
                                             <div class="text-xs text-gray-600 dark:text-white">
                                                 @foreach ($item->modifierOptions as $modifier)
+                                                    @php
+                                                        $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                                        $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty);
+                                                    @endphp
                                                     <div
                                                         class="flex justify-between items-center px-1 py-0.5 mb-1 text-xs bg-gray-200 rounded-md border-l-2 border-blue-500 dark:bg-gray-900">
                                                         <span
-                                                            class="text-gray-900 dark:text-white">{{ $modifier->name }}</span>
+                                                            class="text-gray-900 dark:text-white">{{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif</span>
                                                         <span
-                                                            class="text-gray-600 dark:text-gray-300">{{ currency_format($modifier->price, $currencyId) }}</span>
+                                                            class="text-gray-600 dark:text-gray-300">{{ currency_format($modifierLinePrice, $currencyId) }}</span>
                                                     </div>
                                                 @endforeach
                                             </div>
@@ -443,7 +468,7 @@
                                         {{ currency_format($item->amount, $currencyId) }}
                                     </td>
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')) && user_can('Delete Order'))
                                         <td class="p-2 text-right whitespace-nowrap">
                                             <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20"
                                                 wire:click="promptOrderItemRemoval({{ $item->id }})">
@@ -512,7 +537,7 @@
                                         ({{ $item->charge->charge_value }}%)
                                     @endif
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')))
                                         <span class="text-red-500 cursor-pointer hover:scale-110 active:scale-100"
                                             wire:click="removeCharge('{{ $item->id }}')">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
@@ -758,8 +783,7 @@
                                         ])>
                                             <div class="inline-flex items-center justify-center gap-2">
                                                 @if($order->status !== 'pending_verification' && user_can('Update Order'))
-                                                    <x-select wire:model.live="item.payment_method"
-                                                            wire:change="updatePaymentMethod({{ $item->id }}, $event.target.value)"
+                                                    <x-select wire:change="updatePaymentMethod({{ $item->id }}, $event.target.value)"
                                                             class="w-32 text-sm">
                                                         @foreach(['cash', 'card', 'upi', 'due' , 'bank_transfer'] as $method)
                                                             <option value="{{ $method }}" @selected($item->payment_method == $method)>
@@ -812,7 +836,16 @@
                     </div>
                 @endif
 
-                @if ($order->order_type == 'delivery' && $order->delivery_address)
+                @php
+                    $displayDeliveryAddress = $order->delivery_address
+                        ?: ($order->customer_address ?? null)
+                        ?: (optional($order->customer)->delivery_address ?? null);
+
+                    $displayCustomerPhone = $order->customer_phone
+                        ?: (optional($order->customer)->phone ?? null);
+                @endphp
+
+                @if ($order->order_type == 'delivery' && $displayDeliveryAddress)
                     <div class="p-3 mt-3 rounded-lg bg-gray-50 dark:bg-gray-700">
                         <div class="flex items-center justify-between mb-2">
                             <div class="flex gap-1.5 items-center font-semibold text-gray-800 dark:text-gray-200">
@@ -830,8 +863,16 @@
                             @endif
                         </div>
 
+                        @if ($displayCustomerPhone)
+                            <a href="tel:{{ preg_replace('/\s+/', '', $displayCustomerPhone) }}"
+                                class="inline-flex items-center gap-1.5 mb-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-telephone-fill" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M1.885.511a1.745 1.745 0 0 1 2.61.163L6.29 2.98c.329.423.445.974.315 1.494l-.547 2.19a.678.678 0 0 0 .178.643l2.457 2.457a.678.678 0 0 0 .644.178l2.189-.547a1.745 1.745 0 0 1 1.494.315l2.306 1.794c.829.645.905 1.87.163 2.611l-1.034 1.034c-.74.74-1.846 1.065-2.877.702a18.634 18.634 0 0 1-7.01-4.42 18.634 18.634 0 0 1-4.42-7.009c-.362-1.03-.037-2.137.703-2.877z"/></svg>
+                                <span>{{ $displayCustomerPhone }}</span>
+                            </a>
+                        @endif
+
                         <div class="p-2 text-sm text-gray-600 bg-white border border-gray-200 rounded dark:text-gray-300 dark:bg-gray-800 dark:border-gray-600">
-                            {!! nl2br(e($order->delivery_address)) !!}
+                            {!! nl2br(e($displayDeliveryAddress)) !!}
                         </div>
                     </div>
                 @endif
@@ -1035,6 +1076,10 @@
     <script>
         $wire.on('play_beep', () => {
             new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();
+        });
+
+        $wire.on('food_ready_sound', () => {
+            new Audio("{{ asset('sound/food-ready.mp3')}}").play();
         });
 
         $wire.on('print_location', (url) => {

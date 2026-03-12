@@ -49,6 +49,7 @@ class SalesReport extends Component
     {
         $ranges = [
             'today' => [now()->startOfDay(), now()->endOfDay()],
+            'yesterday' => [now()->subDay()->startOfDay(), now()->subDay()->endOfDay()],
             'lastWeek' => [now()->subWeek()->startOfWeek(), now()->subWeek()->endOfWeek()],
             'last7Days' => [now()->subDays(7), now()->endOfDay()],
             'currentMonth' => [now()->startOfMonth(), now()->endOfDay()],
@@ -224,6 +225,7 @@ class SalesReport extends Component
 
         $orderData = $orderData->select(
             DB::raw('DATE(CONVERT_TZ(date_time, "+00:00", "' . $dateTimeData['offset'] . '")) as date'),
+            DB::raw('SUM(total) as orders_total'),
             DB::raw('SUM(discount_amount) as discount_amount'),
             DB::raw('SUM(tip_amount) as tip_amount'),
             DB::raw('SUM(delivery_fee) as delivery_fee'),
@@ -372,11 +374,12 @@ class SalesReport extends Component
             // Calculate total tax amount
             $totalTaxAmount = array_sum($taxAmounts);
 
+            $ordersTotal = $orderInfo->orders_total ?? $item->total_amount ?? 0;
             return [
                 'date' => $item->date,
                 'total_orders' => $item->total_orders,
-                'total_amount' => $item->total_amount ?? 0,
-                'total_excluding_tip' => ($item->total_amount ?? 0) - ($orderInfo->tip_amount ?? 0),
+                'total_amount' => $ordersTotal,
+                'total_excluding_tip' => $ordersTotal - ($orderInfo->tip_amount ?? 0),
                 'discount_amount' => $orderInfo->discount_amount ?? 0,
                 'tip_amount' => $orderInfo->tip_amount ?? 0,
                 'delivery_fee' => $orderInfo->delivery_fee ?? 0,

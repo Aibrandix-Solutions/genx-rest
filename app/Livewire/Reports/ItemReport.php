@@ -44,6 +44,11 @@ class ItemReport extends Component
             $this->endDate = now()->startOfDay()->format('m/d/Y');
             break;
 
+        case 'yesterday':
+            $this->startDate = now()->subDay()->startOfDay()->format('m/d/Y');
+            $this->endDate = now()->subDay()->endOfDay()->format('m/d/Y');
+            break;
+
         case 'lastWeek':
             $this->startDate = now()->subWeek()->startOfWeek()->format('m/d/Y');
             $this->endDate = now()->subWeek()->endOfWeek()->format('m/d/Y');
@@ -112,16 +117,42 @@ class ItemReport extends Component
     {
         $timezone = timezone();
 
-        $startDateTime = Carbon::createFromFormat('m/d/Y H:i', "{$this->startDate} {$this->startTime}", $timezone)
-            ->toDateTimeString();
+        $startFallback = now($timezone)->startOfDay();
+        $endFallback = now($timezone)->endOfDay();
 
-        $endDateTime = Carbon::createFromFormat('m/d/Y H:i', "{$this->endDate} {$this->endTime}", $timezone)
-            ->toDateTimeString();
+        $startDateTime = $this->parseDateTimeOrFallback($this->startDate, $this->startTime, $timezone, $startFallback);
+        $endDateTime = $this->parseDateTimeOrFallback($this->endDate, $this->endTime, $timezone, $endFallback);
 
-        $startTime = Carbon::parse($this->startTime, $timezone)->format('H:i');
-        $endTime = Carbon::parse($this->endTime, $timezone)->format('H:i');
+        $startTime = $this->normalizeTime($this->startTime, $timezone, '00:00');
+        $endTime = $this->normalizeTime($this->endTime, $timezone, '23:59');
 
         return compact('timezone', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
+    }
+
+    private function parseDateTimeOrFallback($date, $time, $timezone, Carbon $fallback): string
+    {
+        $date = trim((string)$date);
+        $time = trim((string)$time);
+
+        if ($date === '' || $time === '') {
+            return $fallback->toDateTimeString();
+        }
+
+        try {
+            return Carbon::createFromFormat('m/d/Y H:i', "{$date} {$time}", $timezone)
+                ->toDateTimeString();
+        } catch (\Throwable $e) {
+            return $fallback->toDateTimeString();
+        }
+    }
+
+    private function normalizeTime($time, $timezone, string $fallback): string
+    {
+        try {
+            return Carbon::parse($time, $timezone)->format('H:i');
+        } catch (\Throwable $e) {
+            return $fallback;
+        }
     }
 
     public function render()

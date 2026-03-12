@@ -13,6 +13,11 @@ class CartItemModifierOption extends Model
     protected $fillable = [
         'cart_item_id',
         'modifier_option_id',
+        'quantity',
+    ];
+
+    protected $casts = [
+        'quantity' => 'int',
     ];
 
     /**

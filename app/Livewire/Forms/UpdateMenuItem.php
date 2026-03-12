@@ -18,6 +18,7 @@ use App\Models\MenuItemVariation;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Validate;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use App\Scopes\AvailableMenuItemScope;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -33,6 +34,9 @@ class UpdateMenuItem extends Component
     // Core Properties
     #[Validate('required')]
     public string $itemName = '';
+
+    #[Validate('nullable|string|max:50')]
+    public ?string $itemCode = null;
 
     #[Validate('required')]
     public string $menu = '';
@@ -55,8 +59,8 @@ class UpdateMenuItem extends Component
     #[Validate('required|boolean')]
     public bool $isAvailable = true;
 
-    #[Validate('nullable|string')]
-    public ?string $kitchenType = null;
+    #[Validate('nullable|array')]
+    public array $selectedKitchenTypes = [];
 
     #[Validate('required|boolean')]
     public bool $showOnCustomerSite = true;
@@ -149,7 +153,7 @@ class UpdateMenuItem extends Component
         $this->languages = languages()->pluck('language_name', 'language_code')->toArray();
         $this->translationNames = array_fill_keys(array_keys($this->languages), '');
         $this->translationDescriptions = array_fill_keys(array_keys($this->languages), '');
-        $this->globalLocale = global_setting()->locale;
+        $this->globalLocale = auth()->user()->locale ?? global_setting()->locale;
         $this->currentLanguage = $this->globalLocale;
     }
 
@@ -161,12 +165,19 @@ class UpdateMenuItem extends Component
         // Load basic data
         $this->menu = (string)$this->menuItem->menu_id;
         $this->itemCategory = (string)$this->menuItem->item_category_id;
+        $this->itemCode = $this->menuItem->item_code;
         $this->itemPrice = (string)$this->menuItem->price;
         $this->preparationTime = $this->menuItem->preparation_time;
         $this->itemType = $this->menuItem->type;
         $this->isAvailable = (bool)$this->menuItem->is_available;
         $this->inStock = (bool)$this->menuItem->in_stock;
-        $this->kitchenType = $this->menuItem->kot_place_id ? (string)$this->menuItem->kot_place_id : null;
+        // Load selected kitchens from pivot table, fallback to legacy kot_place_id
+        $pivotIds = $this->menuItem->kotPlaces()->pluck('kot_places.id')->toArray();
+        if (!empty($pivotIds)) {
+            $this->selectedKitchenTypes = array_map('strval', $pivotIds);
+        } elseif ($this->menuItem->kot_place_id) {
+            $this->selectedKitchenTypes = [(string) $this->menuItem->kot_place_id];
+        }
         $this->showOnCustomerSite = (bool)$this->menuItem->show_on_customer_site;
         $this->itemImage = $this->menuItem->image;
 
@@ -538,6 +549,18 @@ class UpdateMenuItem extends Component
 
             $this->validateForm();
             $this->updateMenuItem();
+
+            // Sync multi-kitchen pivot table
+            if (!empty($this->selectedKitchenTypes)) {
+                $pivotData = [];
+                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
+                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
+                }
+                $this->menuItem->kotPlaces()->sync($pivotData);
+            } else {
+                $this->menuItem->kotPlaces()->detach();
+            }
+
             $this->handleTranslations($this->menuItem);
             $this->handleImageUpload($this->menuItem);
             $this->handleVariationsOrPricing($this->menuItem);
@@ -554,15 +577,32 @@ class UpdateMenuItem extends Component
 
     private function validateForm(): void
     {
+        // Ensure the currently edited language fields are synced into the translation arrays
+        // before validation / persistence (wire:change might not fire before submit).
+        $this->updateTranslation();
+
+        // Normalize item code: empty string -> null
+        $this->itemCode = is_null($this->itemCode) ? null : trim((string) $this->itemCode);
+        if ($this->itemCode === '') {
+            $this->itemCode = null;
+        }
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
+            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code,' . $this->menuItem->id,
             'isAvailable' => 'required|boolean',
             'showOnCustomerSite' => 'required|boolean',
             'platformAvailability.*' => 'nullable|boolean',
         ];
+
+        // If Kitchen module is enabled, at least one kitchen type is mandatory.
+        if (in_array('Kitchen', restaurant_modules(), true)) {
+            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
+            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
+        }
 
         // Add validation for variations if hasVariations is true
         if ($this->hasVariations) {
@@ -620,6 +660,9 @@ class UpdateMenuItem extends Component
             'isAvailable.boolean' => __('validation.availabilityMustBeBoolean'),
             'showOnCustomerSite.required' => __('validation.showOnCustomerSiteRequired'),
             'showOnCustomerSite.boolean' => __('validation.showOnCustomerSiteMustBeBoolean'),
+
+            'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
+            'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
         ];
 
         // Add validation messages for order type prices (non-variation)
@@ -657,6 +700,7 @@ class UpdateMenuItem extends Component
     {
         $updateData = [
             'item_name' => $this->translationNames[$this->globalLocale],
+            'item_code' => $this->itemCode,
             'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
             'item_category_id' => $this->itemCategory,
             'description' => $this->translationDescriptions[$this->globalLocale],
@@ -664,7 +708,7 @@ class UpdateMenuItem extends Component
             'preparation_time' => $this->preparationTime,
             'menu_id' => $this->menu,
             'is_available' => $this->isAvailable,
-            'kot_place_id' => $this->kitchenType,
+            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
             'show_on_customer_site' => $this->showOnCustomerSite,
             'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
         ];

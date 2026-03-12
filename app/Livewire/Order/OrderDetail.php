@@ -206,6 +206,16 @@ class OrderDetail extends Component
             return;
         }
 
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->pendingOrderItemId = $id;
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
@@ -234,6 +244,16 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->performOrderItemDeletion($id);
     }
 
@@ -255,16 +275,27 @@ class OrderDetail extends Component
                 })
                 ->get();
 
-            foreach ($kotItems as $kotItem) {
-                KotAdjustmentLogger::log(
-                    $kotItem,
-                    'deleted',
+            if ($kotItems->isNotEmpty()) {
+                foreach ($kotItems as $kotItem) {
+                    KotAdjustmentLogger::log(
+                        $kotItem,
+                        'deleted',
+                        $note ?: __('modules.order.deleteOrderItemMessage'),
+                        $kotItem->quantity,
+                        0
+                    );
+
+                    $kotItem->delete();
+                }
+            } else {
+                // No KOT items — item was billed directly; log against the order item itself
+                KotAdjustmentLogger::logOrderItem(
+                    $orderItem,
+                    'deleted_from_order',
                     $note ?: __('modules.order.deleteOrderItemMessage'),
-                    $kotItem->quantity,
+                    $orderItem->quantity,
                     0
                 );
-
-                $kotItem->delete();
             }
         }
 
@@ -279,6 +310,11 @@ class OrderDetail extends Component
             }
 
             $this->recalculateOrderTotals();
+
+            // Keep payment records in sync with the revised total
+            if (in_array($this->order->status, ['paid', 'payment_due'])) {
+                $this->scalePaymentsToNewTotal($this->total);
+            }
         }
 
         $this->alert('success', __('messages.orderItemDeleted'), [
@@ -297,10 +333,71 @@ class OrderDetail extends Component
             return;
         }
 
+        // DEBUG: Log what we're trying to save
+        \Log::info('Order Status Update', [
+            'order_id' => $this->order->id,
+            'order_number' => $this->order->order_number,
+            'new_status' => $value,
+            'order_type' => $this->order->order_type,
+        ]);
+
         $this->order->update(['order_status' => $value]);
         $this->orderProgressStatus = $value;
 
+        if ($value === 'food_ready') {
+            $this->dispatch('food_ready_sound');
+            $this->alert('success', __('messages.foodReady'), [
+                'toast' => true,
+                'position' => 'top-end'
+            ]);
+        }
+
+        // DEBUG: Log what was actually saved
+        $this->order->refresh();
+        \Log::info('Order Status After Save', [
+            'order_id' => $this->order->id,
+            'saved_status' => $this->order->order_status->value,
+        ]);
+
         if ($value === 'confirmed') {
+            // If this order came from customer site and was held for staff confirmation,
+            // it may not have KOTs yet. Generate them now so kitchen can start.
+            if ($this->order->kot()->count() === 0) {
+                $transactionId = uniqid('TXN_', true) . '_' . random_int(100000, 999999);
+
+                $kot = Kot::create([
+                    'branch_id' => $this->order->branch_id,
+                    'kot_number' => (Kot::generateKotNumber($this->order->branch) + 1),
+                    'order_id' => $this->order->id,
+                    'order_type_id' => $this->order->order_type_id,
+                    'token_number' => Kot::generateTokenNumber($this->order->branch_id, $this->order->order_type_id),
+                    'note' => $this->order->note ?? null,
+                    'transaction_id' => $transactionId,
+                ]);
+
+                foreach ($this->order->items as $orderItem) {
+                    $kotItem = KotItem::create([
+                        'kot_id' => $kot->id,
+                        'menu_item_id' => $orderItem->menu_item_id,
+                        'menu_item_variation_id' => $orderItem->menu_item_variation_id,
+                        'quantity' => $orderItem->quantity,
+                        'transaction_id' => $transactionId,
+                        'note' => $orderItem->note,
+                    ]);
+
+                    $sync = [];
+                    foreach ($orderItem->modifierOptions as $modifier) {
+                        $qty = (int) ($modifier->pivot->quantity ?? 1);
+                        $sync[$modifier->id] = ['quantity' => max(1, $qty)];
+                    }
+                    if (!empty($sync)) {
+                        $kotItem->modifierOptions()->sync($sync);
+                    }
+                }
+
+                $this->order->update(['status' => 'kot']);
+            }
+
             $this->order->kot->each(function ($kot) {
                 $kot->update(['status' => 'in_kitchen']);
             });
@@ -318,7 +415,8 @@ class OrderDetail extends Component
         case 'bill':
             $successMessage = __('messages.billedSuccess');
             $status = 'billed';
-            $tableStatus = 'running';
+            // Billing closes the table (free it for new guests)
+            $tableStatus = 'available';
                 break;
 
         case 'kot':
@@ -327,7 +425,7 @@ class OrderDetail extends Component
 
         $taxes = Tax::all();
 
-        Order::where('id', $this->order->id)->update([
+        $this->order->update([
             'date_time' => now(),
             'status' => $status
         ]);
@@ -491,7 +589,11 @@ class OrderDetail extends Component
 
                         // Release table session lock if exists
                         if ($table->tableSession) {
-                            $table->tableSession->releaseLock();
+                            if ($table->tableSession->isOrderLock() && $table->tableSession->order_id === $order->id) {
+                                $table->unlockFromOrder($order->id);
+                            } else {
+                                $table->tableSession->releaseLock();
+                            }
                         }
                     }
                 }
@@ -688,6 +790,16 @@ class OrderDetail extends Component
 
     public function removeCharge($chargeId)
     {
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $charge = OrderCharge::find($chargeId);
 
         if ($charge) {
@@ -751,6 +863,43 @@ class OrderDetail extends Component
     /**
      * Recalculate order totals including all components
      */
+    /**
+     * Reduce overpaid payment amounts so their sum equals the new order total.
+     * Works from the most-recent payment backwards, never letting any amount go below zero.
+     */
+    private function scalePaymentsToNewTotal(float $newTotal): void
+    {
+        $payments = $this->order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->orderBy('id')
+            ->get();
+
+        $excess = round($payments->sum('amount') - $newTotal, 2);
+
+        if ($excess <= 0) {
+            return;
+        }
+
+        // Reduce from the most recent payment first
+        foreach ($payments->sortByDesc('id') as $payment) {
+            if ($excess <= 0) {
+                break;
+            }
+            $canReduce = min((float) $payment->amount, $excess);
+            $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
+            $excess = round($excess - $canReduce, 2);
+        }
+
+        $this->order->update([
+            'amount_paid' => $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount'),
+        ]);
+
+        $this->order->refresh();
+        $this->order->load('payments');
+    }
+
     public function recalculateOrderTotals()
     {
         if (!$this->order) {
@@ -855,9 +1004,18 @@ class OrderDetail extends Component
             return $basePrice + $modifierPrice;
         }
 
-        // For existing order items (when viewing order details), calculate from the order item itself
+        // For existing order items (when viewing order details), use the saved price from database
         if ($this->order && isset($this->order->items[$key])) {
             $orderItem = $this->order->items[$key];
+            
+            // For combo items, use the saved price (which is the discounted price)
+            // The price field in order_items already contains the final price after combo discount
+            if ($orderItem->is_combo_item) {
+                // Return the price per unit (price field contains the discounted price per unit)
+                return $orderItem->price;
+            }
+            
+            // For non-combo items, check if we need to calculate with tax
             $basePrice = !is_null($orderItem->menuItemVariation) ? $orderItem->menuItemVariation->price : $orderItem->menuItem->price;
             $modifierPrice = $orderItem->modifierOptions->sum('price');
 

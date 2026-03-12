@@ -11,6 +11,8 @@ use App\Scopes\AvailableMenuItemScope;
 use Livewire\WithPagination;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Features\SupportPagination\WithoutUrlPagination;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\MenuItemExport;
 
 class MenuItems extends Component
 {
@@ -31,6 +33,8 @@ class MenuItems extends Component
     public $filterCategories = [];
     public $filterTypes = [];
     public $filterAvailability;
+    public $sortOrder = 'desc';
+    public $perPage = 10;
 
 
     public function mount()
@@ -115,6 +119,7 @@ class MenuItems extends Component
     {
         $this->filterCategories = [];
         $this->filterTypes = [];
+        $this->filterAvailability = null;
         $this->search = '';
         $this->dispatch('clearMenuItemFilter');
     }
@@ -145,6 +150,12 @@ class MenuItems extends Component
         ]);
     }
 
+
+    #[On('exportMenuItems')]
+    public function export()
+    {
+        return Excel::download(new MenuItemExport, 'menu-items.xlsx');
+    }
 
     public function render()
     {
@@ -180,7 +191,7 @@ class MenuItems extends Component
             $this->clearFilterButton = true;
         }
 
-        $query = $query->search('item_name', $this->search)->orderBy('id', 'desc')->paginate(10);
+        $query = $query->search('item_name', $this->search)->orderBy('id', $this->sortOrder)->paginate($this->perPage);
 
         return view('livewire.menu.menu-items', [
             'menuItems' => $query

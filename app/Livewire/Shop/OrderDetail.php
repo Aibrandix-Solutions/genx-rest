@@ -53,10 +53,20 @@ class OrderDetail extends Component
 
         $customer = customer();
         $this->order = Order::withoutGlobalScopes()
-            ->with(['taxes.tax', 'items', 'items.menuItem'])
+            ->with(['taxes.tax', 'items', 'items.menuItem', 'branch.restaurant'])
             ->where('id', $this->id)
             ->when(optional($customer)->id, fn($query) => $query->where('customer_id', $customer->id))
             ->firstOrFail();
+
+        // Set restaurant from order's branch
+        if (!$this->restaurant && $this->order->branch) {
+            $this->restaurant = $this->order->branch->restaurant;
+        }
+
+        // If still no restaurant, abort (should not happen in normal flow)
+        if (!$this->restaurant) {
+            abort(404, 'Restaurant not found for this order');
+        }
 
         if ($this->order->customer_id && !$customer) {
             abort(404);
@@ -75,9 +85,9 @@ class OrderDetail extends Component
         $this->paymentOrder = $this->order;
 
         $this->paymentGateway = PaymentGatewayCredential::withoutGlobalScopes()->where('restaurant_id', $this->restaurant->id)->first();
-        $this->razorpayStatus = (bool)$this->paymentGateway->razorpay_status;
-        $this->stripeStatus = (bool)$this->paymentGateway->stripe_status;
-        $this->flutterwaveStatus = (bool)$this->paymentGateway->flutterwave_status;
+        $this->razorpayStatus = (bool)($this->paymentGateway->razorpay_status ?? false);
+        $this->stripeStatus = (bool)($this->paymentGateway->stripe_status ?? false);
+        $this->flutterwaveStatus = (bool)($this->paymentGateway->flutterwave_status ?? false);
 
         $this->qrCodeImage = $this->restaurant->qr_code_image;
         $this->canAddTip = $this->restaurant->enable_tip_shop && $this->order->status !== 'paid';

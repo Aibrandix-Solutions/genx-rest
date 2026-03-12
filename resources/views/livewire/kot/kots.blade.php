@@ -47,6 +47,7 @@
                             <x-select id="dateRangeType" class="w-full md:w-48" wire:model="dateRangeType"
                                 wire:change="setDateRange">
                                 <option value="today">@lang('app.today')</option>
+                                <option value="yesterday">@lang('app.yesterday')</option>
                                 <option value="currentWeek">@lang('app.currentWeek')</option>
                                 <option value="lastWeek">@lang('app.lastWeek')</option>
                                 <option value="last7Days">@lang('app.last7Days')</option>
@@ -220,7 +221,6 @@
 
     @push('scripts')
 
-
     @if(pusherSettings()->is_enabled_pusher_broadcast)
         <script>
             document.addEventListener('DOMContentLoaded', function () {
@@ -246,3 +246,11 @@
         </script>
     @endif
 @endpush
+
+@script
+    <script>
+        $wire.on('food_ready_sound', () => {
+            new Audio("{{ asset('sound/food-ready.mp3')}}").play();
+        });
+    </script>
+@endscript

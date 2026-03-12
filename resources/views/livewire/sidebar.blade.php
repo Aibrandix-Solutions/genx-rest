@@ -1,4 +1,5 @@
 <div>
+    @php($customPlugins = custom_module_plugins() ?? [])
     <aside id="sidebar"
         class="fixed top-0 ltr:left-0 rtl:right-0 z-20 flex flex-col flex-shrink-0 hidden w-64 h-full pt-16 font-normal duration-75 lg:flex transition-width menu-collapsed:hidden"
         aria-label="Sidebar">
@@ -33,7 +34,7 @@
 
                         @if ($this->hasModule('Menu') || $this->hasModule('Menu Item') || $this->hasModule('Item Category'))
                             @if (user_can('Show Menu') || user_can('Show Menu Item') || user_can('Show Item Category'))
-                                <x-sidebar-dropdown-menu :name='__("menu.menu")' icon='menu' :active='request()->routeIs(["menus.*", "menu-items.*", "item-categories.*", "item-modifiers.*", "modifier-groups.*"])'>
+                                <x-sidebar-dropdown-menu :name='__("menu.menu")' icon='menu' :active='request()->routeIs(["menus.*", "menu-items.*", "item-categories.*", "item-modifiers.*", "modifier-groups.*", "menu.combo-packs"])'>
                                     @if($this->hasModule('Menu'))
                                         @if(user_can('Show Menu'))
                                             @livewire('sidebar-dropdown-menu', ['name' => __('menu.menus'), 'link' => route('menus.index'), 'active' => request()->routeIs('menus.index')])
@@ -56,6 +57,7 @@
                                         @if(user_can('Show Menu Item'))
                                             @livewire('sidebar-dropdown-menu', ['name' => __('menu.modifierGroups'), 'link' => route('modifier-groups.index'), 'active' => request()->routeIs('modifier-groups.index', 'modifier-groups.create', 'modifier-groups.edit')])
                                             @livewire('sidebar-dropdown-menu', ['name' => __('menu.itemModifiers'), 'link' => route('item-modifiers.index'), 'active' => request()->routeIs('item-modifiers.index')])
+                                            @livewire('sidebar-dropdown-menu', ['name' => __('menu.comboPacks'), 'link' => route('menu.combo-packs'), 'active' => request()->routeIs('menu.combo-packs')])
                                         @endif
                                     @endif
                                 </x-sidebar-dropdown-menu>
@@ -93,7 +95,7 @@
                             @livewire('sidebar-menu-item', ['name' => __('menu.pos'), 'icon' => 'pos', 'link' => route('pos.index'), 'active' => request()->routeIs('pos.*')])
                         @endif
 
-                        @if ($this->hasModule('Kitchen') && in_array('kitchen', custom_module_plugins()))
+                        @if ($this->hasModule('Kitchen') && in_array('kitchen', $customPlugins))
                             @if ($this->hasModule('Order') && user_can('Show Order'))
                                 @livewire('sidebar-menu-item', ['name' => __('menu.orders'), 'icon' => 'orders', 'link' => route('orders.index'), 'active' => request()->routeIs('orders.*')])
                             @endif
@@ -179,7 +181,7 @@
                             @endif
                         @endif
 
-                        @foreach (custom_module_plugins() as $item)
+                        @foreach ($customPlugins as $item)
                             @includeIf(strtolower($item) . '::sections.sidebar')
                         @endforeach
 

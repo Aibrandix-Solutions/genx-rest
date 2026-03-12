@@ -19,6 +19,8 @@ class InventoryTransfer extends Model
         'transfer_number',
         'source_branch_id',
         'destination_branch_id',
+        'source_location_id',
+        'destination_location_id',
         'status',
         'notes',
         'expected_delivery_date',
@@ -65,6 +67,16 @@ class InventoryTransfer extends Model
     public function destinationBranch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'destination_branch_id');
+    }
+
+    public function sourceLocation(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseLocation::class, 'source_location_id');
+    }
+
+    public function destinationLocation(): BelongsTo
+    {
+        return $this->belongsTo(PurchaseLocation::class, 'destination_location_id');
     }
 
     public function createdBy(): BelongsTo

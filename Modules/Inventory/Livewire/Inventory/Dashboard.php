@@ -14,6 +14,8 @@ class Dashboard extends Component
 {
     public $selectedCategory = 'all';
     public $selectedPeriod = 'daily';
+    public $selectedBranch = 'all';
+    public $selectedLocation = 'all';
     public $stockLevels = [];
     public $topMovingItems = [];
     public $lowStockItems = [];
@@ -42,6 +44,9 @@ class Dashboard extends Component
             ->with(['item'])
             ->where('transaction_type', InventoryMovement::TRANSACTION_TYPE_STOCK_ADDED)
             ->where('expiration_date', '<=', now()->addDays(7))
+            ->when($this->selectedBranch !== 'all', function ($query) {
+                $query->where('branch_id', $this->selectedBranch);
+            })
             ->orderBy('expiration_date', 'asc')
             ->get();
     }
@@ -52,7 +57,18 @@ class Dashboard extends Component
             ->when($this->selectedCategory !== 'all', function ($query) {
                 $query->where('inventory_item_category_id', $this->selectedCategory);
             })
-            ->with(['category', 'stocks'])
+            ->when($this->selectedBranch !== 'all', function ($query) {
+                $query->where('branch_id', $this->selectedBranch);
+            })
+            ->with(['category', 'stocks' => function ($query) {
+                // Filter stocks by location if selected
+                if ($this->selectedLocation !== 'all') {
+                    $query->where('location_id', $this->selectedLocation);
+                } elseif ($this->selectedBranch !== 'all') {
+                    // If branch selected but not location, show stocks for that branch
+                    $query->where('branch_id', $this->selectedBranch);
+                }
+            }])
             ->get()
             ->groupBy('inventory_item_category_id')
             ->map(function ($items) {
@@ -83,9 +99,22 @@ class Dashboard extends Component
     private function getTopMovingItems()
     {
         $query = InventoryItem::query()
-            ->with(['stocks', 'category', 'unit'])
+            ->with(['stocks' => function ($query) {
+                if ($this->selectedLocation !== 'all') {
+                    $query->where('location_id', $this->selectedLocation);
+                } elseif ($this->selectedBranch !== 'all') {
+                    $query->where('branch_id', $this->selectedBranch);
+                }
+            }, 'category', 'unit'])
+            ->when($this->selectedBranch !== 'all', function ($query) {
+                $query->where('branch_id', $this->selectedBranch);
+            })
             ->withSum(['movements as total_movement' => function ($query) {
                 $query->where('transaction_type', InventoryMovement::TRANSACTION_TYPE_ORDER_USED);
+                
+                if ($this->selectedBranch !== 'all') {
+                    $query->where('branch_id', $this->selectedBranch);
+                }
 
                 if ($this->selectedPeriod === 'daily') {
                     $query->whereDate('created_at', Carbon::today());
@@ -97,6 +126,9 @@ class Dashboard extends Component
             }], 'quantity')
             ->withSum(['movements as total_waste' => function ($query) {
                 $query->where('transaction_type', InventoryMovement::TRANSACTION_TYPE_WASTE)
+                    ->when($this->selectedBranch !== 'all', function ($query) {
+                        $query->where('branch_id', $this->selectedBranch);
+                    })
                     ->when($this->selectedPeriod === 'daily', function ($query) {
                         $query->whereDate('created_at', Carbon::today());
                     })
@@ -130,7 +162,16 @@ class Dashboard extends Component
     private function getLowStockItems()
     {
         return InventoryItem::query()
-            ->with(['stocks', 'category', 'unit'])
+            ->when($this->selectedBranch !== 'all', function ($query) {
+                $query->where('branch_id', $this->selectedBranch);
+            })
+            ->with(['stocks' => function ($query) {
+                if ($this->selectedLocation !== 'all') {
+                    $query->where('location_id', $this->selectedLocation);
+                } elseif ($this->selectedBranch !== 'all') {
+                    $query->where('branch_id', $this->selectedBranch);
+                }
+            }, 'category', 'unit'])
             ->get()
             ->filter(function ($item) {
                 return $item->stocks->sum('quantity') <= $item->threshold_quantity;
@@ -190,9 +231,22 @@ class Dashboard extends Component
     private function getSalesStockCorrelation()
     {
         $query = InventoryItem::query()
-            ->with(['stocks', 'category', 'unit'])
+            ->when($this->selectedBranch !== 'all', function ($query) {
+                $query->where('branch_id', $this->selectedBranch);
+            })
+            ->with(['stocks' => function ($query) {
+                if ($this->selectedLocation !== 'all') {
+                    $query->where('location_id', $this->selectedLocation);
+                } elseif ($this->selectedBranch !== 'all') {
+                    $query->where('branch_id', $this->selectedBranch);
+                }
+            }, 'category', 'unit'])
             ->withSum(['movements as usage' => function ($query) {
                 $query->where('transaction_type', InventoryMovement::TRANSACTION_TYPE_ORDER_USED);
+                
+                if ($this->selectedBranch !== 'all') {
+                    $query->where('branch_id', $this->selectedBranch);
+                }
 
                 if ($this->selectedPeriod === 'daily') {
                     $query->whereDate('created_at', Carbon::today());
@@ -244,12 +298,38 @@ class Dashboard extends Component
         $this->loadDashboardData();
     }
 
+    public function updatedSelectedBranch()
+    {
+        // Reset location when branch changes
+        if ($this->selectedBranch === 'all') {
+            $this->selectedLocation = 'all';
+        }
+        $this->loadDashboardData();
+    }
+
+    public function updatedSelectedLocation()
+    {
+        $this->loadDashboardData();
+    }
+
     public function render()
     {
         $categories = InventoryItemCategory::all();
+        $branches = \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get();
+        $locations = \Modules\Inventory\Entities\PurchaseLocation::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->where('is_active', true)
+            ->when($this->selectedBranch !== 'all', function ($query) {
+                $query->where('branch_id', $this->selectedBranch);
+            })
+            ->orderBy('type')
+            ->orderBy('name')
+            ->get();
 
         return view('inventory::livewire.inventory.dashboard', [
-            'categories' => $categories
+            'categories' => $categories,
+            'branches' => $branches,
+            'locations' => $locations,
         ]);
     }
 }

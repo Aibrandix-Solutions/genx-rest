@@ -33,11 +33,20 @@ class ZReport extends Component
     // Report data
     public $reportData = null;
     public $selectedSession = null;
+    public $selectedSessionId = null;
     public $denominations = [];
     public $sessions = [];
 
     public function mount()
     {
+        // Deep link support: /cash-register/reports?tab=z&session={id}
+        if (request()->query('tab') === 'z') {
+            $requested = request()->query('session') ?? request()->query('session_id');
+            if (!empty($requested)) {
+                $this->selectedSessionId = (int) $requested;
+            }
+        }
+
         // If user can view all reports, default to all; else restrict to self
         $this->cashierId = user_can('View Cash Register Reports') ? '' : user()->id;
         
@@ -46,21 +55,17 @@ class ZReport extends Component
         $this->loadCashiers();
         $this->setDateRange();
 
-        // If a specific session is requested via query, adjust filters and preselect it
-        $requestedSessionId = request()->query('session_id');
-        if ($requestedSessionId) {
-            $session = CashRegisterSession::with(['cashier', 'register', 'closer', 'branch'])
+        // If a specific session is requested via query, widen date range to include it
+        if ($this->selectedSessionId) {
+            $session = CashRegisterSession::query()
                 ->where('restaurant_id', restaurant()->id)
-                ->find($requestedSessionId);
+                ->find($this->selectedSessionId);
 
-            if ($session) {
+            if ($session && $session->closed_at) {
                 $this->dateRangeType = 'custom';
-                $this->startDate = optional($session->closed_at)->copy()->startOfDay()->format('m/d/Y');
-                $this->endDate = optional($session->closed_at)->copy()->endOfDay()->format('m/d/Y');
+                $this->startDate = $session->closed_at->copy()->startOfDay()->format('m/d/Y');
+                $this->endDate = $session->closed_at->copy()->endOfDay()->format('m/d/Y');
                 $this->generateReport();
-                // Ensure the selected session is exactly the requested one
-                $this->selectedSession = $session;
-                $this->calculateReportData();
             }
         }
     }
@@ -154,7 +159,7 @@ class ZReport extends Component
             return;
         }
 
-        $query = CashRegisterSession::with(['cashier', 'register', 'closer', 'branch'])
+        $query = CashRegisterSession::with(['cashier', 'register', 'closer', 'approver', 'branch'])
             ->where('restaurant_id', restaurant()->id)
             ->where('status', 'closed')
             ->whereBetween('closed_at', [
@@ -184,8 +189,10 @@ class ZReport extends Component
             return;
         }
 
-        // Default to the most recent closed session
-        $this->selectedSession = $sessions->first();
+        // Prefer deep-linked/selected session if present; otherwise most recent
+        $this->selectedSession = $this->selectedSessionId
+            ? ($sessions->firstWhere('id', (int) $this->selectedSessionId) ?? $sessions->first())
+            : $sessions->first();
 
         if (!$this->selectedSession) {
             $this->reportData = null;
@@ -258,9 +265,11 @@ class ZReport extends Component
         if (!$session) {
             $this->reportData = null;
             $this->selectedSession = null;
+            $this->selectedSessionId = null;
             return;
         }
 
+        $this->selectedSessionId = $sessionId;
         $this->selectedSession = $session;
         $this->calculateReportData();
     }

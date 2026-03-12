@@ -178,11 +178,9 @@
             </thead>
             <tbody>
                 @php
-                    $items = isset($kotPlaceId)
-                        ? $kot->items->filter(function($item) use($kotPlaceId) {
-                            return $item->menuItem && $item->menuItem->kot_place_id == $kotPlaceId;
-                        })
-                        : $kot->items;
+                    // With multi-kitchen routing, each KOT is already per-kitchen.
+                    // Show all items in this KOT (fallback filter for legacy KOTs)
+                    $items = $kot->items;
                 @endphp
                 @foreach($items as $item)
                     <tr>
@@ -192,7 +190,10 @@
                                 <br><small>({{ $item->menuItemVariation->variation }})</small>
                             @endif
                             @foreach ($item->modifierOptions as $modifier)
-                                <div class="modifiers">• {{ $modifier->name }}</div>
+                                @php
+                                    $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                @endphp
+                                <div class="modifiers">• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif</div>
                             @endforeach
                             @if ($item->note)
                                 <div class="modifiers"><strong>@lang('modules.order.note'):</strong> {{ $item->note }}</div>

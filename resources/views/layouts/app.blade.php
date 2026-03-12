@@ -50,7 +50,7 @@
     @endif
 
     @if (App::environment('codecanyon') && pusherSettings()->beamer_status)
-        <script src="https://js.pusher.com/beams/2.1.0/push-notifications-cdn.js" async></script>
+        <script src="https://js.pusher.com/beams/2.1.0/push-notifications-cdn.js"></script>
     @endif
 
     <script>
@@ -166,33 +166,34 @@
 
     @if (App::environment('codecanyon') && pusherSettings()->beamer_status)
         <script>
-            var currentUserId = "{{ Str::slug(global_setting()->name) }}-{{ auth()->id() }}"; // Get this from your auth system
+            (function () {
+                if (!window.isSecureContext) return;
+                if (typeof PusherPushNotifications === 'undefined') return;
 
-            var beamsClient = new PusherPushNotifications.Client({
-                instanceId: "{{ pusherSettings()->instance_id }}",
-            });
+                var currentUserId = "{{ Str::slug(global_setting()->name) }}-{{ auth()->id() }}";
 
-            var beamsTokenProvider = new PusherPushNotifications.TokenProvider({
-                url: "{{ route('beam_auth') }}",
-            });
+                var beamsClient = new PusherPushNotifications.Client({
+                    instanceId: "{{ pusherSettings()->instance_id }}",
+                });
 
-            beamsClient.start()
-                .then(() => beamsClient.addDeviceInterest('{{ Str::slug(global_setting()->name) }}'))
-                .then(() => beamsClient.setUserId(currentUserId, beamsTokenProvider))
-                .then(() => console.log('Successfully registered and subscribed!'))
-                .catch(console.error);
+                var beamsTokenProvider = new PusherPushNotifications.TokenProvider({
+                    url: "{{ route('beam_auth') }}",
+                });
 
-            beamsClient
-                .getUserId()
-                .then((userId) => {
-                    console.log(userId, currentUserId);
-                    // Check if the Beams user matches the user that is currently logged in
-                    if (userId !== currentUserId) {
-                        // Unregister for notifications
-                        return beamsClient.stop();
-                    }
-                })
-                .catch(console.error);
+                beamsClient.start()
+                    .then(() => beamsClient.addDeviceInterest('{{ Str::slug(global_setting()->name) }}'))
+                    .then(() => beamsClient.setUserId(currentUserId, beamsTokenProvider))
+                    .catch(() => {});
+
+                beamsClient
+                    .getUserId()
+                    .then((userId) => {
+                        if (userId !== currentUserId) {
+                            return beamsClient.stop();
+                        }
+                    })
+                    .catch(() => {});
+            })();
         </script>
     @endif
 
@@ -226,7 +227,7 @@
 
     @include('sections.pusher-script')
 
-    @include('layouts.service-worker-js')
+    {{-- Service worker/PWA is intended for customer-facing pages; keep it off the admin app to avoid interfering with Livewire requests. --}}
     @stack('scripts')
     <script src="{{ asset('vendor/trix/trix.umd.min.js') }}"></script>
 

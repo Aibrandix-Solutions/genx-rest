@@ -132,6 +132,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
     Route::resource('menus', MenuController::class);
     Route::get('menu-items/sort-entities', [MenuController::class, 'unifiedSort'])->name('menu-items.entities.sort');
     Route::get('menu-items/bulk-import', [MenuItemController::class, 'bulkImport'])->name('menu-items.bulk-import');
+    Route::get('menu/combo-packs', [MenuController::class, 'comboPacks'])->name('menu.combo-packs');
     Route::resource('menu-items', MenuItemController::class);
     Route::resource('item-categories', ItemCategoryController::class);
     Route::resource('item-modifiers', ItemModifierController::class);

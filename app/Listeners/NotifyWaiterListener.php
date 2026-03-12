@@ -24,6 +24,15 @@ class NotifyWaiterListener
     {
         // Logic to send notification to waiter via POS, app, etc.
         // Example: Using broadcasting
-        broadcast(new WaiterNotification($event->tableNumber));
+        try {
+            broadcast(new WaiterNotification($event->tableNumber));
+        } catch (\Exception $e) {
+            // Log the error but don't break the request
+            \Log::warning('Pusher broadcast failed for WaiterNotification', [
+                'error' => $e->getMessage(),
+                'table_number' => $event->tableNumber,
+                'exception_class' => get_class($e),
+            ]);
+        }
     }
 }

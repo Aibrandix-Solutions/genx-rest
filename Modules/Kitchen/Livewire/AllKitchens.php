@@ -128,7 +128,18 @@ class AllKitchens extends Component
             $defaultKitchen = KotPlace::where('is_default', true)->first();
 
             if ($kitchen && $defaultKitchen && $kitchen->id !== $defaultKitchen->id) {
+                // Move items from this kitchen to default kitchen (both legacy and pivot)
                 $kitchen->menuItems()->update(['kot_place_id' => $defaultKitchen->id]);
+
+                // Update pivot: detach from deactivated kitchen, attach to default
+                $itemIds = $kitchen->menuItemsMany()->pluck('menu_items.id')->toArray();
+                $kitchen->menuItemsMany()->detach($itemIds);
+                foreach ($itemIds as $itemId) {
+                    $exists = $defaultKitchen->menuItemsMany()->where('menu_items.id', $itemId)->exists();
+                    if (!$exists) {
+                        $defaultKitchen->menuItemsMany()->attach($itemId, ['is_primary' => false]);
+                    }
+                }
             }
         }
 
@@ -158,11 +169,26 @@ class AllKitchens extends Component
         $this->showAddItemModal = false;
     }
 
-    public function removeItemFromKitchen($itemId)
+    public function removeItemFromKitchen($itemId, $kitchenId = null)
     {
         $item = MenuItem::findOrFail($itemId);
-        $item->kot_place_id = null;
-        $item->save();
+
+        if ($kitchenId) {
+            // Remove from specific kitchen (pivot table)
+            $item->kotPlaces()->detach($kitchenId);
+
+            // If this was the legacy kot_place_id, reassign to next available
+            if ($item->kot_place_id == $kitchenId) {
+                $nextKitchen = $item->kotPlaces()->first();
+                $item->kot_place_id = $nextKitchen?->id;
+                $item->save();
+            }
+        } else {
+            // Legacy behavior: remove from all kitchens
+            $item->kotPlaces()->detach();
+            $item->kot_place_id = null;
+            $item->save();
+        }
 
         $this->alert('success', __('kitchen::messages.itemRemovedFromKitchen'), [
             'toast' => true,
@@ -181,8 +207,19 @@ class AllKitchens extends Component
     public function confirmAssignItem()
     {
         if ($this->selectedKitchenForAssignment && $this->itemToAssign) {
-            $this->itemToAssign->kot_place_id = $this->selectedKitchenForAssignment;
-            $this->itemToAssign->save();
+            // Set legacy kot_place_id if not already set
+            if (!$this->itemToAssign->kot_place_id) {
+                $this->itemToAssign->kot_place_id = $this->selectedKitchenForAssignment;
+                $this->itemToAssign->save();
+            }
+
+            // Sync pivot table (add without removing others)
+            $existingIds = $this->itemToAssign->kotPlaces()->pluck('kot_places.id')->toArray();
+            if (!in_array($this->selectedKitchenForAssignment, $existingIds)) {
+                $this->itemToAssign->kotPlaces()->attach($this->selectedKitchenForAssignment, [
+                    'is_primary' => empty($existingIds),
+                ]);
+            }
 
             $this->alert('success', __('kitchen::messages.itemAssignedToKitchen'), [
                 'toast' => true,
@@ -199,14 +236,16 @@ class AllKitchens extends Component
 
     public function render()
     {
-        $kitchens = KotPlace::with(['printerSetting', 'menuItems.variations'])
+        $kitchens = KotPlace::with(['printerSetting', 'menuItems.variations', 'menuItems.kotPlaces'])
             ->paginate(10);
 
         // Get all kitchens for the assign modal (not paginated)
         $allKitchens = KotPlace::where('is_active', true)->get();
 
-        // Get missing items (items not assigned to any kitchen)
-        $missingItems = MenuItem::with('variations')->whereNull('kot_place_id')
+        // Get missing items (items not assigned to any kitchen via either legacy or pivot)
+        $missingItems = MenuItem::with('variations')
+            ->whereNull('kot_place_id')
+            ->whereDoesntHave('kotPlaces')
             ->get();
 
         return view('kitchen::livewire.all-kitchens', [

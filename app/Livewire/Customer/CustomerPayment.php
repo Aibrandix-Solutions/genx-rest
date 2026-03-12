@@ -132,6 +132,7 @@ class CustomerPayment extends Component
                         'payment_method' => $this->paymentMethod,
                         'amount' => $orderPayment,
                         'balance' => 0,
+                        'notes' => $this->notes ?: null,
                         'branch_id' => branch()->id,
                         'restaurant_id' => restaurant()->id,
                     ]);

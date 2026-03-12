@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CashRegisterSession extends Model
 {
-    protected $guarded = [];
+    protected $guarded = ['id'];
 
     protected $casts = [
         'opened_at' => 'datetime',
@@ -28,6 +28,11 @@ class CashRegisterSession extends Model
     public function closer(): BelongsTo
     {
         return $this->belongsTo(\App\Models\User::class, 'closed_by')->withoutGlobalScopes();
+    }
+
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'approved_by')->withoutGlobalScopes();
     }
 
     public function transactions(): HasMany

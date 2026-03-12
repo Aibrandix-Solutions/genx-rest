@@ -10,7 +10,7 @@ class ViewPurchaseOrder extends Component
 {
     public $showModal = false;
     public $purchaseOrder;
-    public $activeTab = 'details'; // details, payments
+    public $activeTab = 'details'; // details, payments, attachments
 
     protected $listeners = [
         'viewPurchaseOrder' => 'show',
@@ -22,14 +22,10 @@ class ViewPurchaseOrder extends Component
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
             'branch',
-            'items.inventoryItem' => function($q) {
-                $q->withoutGlobalScopes();
-            },
-            'items.inventoryItem.unit' => function($q) {
-                $q->withoutGlobalScopes();
-            },
+            'items.inventoryItem.unit',
             'payments.account',
             'payments.addedBy',
+            'attachments',
         ]);
         $this->activeTab = 'details';
         $this->showModal = true;
@@ -41,6 +37,9 @@ class ViewPurchaseOrder extends Component
         if ($tab === 'payments') {
             $this->purchaseOrder->load(['payments.account', 'payments.addedBy']);
         }
+        if ($tab === 'attachments') {
+            $this->purchaseOrder->load(['attachments']);
+        }
     }
 
     public function downloadPdf()
@@ -49,12 +48,7 @@ class ViewPurchaseOrder extends Component
         $this->purchaseOrder->load([
             'supplier',
             'branch',
-            'items.inventoryItem' => function($q) {
-                $q->withoutGlobalScopes();
-            },
-            'items.inventoryItem.unit' => function($q) {
-                $q->withoutGlobalScopes();
-            }
+            'items.inventoryItem.unit',
         ]);
 
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [

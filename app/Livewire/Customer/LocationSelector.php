@@ -486,7 +486,7 @@ class LocationSelector extends Component
             'lng' => $address->lng,
             'address' => $address->address,
             'deliveryFee' => $this->deliveryFee,
-            'eta_min' => $this->etaMax,
+            'eta_min' => $this->etaMin,
             'eta_max' => $this->etaMax,
         ]);
     }

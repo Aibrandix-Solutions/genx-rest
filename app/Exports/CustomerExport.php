@@ -17,6 +17,13 @@ class CustomerExport implements WithMapping, FromCollection, WithHeadings, WithS
 {
 
     use Exportable;
+
+    protected string $filterCustomer;
+
+    public function __construct(string $filterCustomer = 'all')
+    {
+        $this->filterCustomer = $filterCustomer;
+    }
     
     public function headings(): array
     {
@@ -25,6 +32,7 @@ class CustomerExport implements WithMapping, FromCollection, WithHeadings, WithS
             __('modules.customer.phone'),
             __('modules.customer.email'),
             __('modules.order.totalOrder'),
+            __('modules.customer.outstanding_balance'),
             __('modules.customer.totalAmountReceived'),
         ];
     }
@@ -36,6 +44,7 @@ class CustomerExport implements WithMapping, FromCollection, WithHeadings, WithS
             $customer->phone,
             $customer->email,
             $customer->orders->count(),
+            currency_format($customer->outstanding_balance, restaurant()->currency_id),
             currency_format($customer->orders->sum('total'), restaurant()->currency_id),
         ];
     }
@@ -60,7 +69,21 @@ class CustomerExport implements WithMapping, FromCollection, WithHeadings, WithS
 
     public function collection()
     {
-        return Customer::all();
+        $query = Customer::with('orders');
+
+        if ($this->filterCustomer === 'with_outstanding') {
+            $query->whereHas('orders', function($q) {
+                $q->where('status', 'payment_due')
+                  ->whereRaw('total > amount_paid');
+            });
+        } elseif ($this->filterCustomer === 'no_outstanding') {
+            $query->whereDoesntHave('orders', function($q) {
+                $q->where('status', 'payment_due')
+                  ->whereRaw('total > amount_paid');
+            });
+        }
+
+        return $query->get();
     }
 
 }

@@ -4,6 +4,8 @@ namespace Modules\Inventory\Livewire\PurchaseReturn;
 
 use Livewire\Component;
 use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\PurchaseReturnExport;
 use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\Supplier;
@@ -14,6 +16,9 @@ class PurchaseReturnList extends Component
     use WithPagination, LivewireAlert;
 
     public $search = '';
+    public $perPage = 10;
+    public $startDate = null;
+    public $endDate = null;
     public $supplierId;
     public $purchaseOrderId;
     public $status = '';
@@ -48,8 +53,13 @@ class PurchaseReturnList extends Component
 
     public function clearFilters()
     {
-        $this->reset(['search', 'supplierId', 'purchaseOrderId', 'status']);
+        $this->reset(['search', 'supplierId', 'purchaseOrderId', 'status', 'startDate', 'endDate']);
         $this->resetPage();
+    }
+
+    public function export()
+    {
+        return Excel::download(new PurchaseReturnExport($this->search, $this->startDate, $this->endDate, $this->supplierId, $this->purchaseOrderId, $this->status), 'purchase-returns.xlsx');
     }
 
     public function confirmDelete(PurchaseReturn $purchaseReturn)
@@ -103,10 +113,13 @@ class PurchaseReturnList extends Component
             ->when($this->status, function ($query) {
                 $query->where('status', $this->status);
             })
+            ->when($this->startDate && $this->endDate, function ($query) {
+                $query->whereBetween('return_date', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+            })
             ->latest();
 
         return view('inventory::livewire.purchase-return.purchase-return-list', [
-            'purchaseReturns' => $query->paginate(10),
+            'purchaseReturns' => $query->paginate($this->perPage),
             'suppliers' => Supplier::where('restaurant_id', restaurant()->id)
                 ->orderBy('name')
                 ->get(),

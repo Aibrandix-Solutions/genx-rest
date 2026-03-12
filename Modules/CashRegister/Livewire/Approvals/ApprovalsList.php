@@ -46,6 +46,10 @@ class ApprovalsList extends Component
     {
         $now = Carbon::now();
         switch ($this->dateRangeType) {
+            case 'yesterday':
+                $start = $now->copy()->subDay()->startOfDay();
+                $end = $now->copy()->subDay()->endOfDay();
+                break;
             case 'currentWeek':
                 $start = $now->copy()->startOfWeek();
                 $end = $now->copy()->endOfWeek();

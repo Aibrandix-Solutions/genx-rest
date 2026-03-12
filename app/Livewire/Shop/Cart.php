@@ -24,6 +24,7 @@ use Livewire\Attributes\On;
 use App\Models\ItemCategory;
 use App\Models\PaypalPayment;
 use App\Models\StripePayment;
+use App\Models\CustomerAddress;
 use App\Models\ModifierOption;
 use App\Events\NewOrderCreated;
 use App\Models\RazorpayPayment;
@@ -52,6 +53,9 @@ class Cart extends Component
     use LivewireAlert;
     use PrinterSetting;
 
+    public $isSameCustomer = false;
+    public $reservationCustomer = null;
+    public $reservationId = null;
     public $search;
     public $tableID;
     public $filterCategories;
@@ -75,7 +79,12 @@ class Cart extends Component
     public $customer;
     public $customerName;
     public $customerPhone;
+    public $phoneCode = '+94'; // Default phone code for Sri Lanka
     public $customerAddress;
+    public $customerAddresses = [];
+    public $selectedCustomerAddressId = null;
+    public $isDeliveryOrder = false;
+    public $deliveryAddressConfirmed = false;
     public $orderNumber;
     public $paymentGateway;
     public $paymentOrder;
@@ -167,6 +176,10 @@ class Cart extends Component
         $this->paymentGateway = PaymentGatewayCredential::withoutGlobalScopes()->where('restaurant_id', $this->restaurant->id)->first();
         $this->taxes = Tax::withoutGlobalScopes()->where('restaurant_id', $this->restaurant->id)->get();
         $this->customer = customer();
+
+        if ($this->customer) {
+            $this->refreshCustomerAddresses();
+        }
         $this->razorpayStatus = (bool)($this->paymentGateway->razorpay_status ?? false);
         $this->stripeStatus = (bool)($this->paymentGateway->stripe_status ?? false);
 
@@ -209,6 +222,9 @@ class Cart extends Component
             $this->updatedOrderType($this->orderType);
         }
 
+        $this->isDeliveryOrder = $this->isDeliveryOrderType();
+        $this->deliveryAddressConfirmed = false;
+
         $this->taxMode = $this->restaurant->tax_mode ?? 'order';
 
         $this->pickupRange = restaurant()->pickup_days_range ?? 1;
@@ -220,6 +236,88 @@ class Cart extends Component
 
         // Initialize header settings
         $this->initializeHeaderSettings();
+    }
+
+    private function isDeliveryOrderType(): bool
+    {
+        if ($this->orderType === 'delivery') {
+            return true;
+        }
+
+        if ($this->orderTypeId) {
+            return OrderType::where('id', $this->orderTypeId)->value('type') === 'delivery';
+        }
+
+        return false;
+    }
+
+    private function splitPhone(?string $phone): array
+    {
+        $raw = trim((string) $phone);
+        $raw = preg_replace('/\s+/', '', $raw);
+
+        if ($raw === '') {
+            return [$this->phoneCode, ''];
+        }
+
+        // Prefer matching against the exact dial codes offered in the UI.
+        // Pick the longest matching prefix to avoid cases like +9477... being split as +9477.
+        $knownDialCodes = [
+            '+971',
+            '+94',
+            '+91',
+            '+61',
+            '+44',
+            '+1',
+        ];
+
+        if (!str_starts_with($raw, '+')) {
+            return [$this->phoneCode, $raw];
+        }
+
+        $matchedCode = null;
+        foreach ($knownDialCodes as $code) {
+            if (str_starts_with($raw, $code) && ($matchedCode === null || strlen($code) > strlen($matchedCode))) {
+                $matchedCode = $code;
+            }
+        }
+
+        if ($matchedCode !== null) {
+            return [$matchedCode, substr($raw, strlen($matchedCode))];
+        }
+
+        // Fallback: keep digits (without leading +) in number field
+        return [$this->phoneCode, ltrim($raw, '+')];
+    }
+
+    private function refreshCustomerAddresses(): void
+    {
+        if (!$this->customer) {
+            $this->customerAddresses = [];
+            return;
+        }
+
+        $this->customerAddresses = CustomerAddress::where('customer_id', $this->customer->id)
+            ->orderByDesc('id')
+            ->get()
+            ->toArray();
+    }
+
+    public function updatedSelectedCustomerAddressId($value)
+    {
+        if (!$value) {
+            $this->customerAddress = null;
+            return;
+        }
+
+        if (empty($this->customerAddresses)) {
+            return;
+        }
+
+        $selected = collect($this->customerAddresses)->firstWhere('id', (int) $value);
+        if (!empty($selected['address'])) {
+            $this->customerAddress = $selected['address'];
+        }
     }
 
     /**
@@ -236,6 +334,10 @@ class Cart extends Component
         if ($orderTypeModel) {
             $this->orderTypeId = $orderTypeModel->id;
             $this->orderTypeSlug = $orderTypeModel->slug;
+            $this->orderType = $orderTypeModel->type;
+
+            // When setting programmatically, Livewire won't call updatedOrderTypeId automatically
+            $this->updatedOrderTypeId($this->orderTypeId);
         }
     }
 
@@ -258,6 +360,8 @@ class Cart extends Component
         // Update the local variables
         $this->orderType = $orderType->type;
         $this->orderTypeSlug = $orderType->slug;
+        $this->isDeliveryOrder = $this->isDeliveryOrderType();
+        $this->deliveryAddressConfirmed = false;
 
         // Get extra charges for this order type
         $mainExtraCharges = RestaurantCharge::withoutGlobalScopes()
@@ -269,11 +373,13 @@ class Cart extends Component
         // Update extra charges
         if (!$this->orderID) {
             // Only clear delivery-related fields if the order type is not delivery
-            if ($this->orderTypeSlug !== 'delivery') {
+            if ($this->orderType !== 'delivery') {
                 $this->addressLat = null;
                 $this->addressLng = null;
                 $this->deliveryAddress = null;
                 $this->deliveryFee = null;
+                $this->customerAddress = null;
+                $this->selectedCustomerAddressId = null;
             }
 
             $this->calculateMaxPreparationTime();
@@ -299,13 +405,14 @@ class Cart extends Component
             // Recalculate modifier prices
             if (isset($this->itemModifiersSelected[$key]) && is_array($this->itemModifiersSelected[$key])) {
                 $modifierPrice = 0;
-                foreach ($this->itemModifiersSelected[$key] as $modifierId) {
-                    $modifier = ModifierOption::find($modifierId);
+                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                foreach ($selected as $modifierId => $qty) {
+                    $modifier = ModifierOption::find((int) $modifierId);
                     if ($modifier) {
                         if ($this->orderTypeId) {
                             $modifier->setPriceContext($this->orderTypeId, null);
                         }
-                        $modifierPrice += $modifier->price;
+                        $modifierPrice += ($modifier->price * (int) $qty);
                     }
                 }
                 $this->orderItemModifiersPrice[$key] = $modifierPrice;
@@ -320,6 +427,80 @@ class Cart extends Component
     }
 
     /**
+     * Normalize modifier selections into: [modifier_option_id => quantity].
+     *
+     * Supports:
+     * - [1, 5, 9] (legacy) => [1=>1, 5=>1, 9=>1]
+     * - [1 => 2, 5 => 1] (new) => [1=>2, 5=>1]
+     */
+    private function normalizeModifierQuantities(array $modifierOptionIdsOrQuantities): array
+    {
+        if (empty($modifierOptionIdsOrQuantities)) {
+            return [];
+        }
+
+        $isList = array_is_list($modifierOptionIdsOrQuantities);
+        $normalized = [];
+
+        if ($isList) {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId) {
+                $modifierOptionId = (int) $modifierOptionId;
+                if ($modifierOptionId > 0) {
+                    $normalized[$modifierOptionId] = 1;
+                }
+            }
+        } else {
+            foreach ($modifierOptionIdsOrQuantities as $modifierOptionId => $qty) {
+                $modifierOptionId = (int) $modifierOptionId;
+                $qty = (int) $qty;
+                if ($modifierOptionId > 0 && $qty > 0) {
+                    $normalized[$modifierOptionId] = $qty;
+                }
+            }
+        }
+
+        ksort($normalized);
+        return $normalized;
+    }
+
+    private function buildModifierSyncData(array $modifierOptionIdsOrQuantities): array
+    {
+        $qtyMap = $this->normalizeModifierQuantities($modifierOptionIdsOrQuantities);
+        $sync = [];
+        foreach ($qtyMap as $modifierOptionId => $qty) {
+            $sync[$modifierOptionId] = ['quantity' => $qty];
+        }
+        return $sync;
+    }
+
+    private function getSelectedModifierOptionIds(): array
+    {
+        $ids = [];
+        foreach (($this->itemModifiersSelected ?? []) as $selected) {
+            if (!is_array($selected)) {
+                continue;
+            }
+            $ids = array_merge($ids, array_keys($this->normalizeModifierQuantities($selected)));
+        }
+        $ids = array_values(array_unique($ids));
+        sort($ids);
+        return $ids;
+    }
+
+    private function calculateModifierTotal(array $modifierOptionQtyMap, $modifierOptionsById): float
+    {
+        $modifierOptionQtyMap = $this->normalizeModifierQuantities($modifierOptionQtyMap);
+        $total = 0.0;
+
+        foreach ($modifierOptionQtyMap as $modifierOptionId => $qty) {
+            $price = $modifierOptionsById[$modifierOptionId]->price ?? 0;
+            $total += ((float) $price * (int) $qty);
+        }
+
+        return $total;
+    }
+
+    /**
      * Handle order type selection from modal
      */
     public function selectOrderTypeFromModal($orderTypeId)
@@ -330,6 +511,9 @@ class Cart extends Component
 
         // Set the order type ID which will trigger updatedOrderTypeId
         $this->orderTypeId = $orderTypeId;
+
+        // Livewire does not run updated hooks for server-side assignments
+        $this->updatedOrderTypeId($orderTypeId);
 
         // Close the modal
         $this->showOrderTypeModal = false;
@@ -569,6 +753,10 @@ class Cart extends Component
 
         if ($orderTypeModel) {
             $this->orderTypeId = $orderTypeModel->id;
+            $this->orderType = $orderTypeModel->type;
+            $this->orderTypeSlug = $orderTypeModel->slug;
+            $this->isDeliveryOrder = $this->isDeliveryOrderType();
+            $this->deliveryAddressConfirmed = false;
             $mainExtraCharges = RestaurantCharge::withoutGlobalScopes()
             ->whereJsonContains('order_types', $value)
             ->where('is_enabled', true)
@@ -577,7 +765,7 @@ class Cart extends Component
         // Early return for new orders
         if (!$this->orderID) {
                 // Only clear delivery-related fields if the order type is not delivery
-                if ($value !== 'delivery') {
+                if ($orderTypeModel->type !== 'delivery') {
                     $this->addressLat = null;
                     $this->addressLng = null;
                     $this->deliveryAddress = null;
@@ -659,18 +847,53 @@ class Cart extends Component
 
     public function submitCustomerName()
     {
-        $this->validate([
+        $enteredPhone = preg_replace('/\s+/', '', trim((string) $this->customerPhone));
+        $fullPhone = str_starts_with($enteredPhone, '+')
+            ? $enteredPhone
+            : (trim((string) $this->phoneCode) . $enteredPhone);
+
+        $rules = [
             'customerName' => 'required',
             'customerPhone' => [
                 'required',
-                Rule::unique('customers', 'phone')->ignore($this->customer->id ?? null),
+                function ($attribute, $value, $fail) use ($fullPhone) {
+                    if (!$this->customer) {
+                        return;
+                    }
+
+                    $exists = Customer::where('phone', $fullPhone)
+                        ->where('id', '!=', $this->customer->id)
+                        ->exists();
+
+                    if ($exists) {
+                        $fail(__('validation.unique', ['attribute' => 'phone']));
+                    }
+                },
             ],
-        ]);
+        ];
+
+        // Add address validation for delivery orders
+        if ($this->isDeliveryOrderType()) {
+            $rules['customerAddress'] = 'required';
+        }
+
+        $this->validate($rules);
+
+        // $fullPhone is already normalized above
 
         $this->customer->name = $this->customerName;
-        $this->customer->phone = $this->customerPhone;
+        $this->customer->phone = $fullPhone;
         $this->customer->delivery_address = $this->customerAddress;
         $this->customer->save();
+
+        $this->refreshCustomerAddresses();
+
+        if ($this->isDeliveryOrderType()) {
+            $this->deliveryAddressConfirmed = true;
+        }
+
+        // Update the customerPhone to include the code for order creation
+        $this->customerPhone = $fullPhone;
 
         session(['customer' => $this->customer]);
         $this->dispatch('setCustomer', customer: $this->customer);
@@ -721,6 +944,26 @@ class Cart extends Component
         $this->placeOrder();
     }
 
+    private function getPreferredDeliveryAddress(): ?string
+    {
+        if (!$this->customer) {
+            return null;
+        }
+
+        $customerAddress = trim((string) ($this->customer->delivery_address ?? ''));
+        if ($customerAddress !== '') {
+            return $customerAddress;
+        }
+
+        $savedAddress = CustomerAddress::where('customer_id', $this->customer->id)
+            ->latest('id')
+            ->value('address');
+
+        $savedAddress = is_string($savedAddress) ? trim($savedAddress) : '';
+
+        return $savedAddress !== '' ? $savedAddress : null;
+    }
+
     public function showPickupDateTime()
     {
         $this->showPickupDateTimeModal = true;
@@ -731,8 +974,22 @@ class Cart extends Component
         if ($updateOrder) {
             $this->order = Order::find($updateOrder);
 
+            $orderTypeFromOrder = $this->order?->order_type_id
+                ? (OrderType::where('id', $this->order->order_type_id)->value('type') ?? null)
+                : null;
+
+            $isDeliveryOrder = $orderTypeFromOrder === 'delivery' || $this->isDeliveryOrderType();
+            if ($isDeliveryOrder && empty($this->order?->delivery_address)) {
+                $this->showPaymentModal = false;
+                $this->showDeliveryAddressModal = true;
+                $this->alert('error', __('modules.customer.address') . ' ' . __('validation.required'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+                return;
+            }
+
             Payment::create([
-                'order_id' => $this->order->id,
                 'branch_id' => $this->shopBranch->id,
                 'payment_method' => $method,
                 'amount' => $this->total,
@@ -754,24 +1011,72 @@ class Cart extends Component
             return;
         }
 
-        if ($this->orderType == 'delivery') {
+        $deliverySetting = null;
+        if ($this->isDeliveryOrderType()) {
             $deliverySetting = $this->shopBranch->deliverySetting ?? null;
         }
 
-        if ($this->customer && (is_null($this->customer->name) || ($this->orderType == 'delivery' && is_null($this->customerAddress)) && is_null($deliverySetting))) {
+        // If auto-confirm is disabled, staff must confirm before the order goes to kitchen.
+        // In that case, we should NOT create any KOTs yet.
+        $requiresStaffConfirmationBeforeKitchen = !(bool) ($this->restaurant->auto_confirm_orders ?? false);
+
+        $preferredDeliveryAddress = $this->getPreferredDeliveryAddress();
+
+        // For delivery orders, always prompt to choose/confirm an address for this checkout
+        // (prevents auto-using latest saved/profile address without user confirmation).
+        if ($this->isDeliveryOrderType() && $this->customer && !$this->deliveryAddressConfirmed) {
+            if (isset($deliverySetting)) {
+                $this->showDeliveryAddressModal = true;
+                $this->payNow = $pay;
+                return;
+            }
+
+            // No delivery settings configured: use the customer info modal with address selector/textarea
             $this->customerName = $this->customer->name;
-            $this->customerAddress = $this->customer->delivery_address;
-            $this->customerPhone = $this->customer->phone;
+            [$this->phoneCode, $this->customerPhone] = $this->splitPhone($this->customer->phone);
+            $this->customerAddress = null;
+            $this->selectedCustomerAddressId = null;
             $this->showCustomerNameModal = true;
             $this->payNow = $pay;
             return;
         }
 
-        if ($this->customer && $this->orderType === 'delivery' && empty($this->addressLat) && empty($this->addressLng) && empty($this->deliveryAddress) && isset($deliverySetting)) {
-            $this->customerAddress = $this->customer->delivery_address;
-            $this->showDeliveryAddressModal = true;
+        // Show customer name/phone/address modal if customer data is missing
+        $needsCustomerInfo = $this->customer && (
+            is_null($this->customer->name) ||
+            is_null($this->customer->phone) ||
+            ($this->isDeliveryOrderType() && empty($preferredDeliveryAddress))
+        );
+
+        if ($needsCustomerInfo) {
+            $this->customerName = $this->customer->name;
+            $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
+            [$this->phoneCode, $this->customerPhone] = $this->splitPhone($this->customer->phone);
+            $this->showCustomerNameModal = true;
             $this->payNow = $pay;
             return;
+        }
+
+        // Delivery orders must always have a delivery address before proceeding.
+        // If delivery settings exist, force the location selector flow (saved addresses + map selection).
+        if ($this->isDeliveryOrderType() && $this->customer) {
+            if (isset($deliverySetting)) {
+                if (empty($this->deliveryAddress) || empty($this->addressLat) || empty($this->addressLng)) {
+                    $this->showDeliveryAddressModal = true;
+                    $this->payNow = $pay;
+                    return;
+                }
+            } else {
+                $deliveryAddressText = trim((string) ($this->customerAddress ?: $preferredDeliveryAddress ?: ''));
+                if ($deliveryAddressText === '') {
+                    $this->customerName = $this->customer->name;
+                    [$this->phoneCode, $this->customerPhone] = $this->splitPhone($this->customer->phone);
+                    $this->customerAddress = $this->customerAddress ?: $preferredDeliveryAddress;
+                    $this->showCustomerNameModal = true;
+                    $this->payNow = $pay;
+                    return;
+                }
+            }
         }
 
         if ($this->orderType == 'dine_in' && $this->getTable) {
@@ -792,6 +1097,25 @@ class Cart extends Component
             }
         } else {
             $orderNumberData = Order::generateOrderNumber($this->shopBranch);
+
+            $deliveryAddressForOrder = null;
+            if ($this->isDeliveryOrderType()) {
+                $deliveryAddressForOrder = isset($deliverySetting)
+                    ? $this->deliveryAddress
+                    : ($this->customerAddress ?: $preferredDeliveryAddress);
+
+                $deliveryAddressForOrder = is_string($deliveryAddressForOrder) ? trim($deliveryAddressForOrder) : $deliveryAddressForOrder;
+
+                if (empty($deliveryAddressForOrder)) {
+                    if (isset($deliverySetting)) {
+                        $this->showDeliveryAddressModal = true;
+                    } else {
+                        $this->showCustomerNameModal = true;
+                    }
+                    $this->payNow = $pay;
+                    return;
+                }
+            }
 
             // Use the already selected order type ID if available
             if ($this->orderTypeId) {
@@ -818,14 +1142,17 @@ class Cart extends Component
                 'branch_id' => $this->shopBranch->id,
                 'table_id' => $table->id ?? null,
                 'date_time' => now(),
-                'customer_id' => $this->customer->id ?? null,
+                'customer_id' => $this->isSameCustomer ? $this->reservationCustomer->id : ($this->customer->id ?? null),
+                'reservation_id' => $this->isSameCustomer ? $this->reservationId : null,
                 'sub_total' => $this->subTotal,
                 'total' => $this->total,
                 'order_type' => $this->orderTypeSlug ?? $this->orderType,
                 'order_type_id' => $orderTypeId,
                 'custom_order_type_name' => $orderTypeName,
                 'pickup_date' => $this->deliveryDateTime,
-                'delivery_address' => $this->customerAddress,
+                'customer_phone' => $this->customerPhone,
+                'customer_address' => $deliveryAddressForOrder ?: $this->customerAddress,
+                'delivery_address' => $deliveryAddressForOrder,
                 'status' => 'draft',
                 'order_status' => $this->restaurant->auto_confirm_orders ? 'confirmed' : 'placed',
                 'customer_lat' => $this->addressLat ?? null,
@@ -841,7 +1168,7 @@ class Cart extends Component
             ]);
         }
 
-        if ($this->customer && $this->orderType === 'delivery' && !empty($this->deliveryAddress) && isset($deliverySetting)) {
+        if ($this->customer && $this->isDeliveryOrderType() && !empty($this->deliveryAddress) && isset($deliverySetting)) {
             $this->customer->delivery_address = $this->deliveryAddress;
             $this->customer->save();
 
@@ -852,29 +1179,93 @@ class Cart extends Component
 
         session(['transaction_id' => $transactionId]);
 
-        $kot = Kot::create([
-            'branch_id' => $this->shopBranch->id,
-            'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
-            'order_id' => $order->id,
-            'order_type_id' => $order->order_type_id,
-            'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
-            'note' => $this->orderNote,
-            'transaction_id' => $transactionId
-        ]);
+        $kot = null;
+        $kotIds = [];
+        if (!$requiresStaffConfirmationBeforeKitchen) {
+            // Group items by kitchen — each item goes to ONE kitchen only
+            // For multi-kitchen items, use the primary (first) kitchen
+            $kitchenGroups = []; // kitchenId => [itemKeys]
+            $noKitchenItems = [];
 
-        foreach ($this->orderItemList ?? [] as $key => $value) {
+            foreach ($this->orderItemList ?? [] as $key => $value) {
+                $menuItemId = $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id;
+                $menuItem = \App\Models\MenuItem::find($menuItemId);
+                $kitchenPlaceIds = $menuItem ? $menuItem->getKitchenPlaceIds() : [];
 
-            $kotItem = KotItem::create([
-                'kot_id' => $kot->id,
-                'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id,
-                'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
-                'quantity' => $this->orderItemQty[$key],
-                'transaction_id' => $transactionId,
-                'note' => $this->itemNotes[$key] ?? null,
-            ]);
+                if (empty($kitchenPlaceIds)) {
+                    $noKitchenItems[] = $key;
+                } else {
+                    // Use the first (primary) kitchen — item goes to ONE KOT only
+                    $primaryKitchenId = $kitchenPlaceIds[0];
+                    $kitchenGroups[$primaryKitchenId][] = $key;
+                }
+            }
 
-            $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-            $kotItem->modifierOptions()->sync($this->itemModifiersSelected[$key]);
+            // Create a KOT per kitchen
+            foreach ($kitchenGroups as $kitchenId => $itemKeys) {
+                $kotObj = Kot::create([
+                    'branch_id' => $this->shopBranch->id,
+                    'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
+                    'order_id' => $order->id,
+                    'order_type_id' => $order->order_type_id,
+                    'kitchen_place_id' => $kitchenId,
+                    'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
+                    'note' => $this->orderNote,
+                    'transaction_id' => $transactionId,
+                ]);
+                $kotIds[] = $kotObj->id;
+                if (!$kot) $kot = $kotObj;
+
+                foreach ($itemKeys as $key) {
+                    $menuItemId = $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id;
+                    $menuItem = \App\Models\MenuItem::find($menuItemId);
+                    $isMultiKitchen = $menuItem && $menuItem->isMultiKitchen();
+
+                    $kotItem = KotItem::create([
+                        'kot_id' => $kotObj->id,
+                        'menu_item_id' => $menuItemId,
+                        'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                        'quantity' => $this->orderItemQty[$key],
+                        'transaction_id' => $transactionId,
+                        'note' => $this->itemNotes[$key] ?? null,
+                        'is_multi_kitchen' => $isMultiKitchen,
+                    ]);
+
+                    $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
+                    $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+                }
+            }
+
+            // Items without a kitchen go into a default KOT
+            if (!empty($noKitchenItems)) {
+                $defaultKitchen = \App\Models\KotPlace::where('is_default', true)->first();
+                $kotObj = Kot::create([
+                    'branch_id' => $this->shopBranch->id,
+                    'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
+                    'order_id' => $order->id,
+                    'order_type_id' => $order->order_type_id,
+                    'kitchen_place_id' => $defaultKitchen?->id,
+                    'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
+                    'note' => $this->orderNote,
+                    'transaction_id' => $transactionId,
+                ]);
+                $kotIds[] = $kotObj->id;
+                if (!$kot) $kot = $kotObj;
+
+                foreach ($noKitchenItems as $key) {
+                    $kotItem = KotItem::create([
+                        'kot_id' => $kotObj->id,
+                        'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id,
+                        'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                        'quantity' => $this->orderItemQty[$key],
+                        'transaction_id' => $transactionId,
+                        'note' => $this->itemNotes[$key] ?? null,
+                    ]);
+
+                    $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
+                    $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+                }
+            }
         }
 
         foreach ($this->orderItemList ?? [] as $key => $value) {
@@ -895,7 +1286,7 @@ class Cart extends Component
             ]);
 
             $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-            $orderItem->modifierOptions()->sync($this->itemModifiersSelected[$key]);
+            $orderItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
         }
 
         if ($this->taxMode === 'order') {
@@ -957,7 +1348,9 @@ class Cart extends Component
             'tax_mode' => $this->taxMode,
         ]);
 
-        $this->printKot($order, $kot);
+        if ($kot) {
+            $this->printKot($order, $kot, $kotIds);
+        }
 
         event(new OrderUpdated($order, 'updated'));
 
@@ -971,7 +1364,7 @@ class Cart extends Component
             $this->paymentOrder = $order;
         } else {
             Order::where('id', $order->id)->update([
-                'status' => 'kot'
+                'status' => $requiresStaffConfirmationBeforeKitchen ? 'pending_verification' : 'kot'
             ]);
 
             $this->sendNotifications($order);
@@ -1357,6 +1750,7 @@ class Cart extends Component
         NewOrderCreated::dispatch($order);
 
         SendNewOrderReceived::dispatch($order);
+
         if ($order->customer_id) {
             try {
                 $order->customer->notify(new SendOrderBill($order));
@@ -1388,8 +1782,15 @@ class Cart extends Component
     {
         $this->showModifiersModal = false;
 
-        $sortNumber = Str::of(implode('', Arr::flatten($modifierIds)))
-            ->split(1)->sort()->implode('');
+        $selection = is_array($modifierIds) ? (reset($modifierIds) ?: []) : [];
+        $modifierQtyMap = $this->normalizeModifierQuantities(is_array($selection) ? $selection : []);
+
+        $signatureParts = [];
+        foreach ($modifierQtyMap as $modifierOptionId => $qty) {
+            $signatureParts[] = $modifierOptionId . ':' . $qty;
+        }
+        $signature = implode('|', $signatureParts);
+        $sortNumber = $signature ? md5($signature) : '0';
 
         $keyId = $this->selectedModifierItem . '-' . $sortNumber;
 
@@ -1407,28 +1808,18 @@ class Cart extends Component
         }
 
         $this->cartItemQty[$keyId] = ($this->cartItemQty[$keyId] ?? 0) + 1;
-        $this->itemModifiersSelected[$keyId] = Arr::flatten($modifierIds);
+        $this->itemModifiersSelected[$keyId] = $modifierQtyMap;
 
         // Set price context on modifiers before calculating total
-        $modifierTotal = 0;
-        foreach ($this->itemModifiersSelected[$keyId] ?? [] as $modifierId) {
-            $modifier = ModifierOption::find($modifierId);
-            if ($modifier) {
-                if ($this->orderTypeId) {
-                    $modifier->setPriceContext($this->orderTypeId, null);
-                }
-                $modifierTotal += $modifier->price;
-            }
-        }
-
-        $this->orderItemModifiersPrice[$keyId] = $modifierTotal;
+        $modifierOptions = $this->getModifierOptionsProperty();
+        $this->orderItemModifiersPrice[$keyId] = $this->calculateModifierTotal($modifierQtyMap, $modifierOptions);
 
         $this->syncCart($keyId);
     }
 
     public function getModifierOptionsProperty()
     {
-        return ModifierOption::whereIn('id', collect($this->itemModifiersSelected)->flatten()->all())->get()->keyBy('id');
+        return ModifierOption::whereIn('id', $this->getSelectedModifierOptionIds())->get()->keyBy('id');
     }
 
     public function showItemDetail($id)
@@ -1450,6 +1841,7 @@ class Cart extends Component
         $this->calculateMaxPreparationTime();
         $this->calculateTotal();
         $this->showDeliveryAddressModal = false;
+        $this->deliveryAddressConfirmed = true;
     }
 
     public function calculateMaxPreparationTime()
@@ -1585,10 +1977,12 @@ class Cart extends Component
             $query = $query->where('menu_items.type', 'halal');
         }
 
-        if (!empty($this->search)) {
+        if ($this->search) {
             $query->where(function ($q) {
                 $q->where('item_name', 'like', '%' . $this->search . '%')
-                    ->orWhereHas('translations', function ($q) {
+                    ->orWhere('item_code', 'like', '%' . $this->search . '%') // Search by item code
+                    ->orWhereTranslation('item_name', 'like', '%' . $this->search . '%', locale: current_locale(), fallback: false)
+                    ->orWhereHas('category', function ($q) {
                         $q->where('item_name', 'like', '%' . $this->search . '%');
                     });
             });
@@ -1677,53 +2071,46 @@ class Cart extends Component
             }
 
             foreach ($kots as $kot) {
-                $kotPlaceItems = [];
-
-                foreach ($kot->items as $kotItem) {
-                    if ($kotItem->menuItem && $kotItem->menuItem->kot_place_id) {
-                        $kotPlaceId = $kotItem->menuItem->kot_place_id;
-
-                        if (!isset($kotPlaceItems[$kotPlaceId])) {
-                            $kotPlaceItems[$kotPlaceId] = [];
-                        }
-
-                        $kotPlaceItems[$kotPlaceId][] = $kotItem;
-                    }
+                // Each KOT now has kitchen_place_id set directly (multi-kitchen routing)
+                $kotPlaceId = $kot->kitchen_place_id;
+                if (!$kotPlaceId) {
+                    // Fallback for legacy KOTs: derive from first item
+                    $firstItem = $kot->items->first();
+                    $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
                 }
 
-                // Get the kot places and their printer settings
-                $kotPlaceIds = array_keys($kotPlaceItems);
-                $kotPlaces = KotPlace::with('printerSetting')->whereIn('id', $kotPlaceIds)->get();
+                if (!$kotPlaceId) continue;
 
-                foreach ($kotPlaces as $kotPlace) {
-                    $printerSetting = $kotPlace->printerSetting;
+                $kotPlace = KotPlace::with('printerSetting')->find($kotPlaceId);
+                if (!$kotPlace) continue;
 
-                    if ($printerSetting && $printerSetting->is_active == 0) {
-                        $printerSetting = Printer::where('is_default', true)->first();
+                $printerSetting = $kotPlace->printerSetting;
+
+                if ($printerSetting && $printerSetting->is_active == 0) {
+                    $printerSetting = Printer::where('is_default', true)->first();
+                }
+
+                // If no printer is set, fallback to print URL dispatch
+                if (!$printerSetting) {
+                    $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+                    $this->dispatch('print_location', $url);
+                    continue;
+                }
+
+                try {
+                    switch ($printerSetting->printing_choice) {
+                        case 'directPrint':
+                            $this->handleKotPrint($kot->id, $kotPlace->id);
+                            break;
+                        default:
                     }
-
-                    // If no printer is set, fallback to print URL dispatch
-                    if (!$printerSetting) {
-                        $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                        $this->dispatch('print_location', $url);
-                        continue;
-                    }
-
-                    try {
-                        switch ($printerSetting->printing_choice) {
-                            case 'directPrint':
-                                $this->handleKotPrint($kot->id, $kotPlace->id);
-                                break;
-                            default:
-                        }
-                    } catch (\Throwable $e) {
-                        $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
-                            'toast' => true,
-                            'position' => 'top-end',
-                            'showCancelButton' => false,
-                            'cancelButtonText' => __('app.close')
-                        ]);
-                    }
+                } catch (\Throwable $e) {
+                    $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                        'showCancelButton' => false,
+                        'cancelButtonText' => __('app.close')
+                    ]);
                 }
             }
         } else {

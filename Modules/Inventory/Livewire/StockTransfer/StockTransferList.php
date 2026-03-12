@@ -20,10 +20,18 @@ class StockTransferList extends Component
     public $filterType = 'all'; // all, outgoing, incoming
     public $statusFilter = 'all'; // all, pending, in_transit, completed, cancelled
     public $search = '';
+    public $startDate = null;
+    public $endDate = null;
+    public $perPage = 20;
+    public $showAdminView = false;
+    public $branchFilter = '';
     public $selectedTransfer = null;
     public $showViewModal = false;
     public $showReceiveModal = false;
+    public $receiveModalKey = 0;
     public $showModal = false;
+    public $showEditModal = false;
+    public $editTransferId = null;
     public $confirmingInitiation = false;
     public $selectedTransferForInitiation = null;
     public $confirmingCancellation = false;
@@ -38,6 +46,7 @@ class StockTransferList extends Component
     public function mount()
     {
         $this->filterType = 'all';
+        $this->showAdminView = user_can('View Admin Transfers');
     }
 
     public function updatingSearch()
@@ -57,9 +66,13 @@ class StockTransferList extends Component
 
     public function viewTransfer($transferId)
     {
+        abort_if(!user_can('Show Stock Transfer'), 403);
+
         $this->selectedTransfer = InventoryTransfer::with([
             'sourceBranch',
             'destinationBranch',
+            'sourceLocation',
+            'destinationLocation',
             'createdBy',
             'confirmedBy',
             'items.sourceItem.unit',
@@ -83,6 +96,8 @@ class StockTransferList extends Component
 
     public function cancelTransfer($transferId)
     {
+        abort_if(!user_can('Cancel Stock Transfer'), 403);
+
         try {
             DB::transaction(function () use ($transferId) {
                 $transfer = InventoryTransfer::with('items')->findOrFail($transferId);
@@ -91,13 +106,7 @@ class StockTransferList extends Component
                     throw new \Exception(__('inventory::modules.transfers.cannot_cancel_transfer'));
                 }
 
-                // Check authorization: source branch can cancel pending, both branches can cancel in_transit
-                $isSourceBranch = $transfer->source_branch_id === branch()->id;
-                $isDestinationBranch = $transfer->destination_branch_id === branch()->id;
-                
-                if (!$isSourceBranch && !$isDestinationBranch) {
-                    throw new \Exception(__('inventory::modules.transfers.unauthorized_action'));
-                }
+                // Restaurant-scoped: any user can cancel transfers within the restaurant
 
                 // If transfer is in_transit, handle stock restoration based on partial receives
                 if ($transfer->status === 'in_transit') {
@@ -105,8 +114,8 @@ class StockTransferList extends Component
                         $confirmedQty = $item->confirmed_quantity ?? 0;
                         $requestedQty = $item->requested_quantity;
                         
-                        // If destination branch is cancelling and items were partially/fully received
-                        if ($isDestinationBranch && $confirmedQty > 0) {
+                        // If items were partially/fully received
+                        if ($confirmedQty > 0) {
                             // Deduct confirmed quantity from destination branch (reverse the receive)
                             $destinationStock = InventoryStock::where('inventory_item_id', $item->destination_inventory_item_id)
                                 ->where('branch_id', $transfer->destination_branch_id)
@@ -118,7 +127,7 @@ class StockTransferList extends Component
 
                                 // Get destination item price for reversal movement
                                 // Use the price that was recorded when item was received
-                                $destinationItem = InventoryItem::withoutGlobalScopes()->find($item->destination_inventory_item_id);
+                                $destinationItem = InventoryItem::query()->find($item->destination_inventory_item_id);
                                 $destinationUnitPrice = $destinationItem ? ($destinationItem->unit_purchase_price ?? 0) : 0;
                                 
                                 // Try to get the price from the original destination movement
@@ -147,15 +156,22 @@ class StockTransferList extends Component
                             }
                         }
 
-                        // Restore stock to source branch
+                        // Restore stock to source location
                         // If partial receive: restore only the NOT received quantity
                         // If no receive: restore full requested quantity
                         $quantityToRestore = $requestedQty - $confirmedQty;
                         
                         if ($quantityToRestore > 0) {
-                            $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
-                                ->where('branch_id', $transfer->source_branch_id)
-                                ->first();
+                            if ($transfer->source_location_id) {
+                                $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                                    ->where('location_id', $transfer->source_location_id)
+                                    ->first();
+                            } else {
+                                // Fallback to branch-based lookup for old transfers
+                                $sourceStock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                                    ->where('branch_id', $transfer->source_branch_id)
+                                    ->first();
+                            }
 
                             if ($sourceStock) {
                                 // Restore the not-yet-received quantity
@@ -206,23 +222,30 @@ class StockTransferList extends Component
 
     public function initiateTransfer($transferId)
     {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
         try {
             DB::transaction(function () use ($transferId) {
-                $transfer = InventoryTransfer::with('items')->findOrFail($transferId);
+                $transfer = InventoryTransfer::with('items', 'sourceLocation')->findOrFail($transferId);
                 
                 if ($transfer->status !== 'pending') {
                     throw new \Exception(__('inventory::modules.transfers.cannot_initiate_transfer'));
                 }
 
-                if ($transfer->source_branch_id !== branch()->id) {
-                    throw new \Exception(__('inventory::modules.transfers.unauthorized_action'));
-                }
+                // Restaurant-scoped: any user can initiate transfers
 
                 foreach ($transfer->items as $item) {
-                    // Check stock availability
-                    $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
-                        ->where('branch_id', branch()->id)
-                        ->first();
+                    // Check stock availability at source location
+                    if ($transfer->source_location_id) {
+                        $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                            ->where('location_id', $transfer->source_location_id)
+                            ->first();
+                    } else {
+                        // Fallback to branch-based lookup for old transfers
+                        $stock = InventoryStock::where('inventory_item_id', $item->source_inventory_item_id)
+                            ->where('branch_id', branch()->id)
+                            ->first();
+                    }
                     
                     if (!$stock || $stock->quantity < $item->requested_quantity) {
                         $itemName = $item->sourceItem ? $item->sourceItem->name : __('inventory::modules.transfers.item');
@@ -243,7 +266,7 @@ class StockTransferList extends Component
                         ->first();
 
                     // Get source item to retrieve unit purchase price
-                    $sourceItem = InventoryItem::withoutGlobalScopes()->find($item->source_inventory_item_id);
+                    $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
                     $sourceUnitPrice = $sourceItem ? ($sourceItem->unit_purchase_price ?? 0) : 0;
 
                     if ($sourceMovement) {
@@ -278,11 +301,11 @@ class StockTransferList extends Component
                     if (!$destinationMovement) {
                         // Get destination item to retrieve unit purchase price
                         // Use destination item's price for destination branch records
-                        $destinationItem = InventoryItem::withoutGlobalScopes()->find($item->destination_inventory_item_id);
+                        $destinationItem = InventoryItem::query()->find($item->destination_inventory_item_id);
                         $destinationUnitPrice = $destinationItem ? ($destinationItem->unit_purchase_price ?? 0) : 0;
                         
                         // Also get source item price for reference (use source price for cost tracking)
-                        $sourceItem = InventoryItem::withoutGlobalScopes()->find($item->source_inventory_item_id);
+                        $sourceItem = InventoryItem::query()->find($item->source_inventory_item_id);
                         $sourceUnitPrice = $sourceItem ? ($sourceItem->unit_purchase_price ?? 0) : 0;
                         
                         // Use source price for destination movement (maintains cost basis from source)
@@ -330,18 +353,23 @@ class StockTransferList extends Component
 
     public function openReceiveModal($transferId)
     {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
         $transfer = InventoryTransfer::with([
             'items.sourceItem.unit',
             'items.destinationItem.unit',
         ])->findOrFail($transferId);
-        
-        if ($transfer->destination_branch_id !== branch()->id) {
-            session()->flash('error', __('inventory::modules.transfers.unauthorized_action'));
-            return;
-        }
 
         $this->selectedTransfer = $transfer;
+        $this->receiveModalKey++;
         $this->showReceiveModal = true;
+    }
+
+    public function updatedShowReceiveModal($value)
+    {
+        if (!$value) {
+            $this->selectedTransfer = null;
+        }
     }
 
     public function closeModals()
@@ -353,18 +381,40 @@ class StockTransferList extends Component
     }
 
     protected $listeners = [
-        'transferCreated' => '$refresh',
-        'transferInitiated' => '$refresh',
-        'transferReceived' => '$refresh',
-        'transferCancelled' => '$refresh',
+        'transferCreated'         => '$refresh',
+        'transferInitiated'       => '$refresh',
+        'transferReceived'        => '$refresh',
+        'transferCancelled'       => '$refresh',
+        'transferUpdated'         => 'handleTransferUpdated',
         'closeCreateTransferModal' => 'closeCreateTransferModal',
-        'closeReceiveModal' => 'closeReceiveModal',
-        'closeModal' => 'closeCreateTransferModal',
+        'closeReceiveModal'       => 'closeReceiveModal',
+        'closeEditTransferModal'  => 'closeEditTransferModal',
+        'closeModal'              => 'closeCreateTransferModal',
     ];
 
     public function closeCreateTransferModal()
     {
         $this->showModal = false;
+        $this->resetPage();
+    }
+
+    public function openEditModal($transferId)
+    {
+        abort_if(!user_can('Update Stock Transfer'), 403);
+
+        $this->editTransferId = $transferId;
+        $this->showEditModal  = true;
+    }
+
+    public function closeEditTransferModal()
+    {
+        $this->showEditModal  = false;
+        $this->editTransferId = null;
+    }
+
+    public function handleTransferUpdated()
+    {
+        $this->closeEditTransferModal();
         $this->resetPage();
     }
 
@@ -379,20 +429,31 @@ class StockTransferList extends Component
         $query = InventoryTransfer::with([
             'sourceBranch',
             'destinationBranch',
+            'sourceLocation',
+            'destinationLocation',
             'createdBy',
             'items'
         ])->where('restaurant_id', restaurant()->id);
 
-        // Filter by type (outgoing/incoming)
-        if ($this->filterType === 'outgoing') {
-            $query->where('source_branch_id', branch()->id);
-        } elseif ($this->filterType === 'incoming') {
-            $query->where('destination_branch_id', branch()->id);
-        }
+        // Show all transfers in restaurant (restaurant-scoped)
+        // No branch filtering - all users can see and manage all transfers
 
         // Filter by status
         if ($this->statusFilter !== 'all') {
             $query->where('status', $this->statusFilter);
+        }
+
+        // Filter by direction relative to the current branch
+        if ($this->filterType === 'outgoing') {
+            $query->where(function ($q) {
+                $q->where('source_branch_id', branch()->id)
+                  ->orWhereHas('sourceLocation', fn ($sq) => $sq->where('branch_id', branch()->id));
+            });
+        } elseif ($this->filterType === 'incoming') {
+            $query->where(function ($q) {
+                $q->where('destination_branch_id', branch()->id)
+                  ->orWhereHas('destinationLocation', fn ($sq) => $sq->where('branch_id', branch()->id));
+            });
         }
 
         // Search
@@ -408,15 +469,33 @@ class StockTransferList extends Component
             });
         }
 
+        if ($this->startDate && $this->endDate) {
+            $query->whereBetween('created_at', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+        }
+
         return $query->orderBy('created_at', 'desc');
+    }
+
+    public function clearFilters()
+    {
+        $this->reset(['search', 'filterType', 'statusFilter', 'startDate', 'endDate']);
+        $this->resetPage();
+    }
+
+    public function export()
+    {
+        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\StockTransferExport($this->search, $this->startDate, $this->endDate, $this->filterType, $this->statusFilter), 'stock-transfers.xlsx');
     }
 
     public function render()
     {
-        $transfers = $this->getTransfersQuery()->paginate(10);
+        $transfers = $this->getTransfersQuery()->paginate($this->perPage);
+        $branches = $this->showAdminView ? \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get() : [];
 
         return view('inventory::livewire.stock-transfer.stock-transfer-list', [
             'transfers' => $transfers,
+            'branches' => $branches,
+            'showAdminView' => $this->showAdminView,
         ]);
     }
 }

@@ -127,7 +127,7 @@ class SetTable extends Component
             $this->dispatch('tableLockUpdated');
             $this->refreshData();
         } else {
-            $this->alert('error', __('messages.tableUnlockFailed'), [
+            $this->alert('error', $result['message'] ?? __('messages.tableUnlockFailed'), [
                 'toast' => true,
                 'position' => 'top-end',
             ]);

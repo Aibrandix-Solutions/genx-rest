@@ -14,11 +14,12 @@ class AddItemCategory extends Component
     public function submitForm()
     {
         $this->validate([
-            'itemCategoryName' => 'required|string|max:255|unique:inventory_item_categories,name,null,id,branch_id,' . branch()->id,
+            'itemCategoryName' => 'required|string|max:255|unique:inventory_item_categories,name,null,id,restaurant_id,' . restaurant()->id,
         ]);
 
         $itemCategory = InventoryItemCategory::create([
             'name' => $this->itemCategoryName,
+            'restaurant_id' => restaurant()->id,
         ]);
 
         $this->itemCategoryName = '';

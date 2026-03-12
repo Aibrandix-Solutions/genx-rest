@@ -186,5 +186,41 @@ class BranchObserver
                 'updated_at'  => now(),
             ]);
         }
+
+        // Auto-create purchase location for this branch
+        \Modules\Inventory\Entities\PurchaseLocation::create([
+            'restaurant_id' => $branch->restaurant_id,
+            'branch_id' => $branch->id,
+            'name' => $branch->name,
+            'address' => $branch->address,
+            'type' => 'branch',
+            'is_active' => $branch->is_active ?? true,
+        ]);
+    }
+
+    /**
+     * Handle branch updates - sync to purchase location
+     */
+    public function updated(Branch $branch)
+    {
+        // Sync branch changes to its purchase location
+        \Modules\Inventory\Entities\PurchaseLocation::where('branch_id', $branch->id)
+            ->where('type', 'branch')
+            ->update([
+                'name' => $branch->name,
+                'address' => $branch->address,
+                'is_active' => $branch->is_active ?? true,
+            ]);
+    }
+
+    /**
+     * Handle branch deletion - deactivate purchase location
+     */
+    public function deleted(Branch $branch)
+    {
+        // Deactivate the purchase location when branch is deleted
+        \Modules\Inventory\Entities\PurchaseLocation::where('branch_id', $branch->id)
+            ->where('type', 'branch')
+            ->update(['is_active' => false]);
     }
 }

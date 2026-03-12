@@ -11,6 +11,11 @@ use App\Models\ItemCategory;
 use App\Models\KotPlace;
 use App\Models\ModifierGroup;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\InventoryItemCategory;
+use Modules\Inventory\Entities\Unit;
+use Modules\Inventory\Entities\Recipe;
+use Modules\Inventory\Entities\PaymentAccount;
 
 class BranchSettings extends Component
 {
@@ -35,6 +40,9 @@ class BranchSettings extends Component
     public $cloneReservationSettings = false;
     public $cloneDeliverySettings = false;
     public $cloneKotSettings = false;
+    public $cloneInventoryItems = false;
+    public $cloneRecipes = false;
+    public $clonePaymentAccounts = false;
     public $menus;
     public $menu;
 
@@ -61,6 +69,9 @@ class BranchSettings extends Component
         $this->cloneReservationSettings = false;
         $this->cloneDeliverySettings = false;
         $this->cloneKotSettings = false;
+        $this->cloneInventoryItems = false;
+        $this->cloneRecipes = false;
+        $this->clonePaymentAccounts = false;
     }
 
     private function checkBranchLimit(): bool
@@ -189,6 +200,11 @@ class BranchSettings extends Component
                 $rules['cloneMenuItems'] = 'accepted';
             }
 
+            if ($this->cloneRecipes) {
+                $rules['cloneMenuItems'] = 'accepted';
+                // Note: Inventory items are globally shared, no need to clone
+            }
+
             $this->validate($rules, [
             'clonecategories.accepted' => __('messages.cloneCategoriesRequired'),
             'cloneMenu.accepted' => __('messages.cloneMenuRequired'),
@@ -211,6 +227,9 @@ class BranchSettings extends Component
                 'is_clone_reservation_settings' => $this->cloneReservationSettings,
                 'is_clone_delivery_settings' => $this->cloneDeliverySettings,
                 'is_clone_kot_setting' => $this->cloneKotSettings,
+                'is_inventory_items_clone' => $this->cloneInventoryItems,
+                'is_recipes_clone' => $this->cloneRecipes,
+                'is_payment_accounts_clone' => $this->clonePaymentAccounts,
             ]);
 
             if ($this->cloneData) {
@@ -240,6 +259,11 @@ class BranchSettings extends Component
 
             if ($this->cloneItemModifires) {
                 $rules['cloneMenuItems'] = 'accepted';
+            }
+
+            if ($this->cloneRecipes) {
+                $rules['cloneMenuItems'] = 'accepted';
+                // Note: Inventory items are globally shared, no need to clone
             }
 
             $this->validate($rules, [
@@ -300,7 +324,11 @@ class BranchSettings extends Component
         // Maps to maintain old ID => new ID
         $menuMap = [];
         $categoryMap = [];
-        $itemMap = [];
+
+        $itemMap = []; // Menu Item Map
+        $unitMap = [];
+        $inventoryCategoryMap = [];
+        $inventoryItemMap = [];
 
         // Clone Menus
         $menus = Menu::withoutGlobalScopes()->where('branch_id', $sourceBranchId)->get();
@@ -348,7 +376,14 @@ class BranchSettings extends Component
                         ->first();
                     $clone->kot_place_id = $kotPlace->id ?? null;
 
-                    $clone->menu_id = $menuMap[$item->menu_id] ?? null;
+                    $newMenuId = $menuMap[$item->menu_id] ?? null;
+
+                    // Skip if parent Menu was not cloned (prevents integrity violation)
+                    if (!$newMenuId) {
+                        return;
+                    }
+
+                    $clone->menu_id = $newMenuId;
                     $clone->item_category_id = $categoryMap[$item->item_category_id] ?? null;
                     $clone->save();
 
@@ -390,6 +425,65 @@ class BranchSettings extends Component
                 $clonedGroup->save();
             }
         }
+
+        // Clone Payment Accounts
+        if ($this->clonePaymentAccounts) {
+            $paymentAccounts = PaymentAccount::where('branch_id', $sourceBranchId)->get();
+            foreach ($paymentAccounts as $account) {
+                $clone = $account->replicate();
+                $clone->branch_id = $newBranch->id;
+                $clone->save();
+            }
+        }
+
+        // NOTE: Units are now RESTAURANT-SCOPED (shared across all branches)
+        // Build identity map for units (no cloning needed)
+        $sourceUnits = Unit::all();
+        foreach ($sourceUnits as $unit) {
+            $unitMap[$unit->id] = $unit->id; // Identity map (no change)
+        }
+        
+        // NOTE: InventoryItemCategory and InventoryItem are NOT cloned
+        // They are now RESTAURANT-SCOPED (shared across all branches)
+        // The migration removed branch_id from these tables
+        // All branches in the restaurant use the same inventory items and categories
+        
+        // Build identity maps for existing restaurant-scoped entities
+        // This allows recipes to reference the same global inventory items
+        $sourceInventoryItems = InventoryItem::all();
+        foreach ($sourceInventoryItems as $item) {
+            $inventoryItemMap[$item->id] = $item->id; // Identity map (no change)
+        }
+
+        // Clone Recipes
+        if ($this->cloneRecipes && !empty($itemMap) && !empty($inventoryItemMap)) {
+            // Find recipes related to the source menu items
+            // Since we don't have direct access to source menu items collection here (it was in if block), we query again or iterate menu items if we can.
+            // But we have $menuMap (MenuID map) and $categoryMap.
+            
+            // We can iterate the $itemMap to find source Item IDs.
+            $sourceMenuItemIds = array_keys($itemMap);
+            
+            if (!empty($sourceMenuItemIds)) {
+                $recipes = Recipe::whereIn('menu_item_id', $sourceMenuItemIds)->get();
+                
+                foreach ($recipes as $recipe) {
+                     // Check if we have new Inventory Item and new Menu Item
+                     $newMenuItemId = $itemMap[$recipe->menu_item_id] ?? null;
+                     $newInventoryItemId = $inventoryItemMap[$recipe->inventory_item_id] ?? null;
+                     $newUnitId = $unitMap[$recipe->unit_id] ?? null;
+
+                     if ($newMenuItemId && $newInventoryItemId && $newUnitId) {
+                         $clone = $recipe->replicate();
+                         $clone->menu_item_id = $newMenuItemId;
+                         $clone->inventory_item_id = $newInventoryItemId;
+                         $clone->unit_id = $newUnitId;
+                         // Quantity remains same
+                         $clone->save();
+                     }
+                }
+            }
+        }
     }
 
     public function handleCloneMenuItemsChange()
@@ -411,6 +505,17 @@ class BranchSettings extends Component
                 $this->cloneMenu = true;
                 $this->clonecategories = true;
             }
+        }
+    }
+
+    public function handleCloneRecipesChange()
+    {
+        if ($this->cloneRecipes) {
+            if (!$this->cloneMenuItems) {
+                $this->cloneMenuItems = true;
+                $this->handleCloneMenuItemsChange(); // To trigger cascading menu/category selection
+            }
+            // Note: Inventory items are globally shared, no need to enable checkbox
         }
     }
 

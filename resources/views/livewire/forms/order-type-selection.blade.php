@@ -47,6 +47,18 @@
             <!-- Content Area -->
             <div class="flex-1 overflow-y-auto p-6">
                 @if($selectionStage === 'order_type')
+                    <!-- Set as Default Option -->
+                    <div class="mb-6 p-4 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-200 dark:border-gray-700">
+                        <label class="flex items-center gap-3 cursor-pointer">
+                            <input type="checkbox" wire:model.live="setAsDefault" 
+                                class="w-5 h-5 text-skin-base bg-gray-100 border-gray-300 rounded focus:ring-skin-base focus:ring-2 dark:bg-gray-700 dark:border-gray-600 dark:focus:ring-skin-base">
+                            <div>
+                                <span class="text-sm font-semibold text-gray-900 dark:text-white">@lang('modules.order.setAsDefault')</span>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">@lang('modules.order.skipSelectionNextTime')</p>
+                            </div>
+                        </label>
+                    </div>
+
                     <!-- Order Types Selection -->
                     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
                         @forelse ($orderTypes as $orderType)

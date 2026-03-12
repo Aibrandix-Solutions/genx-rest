@@ -9,7 +9,6 @@ use Modules\CashRegister\Entities\CashRegister;
 use App\Models\Branch;
 use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Log;
 
 class DiscrepancyReport extends Component
 {
@@ -26,13 +25,14 @@ class DiscrepancyReport extends Component
     public $endDate = '';
     
     // Report data
-    public $sessions = [];
+    public $sessions;
 
     public function mount()
     {
         // If user can view all reports, default to all; else restrict to self
         $this->cashierId = user_can('View Cash Register Reports') ? '' : user()->id;
         
+        $this->sessions = collect();
         $this->loadBranches();
         $this->loadRegisters();
         $this->loadCashiers();
@@ -125,17 +125,9 @@ class DiscrepancyReport extends Component
     public function generateReport()
     {
         if (!$this->startDate || !$this->endDate) {
-            $this->sessions = [];
+            $this->sessions = collect();
             return;
         }
-
-        // Debug: Log the date values
-        Log::info('DiscrepancyReport Dates:', [
-            'startDate' => $this->startDate,
-            'endDate' => $this->endDate,
-            'startDateType' => gettype($this->startDate),
-            'endDateType' => gettype($this->endDate)
-        ]);
 
         // Try multiple date formats
         $formats = ['m/d/Y', 'd-m-Y', 'Y-m-d', 'm/d/y', 'd/m/Y', 'd/m/y', 'Y-m-d H:i:s', 'm/d/Y H:i:s'];
@@ -146,12 +138,6 @@ class DiscrepancyReport extends Component
             try {
                 $startDate = Carbon::createFromFormat($format, $this->startDate)->startOfDay();
                 $endDate = Carbon::createFromFormat($format, $this->endDate)->endOfDay();
-                Log::info('Date parsed successfully with format: ' . $format, [
-                    'startDate' => $this->startDate,
-                    'endDate' => $this->endDate,
-                    'parsedStart' => $startDate->format('Y-m-d H:i:s'),
-                    'parsedEnd' => $endDate->format('Y-m-d H:i:s')
-                ]);
                 break;
             } catch (\Exception $e) {
                 continue;
@@ -159,27 +145,12 @@ class DiscrepancyReport extends Component
         }
         
         if (!$startDate || !$endDate) {
-            Log::error('Could not parse dates with any format, trying Carbon::parse():', [
-                'startDate' => $this->startDate,
-                'endDate' => $this->endDate,
-                'triedFormats' => $formats
-            ]);
-            
             // Try Carbon's parse method as fallback
             try {
                 $startDate = Carbon::parse($this->startDate)->startOfDay();
                 $endDate = Carbon::parse($this->endDate)->endOfDay();
-                Log::info('Dates parsed successfully with Carbon::parse():', [
-                    'parsedStart' => $startDate->format('Y-m-d H:i:s'),
-                    'parsedEnd' => $endDate->format('Y-m-d H:i:s')
-                ]);
             } catch (\Exception $e) {
-                Log::error('Could not parse dates even with Carbon::parse():', [
-                    'startDate' => $this->startDate,
-                    'endDate' => $this->endDate,
-                    'error' => $e->getMessage()
-                ]);
-                $this->sessions = [];
+                $this->sessions = collect();
                 return;
             }
         }

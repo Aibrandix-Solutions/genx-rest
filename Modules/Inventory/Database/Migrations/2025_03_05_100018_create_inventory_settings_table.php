@@ -55,6 +55,7 @@ return new class extends Migration
             ['guard_name' => 'web', 'name' => 'Delete Purchase Order', 'module_id' => $inventoryModule->id],
 
             ['guard_name' => 'web', 'name' => 'Show Inventory Report', 'module_id' => $inventoryModule->id],
+            ['guard_name' => 'web', 'name' => 'Show Inventory Dashboard', 'module_id' => $inventoryModule->id],
 
             ['guard_name' => 'web', 'name' => 'Update Inventory Settings', 'module_id' => $inventoryModule->id],
         ];

@@ -588,12 +588,17 @@
                             <!-- Modifiers (Shown below if present) -->
                             @if (!empty($itemModifiersSelected[$key]))
                                 <div class="flex flex-wrap gap-2 mt-2">
-                                    @foreach ($itemModifiersSelected[$key] as $modifierOptionId)
+                                    @foreach ($itemModifiersSelected[$key] as $modifierOptionId => $modifierQty)
+                                        @php
+                                            $modifier = $this->modifierOptions[$modifierOptionId] ?? null;
+                                            $modifierQty = (int) $modifierQty;
+                                        @endphp
+                                        @continue(!$modifier || $modifierQty <= 0)
                                         <span
                                             class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-skin-base/10 text-skin-base">
-                                            {{ $this->modifierOptions[$modifierOptionId]->name }}
+                                            {{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif
                                             <span class="ml-1 text-skin-base">
-                                                {{ currency_format($this->modifierOptions[$modifierOptionId]->price, $this->modifierOptions[$modifierOptionId]->modifierGroup->branch->restaurant->currency_id) }}
+                                                {{ currency_format($modifier->price * $modifierQty, $modifier->modifierGroup->branch->restaurant->currency_id) }}
                                             </span>
                                         </span>
                                     @endforeach
@@ -1033,24 +1038,59 @@
                 <form wire:submit="submitCustomerName">
                     @csrf
                     <div class="space-y-4">
+                        <!-- Name Field -->
                         <div>
                             <x-label for="customerName" value="{{ __('modules.customer.enterName') }}" />
                             <x-input id="customerName" class="block w-full mt-1" type="text"
-                                wire:model='customerName' />
+                                wire:model='customerName' placeholder="Please enter your name" />
                             <x-input-error for="customerName" class="mt-2" />
                         </div>
+
+                        <!-- Phone Field with Country Code -->
                         <div>
-                            <x-label for="customerPhone " value="{{ __('modules.customer.phone') }}" />
-                            <x-input id="customerPhone" class="block w-full mt-1" type="text"
-                                wire:model='customerPhone' />
+                            <x-label for="customerPhone" value="{{ __('modules.customer.phone') }}" />
+                            <div class="flex mt-1 space-x-2">
+                                <!-- Country Code Dropdown -->
+                                <select wire:model="phoneCode" 
+                                    class="block w-24 border-gray-300 rounded-md shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-skin-base focus:ring focus:ring-skin-base focus:ring-opacity-50">
+                                    <option value="+94">+94</option>
+                                    <option value="+1">+1</option>
+                                    <option value="+44">+44</option>
+                                    <option value="+91">+91</option>
+                                    <option value="+61">+61</option>
+                                    <option value="+971">+971</option>
+                                </select>
+                                
+                                <!-- Phone Number Input -->
+                                <x-input id="customerPhone" class="flex-1" type="tel"
+                                    wire:model='customerPhone' placeholder="1234567890" />
+                            </div>
                             <x-input-error for="customerPhone" class="mt-2" />
                         </div>
 
-                        @if ($orderType == 'delivery')
+                        <!-- Address Field (for delivery orders) -->
+                        @if ($isDeliveryOrder)
+                            @if (!empty($customerAddresses))
+                                <div>
+                                    <x-label for="selectedCustomerAddressId" value="{{ __('modules.customer.address') }}" />
+                                    <select id="selectedCustomerAddressId"
+                                        wire:model="selectedCustomerAddressId"
+                                        class="block w-full mt-1 border-gray-300 rounded-md shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-skin-base focus:ring focus:ring-skin-base focus:ring-opacity-50">
+                                        <option value="">@lang('modules.delivery.selectDeliveryLocation') / @lang('modules.delivery.useDifferentLocation')</option>
+                                        @foreach ($customerAddresses as $addr)
+                                            <option value="{{ $addr['id'] }}">
+                                                {{ ($addr['label'] ?? __('modules.customer.address')) . ' - ' . Str::limit(($addr['address'] ?? ''), 50) }}
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                </div>
+                            @endif
+
                             <div>
-                                <x-label for="customerAddress" value="{{ __('modules.customer.address') }}" />
-                                <x-textarea id="customerAddress" class="block w-full mt-1"
-                                    wire:model='customerAddress' rows="4" />
+                                <textarea id="customerAddress"
+                                    class="block w-full mt-1 border-gray-300 focus:border-gray-500 focus:ring-gray-500 rounded-md shadow-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 dark:focus:border-gray-600 dark:focus:ring-gray-600"
+                                    wire:model="customerAddress" rows="4" placeholder="Enter your delivery address"
+                                    @disabled(!empty($selectedCustomerAddressId))></textarea>
                                 <x-input-error for="customerAddress" class="mt-2" />
                             </div>
                         @endif
@@ -1657,17 +1697,14 @@
                         "ondismiss": function() {
                             if (confirm("Are you sure, you want to close the form?")) {
                                 txt = "You pressed OK!";
-                                console.log("Checkout form closed by the user");
                             } else {
                                 txt = "You pressed Cancel!";
-                                console.log("Complete the Payment")
                             }
                         }
                     }
                 };
                 var rzp1 = new Razorpay(options);
                 rzp1.on('payment.failed', function(response) {
-                    console.log(response);
                 });
                 rzp1.open();
             }

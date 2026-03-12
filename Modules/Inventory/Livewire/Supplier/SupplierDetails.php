@@ -4,24 +4,32 @@ namespace Modules\Inventory\Livewire\Supplier;
 
 use Livewire\Component;
 use Livewire\WithFileUploads;
+use Livewire\WithPagination;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\PurchaseOrderExport;
+use Modules\Inventory\Exports\SupplierPaymentExport;
+use Modules\Inventory\Exports\SupplierLedgerExport;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\PurchaseOrder;
-use Modules\Inventory\Notifications\SendPurchaseOrder;
-use App\Models\Branch;
+use Modules\Inventory\Entities\PurchaseLocation;
 use Illuminate\Support\Facades\Auth;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class SupplierDetails extends Component
 {
-    use WithFileUploads, LivewireAlert;
+    use WithFileUploads, LivewireAlert, WithPagination;
 
     public $supplier;
     public $activeTab = 'overview'; // overview, ledger, purchases, stock, documents, settings
     
     // Filters
-    public $branchId;
+    public $locationId;
+    public $search = '';
+    public $startDate = null;
+    public $endDate = null;
+    public $perPage = 10;
 
     // Payment Modal Properties
     public $showPaymentModal = false;
@@ -39,22 +47,15 @@ class SupplierDetails extends Component
     // Ledger Data
     public $ledgerEntries = [];
 
+    public string $ledgerSortField = 'date';
+    public string $ledgerSortDirection = 'desc';
+
     // Stock Data
     public $stockItems = [];
 
-    // Purchase Order Actions
+    // Purchase Actions
     public $confirmingDeletion = false;
     public $purchaseOrderToDelete;
-    public $confirmingSend = false;
-    public $purchaseOrderToSend;
-    public $confirmingCancel = false;
-    public $purchaseOrderToCancel;
-
-    protected $listeners = [
-        'sendPurchaseOrder' => 'handleSendPurchaseOrder',
-        'cancelPurchaseOrder' => 'handleCancelPurchaseOrder',
-        'deletePurchaseOrder' => 'handleDeletePurchaseOrder',
-    ];
 
     protected $rules = [
         'paymentAmount' => 'required|numeric|min:0.01',
@@ -69,11 +70,9 @@ class SupplierDetails extends Component
     {
         $this->supplier = $supplier;
         $this->paymentDate = now()->format('Y-m-d\TH:i');
-        
-        // Default to current branch if available in context, otherwise null (All)
-        if (function_exists('branch') && branch()) {
-            $this->branchId = branch()->id;
-        }
+
+        // Location filter defaults to All
+        $this->locationId = null;
 
         $this->loadLedger();
         $this->loadStock();
@@ -82,6 +81,10 @@ class SupplierDetails extends Component
     public function setTab($tab)
     {
         $this->activeTab = $tab;
+        $this->reset(['search', 'startDate', 'endDate', 'perPage']);
+        $this->perPage = 10;
+        $this->resetPage();
+
         if ($tab === 'ledger') {
             $this->loadLedger();
         }
@@ -90,7 +93,7 @@ class SupplierDetails extends Component
         }
     }
 
-    public function updatedBranchId()
+    public function updatedLocationId()
     {
         if ($this->activeTab === 'ledger') {
             $this->loadLedger();
@@ -104,12 +107,12 @@ class SupplierDetails extends Component
 
     public function loadLedger()
     {
-        // 1. Get all confirmed Purchase Orders (Debits)
+        // 1. Get all received Purchases (Debits)
         $purchasesQuery = $this->supplier->orders()
-            ->whereIn('status', ['received', 'partially_received']); // Only count received goods as debt
+            ->where('status', 'received'); // Only count received goods as debt
         
-        if ($this->branchId) {
-            $purchasesQuery->where('branch_id', $this->branchId);
+        if ($this->locationId) {
+            $purchasesQuery->where('location_id', $this->locationId);
         }
 
         $purchases = $purchasesQuery->get()
@@ -117,7 +120,7 @@ class SupplierDetails extends Component
                 return [
                     'date' => $po->order_date,
                     'type' => 'purchase',
-                    'description' => 'Purchase Order #' . $po->po_number,
+                    'description' => 'Purchase #' . $po->po_number,
                     'debit' => $po->total_amount,
                     'credit' => 0,
                     'reference_id' => $po->id
@@ -127,9 +130,10 @@ class SupplierDetails extends Component
         // 2. Get all Payments (Credits)
         $paymentsQuery = $this->supplier->payments();
 
-        if ($this->branchId) {
-            $paymentsQuery->whereHas('account', function($q) {
-                $q->where('branch_id', $this->branchId);
+        if ($this->locationId) {
+            // When location filter is active, only include payments tied to purchases in that location
+            $paymentsQuery->whereHas('purchaseOrder', function ($q) {
+                $q->where('location_id', $this->locationId);
             });
         }
 
@@ -150,30 +154,104 @@ class SupplierDetails extends Component
 
         // 4. Calculate Running Balance
         $runningBalance = 0;
-        $this->ledgerEntries = $entries->map(function ($entry) use (&$runningBalance) {
+        $allEntries = $entries->map(function ($entry) use (&$runningBalance) {
             $runningBalance += $entry['debit'] - $entry['credit'];
             $entry['balance'] = $runningBalance;
             return $entry;
         });
+
+        // 5. Apply Filters
+        $this->ledgerEntries = $allEntries->filter(function ($entry) {
+            // Date Filter
+            if ($this->startDate && $this->endDate) {
+                 if ($entry['date'] < $this->startDate . ' 00:00:00' || $entry['date'] > $this->endDate . ' 23:59:59') {
+                     return false;
+                 }
+            }
+            
+            // Search Filter
+            if ($this->search) {
+                if (stripos($entry['description'], $this->search) === false && 
+                    stripos((string)$entry['debit'], $this->search) === false && 
+                    stripos((string)$entry['credit'], $this->search) === false) {
+                    return false;
+                }
+            }
+            
+            return true;
+        })->values()->all();
+
+        $this->applyLedgerSorting();
+    }
+
+    public function sortLedgerBy(string $field): void
+    {
+        $allowed = ['date', 'description', 'debit', 'credit', 'balance'];
+        if (!in_array($field, $allowed, true)) {
+            return;
+        }
+
+        if ($this->ledgerSortField === $field) {
+            $this->ledgerSortDirection = $this->ledgerSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->ledgerSortField = $field;
+            $this->ledgerSortDirection = $field === 'date' ? 'desc' : 'asc';
+        }
+
+        $this->applyLedgerSorting();
+    }
+
+    protected function applyLedgerSorting(): void
+    {
+        $entries = collect($this->ledgerEntries);
+        $direction = $this->ledgerSortDirection === 'asc' ? 'asc' : 'desc';
+
+        switch ($this->ledgerSortField) {
+            case 'description':
+                $entries = $direction === 'asc'
+                    ? $entries->sortBy('description', SORT_NATURAL | SORT_FLAG_CASE)
+                    : $entries->sortByDesc('description', SORT_NATURAL | SORT_FLAG_CASE);
+                break;
+
+            case 'debit':
+                $entries = $direction === 'asc'
+                    ? $entries->sortBy(fn ($e) => (float) ($e['debit'] ?? 0))
+                    : $entries->sortByDesc(fn ($e) => (float) ($e['debit'] ?? 0));
+                break;
+
+            case 'credit':
+                $entries = $direction === 'asc'
+                    ? $entries->sortBy(fn ($e) => (float) ($e['credit'] ?? 0))
+                    : $entries->sortByDesc(fn ($e) => (float) ($e['credit'] ?? 0));
+                break;
+
+            case 'balance':
+                $entries = $direction === 'asc'
+                    ? $entries->sortBy(fn ($e) => (float) ($e['balance'] ?? 0))
+                    : $entries->sortByDesc(fn ($e) => (float) ($e['balance'] ?? 0));
+                break;
+
+            case 'date':
+            default:
+                $entries = $direction === 'asc'
+                    ? $entries->sortBy('date')
+                    : $entries->sortByDesc('date');
+                break;
+        }
+
+        $this->ledgerEntries = $entries->values()->all();
     }
 
     public function loadStock()
     {
         // Fetch items purchased from this supplier
-        // We'll look at received purchase orders
+        // We'll look at received purchases
         $query = $this->supplier->orders()
-            ->whereIn('status', ['received', 'partially_received'])
-            ->with([
-                'items.inventoryItem' => function($q) {
-                    $q->withoutGlobalScopes();
-                },
-                'items.inventoryItem.unit' => function($q) {
-                    $q->withoutGlobalScopes();
-                }
-            ]);
+            ->where('status', 'received')
+            ->with(['items.inventoryItem.unit']);
 
-        if ($this->branchId) {
-            $query->where('branch_id', $this->branchId);
+        if ($this->locationId) {
+            $query->where('location_id', $this->locationId);
         }
 
         $orders = $query->get();
@@ -194,7 +272,7 @@ class SupplierDetails extends Component
                 }
                 
                 // Update aggregates
-                $items[$itemId]['total_qty'] += $poItem->received_quantity;
+                $items[$itemId]['total_qty'] += (float) ($poItem->quantity ?? 0);
                 // Use the most recent price/date
                 if (is_null($items[$itemId]['last_purchased']) || $order->order_date > $items[$itemId]['last_purchased']) {
                     $items[$itemId]['last_cost'] = $poItem->unit_price;
@@ -291,57 +369,16 @@ class SupplierDetails extends Component
         $this->alert('success', 'Supplier status updated');
     }
 
-    public function handleSendPurchaseOrder($data)
+    public function confirmDeletePurchase($purchaseOrderId)
     {
-        $purchaseOrder = PurchaseOrder::find($data['purchaseOrder']);
-        if ($purchaseOrder && $purchaseOrder->status === 'draft') {
-            $this->purchaseOrderToSend = $purchaseOrder;
-            $this->confirmingSend = true;
-        }
-    }
-
-    public function sendPurchaseOrder()
-    {
-        if ($this->purchaseOrderToSend) {
-            $this->purchaseOrderToSend->update(['status' => 'sent']);
-            $this->purchaseOrderToSend->supplier->notify(new SendPurchaseOrder($this->purchaseOrderToSend));
-            $this->alert('success', trans('inventory::modules.purchaseOrder.sent_successfully'));
-            $this->supplier->refresh();
-        }
-        $this->confirmingSend = false;
-        $this->purchaseOrderToSend = null;
-    }
-
-    public function handleCancelPurchaseOrder($data)
-    {
-        $purchaseOrder = PurchaseOrder::find($data['purchaseOrder']);
-        if ($purchaseOrder && in_array($purchaseOrder->status, ['draft', 'sent'])) {
-            $this->purchaseOrderToCancel = $purchaseOrder;
-            $this->confirmingCancel = true;
-        }
-    }
-
-    public function cancelPurchaseOrder()
-    {
-        if ($this->purchaseOrderToCancel) {
-            $this->purchaseOrderToCancel->update(['status' => 'cancelled']);
-            $this->alert('success', trans('inventory::modules.purchaseOrder.cancelled_successfully'));
-            $this->supplier->refresh();
-        }
-        $this->confirmingCancel = false;
-        $this->purchaseOrderToCancel = null;
-    }
-
-    public function handleDeletePurchaseOrder($data)
-    {
-        $purchaseOrder = PurchaseOrder::find($data['purchaseOrder']);
-        if ($purchaseOrder && !in_array($purchaseOrder->status, ['received', 'cancelled'])) {
+        $purchaseOrder = PurchaseOrder::find($purchaseOrderId);
+        if ($purchaseOrder && !in_array($purchaseOrder->status, ['received', 'cancelled'], true)) {
             $this->purchaseOrderToDelete = $purchaseOrder;
             $this->confirmingDeletion = true;
         }
     }
 
-    public function deletePurchaseOrder()
+    public function deletePurchase()
     {
         if ($this->purchaseOrderToDelete) {
             $this->purchaseOrderToDelete->delete();
@@ -352,24 +389,102 @@ class SupplierDetails extends Component
         $this->purchaseOrderToDelete = null;
     }
 
+    public function updatedSearch()
+    {
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+
+    public function updatedStartDate()
+    {
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+
+    public function updatedEndDate()
+    {
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+
+    public function updatedPerPage()
+    {
+        $this->resetPage();
+    }
+
+    public function clearFilters()
+    {
+        $this->reset(['search', 'startDate', 'endDate']);
+        $this->resetPage();
+        if ($this->activeTab === 'ledger') $this->loadLedger();
+    }
+    
+    public function export()
+    {
+        switch ($this->activeTab) {
+            case 'purchases':
+                return Excel::download(new PurchaseOrderExport($this->search, $this->startDate, $this->endDate, $this->supplier->id), 'supplier-purchases.xlsx');
+            case 'payments':
+                return Excel::download(new SupplierPaymentExport($this->supplier->id, $this->search, $this->startDate, $this->endDate), 'supplier-payments.xlsx');
+            case 'ledger':
+                return Excel::download(new SupplierLedgerExport($this->ledgerEntries), 'supplier-ledger.xlsx');
+        }
+    }
+
     public function render()
     {
-        $accountQuery = PaymentAccount::query();
-        
-        if ($this->branchId) {
-             $accountQuery->where('branch_id', $this->branchId);
-        }
-
         return view('inventory::livewire.supplier.supplier-details', [
-            'paymentAccounts' => $accountQuery->get(),
-            'branches' => Branch::all(),
+            'paymentAccounts' => PaymentAccount::query()->get(),
+            'locations' => PurchaseLocation::getForRestaurant(restaurant()->id),
             'statuses' => [
-                'draft' => trans('inventory::modules.purchaseOrder.status.draft'),
-                'sent' => trans('inventory::modules.purchaseOrder.status.sent'),
+                'ordered' => trans('inventory::modules.purchaseOrder.status.ordered'),
+                'pending' => trans('inventory::modules.purchaseOrder.status.pending'),
                 'received' => trans('inventory::modules.purchaseOrder.status.received'),
-                'partially_received' => trans('inventory::modules.purchaseOrder.status.partially_received'),
                 'cancelled' => trans('inventory::modules.purchaseOrder.status.cancelled'),
             ],
+            'purchases' => $this->purchases,
+            'payments' => $this->payments,
         ]);
+    }
+
+    public function getPurchasesProperty()
+    {
+        return $this->supplier->orders()
+            ->when($this->search, function ($query) {
+                $query->where('po_number', 'like', '%' . $this->search . '%');
+            })
+            ->when($this->locationId, function ($query) {
+                $query->where('location_id', $this->locationId);
+            })
+            ->when($this->startDate && $this->endDate, function ($query) {
+                $query->whereBetween('order_date', [$this->startDate, $this->endDate]);
+            })
+            ->latest('order_date')
+            ->paginate($this->perPage, ['*'], 'purchasesPage');
+    }
+
+    public function getPaymentsProperty()
+    {
+        return $this->supplier->payments()
+            ->with('account')
+            ->when($this->search, function ($query) {
+                $query->where(function($q) {
+                    $q->where('payment_method', 'like', '%' . $this->search . '%')
+                      ->orWhere('note', 'like', '%' . $this->search . '%')
+                      ->orWhereHas('account', function($sq) {
+                          $sq->where('name', 'like', '%' . $this->search . '%');
+                      });
+                });
+            })
+            ->when($this->locationId, function ($query) {
+                $query->whereHas('purchaseOrder', function ($q) {
+                    $q->where('location_id', $this->locationId);
+                });
+            })
+            ->when($this->startDate && $this->endDate, function ($query) {
+                $query->whereBetween('paid_on', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+            })
+            ->latest('paid_on')
+            ->paginate($this->perPage, ['*'], 'paymentsPage');
     }
 }

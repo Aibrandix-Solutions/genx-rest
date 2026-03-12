@@ -21,7 +21,7 @@ class EditItemCategory extends Component
     {
         $this->validate(
             [
-                'itemCategoryName' => 'required|string|max:255|unique:inventory_item_categories,name,' . $this->itemCategory->id . ',id,branch_id,' . branch()->id,
+                'itemCategoryName' => 'required|string|max:255|unique:inventory_item_categories,name,' . $this->itemCategory->id . ',id,restaurant_id,' . restaurant()->id,
             ]
         );
         $this->itemCategory->update([

@@ -23,4 +23,12 @@ class MenuController extends Controller
         return view('menu.unified_sort');
     }
 
+    public function comboPacks()
+    {
+        abort_if(!in_array('Menu Item', restaurant_modules()), 403);
+        abort_if((!user_can('Show Menu Item')), 403);
+
+        return view('menu.combo_packs');
+    }
+
 }

@@ -9,6 +9,7 @@ enum OrderStatus: string
     // case PENDING = 'pending';
     case CONFIRMED = 'confirmed';
     case PREPARING = 'preparing';
+    case FOOD_READY = 'food_ready'; // Food is ready (for customer site display)
     case READY_FOR_PICKUP = 'ready_for_pickup';
     case OUT_FOR_DELIVERY = 'out_for_delivery'; // Order is being delivered
     case SERVED = 'served'; // Order served at table (for dine-in)
@@ -18,14 +19,16 @@ enum OrderStatus: string
     public function label(): string
     {
         return match ($this) {
-            self::PLACED => 'Order Placed',
-            self::CONFIRMED => 'Order Confirmed',
-            self::PREPARING => 'Order Preparing',
-            self::READY_FOR_PICKUP => 'Order is Ready for Pickup',
-            self::OUT_FOR_DELIVERY => 'Order is Out for Delivery',
-            self::SERVED => 'Order Served',
-            self::DELIVERED => 'Delivered',
-            self::CANCELLED => 'Order Cancelled',
+            // NOTE: This returns translation keys under `modules.order.*`
+            self::PLACED => 'info_placed',
+            self::CONFIRMED => 'info_confirmed',
+            self::PREPARING => 'info_preparing',
+            self::FOOD_READY => 'info_food_ready',
+            self::READY_FOR_PICKUP => 'info_ready_for_pickup',
+            self::OUT_FOR_DELIVERY => 'info_out_for_delivery',
+            self::SERVED => 'info_served',
+            self::DELIVERED => 'info_delivered',
+            self::CANCELLED => 'info_cancelled',
         };
     }
 

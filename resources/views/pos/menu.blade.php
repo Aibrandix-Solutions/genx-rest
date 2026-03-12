@@ -184,6 +184,82 @@
                         </div>
                     </li>
                 @endforelse
+                
+                {{-- Combo Packs --}}
+                @if(isset($comboPacks) && $comboPacks->isNotEmpty())
+                    @foreach ($comboPacks as $combo)
+                        @php
+                            // Ensure combo pack items are loaded
+                            $combo->loadMissing('comboPackItems.menuItem');
+                        @endphp
+                        @if($combo->is_active && $combo->isAvailable())
+                            <li class="group relative">
+                                <input type="checkbox" id="combo-{{ $combo->id }}" value="combo-{{ $combo->id }}"
+                                    wire:click='addComboToCart({{ $combo->id }})'
+                                    wire:key='combo-input-{{ $combo->id . microtime() }}'
+                                    wire:loading.attr="disabled"
+                                    class="hidden peer">
+                                <label for="combo-{{ $combo->id }}"
+                                    class="block w-full rounded-lg shadow-sm transition-all duration-100 dark:shadow-gray-700 dark:hover:bg-gray-700/30 cursor-pointer relative hover:shadow-md bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 dark:bg-gray-800 dark:border-gray-700 peer-checked:ring-2 peer-checked:ring-skin-base active:scale-95 focus-visible:scale-95 focus-visible:ring-2 focus-visible:ring-skin-base outline-none border border-blue-200 dark:border-blue-700"
+                                    tabindex="0">
+                                    {{-- Loading Overlay --}}
+                                    <div wire:loading.flex wire:target="addComboToCart({{ $combo->id }})"
+                                        class="absolute inset-0 bg-white/80 dark:bg-gray-800/80 rounded-lg z-10 items-center justify-center">
+                                        <svg class="animate-spin h-6 w-6 text-skin-base" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    </div>
+
+                                    {{-- Image Section --}}
+                                    @if (restaurant() && !restaurant()->hide_menu_item_image_on_pos)
+                                    <div class="relative aspect-square hidden md:block">
+                                        @if ($combo->image)
+                                            <img class="w-full h-full object-cover rounded-t-lg"
+                                                src="{{ $combo->combo_image_url }}"
+                                                alt="{{ $combo->getTranslation('name', app()->getLocale()) }}" />
+                                        @else
+                                            <div class="w-full h-full bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900 dark:to-purple-900 flex items-center justify-center rounded-t-lg">
+                                                <svg class="w-12 h-12 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                                </svg>
+                                            </div>
+                                        @endif
+                                        <span class="absolute top-1 right-1 bg-blue-500 text-white text-xs font-bold rounded-full px-2 py-0.5 shadow-sm">
+                                            COMBO
+                                        </span>
+                                    </div>
+                                    @endif
+
+                                    {{-- Content Section --}}
+                                    <div class="p-2">
+                                        <h5 class="text-sm font-medium text-gray-900 dark:text-white min-h-[2.5rem]">
+                                            {{ $combo->getTranslation('name', app()->getLocale()) }}
+                                        </h5>
+                                        <div class="mt-1 flex items-center justify-between gap-2">
+                                            <div class="flex flex-col">
+                                                <span class="text-xs text-gray-500 dark:text-gray-400 line-through">
+                                                    {{ currency_format($combo->regular_price, restaurant()->currency_id) }}
+                                                </span>
+                                                <span class="text-base font-semibold text-green-600 dark:text-green-400">
+                                                    {{ currency_format($combo->discounted_price, restaurant()->currency_id) }}
+                                                </span>
+                                                @if($combo->discount_percent > 0)
+                                                    <span class="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                                        {{ number_format($combo->discount_percent, 0) }}% OFF
+                                                    </span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                            {{ $combo->comboPackItems->count() }} items
+                                        </div>
+                                    </div>
+                                </label>
+                            </li>
+                        @endif
+                    @endforeach
+                @endif
                 </ul>
             </div>
         </div>

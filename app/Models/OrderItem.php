@@ -32,6 +32,45 @@ class OrderItem extends BaseModel
 
     public function modifierOptions(): BelongsToMany
     {
-        return $this->belongsToMany(ModifierOption::class, 'order_item_modifier_options', 'order_item_id', 'modifier_option_id');
+        return $this->belongsToMany(ModifierOption::class, 'order_item_modifier_options', 'order_item_id', 'modifier_option_id')
+            ->withPivot('quantity')
+            ->withTimestamps();
+    }
+
+    public function comboPack(): BelongsTo
+    {
+        return $this->belongsTo(ComboPack::class, 'combo_pack_id');
+    }
+
+    /**
+     * Check if this order item is from a combo pack.
+     */
+    public function getIsComboItemAttribute(): bool
+    {
+        return isset($this->attributes['is_combo_item']) && $this->attributes['is_combo_item'] && $this->attributes['combo_pack_id'] !== null;
+    }
+
+    /**
+     * Get original price (before combo discount) or current price.
+     */
+    public function getOriginalPriceAttribute()
+    {
+        return $this->attributes['original_price'] ?? $this->attributes['price'];
+    }
+
+    /**
+     * Scope to filter combo items.
+     */
+    public function scopeComboItems($query)
+    {
+        return $query->where('is_combo_item', true)->whereNotNull('combo_pack_id');
+    }
+
+    /**
+     * Scope to filter individual (non-combo) items.
+     */
+    public function scopeIndividualItems($query)
+    {
+        return $query->where('is_combo_item', false)->orWhereNull('combo_pack_id');
     }
 }
