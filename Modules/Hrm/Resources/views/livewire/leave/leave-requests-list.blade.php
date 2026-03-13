@@ -16,6 +16,7 @@
 
             <x-select class="w-full" wire:model.live="branchId">
                 <option value="">All branches</option>
+                <option value="0">— Company Level —</option>
                 @foreach($branches as $b)
                     <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                 @endforeach
@@ -101,9 +102,9 @@
         <x-slot name="content">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
-                    <x-label value="Branch" />
+                    <x-label value="Branch (leave blank for company-level staff)" />
                     <x-select class="w-full" wire:model.live="branch_id">
-                        <option value="">Select branch</option>
+                        <option value="">Company Level (no branch)</option>
                         @foreach($branches as $b)
                             <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                         @endforeach

@@ -205,7 +205,7 @@
 
     <!-- New/Edit Credit Purchase Modal -->
     @if($showForm)
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 sm:p-6">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 sm:p-6">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div class="sticky top-0 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 px-4 sm:px-6 py-4 flex items-center justify-between">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -331,7 +331,7 @@
 
     <!-- Payment Recording Modal -->
     @if($showPaymentForm)
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 sm:p-6">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 sm:p-6">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
                 <div class="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 px-4 sm:px-6 py-4 flex items-center justify-between">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Record Payment</h3>

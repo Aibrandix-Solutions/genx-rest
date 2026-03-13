@@ -43,6 +43,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-4 gap-3">
                 <x-select class="w-full" wire:model.live="branchId">
                     <option value="">Select branch</option>
+                    <option value="0">— Company Level —</option>
                     @foreach($branches as $b)
                         <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                     @endforeach
@@ -81,7 +82,7 @@
         </div>
     </div>
 
-    @if(!$branchId)
+    @if($branchId === null)
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4">
             <div class="text-sm text-gray-600 dark:text-gray-300">Select a branch to continue.</div>
         </div>
