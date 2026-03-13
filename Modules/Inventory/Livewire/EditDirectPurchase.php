@@ -67,7 +67,7 @@ class EditDirectPurchase extends Component
     public $units = [];
     public $locations = [];
     public $paymentMethods = ['cash', 'card', 'bank_transfer', 'cheque', 'other'];
-        public $paymentAccounts = [];
+    public $paymentAccounts = [];
     public $purchase = null;
 
     // Attachments
@@ -146,9 +146,9 @@ class EditDirectPurchase extends Component
 
     public function loadData()
     {
-        $this->suppliers = Supplier::orderBy('name')->get();
-        $this->locations = PurchaseLocation::orderBy('name')->get();
-        $this->inventoryItems = InventoryItem::orderBy('name')->get();
+        $this->suppliers = Supplier::where('restaurant_id', restaurant()->id)->orderBy('name')->get();
+        $this->locations = PurchaseLocation::getForRestaurant(restaurant()->id);
+        $this->inventoryItems = InventoryItem::where('restaurant_id', restaurant()->id)->orderBy('name')->get();
         $this->itemCategories = InventoryItemCategory::orderBy('name')->get();
         $this->units = Unit::orderBy('name')->get();
         $this->loadPaymentAccounts();
@@ -481,7 +481,7 @@ class EditDirectPurchase extends Component
                 'supplier_id' => $this->supplierId,
                 'location_id' => $this->location_id,
                 'order_date' => $this->orderDate,
-                'total_amount' => $this->itemSubtotal,
+                'total_amount' => $this->finalTotal,
                 'discount' => $this->discount,
                 'discount_type' => $this->discount_type,
                 'status' => $this->status,
@@ -504,6 +504,7 @@ class EditDirectPurchase extends Component
                     'subtotal' => $subtotal,
                     'discount' => $item['discount'] ?? 0,
                     'discount_type' => $item['discount_type'] ?? 'fixed',
+                    'received_quantity' => $this->status === 'received' ? $qty : 0,
                 ]);
             }
             

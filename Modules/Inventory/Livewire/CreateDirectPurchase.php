@@ -149,6 +149,7 @@ class CreateDirectPurchase extends Component
     public function loadInventoryItems()
     {
         $this->inventoryItems = InventoryItem::with(['unit', 'category'])
+            ->where('restaurant_id', restaurant()->id)
             ->orderBy('name')
             ->get();
     }
@@ -421,7 +422,7 @@ class CreateDirectPurchase extends Component
                 'supplier_id' => $this->supplierId,
                 'location_id' => $this->location_id,
                 'order_date' => $this->orderDate,
-                'total_amount' => $this->itemSubtotal,
+                'total_amount' => $this->finalTotal,
                 'discount' => (float) ($this->discount ?? 0),
                 'discount_type' => $this->discount_type,
                 'status' => $this->status,

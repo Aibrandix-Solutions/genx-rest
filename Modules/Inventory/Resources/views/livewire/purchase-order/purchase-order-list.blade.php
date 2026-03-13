@@ -169,8 +169,8 @@
            class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
             {{ trans('inventory::modules.purchaseOrder.create_title') }}
         </a>
-    </div>
     @endif
+    </div>
 
     <!-- Purchase Orders Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
