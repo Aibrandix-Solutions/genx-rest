@@ -6,7 +6,10 @@ use Livewire\Component;
 use Livewire\WithFileUploads;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\InventoryItemCategory;
+use Modules\Inventory\Entities\Unit;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseOrderItem;
 use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\InventoryMovement;
@@ -40,6 +43,15 @@ class CreateDirectPurchase extends Component
     public $searchItem = '';
     public $filteredItems = [];
     public $showSearchResults = false;
+
+    // Quick-add new inventory item
+    public $showQuickAddModal = false;
+    public $quickAddName = '';
+    public $quickAddCategoryId = '';
+    public $quickAddUnitId = '';
+    public $quickAddPrice = 0;
+    public $quickAddThresholdQuantity = 0;
+    public $quickAddSaving = false;
     
     // Payment fields (optional)
     public $recordPayment = false;
@@ -53,6 +65,8 @@ class CreateDirectPurchase extends Component
     // Readonly data
     public $suppliers = [];
     public $inventoryItems = [];
+    public $itemCategories = [];
+    public $units = [];
     public $locations = [];
     public $paymentMethods = ['cash', 'card', 'bank_transfer', 'cheque', 'other'];
 
@@ -117,6 +131,8 @@ class CreateDirectPurchase extends Component
         $this->loadInventoryItems();
         $this->loadLocations();
         $this->loadPaymentAccounts();
+        $this->itemCategories = InventoryItemCategory::orderBy('name')->get();
+        $this->units = Unit::orderBy('name')->get();
         
         // Add first item
         $this->addItem();
@@ -168,14 +184,80 @@ class CreateDirectPurchase extends Component
 
     public function addItem()
     {
-        $this->items[] = [
+        $this->items[] = $this->makePurchaseItemRow();
+    }
+
+    protected function makePurchaseItemRow(): array
+    {
+        return [
             '_key' => (string) Str::uuid(),
             'inventory_item_id' => '',
             'quantity' => 1,
             'unit_price' => 0,
             'discount' => 0,
             'discount_type' => 'fixed',
+            'last_purchase_price' => null,
         ];
+    }
+
+    public function openQuickAddModal()
+    {
+        $this->quickAddName = $this->searchItem;
+        $this->quickAddCategoryId = '';
+        $this->quickAddUnitId = '';
+        $this->quickAddPrice = 0;
+        $this->quickAddThresholdQuantity = 0;
+        $this->showQuickAddModal = true;
+        $this->showSearchResults = false;
+    }
+
+    public function closeQuickAddModal()
+    {
+        $this->showQuickAddModal = false;
+        $this->reset(['quickAddName', 'quickAddCategoryId', 'quickAddUnitId', 'quickAddPrice', 'quickAddThresholdQuantity', 'quickAddSaving']);
+    }
+
+    public function saveQuickAddItem()
+    {
+        if ($this->quickAddSaving) {
+            return;
+        }
+
+        $this->quickAddSaving = true;
+
+        $this->validateOnly('quickAddName', ['quickAddName' => 'required|string|max:255']);
+        $this->validateOnly('quickAddCategoryId', ['quickAddCategoryId' => 'required|exists:inventory_item_categories,id']);
+        $this->validateOnly('quickAddUnitId', ['quickAddUnitId' => 'required|exists:units,id']);
+        $this->validateOnly('quickAddPrice', ['quickAddPrice' => 'required|numeric|min:0']);
+        $this->validateOnly('quickAddThresholdQuantity', ['quickAddThresholdQuantity' => 'required|numeric|min:0']);
+
+        try {
+            $item = InventoryItem::create([
+                'name' => $this->quickAddName,
+                'restaurant_id' => restaurant()->id,
+                'inventory_item_category_id' => $this->quickAddCategoryId,
+                'unit_id' => $this->quickAddUnitId,
+                'threshold_quantity' => $this->quickAddThresholdQuantity,
+                'unit_purchase_price' => $this->quickAddPrice,
+            ]);
+
+            $this->loadInventoryItems();
+            $this->items[] = [
+                ...$this->makePurchaseItemRow(),
+                'inventory_item_id' => $item->id,
+                'unit_price' => $item->unit_purchase_price ?? 0,
+                'last_purchase_price' => null,
+            ];
+
+            $this->searchItem = '';
+            $this->filteredItems = [];
+            $this->showSearchResults = false;
+            $this->showQuickAddModal = false;
+            $this->reset(['quickAddName', 'quickAddCategoryId', 'quickAddUnitId', 'quickAddPrice', 'quickAddThresholdQuantity']);
+            $this->alert('success', 'Item "' . $item->name . '" created and added.');
+        } finally {
+            $this->quickAddSaving = false;
+        }
     }
 
     public function searchItems()
@@ -193,8 +275,14 @@ class CreateDirectPurchase extends Component
             ->where('restaurant_id', restaurant()->id)
             ->where('name', 'like', '%' . $term . '%')
             ->limit(10)
-            ->get();
-        
+            ->get()
+            ->map(function ($item) {
+                $item->last_purchase_price = PurchaseOrderItem::where('inventory_item_id', $item->id)
+                    ->orderBy('created_at', 'desc')
+                    ->value('unit_price');
+                return $item;
+            });
+
         $this->showSearchResults = true;
     }
 
@@ -218,14 +306,7 @@ class CreateDirectPurchase extends Component
 
             if ($targetIndex === null) {
                 $targetIndex = count($this->items);
-                $this->items[] = [
-                    '_key' => (string) Str::uuid(),
-                    'inventory_item_id' => '',
-                    'quantity' => 1,
-                    'unit_price' => 0,
-                    'discount' => 0,
-                    'discount_type' => 'fixed',
-                ];
+                $this->items[] = $this->makePurchaseItemRow();
             }
 
             if (empty($this->items[$targetIndex]['_key'])) {
@@ -247,6 +328,11 @@ class CreateDirectPurchase extends Component
             if (empty($this->items[$targetIndex]['discount_type'])) {
                 $this->items[$targetIndex]['discount_type'] = 'fixed';
             }
+
+            // Store the last purchased price for info display
+            $this->items[$targetIndex]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+                ->orderBy('created_at', 'desc')
+                ->value('unit_price');
             
             // Clear search
             $this->searchItem = '';
@@ -269,10 +355,14 @@ class CreateDirectPurchase extends Component
     public function updateItemPrice($index)
     {
         if (isset($this->items[$index]['inventory_item_id']) && $this->items[$index]['inventory_item_id']) {
-            $item = InventoryItem::find($this->items[$index]['inventory_item_id']);
+            $itemId = $this->items[$index]['inventory_item_id'];
+            $item = InventoryItem::find($itemId);
             if ($item && $item->unit_purchase_price !== null) {
                 $this->items[$index]['unit_price'] = $item->unit_purchase_price;
             }
+            $this->items[$index]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+                ->orderBy('created_at', 'desc')
+                ->value('unit_price');
         }
     }
 

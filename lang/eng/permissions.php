@@ -84,6 +84,7 @@ return [
         'Show Purchase Order' => 'Show Purchase Order',
         'Update Purchase Order' => 'Update Purchase Order',
         'Delete Purchase Order' => 'Delete Purchase Order',
+        'Edit Received Purchase' => 'Edit Received Purchase',
         'Create Purchase Return' => 'Create Purchase Return',
         'Show Purchase Return' => 'Show Purchase Return',
         'Update Purchase Return' => 'Update Purchase Return',

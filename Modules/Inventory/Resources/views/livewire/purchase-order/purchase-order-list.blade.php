@@ -282,7 +282,7 @@
                                                 </button>
                                             @endif
                                             
-                                            @if(!in_array($purchaseOrder->status, ['received', 'cancelled']) && user_can('Update Purchase Order'))
+                                            @if(!in_array($purchaseOrder->status, ['cancelled']) && user_can('Update Purchase Order') && ($purchaseOrder->status !== 'received' || user_can('Edit Received Purchase')))
                                                 <a href="{{ route('purchases.edit', $purchaseOrder->id) }}" @click="open = false" wire:navigate
                                                         class="w-full flex items-center px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/50">
                                                     <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
