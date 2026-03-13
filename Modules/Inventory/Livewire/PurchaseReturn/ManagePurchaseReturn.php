@@ -386,7 +386,6 @@ class ManagePurchaseReturn extends Component
         $this->showModal = false;
         $this->isEditing = false;
         $this->dispatch('purchaseReturnSaved');
-        $this->alert('success', 'Purchase return saved successfully');
     }
 
     protected function processReturnLogic($return)
@@ -450,13 +449,10 @@ class ManagePurchaseReturn extends Component
                 // Reload items to ensure we have fresh data
                 $return->load('items');
 
-                                // Reload items to ensure we have fresh data
-                $return->load('items');
-
                 // Process the return using shared logic
                 $this->processReturnLogic($return);
-                $return->update(['status' => 'completed']);
-                // Mark return as completed - do this LAST inside transaction to prevent double processing
+
+                // Mark return as completed LAST inside transaction to prevent double processing
                 $return->update(['status' => 'completed']);
                 
                 // Refresh the instance

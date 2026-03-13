@@ -92,6 +92,11 @@ class PurchaseOrderController extends Controller
         abort_if(!(user_can('Update Purchase Order') || user_can('Edit Purchase Order')), 403);
         abort_if($purchase->branch_id !== branch()->id, 403);
 
+        // Received purchases require special override permission
+        if ($purchase->status === 'received') {
+            abort_if(!user_can('Edit Received Purchase'), 403);
+        }
+
         return view('inventory::purchases.edit', ['purchase' => $purchase]);
     }
 

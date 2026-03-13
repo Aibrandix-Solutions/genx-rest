@@ -21,7 +21,7 @@ class ViewPurchaseOrder extends Component
     {
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
-            'branch',
+            'location.branch',
             'items.inventoryItem.unit',
             'payments.account',
             'payments.addedBy',
@@ -47,7 +47,7 @@ class ViewPurchaseOrder extends Component
         // Reload with withoutGlobalScopes just in case
         $this->purchaseOrder->load([
             'supplier',
-            'branch',
+            'location.branch',
             'items.inventoryItem.unit',
         ]);
 
