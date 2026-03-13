@@ -71,6 +71,25 @@ class PayrollMonthly extends Component
         return $value;
     }
 
+    private function isCompanyLevel(): bool
+    {
+        return $this->branchId === 0;
+    }
+
+    /** Apply branch filter to any query builder. Company level = whereNull('branch_id'). */
+    private function branchFilter(): \Closure
+    {
+        return $this->isCompanyLevel()
+            ? fn ($q) => $q->whereNull('branch_id')
+            : fn ($q) => $q->where('branch_id', $this->branchId);
+    }
+
+    /** Resolves to null (company) or a real branch ID for DB writes. */
+    private function effectiveBranchId(): ?int
+    {
+        return $this->isCompanyLevel() ? null : (int) $this->branchId;
+    }
+
     private function resetAdjustmentForm(): void
     {
         $this->adjustEmployeeId = null;
@@ -177,7 +196,7 @@ class PayrollMonthly extends Component
     {
         $this->authorize('Manage Payroll');
 
-        if (!$this->branchId) {
+        if ($this->branchId === null) {
             return;
         }
 
@@ -185,12 +204,12 @@ class PayrollMonthly extends Component
 
         $employee = Employee::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', (int) $this->branchId)
+            ->tap($this->branchFilter())
             ->findOrFail($employeeId);
 
         $adj = PayrollAdjustment::query()->firstOrNew([
             'restaurant_id' => restaurant()->id,
-            'branch_id' => (int) $this->branchId,
+            'branch_id' => $this->effectiveBranchId(),
             'employee_id' => $employee->id,
             'year' => (int) $from->format('Y'),
             'month' => (int) $from->format('m'),
@@ -242,11 +261,23 @@ class PayrollMonthly extends Component
         $this->authorize('Manage Payroll');
 
         $this->validate([
-            'branchId' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
+            'branchId' => [
+                'required',
+                function ($attribute, $value, $fail) {
+                    if ($value === null) {
+                        $fail('Select a branch or Company Level.');
+                    } elseif ($value !== 0 && !\Illuminate\Support\Facades\DB::table('branches')
+                        ->where('id', $value)
+                        ->where('restaurant_id', restaurant()->id)
+                        ->exists()) {
+                        $fail('Invalid branch selected.');
+                    }
+                },
+            ],
             'month' => ['required', 'date_format:Y-m'],
             'adjustEmployeeId' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(function ($q) {
                 return $q->where('restaurant_id', restaurant()->id)
-                    ->where('branch_id', (int) $this->branchId);
+                    ->when(!$this->isCompanyLevel(), fn ($q2) => $q2->where('branch_id', (int) $this->branchId), fn ($q2) => $q2->whereNull('branch_id'));
             })],
             'additional_pay' => ['nullable', 'numeric', 'min:0'],
             'advance' => ['nullable', 'numeric', 'min:0'],
@@ -263,7 +294,7 @@ class PayrollMonthly extends Component
 
         PayrollAdjustment::query()->updateOrCreate([
             'restaurant_id' => restaurant()->id,
-            'branch_id' => (int) $this->branchId,
+            'branch_id' => $this->effectiveBranchId(),
             'employee_id' => (int) $this->adjustEmployeeId,
             'year' => (int) $from->format('Y'),
             'month' => (int) $from->format('m'),
@@ -287,18 +318,20 @@ class PayrollMonthly extends Component
     {
         $this->authorize('Manage Payroll');
 
-        if (!$this->branchId) {
+        if ($this->branchId === null) {
             return [];
         }
 
         [$from, $to] = $this->monthRange();
         $daysInMonth = $this->daysInMonth();
 
-        $branchName = DB::table('branches')->where('id', $this->branchId)->value('name');
+        $branchName = $this->isCompanyLevel()
+            ? 'Company Level'
+            : DB::table('branches')->where('id', $this->branchId)->value('name');
 
         $employees = Employee::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', (int) $this->branchId)
+            ->tap($this->branchFilter())
             ->when($this->departmentId, fn ($q) => $q->where('department_id', (int) $this->departmentId))
             ->when($this->designationId, fn ($q) => $q->where('designation_id', (int) $this->designationId))
             ->when($this->search, function ($q) {
@@ -342,7 +375,6 @@ class PayrollMonthly extends Component
 
         $presentCounts = AttendanceLog::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', (int) $this->branchId)
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->whereIn('status', ['present', 'late', 'half_day'])
             ->whereIn('employee_id', $employeeIds)
@@ -352,7 +384,6 @@ class PayrollMonthly extends Component
 
         $leaveRequests = LeaveRequest::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', (int) $this->branchId)
             ->where('status', 'approved')
             ->whereIn('employee_id', $employeeIds)
             ->whereDate('to_date', '>=', $from->toDateString())
@@ -377,7 +408,7 @@ class PayrollMonthly extends Component
 
         $adjustments = PayrollAdjustment::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', (int) $this->branchId)
+            ->when($this->isCompanyLevel(), fn ($q) => $q->whereNull('branch_id'), fn ($q) => $q->where('branch_id', (int) $this->branchId))
             ->where('year', (int) $from->format('Y'))
             ->where('month', (int) $from->format('m'))
             ->whereIn('employee_id', $employeeIds)
@@ -510,6 +541,39 @@ class PayrollMonthly extends Component
         }, $fileName);
     }
 
+    public function downloadEmployeePayslip(int $employeeId): mixed
+    {
+        $this->authorize('Manage Payroll');
+
+        $data = $this->buildPayrollRows();
+        if (!$data) {
+            return null;
+        }
+
+        $row = collect($data['rows'])->first(fn ($r) => (int) $r['employee_id'] === $employeeId);
+        if (!$row) {
+            return null;
+        }
+
+        $restaurant = restaurant();
+        $logoPath = $restaurant->logo ? public_path('user-uploads/logo/' . $restaurant->logo) : null;
+
+        $pdf = Pdf::loadView('hrm::payroll.payslips-pdf', [
+            'rows' => [$row],
+            'restaurant' => $restaurant,
+            'logoPath' => ($logoPath && file_exists($logoPath)) ? $logoPath : null,
+            'branchName' => $data['branch_name'],
+            'monthLabel' => $data['month_label'],
+        ])->setPaper('a4', 'portrait');
+
+        $safeName = preg_replace('/[^a-zA-Z0-9_-]/', '-', $row['name'] ?? 'employee');
+        $fileName = 'payslip-' . $this->month . '-' . $safeName . '.pdf';
+
+        return response()->streamDownload(function () use ($pdf) {
+            echo $pdf->output();
+        }, $fileName);
+    }
+
     public function exportPayslips()
     {
         $this->authorize('Manage Payroll');
@@ -574,7 +638,7 @@ class PayrollMonthly extends Component
     {
         $this->authorize('Manage Payroll');
 
-        $data = $this->branchId ? $this->buildPayrollRows() : ['rows' => [], 'title' => null];
+        $data = $this->branchId !== null ? $this->buildPayrollRows() : ['rows' => [], 'title' => null];
 
         return view('hrm::livewire.payroll.payroll-monthly', [
             'payrollRows' => $data['rows'] ?? [],

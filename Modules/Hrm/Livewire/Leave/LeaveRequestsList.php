@@ -92,7 +92,12 @@ class LeaveRequestsList extends Component
 
         $this->employees = Employee::query()
             ->where('restaurant_id', restaurant()->id)
-            ->when($branchId, fn ($q) => $q->where('branch_id', (int) $branchId))
+            ->when($branchId !== null, function ($q) use ($branchId) {
+                // 0 = company level (whereNull), real ID uses availableAtBranch scope
+                $branchId === 0
+                    ? $q->whereNull('branch_id')
+                    : $q->availableAtBranch((int) $branchId);
+            })
             ->orderBy('name')
             ->limit(500)
             ->get(['id', 'name', 'staff_code'])
@@ -105,7 +110,7 @@ class LeaveRequestsList extends Component
         $this->authorize('Manage Leave Requests');
 
         $this->resetForm();
-        $this->branch_id = $this->branchId ?? branch()?->id;
+        $this->branch_id = $this->branchId === 0 ? null : ($this->branchId ?? branch()?->id);
         $this->refreshEmployees();
         $this->from_date = now()->toDateString();
         $this->to_date = now()->toDateString();
@@ -120,7 +125,7 @@ class LeaveRequestsList extends Component
         $r = LeaveRequest::query()->with(['employee', 'leaveType'])->findOrFail($id);
 
         $this->editingId = $r->id;
-        $this->branch_id = (int) $r->branch_id;
+        $this->branch_id = $r->branch_id !== null ? (int) $r->branch_id : null;
         $this->refreshEmployees();
         $this->employee_id = (int) $r->employee_id;
         $this->leave_type_id = (int) $r->leave_type_id;
@@ -138,7 +143,7 @@ class LeaveRequestsList extends Component
         $this->authorize('Manage Leave Requests');
 
         $this->validate([
-            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
+            'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
             'employee_id' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
             'leave_type_id' => ['required', 'integer', Rule::exists('hrm_leave_types', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
             'from_date' => ['required', 'date'],
@@ -149,8 +154,9 @@ class LeaveRequestsList extends Component
         ]);
 
         $employee = Employee::query()->findOrFail((int) $this->employee_id);
-        if ((int) $employee->branch_id !== (int) $this->branch_id) {
-            $this->addError('employee_id', 'Selected employee is not in the selected branch.');
+        // Allow shared employees (home branch may differ from the leave-recording branch)
+        if ((int) $employee->restaurant_id !== (int) restaurant()->id) {
+            $this->addError('employee_id', 'Invalid employee selected.');
             return;
         }
 
@@ -189,7 +195,7 @@ class LeaveRequestsList extends Component
             : new LeaveRequest();
 
         $r->restaurant_id = restaurant()->id;
-        $r->branch_id = (int) $this->branch_id;
+        $r->branch_id = $this->branch_id ?: null; // null = company level employee
         $r->employee_id = (int) $this->employee_id;
         $r->leave_type_id = (int) $this->leave_type_id;
         $r->from_date = $this->from_date;
@@ -264,7 +270,11 @@ class LeaveRequestsList extends Component
         $rows = LeaveRequest::query()
             ->with(['employee:id,name,staff_code', 'leaveType:id,name'])
             ->where('restaurant_id', restaurant()->id)
-            ->when($this->branchId, fn ($q) => $q->where('branch_id', (int) $this->branchId))
+            ->when($this->branchId !== null, function ($q) {
+                $this->branchId === 0
+                    ? $q->whereNull('branch_id')
+                    : $q->where('branch_id', (int) $this->branchId);
+            })
             ->when($this->status, fn ($q) => $q->where('status', $this->status))
             ->when($this->from, fn ($q) => $q->whereDate('to_date', '>=', $this->from))
             ->when($this->to, fn ($q) => $q->whereDate('from_date', '<=', $this->to))

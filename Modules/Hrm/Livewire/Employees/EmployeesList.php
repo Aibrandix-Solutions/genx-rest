@@ -40,6 +40,9 @@ class EmployeesList extends Component
     public bool $is_epf_eligible = true;
     public ?string $note = null;
 
+    /** IDs of extra branches where this employee also works (not the home branch) */
+    public array $extraBranchIds = [];
+
     public bool $showDeleteModal = false;
     public ?int $deleteId = null;
 
@@ -98,6 +101,7 @@ class EmployeesList extends Component
         $this->status = (string) $employee->status;
         $this->is_epf_eligible = (bool) ($employee->is_epf_eligible ?? true);
         $this->note = $employee->note;
+        $this->extraBranchIds = $employee->extraBranches()->pluck('branches.id')->map(fn($id) => (string) $id)->all();
 
         $this->showModal = true;
     }
@@ -116,7 +120,7 @@ class EmployeesList extends Component
         }
 
         $this->validate([
-            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')],
             'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')],
@@ -144,7 +148,7 @@ class EmployeesList extends Component
             : new Employee();
 
         $employee->restaurant_id = restaurant()->id;
-        $employee->branch_id = (int) $this->branch_id;
+        $employee->branch_id = $this->branch_id ? (int) $this->branch_id : null;
         $employee->user_id = $this->user_id;
         $employee->department_id = $this->department_id;
         $employee->designation_id = $this->designation_id;
@@ -160,6 +164,13 @@ class EmployeesList extends Component
         $employee->is_epf_eligible = $this->is_epf_eligible;
         $employee->note = $this->note;
         $employee->save();
+
+        // Sync extra branches (exclude home branch to avoid confusion)
+        $extraIds = array_filter(
+            array_map('intval', $this->extraBranchIds),
+            fn ($id) => $id > 0 && $id !== (int) $this->branch_id
+        );
+        $employee->extraBranches()->sync($extraIds);
 
         $this->syncCustomerForEmployee($employee);
 
@@ -223,6 +234,7 @@ class EmployeesList extends Component
         $this->status = 'active';
         $this->is_epf_eligible = true;
         $this->note = null;
+        $this->extraBranchIds = [];
     }
 
     private function syncCustomerForEmployee(Employee $employee): void
@@ -283,11 +295,12 @@ class EmployeesList extends Component
         $employees = Employee::query()
             ->with([
                 'branch:id,name',
+                'extraBranches:id,name',
                 'department:id,name',
                 'designation:id,name',
                 'user:id,name,email',
             ])
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId !== null, fn($q) => $q->availableAtBranch($this->branchId))
             ->when($this->search, function ($q) {
                 $q->where(function ($q2) {
                     $q2->where('name', 'like', "%{$this->search}%")
