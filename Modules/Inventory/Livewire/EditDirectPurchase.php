@@ -457,6 +457,118 @@ class EditDirectPurchase extends Component
         }
     }
 
+    /**
+     * Reconcile inventory stock after editing an already-received purchase.
+     *
+     * Computes per-item quantity deltas (and handles location changes) and
+     * creates correcting InventoryMovement records so the audit trail stays clean.
+     *
+     * @param array $oldItemsSnap  Keyed by inventory_item_id: ['quantity' => float, 'unit_price' => float]
+     * @param int   $oldLocationId The location_id that was saved before the edit
+     */
+    protected function reconcileReceivedStock(array $oldItemsSnap, int $oldLocationId): void
+    {
+        $newLocationId   = (int) $this->location_id;
+        $locationChanged = $oldLocationId !== $newLocationId;
+
+        $oldLocation = PurchaseLocation::find($oldLocationId);
+        $newLocation = PurchaseLocation::find($newLocationId);
+
+        if (!$newLocation) {
+            throw new \Exception('Purchase location not found.');
+        }
+
+        $oldBranchId = ($oldLocation && $oldLocation->type === 'branch' && $oldLocation->branch_id)
+            ? (int) $oldLocation->branch_id
+            : branch()->id;
+
+        $newBranchId = ($newLocation->type === 'branch' && $newLocation->branch_id)
+            ? (int) $newLocation->branch_id
+            : branch()->id;
+
+        // Reload items after the delete-and-recreate to get the freshly saved values
+        $newItemsSnap = $this->purchase->fresh()->items->mapWithKeys(fn($i) => [
+            $i->inventory_item_id => [
+                'quantity'   => (float) $i->quantity,
+                'unit_price' => (float) $i->unit_price,
+            ],
+        ])->toArray();
+
+        if ($locationChanged) {
+            // Location changed: reverse ALL stock from old location, add ALL to new location
+            foreach ($oldItemsSnap as $itemId => $old) {
+                $this->applyStockMovement(
+                    (int) $itemId, $old['quantity'], $old['unit_price'],
+                    $oldBranchId, $oldLocationId, 'out'
+                );
+            }
+            foreach ($newItemsSnap as $itemId => $new) {
+                $this->applyStockMovement(
+                    (int) $itemId, $new['quantity'], $new['unit_price'],
+                    $newBranchId, $newLocationId, 'in'
+                );
+            }
+        } else {
+            // Same location: compute per-item delta and apply only the difference
+            $allItemIds = collect(array_keys($oldItemsSnap))
+                ->merge(array_keys($newItemsSnap))
+                ->unique();
+
+            foreach ($allItemIds as $itemId) {
+                $oldQty    = (float) ($oldItemsSnap[$itemId]['quantity'] ?? 0);
+                $newQty    = (float) ($newItemsSnap[$itemId]['quantity'] ?? 0);
+                $delta     = $newQty - $oldQty;
+
+                if (abs($delta) < 0.0001) {
+                    continue; // no quantity change for this item
+                }
+
+                $unitPrice = (float) ($newItemsSnap[$itemId]['unit_price']
+                    ?? $oldItemsSnap[$itemId]['unit_price']
+                    ?? 0);
+
+                $this->applyStockMovement(
+                    (int) $itemId, abs($delta), $unitPrice,
+                    $newBranchId, $newLocationId,
+                    $delta > 0 ? 'in' : 'out'
+                );
+            }
+        }
+    }
+
+    /**
+     * Apply a single stock change and record the corresponding InventoryMovement.
+     */
+    protected function applyStockMovement(
+        int    $inventoryItemId,
+        float  $qty,
+        float  $unitPrice,
+        int    $branchId,
+        int    $locationId,
+        string $type   // 'in' or 'out'
+    ): void {
+        $stock = InventoryStock::firstOrCreate(
+            ['inventory_item_id' => $inventoryItemId, 'branch_id' => $branchId, 'location_id' => $locationId],
+            ['quantity' => 0]
+        );
+
+        if ($type === 'in') {
+            $stock->increment('quantity', $qty);
+        } else {
+            $stock->decrement('quantity', $qty);
+        }
+
+        InventoryMovement::create([
+            'branch_id'           => $branchId,
+            'inventory_item_id'   => $inventoryItemId,
+            'quantity'            => $qty,
+            'transaction_type'    => $type,
+            'unit_purchase_price' => $unitPrice,
+            'supplier_id'         => $this->supplierId,
+            'added_by'            => auth()->id(),
+        ]);
+    }
+
     public function updatePurchase()
     {
         // Validate payment amount doesn't exceed total
@@ -471,11 +583,30 @@ class EditDirectPurchase extends Component
             }
         }
 
+        // Prevent reverting a received purchase back to a non-received status.
+        // Stock has already been applied; use a Purchase Return to adjust stock instead.
+        if ($this->purchase->status === 'received' && $this->status !== 'received') {
+            $this->addError('status', 'A received purchase cannot be reverted to a different status. Use a Purchase Return to adjust stock.');
+            return;
+        }
+
         $this->validate();
 
         DB::transaction(function () {
             $previousStatus = $this->purchase->status;
-            
+            $oldLocationId  = (int) $this->purchase->location_id;
+
+            // Snapshot existing items BEFORE deletion — needed for stock delta calculation.
+            $oldItemsSnap = [];
+            if ($previousStatus === 'received') {
+                $oldItemsSnap = $this->purchase->items->mapWithKeys(fn($i) => [
+                    $i->inventory_item_id => [
+                        'quantity'   => (float) $i->quantity,
+                        'unit_price' => (float) $i->unit_price,
+                    ],
+                ])->toArray();
+            }
+
             // Update purchase
             $this->purchase->update([
                 'supplier_id' => $this->supplierId,
@@ -507,9 +638,13 @@ class EditDirectPurchase extends Component
                     'received_quantity' => $this->status === 'received' ? $qty : 0,
                 ]);
             }
-            
-            // If status changed to 'received', update inventory stock and movements
-            if ($previousStatus !== 'received' && $this->status === 'received') {
+
+            // Stock management based on status transitions
+            if ($previousStatus === 'received' && $this->status === 'received') {
+                // Already received — auto-apply delta corrections for any quantity/item/location changes
+                $this->reconcileReceivedStock($oldItemsSnap, $oldLocationId);
+            } elseif ($previousStatus !== 'received' && $this->status === 'received') {
+                // Transitioning to received for the first time — add all stock
                 $this->updateInventoryStock();
                 $this->updateSupplierMetrics();
             }

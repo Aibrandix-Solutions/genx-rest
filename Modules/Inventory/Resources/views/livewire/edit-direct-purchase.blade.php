@@ -9,7 +9,7 @@
             </svg>
             <div>
                 <p class="font-semibold">Editing a Received Purchase</p>
-                <p class="text-sm mt-0.5">This purchase has already been received and inventory movements have been recorded. Changing quantities or items here will not automatically adjust existing stock levels &mdash; manual stock corrections may be required.</p>
+                <p class="text-sm mt-0.5">Stock adjustments will be <strong>automatically calculated and applied</strong> when you save. Any quantity changes, added or removed items, or location changes will create correcting inventory movements so the audit trail stays accurate. To return items to a supplier, use a <strong>Purchase Return</strong> instead.</p>
             </div>
         </div>
         @endif
@@ -46,12 +46,20 @@
 
                 <div>
                     <x-label value="Status" />
-                    <x-select wire:model.live="status" class="w-full">
-                        <option value="ordered">Ordered</option>
-                        <option value="pending">Pending</option>
-                        <option value="received">Received</option>
-                        <option value="cancelled">Cancelled</option>
-                    </x-select>
+                    @if($purchase->status === 'received')
+                        {{-- Once received, status is locked — reverting is blocked server-side --}}
+                        <x-select wire:model.live="status" class="w-full" disabled>
+                            <option value="received">Received</option>
+                        </x-select>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Status is locked. Use a Purchase Return to adjust stock.</p>
+                    @else
+                        <x-select wire:model.live="status" class="w-full">
+                            <option value="ordered">Ordered</option>
+                            <option value="pending">Pending</option>
+                            <option value="received">Received</option>
+                            <option value="cancelled">Cancelled</option>
+                        </x-select>
+                    @endif
                     @error('status') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                 </div>
 
