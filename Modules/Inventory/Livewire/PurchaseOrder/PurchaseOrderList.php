@@ -139,7 +139,7 @@ class PurchaseOrderList extends Component
 
     public function downloadPdf(PurchaseOrder $purchaseOrder)
     {
-        $purchaseOrder->load(['supplier', 'items.inventoryItem.unit']);
+        $purchaseOrder->load(['supplier', 'location.branch', 'items.inventoryItem.unit']);
         
         // Configure PDF
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [

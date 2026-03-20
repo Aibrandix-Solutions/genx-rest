@@ -511,6 +511,7 @@ class CreateDirectPurchase extends Component
             // Create inventory movement record
             InventoryMovement::create([
                 'branch_id' => $targetBranchId,
+                'location_id' => $purchase->location_id,
                 'inventory_item_id' => $item->inventory_item_id,
                 'quantity' => $quantity,
                 'transaction_type' => 'in',

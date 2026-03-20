@@ -59,6 +59,8 @@ class EditDirectPurchase extends Component
     public $paymentMethod = 'cash';
     public $paymentAccountId;
     public $paymentNote;
+    public $editingPaymentId = null;
+    public $existingPayments = [];
     
     // Readonly data
     public $suppliers = [];
@@ -104,7 +106,7 @@ class EditDirectPurchase extends Component
 
     public function loadPurchase()
     {
-        $this->purchase = PurchaseOrder::with('items', 'attachments')->findOrFail($this->purchaseId);
+        $this->purchase = PurchaseOrder::with('items', 'attachments', 'payments.account')->findOrFail($this->purchaseId);
         
         $this->supplierId = $this->purchase->supplier_id;
         $this->orderDate = $this->purchase->order_date->format('Y-m-d');
@@ -142,6 +144,56 @@ class EditDirectPurchase extends Component
                 'mime_type'     => $att->mime_type,
             ];
         })->toArray();
+
+        $this->refreshExistingPayments();
+    }
+
+    protected function refreshExistingPayments(): void
+    {
+        $this->existingPayments = $this->purchase->payments()
+            ->with('account')
+            ->orderByDesc('paid_on')
+            ->get()
+            ->map(function ($payment) {
+                return [
+                    'id' => $payment->id,
+                    'amount' => (float) $payment->amount,
+                    'paid_on' => optional($payment->paid_on)->format('Y-m-d H:i:s'),
+                    'payment_method' => $payment->payment_method,
+                    'payment_account_id' => $payment->payment_account_id,
+                    'payment_account_name' => $payment->account?->name,
+                    'note' => $payment->note,
+                ];
+            })
+            ->toArray();
+    }
+
+    public function startEditPayment($paymentId): void
+    {
+        $payment = $this->purchase->payments()->find($paymentId);
+
+        if (!$payment) {
+            $this->alert('error', 'Payment not found.');
+            return;
+        }
+
+        $this->recordPayment = true;
+        $this->editingPaymentId = $payment->id;
+        $this->paymentAmount = (float) $payment->amount;
+        $this->paymentDate = optional($payment->paid_on)->format('Y-m-d\\TH:i');
+        $this->paymentMethod = $payment->payment_method ?: 'cash';
+        $this->paymentAccountId = $payment->payment_account_id;
+        $this->paymentNote = $payment->note;
+    }
+
+    public function cancelEditPayment(): void
+    {
+        $this->editingPaymentId = null;
+        $this->paymentAmount = null;
+        $this->paymentDate = now()->format('Y-m-d\\TH:i');
+        $this->paymentMethod = 'cash';
+        $this->paymentAccountId = null;
+        $this->paymentNote = null;
     }
 
     public function loadData()
@@ -433,6 +485,7 @@ class EditDirectPurchase extends Component
             // Create inventory movement record for audit trail
             InventoryMovement::create([
                 'branch_id' => $branchId,
+                'location_id' => $this->location_id,
                 'inventory_item_id' => $inventoryItemId,
                 'quantity' => $quantity,
                 'transaction_type' => 'in', // 'in' for incoming stock from purchase
@@ -560,6 +613,7 @@ class EditDirectPurchase extends Component
 
         InventoryMovement::create([
             'branch_id'           => $branchId,
+            'location_id'         => $locationId,
             'inventory_item_id'   => $inventoryItemId,
             'quantity'            => $qty,
             'transaction_type'    => $type,
@@ -574,8 +628,20 @@ class EditDirectPurchase extends Component
         // Validate payment amount doesn't exceed total
         if ($this->recordPayment && $this->paymentAmount) {
             $total = $this->finalTotal;
-            $alreadyPaid = $this->purchase->payments()->sum('amount');
-            $due = max(0, $total - $alreadyPaid);
+            $alreadyPaid = (float) $this->purchase->payments()->sum('amount');
+            $editablePaymentAmount = 0;
+
+            if ($this->editingPaymentId) {
+                $editablePayment = $this->purchase->payments()->find($this->editingPaymentId);
+                if (!$editablePayment) {
+                    $this->addError('paymentAmount', 'Selected payment was not found for editing.');
+                    return;
+                }
+                $editablePaymentAmount = (float) $editablePayment->amount;
+            }
+
+            // When editing, the original amount can be re-used, so add it back to the allowed ceiling.
+            $due = max(0, $total - ($alreadyPaid - $editablePaymentAmount));
             
             if ($this->paymentAmount > $due) {
                 $this->addError('paymentAmount', 'Payment amount cannot exceed the due amount (' . currency_format($due, restaurant()->currency_id) . ')');
@@ -652,25 +718,63 @@ class EditDirectPurchase extends Component
             // Record payment if requested
             if ($this->recordPayment && $this->paymentAmount && $this->paymentAmount > 0) {
                 $paidOn = $this->paymentDate ?: now();
-                $paymentData = [
-                    'purchase_order_id' => $this->purchase->id,
-                    'supplier_id' => $this->supplierId,
-                    'amount' => $this->paymentAmount,
-                    'paid_on' => $paidOn,
-                    'payment_method' => $this->paymentMethod,
-                    'note' => $this->paymentNote,
-                    'added_by' => user()->id,
-                ];
-                
-                if ($this->paymentAccountId) {
-                    $paymentData['payment_account_id'] = $this->paymentAccountId;
+                $paymentAccountId = $this->paymentAccountId ?: null;
+
+                if ($this->editingPaymentId) {
+                    $payment = SupplierPayment::where('purchase_order_id', $this->purchase->id)
+                        ->where('id', $this->editingPaymentId)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$payment) {
+                        throw new \Exception('Payment not found for update.');
+                    }
+
+                    $oldAmount = (float) $payment->amount;
+                    $oldAccountId = $payment->payment_account_id;
+
+                    // Revert previous account impact before applying new values.
+                    if ($oldAccountId) {
+                        $oldAccount = PaymentAccount::find($oldAccountId);
+                        if ($oldAccount) {
+                            $oldAccount->increment('current_balance', $oldAmount);
+                        }
+                    }
+
+                    // Replace old account transaction logs for this payment.
+                    AccountTransaction::where('reference_type', get_class($payment))
+                        ->where('reference_id', $payment->id)
+                        ->delete();
+
+                    $payment->update([
+                        'supplier_id' => $this->supplierId,
+                        'payment_account_id' => $paymentAccountId,
+                        'amount' => $this->paymentAmount,
+                        'paid_on' => $paidOn,
+                        'payment_method' => $this->paymentMethod,
+                        'note' => $this->paymentNote,
+                    ]);
+                } else {
+                    $paymentData = [
+                        'purchase_order_id' => $this->purchase->id,
+                        'supplier_id' => $this->supplierId,
+                        'amount' => $this->paymentAmount,
+                        'paid_on' => $paidOn,
+                        'payment_method' => $this->paymentMethod,
+                        'note' => $this->paymentNote,
+                        'added_by' => user()->id,
+                    ];
+                    
+                    if ($paymentAccountId) {
+                        $paymentData['payment_account_id'] = $paymentAccountId;
+                    }
+                    
+                    $payment = SupplierPayment::create($paymentData);
                 }
-                
-                $payment = SupplierPayment::create($paymentData);
 
                 // Update Payment Account Balance and log transaction if account selected
-                if ($this->paymentAccountId) {
-                    $account = PaymentAccount::find($this->paymentAccountId);
+                if ($paymentAccountId) {
+                    $account = PaymentAccount::find($paymentAccountId);
                     if ($account) {
                         $account->decrement('current_balance', $this->paymentAmount);
 
@@ -686,6 +790,11 @@ class EditDirectPurchase extends Component
                         ]);
                     }
                 }
+
+                // Refresh payment list and reset editor state after create/update.
+                $this->purchase->refresh();
+                $this->refreshExistingPayments();
+                $this->cancelEditPayment();
             }
 
             // Save new attachments

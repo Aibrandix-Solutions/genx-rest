@@ -392,6 +392,10 @@ class ManagePurchaseReturn extends Component
     {
         $po = PurchaseOrder::find($return->purchase_order_id);
         $locationId = $po ? $po->location_id : null;
+        $location = $locationId ? \Modules\Inventory\Entities\PurchaseLocation::find($locationId) : null;
+        $targetBranchId = ($location && $location->type === 'branch' && $location->branch_id)
+            ? (int) $location->branch_id
+            : ($po ? (int) $po->branch_id : (int) branch()->id);
         
         foreach ($return->items as $item) {
             $quantity = (float)$item->quantity;
@@ -409,7 +413,8 @@ class ManagePurchaseReturn extends Component
             
             // Create movement record
             InventoryMovement::create([
-                'branch_id' => branch()->id,
+                'branch_id' => $targetBranchId,
+                'location_id' => $locationId,
                 'inventory_item_id' => $item->inventory_item_id,
                 'quantity' => $quantity,
                 'transaction_type' => 'out',

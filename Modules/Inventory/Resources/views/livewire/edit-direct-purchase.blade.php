@@ -282,10 +282,45 @@
                 <div class="md:col-span-2 space-y-4">
                     <div class="flex items-center gap-2">
                         <input id="record-payment" type="checkbox" wire:model.live="recordPayment" class="rounded border-gray-300">
-                        <label for="record-payment" class="text-sm text-gray-700 dark:text-gray-200">Add payment for this purchase</label>
+                        <label for="record-payment" class="text-sm text-gray-700 dark:text-gray-200">Add or edit payment for this purchase</label>
                     </div>
 
                     @if($recordPayment)
+                        @if(!empty($existingPayments))
+                            <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                                <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 text-sm font-medium text-gray-700 dark:text-gray-200">Existing Payments</div>
+                                <div class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    @foreach($existingPayments as $existingPayment)
+                                        <div class="px-3 py-2 flex items-center justify-between gap-3">
+                                            <div class="text-xs text-gray-700 dark:text-gray-200">
+                                                <span class="font-semibold">{{ currency_format($existingPayment['amount'], restaurant()->currency_id) }}</span>
+                                                <span class="mx-1">•</span>
+                                                <span>{{ \Carbon\Carbon::parse($existingPayment['paid_on'])->format('M d, Y h:i A') }}</span>
+                                                <span class="mx-1">•</span>
+                                                <span>{{ ucfirst(str_replace('_', ' ', $existingPayment['payment_method'] ?? 'cash')) }}</span>
+                                                @if(!empty($existingPayment['payment_account_name']))
+                                                    <span class="mx-1">•</span>
+                                                    <span>{{ $existingPayment['payment_account_name'] }}</span>
+                                                @endif
+                                            </div>
+                                            <button type="button"
+                                                    wire:click="startEditPayment({{ $existingPayment['id'] }})"
+                                                    class="text-xs px-2 py-1 rounded border border-indigo-300 text-indigo-700 dark:text-indigo-300 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/30">
+                                                {{ (int)$editingPaymentId === (int)$existingPayment['id'] ? 'Editing' : 'Edit' }}
+                                            </button>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+
+                        @if($editingPaymentId)
+                            <div class="flex items-center justify-between p-2 rounded-md bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-700">
+                                <p class="text-xs text-indigo-800 dark:text-indigo-200">Editing selected payment. Save Purchase will update this payment.</p>
+                                <button type="button" wire:click="cancelEditPayment" class="text-xs px-2 py-1 rounded border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300">Cancel Edit</button>
+                            </div>
+                        @endif
+
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <x-label value="Payment Amount" />
