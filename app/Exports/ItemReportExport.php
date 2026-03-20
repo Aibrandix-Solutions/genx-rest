@@ -124,6 +124,8 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
             ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
             ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
             ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id')
+            ->join('branches', 'branches.id', '=', 'orders.branch_id')
+            ->where('branches.restaurant_id', restaurant()->id)
             ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
             ->where('orders.status', 'paid')
             ->where(function ($q) {
