@@ -4,11 +4,10 @@ namespace App\Livewire\Reports;
 
 use Carbon\Carbon;
 use Livewire\Component;
-use App\Models\MenuItem;
 use Livewire\Attributes\On;
 use App\Exports\ItemReportExport;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Scopes\AvailableMenuItemScope;
 
 class ItemReport extends Component
 {
@@ -155,41 +154,101 @@ class ItemReport extends Component
         }
     }
 
+    /**
+     * Convert a translatable JSON value into the active locale text.
+     */
+    private function getTranslatedText($value): string
+    {
+        if (is_array($value)) {
+            $translations = $value;
+        } else {
+            $decoded = json_decode((string) $value, true);
+            $translations = is_array($decoded) ? $decoded : null;
+        }
+
+        if (!$translations) {
+            return (string) ($value ?? '');
+        }
+
+        $locale = app()->getLocale();
+
+        return (string) (
+            $translations[$locale]
+            ?? $translations['en']
+            ?? $translations['eng']
+            ?? reset($translations)
+            ?? ''
+        );
+    }
+
     public function render()
     {
         $dateTimeData = $this->prepareDateTimeData();
 
-        $query = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)
-            ->with(['orders' => function ($q) use ($dateTimeData) {
-                return $q->join('orders', 'orders.id', '=', 'order_items.order_id')
-                    ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-                    ->where('orders.status', 'paid')
-                    ->where(function ($q) use ($dateTimeData) {
-                        if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                            $q->whereRaw("TIME(orders.date_time) BETWEEN ? AND ?", [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                        } else {
-                            $q->where(function ($sub) use ($dateTimeData) {
-                                $sub->whereRaw("TIME(orders.date_time) >= ?", [$dateTimeData['startTime']])
-                                    ->orWhereRaw("TIME(orders.date_time) <= ?", [$dateTimeData['endTime']]);
-                            });
-                        }
+        $query = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
+            ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
+            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id')
+            ->join('branches', 'branches.id', '=', 'orders.branch_id')
+            ->where('branches.restaurant_id', restaurant()->id)
+            ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
+            ->where('orders.status', 'paid')
+            ->where(function ($q) use ($dateTimeData) {
+                if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
+                    $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dateTimeData['startTime'], $dateTimeData['endTime']]);
+                } else {
+                    $q->where(function ($sub) use ($dateTimeData) {
+                        $sub->whereRaw('TIME(orders.date_time) >= ?', [$dateTimeData['startTime']])
+                            ->orWhereRaw('TIME(orders.date_time) <= ?', [$dateTimeData['endTime']]);
                     });
-            }, 'category', 'variations']);
-
+                }
+            });
 
         if ($this->searchTerm) {
             $query->where(function ($q) {
-                $q->where('item_name', 'like', '%' . $this->searchTerm . '%')
-                    ->orWhereHas('category', function ($q) {
-                        $q->where('category_name', 'like', '%' . $this->searchTerm . '%');
-                    });
+                $q->where('menu_items.item_name', 'like', '%' . $this->searchTerm . '%')
+                    ->orWhere('item_categories.category_name', 'like', '%' . $this->searchTerm . '%')
+                    ->orWhere('menu_item_variations.variation', 'like', '%' . $this->searchTerm . '%');
             });
         }
 
-        $menuItems = $query->get();
+        $reportRows = $query
+            ->select(
+                'order_items.menu_item_id',
+                'order_items.menu_item_variation_id',
+                'menu_items.item_name',
+                'item_categories.category_name',
+                'menu_item_variations.variation',
+                'order_items.price as sold_unit_price',
+                DB::raw('SUM(order_items.quantity) as quantity_sold'),
+                DB::raw('SUM(order_items.amount) as total_revenue')
+            )
+            ->groupBy(
+                'order_items.menu_item_id',
+                'order_items.menu_item_variation_id',
+                'menu_items.item_name',
+                'item_categories.category_name',
+                'menu_item_variations.variation',
+                'order_items.price'
+            )
+            ->orderBy('menu_items.item_name')
+            ->orderBy('menu_item_variations.variation')
+            ->orderBy('order_items.price')
+            ->get();
+
+        $reportRows = $reportRows->map(function ($row) {
+            $row->category_name = $this->getTranslatedText($row->category_name);
+            return $row;
+        });
+
+        $totalRevenue = $reportRows->sum('total_revenue');
+        $totalQuantitySold = $reportRows->sum('quantity_sold');
 
         return view('livewire.reports.item-report', [
-            'menuItems' => $menuItems
+            'reportRows' => $reportRows,
+            'totalRevenue' => $totalRevenue,
+            'totalQuantitySold' => $totalQuantitySold,
         ]);
     }
 
