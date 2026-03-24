@@ -33,7 +33,7 @@ class CreateMenuItem extends Component
     #[Validate('required')]
     public string $itemName = '';
 
-    #[Validate('nullable|string|max:50|unique:menu_items,item_code')]
+    #[Validate('nullable|string|max:50')]
     public string $itemCode = '';
 
     #[Validate('required')]
@@ -488,12 +488,16 @@ class CreateMenuItem extends Component
             $this->itemPrice = reset($this->variationPrice) ?: '0';
         }
 
+        $branch = branch();
+        $itemCodeRule = Rule::unique('menu_items', 'item_code')
+            ->when($branch, fn($rule) => $rule->where('branch_id', $branch->id));
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
-            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code',
+            'itemCode' => ['nullable', 'string', 'max:50', $itemCodeRule],
             'isAvailable' => 'required|boolean',
             'orderTypePrices.*' => 'nullable|numeric|min:0',
             'platformAvailability.*' => 'nullable|boolean',
@@ -560,12 +564,18 @@ class CreateMenuItem extends Component
     }
 
     /**
-     * Generate unique item code
+     * Generate unique item code scoped to the current branch.
+     *
+     * Bypasses only AvailableMenuItemScope so unavailable items are still
+     * counted, while BranchScope remains active to keep codes branch-scoped.
+     * The do-while loop guarantees uniqueness against the same filtered set
+     * that the unique validation rule uses (branch-scoped, all availability).
      */
     private function generateItemCode(): string
     {
         $prefix = 'IT';
-        $lastItem = MenuItem::where('item_code', 'like', $prefix . '%')
+        $lastItem = MenuItem::withoutGlobalScope(\App\Scopes\AvailableMenuItemScope::class)
+            ->where('item_code', 'like', $prefix . '%')
             ->orderBy('item_code', 'desc')
             ->first();
 
@@ -578,7 +588,9 @@ class CreateMenuItem extends Component
         // Guarantee uniqueness even if existing item_code values are irregular.
         do {
             $candidate = $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
-            $exists = MenuItem::where('item_code', $candidate)->exists();
+            $exists = MenuItem::withoutGlobalScope(\App\Scopes\AvailableMenuItemScope::class)
+                ->where('item_code', $candidate)
+                ->exists();
             $number++;
         } while ($exists);
 
