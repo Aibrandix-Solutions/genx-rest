@@ -216,12 +216,12 @@
                             class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                             @lang('modules.order.amount')
                         </th>
-                        @if (user_can('Delete Order') && $orderDetail->status !== 'paid')
-                        <th scope="col"
-                            class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
-                            @lang('app.action')
-                        </th>
-                        @endif
+        @if ((user_can('Delete Order') && !in_array($orderDetail->status, ['billed', 'paid', 'payment_due'])) || (user_can('Edit Billed Order') && in_array($orderDetail->status, ['billed', 'paid', 'payment_due'])))
+        <th scope="col"
+            class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
+            @lang('app.action')
+        </th>
+        @endif
                     </tr>
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700" wire:key='menu-item-list-{{ microtime() }}'>
@@ -264,7 +264,7 @@
                             @php $modifierSum = $item->modifierOptions->sum(fn($m) => $m->price * max(1, (int) ($m->pivot->quantity ?? 1))); @endphp
                             {{ currency_format($item->amount + $modifierSum, restaurant()->currency_id) }}
                         </td>
-                        @if (user_can('Delete Order') && $orderDetail->status !== 'paid')
+                        @if ((user_can('Delete Order') && !in_array($orderDetail->status, ['billed', 'paid', 'payment_due'])) || (user_can('Edit Billed Order') && in_array($orderDetail->status, ['billed', 'paid', 'payment_due'])))
                         <td class="p-2 text-right whitespace-nowrap">
                             <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteOrderItems('{{ $item->id }}')">
                                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"/></svg>
@@ -430,8 +430,35 @@
                 </div>
             </div>
 
+            {{-- Discount line on billed/paid/payment_due orders --}}
+            @if (in_array($orderDetail->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
+                <div class="px-1 pb-2">
+                    @if (!is_null($orderDetail->discount_amount))
+                        <div class="flex items-center justify-between text-sm text-green-600 dark:text-green-400 py-1">
+                            <span class="inline-flex items-center gap-1">
+                                @lang('modules.order.discount')
+                                @if ($orderDetail->discount_type == 'percent')
+                                    ({{ rtrim(rtrim($orderDetail->discount_value, '0'), '.') }}%)
+                                @endif
+                                <span class="text-red-500 cursor-pointer hover:scale-110 active:scale-100"
+                                    wire:click="removeCurrentDiscount" title="@lang('app.remove')">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                                </span>
+                            </span>
+                            <span>-{{ currency_format($orderDetail->discount_amount, restaurant()->currency_id) }}</span>
+                        </div>
+                    @endif
+                    <x-secondary-button wire:click="showAddDiscount" class="w-full justify-center mt-1">
+                        <svg class="w-4 h-4 me-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14L15 8M9 9h.01M15 14h.01M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z" />
+                        </svg>
+                        @lang('modules.order.addDiscount')
+                    </x-secondary-button>
+                </div>
+            @endif
+
             <div class="w-full h-auto pt-3 pb-4 text-center select-none">
-                <div class="flex gap-2">
+                <div class="flex gap-2 flex-wrap">
 
                     @if ($orderDetail->status == 'billed' && user_can('Update Order'))
                     <button class="w-full p-2 text-white bg-green-600 rounded" wire:click='showPayment({{ $orderDetail->id }})'>
@@ -439,8 +466,15 @@
                     </button>
                     @endif
 
+                    @if ($orderDetail->status == 'billed' && user_can('Edit Billed Order'))
+                    <a href="{{ route('pos.kot', ['id' => $orderDetail->id]) }}"
+                        class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base">
+                        @lang('modules.order.newKot')
+                    </a>
+                    @endif
+
                     @if($orderDetail->status == 'paid')
-                    <button class="inline-flex items-center justify-center w-full p-2 mt-2 text-gray-800 border border-gray-300 rounded dark:border-gray-600 dark:text-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 gap-x-1"
+                    <button class="inline-flex items-center justify-center w-full p-2 text-gray-800 border border-gray-300 rounded dark:border-gray-600 dark:text-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 gap-x-1"
                         wire:click="printOrder({{ $orderDetail->id }})" type="button">
                         <svg class="w-6 h-6 text-current" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24">
                         <path stroke="currentColor" stroke-linejoin="round" stroke-width="2" d="M16.444 18H19a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.556M17 11V5a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v6h10ZM7 15h10v4a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-4Z"/>

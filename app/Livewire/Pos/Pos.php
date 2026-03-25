@@ -1062,6 +1062,18 @@ class Pos extends Component
 
     public function deleteOrderItems($id)
     {
+        $orderStatus = $this->orderDetail?->status ?? null;
+        $isBilledOrPaid = in_array($orderStatus, ['billed', 'paid', 'payment_due']);
+
+        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+        if (!$isBilledOrPaid && !user_can('Delete Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         $orderItem = OrderItem::find($id);
 
         if ($orderItem) {
@@ -1417,6 +1429,19 @@ class Pos extends Component
 
     public function addDiscounts()
     {
+        $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
+        $isBilledOrPaid = $order && in_array($order->status, ['billed', 'paid', 'payment_due']);
+
+        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if (!$isBilledOrPaid && !user_can('Update Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         $this->validate([
             'discountValue' => 'required|numeric|min:0',
             'discountType' => 'required|in:fixed,percent',
@@ -1435,12 +1460,32 @@ class Pos extends Component
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
 
         if ($order) {
+            $subTotal = (float) $order->sub_total;
+
+            if ($this->discountType === 'percent') {
+                $discountAmount = round(($subTotal * $this->discountValue) / 100, 2);
+            } else {
+                $discountAmount = min((float) $this->discountValue, $subTotal);
+            }
+
+            $oldDiscount = (float) ($order->discount_amount ?? 0);
+            $newTotal    = max(0, ($order->total + $oldDiscount) - $discountAmount);
+
             $order->update([
-                'discount_type' => $this->discountType,
-                'discount_value' => $this->discountValue,
-                'discount_amount' => $this->discountAmount,
-                'total' => $this->total,
+                'discount_type'   => $this->discountType,
+                'discount_value'  => $this->discountValue,
+                'discount_amount' => $discountAmount,
+                'total'           => $newTotal,
             ]);
+
+            $this->discountAmount = $discountAmount;
+
+            // Reconcile payment records if already paid/partially paid
+            if (in_array($order->status, ['paid', 'payment_due'])) {
+                $order->refresh();
+                $order->load('payments');
+                $this->reconcilePaymentsAfterDiscount($order, $newTotal);
+            }
         }
 
         $this->calculateTotal();
@@ -1451,19 +1496,88 @@ class Pos extends Component
     public function removeCurrentDiscount()
     {
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
+        $isBilledOrPaid = $order && in_array($order->status, ['billed', 'paid', 'payment_due']);
+
+        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if (!$isBilledOrPaid && !user_can('Update Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
 
         if ($order) {
+            $removedDiscount = (float) $order->discount_amount;
+            $newTotal        = $order->total + $removedDiscount;
+
             $order->update([
                 'discount_type' => null,
                 'discount_value' => null,
                 'discount_amount' => null,
+                'total' => $newTotal,
             ]);
+
+            // If already paid/partially paid, the new higher total may create a shortfall
+            if (in_array($order->status, ['paid', 'payment_due'])) {
+                $order->refresh();
+                $amountPaid = $order->payments()
+                    ->where('payment_method', '!=', 'due')
+                    ->sum('amount');
+
+                if ($amountPaid < $newTotal) {
+                    $shortfall = round($newTotal - $amountPaid, 2);
+                    $order->payments()->create([
+                        'payment_method' => 'due',
+                        'amount'         => $shortfall,
+                        'order_id'       => $order->id,
+                    ]);
+                    $order->update(['status' => 'payment_due']);
+                }
+            }
         }
 
         $this->discountType = null;
         $this->discountValue = null;
         $this->discountAmount = null;
         $this->calculateTotal();
+    }
+
+    /**
+     * After a discount reduces the order total, trim any overpaid amounts and
+     * re-evaluate the order status (paid vs payment_due).
+     */
+    private function reconcilePaymentsAfterDiscount($order, float $newTotal): void
+    {
+        $payments = $order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->orderBy('id')
+            ->get();
+
+        $excess = round($payments->sum('amount') - $newTotal, 2);
+
+        if ($excess > 0) {
+            foreach ($payments->sortByDesc('id') as $payment) {
+                if ($excess <= 0) {
+                    break;
+                }
+                $canReduce = min((float) $payment->amount, $excess);
+                $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
+                $excess = round($excess - $canReduce, 2);
+            }
+        }
+
+        $amountPaid = $order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->sum('amount');
+
+        $newStatus = ($amountPaid >= $newTotal) ? 'paid' : 'payment_due';
+
+        $order->update([
+            'amount_paid' => $amountPaid,
+            'status'      => $newStatus,
+        ]);
     }
 
     public function removeExtraCharge($chargeId, $orderType)
@@ -1488,6 +1602,24 @@ class Pos extends Component
 
     public function saveOrder($action, $secondAction = null, $thirdAction = null)
     {
+        // Permission check before any other processing
+        if ($action === 'cancel') {
+            if (!user_can('Delete Order')) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+        } elseif ($this->orderID) {
+            if (!user_can('Update Order')) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+        } else {
+            if (!user_can('Create Order')) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+        }
+
         // Check if table is locked by another user before saving order
         if ($this->tableId && $this->orderType === 'dine_in') {
             $table = Table::find($this->tableId);
@@ -1666,9 +1798,6 @@ class Pos extends Component
                 'status' => $status,
                 'order_status' => $this->orderStatus ?? 'confirmed'
             ]);
-
-            $order->items()->delete();
-            $order->taxes()->delete();
         }
 
         if ($status == 'canceled') {
@@ -1802,10 +1931,21 @@ class Pos extends Component
                             // Use the saved price from order item (preserves combo discounts)
                             $itemAmount = $orderItem->amount;
                         } else {
-                            // Fallback to calculating from menu item
-                            $menuItemPrice = $item->menuItem->price ?? 0;
-                            
-                            // Add modifier prices if any
+                            // Fallback: calculate using proper order-type price context
+                            $menuItem  = $item->menuItem;
+                            $variation = $item->menuItemVariation;
+
+                            if ($menuItem && $this->orderTypeId) {
+                                $menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                            }
+                            if ($variation && $this->orderTypeId) {
+                                $variation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                            }
+
+                            $menuItemPrice = $variation
+                                ? ($variation->price ?? 0)
+                                : ($menuItem->price ?? 0);
+
                             $modifierPrice = 0;
                             if ($item->modifierOptions->isNotEmpty()) {
                                 $modifierPrice = $item->modifierOptions->sum(function ($modifier) {
@@ -1813,7 +1953,7 @@ class Pos extends Component
                                     return $modifier->price * max(1, $qty);
                                 });
                             }
-                            
+
                             $itemAmount = ($menuItemPrice + $modifierPrice) * $item->quantity;
                         }
 
@@ -1925,6 +2065,9 @@ class Pos extends Component
         }
 
         if ($status == 'billed') {
+
+            $order->items()->delete();
+            $order->taxes()->delete();
 
             foreach ($this->orderItemList as $key => $value) {
                 // Set price context before using price
@@ -2702,6 +2845,11 @@ class Pos extends Component
 
     public function cancelOrder()
     {
+        if (!user_can('Delete Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         if (!$this->cancelReason && !$this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
                 'toast' => true,

@@ -345,6 +345,7 @@
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
                             <td class="p-2 whitespace-nowrap text-right">
+                                @if(user_can('Delete Order'))
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
                                     wire:click="deleteCartItems('{{ $key }}')" wire:loading.attr="disabled"
@@ -368,6 +369,7 @@
                                         </svg>
                                     </div>
                                 </button>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -396,7 +398,7 @@
 
     <div class="lg:min-w-20">
         <div class="h-auto p-4 mt-3 select-none text-center bg-gray-50 rounded space-y-4 dark:bg-gray-700">
-            @if (count($orderItemList) > 0)
+            @if (count($orderItemList) > 0 && user_can('Update Order'))
                 <div class="text-left">
                     <x-secondary-button wire:click="showAddDiscount">
                         <svg class="h-5 w-5 text-current me-1" width="24" height="24" viewBox="0 0 16 16"
