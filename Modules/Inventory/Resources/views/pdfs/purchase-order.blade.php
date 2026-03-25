@@ -157,16 +157,35 @@
     </style>
 </head>
 <body>
+    @php
+        $restaurantLogoPath = null;
+        if (!empty(restaurant()->logo)) {
+            $candidate = public_path('user-uploads/logo/' . restaurant()->logo);
+            if (file_exists($candidate)) {
+                $restaurantLogoPath = $candidate;
+            }
+        }
+
+        $purchaseLocation = $purchaseOrder->location;
+        $locationName = $purchaseLocation?->display_name ?? '-';
+        $locationAddress = $purchaseLocation?->address ?? ($purchaseLocation?->branch?->address ?? branch()->address);
+        $locationPhone = $purchaseLocation?->branch?->phone ?? branch()->phone;
+    @endphp
+
     <div class="header clearfix">
         <div class="logo">
-            <img src="{{ restaurant()->logo_url }}"  style="max-height: 80px; width: auto;">
+            @if($restaurantLogoPath)
+                <img src="{{ $restaurantLogoPath }}" style="max-height: 80px; width: auto;">
+            @else
+                <img src="{{ restaurant()->logo_url }}" style="max-height: 80px; width: auto;">
+            @endif
         </div>
         <div class="company-info">
             <div class="company-name">{{ restaurant()->name }}</div>
             <div class="company-details">
-                {{ $purchaseOrder->branch ? $purchaseOrder->branch->name : branch()->name }}<br>
-                {{ $purchaseOrder->branch ? $purchaseOrder->branch->address : branch()->address }}<br>
-                {{ $purchaseOrder->branch ? $purchaseOrder->branch->phone : branch()->phone }}
+                {{ $locationName }}<br>
+                {{ $locationAddress }}<br>
+                {{ $locationPhone }}
             </div>
         </div>
         <div class="document-info">

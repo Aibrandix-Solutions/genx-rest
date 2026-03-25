@@ -80,8 +80,12 @@ class PurchaseOrderController extends Controller
         abort_if($purchaseOrder->branch_id !== auth()->user()->branch_id, 403);
 
         $pdf = PDF::loadView('inventory::purchase-orders.pdf', [
-            'purchaseOrder' => $purchaseOrder->load(['supplier', 'items.inventoryItem.unit', 'createdBy', 'branch.restaurant'])
+            'purchaseOrder' => $purchaseOrder->load(['supplier', 'location.branch', 'items.inventoryItem.unit', 'createdBy', 'branch.restaurant'])
         ]);
+
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
 
         return $pdf->download("PURCHASE-{$purchaseOrder->po_number}.pdf");
     }

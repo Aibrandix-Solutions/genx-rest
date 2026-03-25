@@ -32,7 +32,7 @@ return [
         'Show Order' => 'Show Order',
         'Update Order' => 'Update Order',
         'Delete Order' => 'Delete Order',
-        'Edit Billed Order' => 'Edit Billed Order',
+    'Edit Billed Order' => 'Edit Billed Order',
         'Create Customer' => 'Create Customer',
         'Show Customer' => 'Show Customer',
         'Update Customer' => 'Update Customer',

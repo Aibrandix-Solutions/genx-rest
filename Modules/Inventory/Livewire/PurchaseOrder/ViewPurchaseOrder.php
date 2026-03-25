@@ -55,6 +55,10 @@ class ViewPurchaseOrder extends Component
             'purchaseOrder' => $this->purchaseOrder
         ]);
 
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
+
         return response()->streamDownload(function() use ($pdf) {
             echo $pdf->output();
         }, "PO-{$this->purchaseOrder->po_number}.pdf");

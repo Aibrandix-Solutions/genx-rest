@@ -181,6 +181,9 @@
                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ __('inventory::modules.movements.table.quantity_unit') }}</span>
                         </th>
                         <th class="px-6 py-3 text-left">
+                            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</span>
+                        </th>
+                        <th class="px-6 py-3 text-left">
                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 {{ __('inventory::modules.movements.table.supplier') }}
                             </span>
@@ -225,6 +228,11 @@
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
                                     {{ $movement->quantity }} {{ $movement->item && $movement->item->unit ? $movement->item->unit->symbol : '' }}
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900 dark:text-gray-100">
+                                    {{ $movement->location?->display_name ?? '-' }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
