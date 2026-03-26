@@ -204,7 +204,9 @@ class Pos extends Component
                 $this->showTableOrder();
 
                 if ($this->orderDetail) {
-                    $this->showOrderDetail();
+                    // Pass runSetup=false: setupOrderItems() will be called after
+                    // updatedOrderTypeId() so item amounts are set last and win.
+                    $this->showOrderDetail(runSetup: false);
                 }
             } elseif ($this->orderDetail) {
                 return $this->redirect(route('pos.index'), navigate: true);
@@ -239,15 +241,22 @@ class Pos extends Component
             $this->selectedDeliveryApp = $order->delivery_app_id;
 
             if ($this->orderDetail) {
-
                 $this->orderDetail = $order;
-
                 $this->selectDeliveryExecutive = $order->delivery_executive_id;
-                $this->setupOrderItems();
             }
         }
 
+        // Call updatedOrderTypeId BEFORE setupOrderItems so that the charge + order-type
+        // recalculation runs on an empty cart (no item amounts overwritten).
+        // setupOrderItems() then populates the cart with persisted amounts and runs as
+        // the authoritative last step.
         $this->updatedOrderTypeId($this->orderTypeId);
+
+        // Now run setupOrderItems() as the LAST authoritative step so persisted amounts
+        // are not overwritten by updatedOrderTypeId()'s recalculation.
+        if (($this->orderID || $this->tableOrderID) && $this->orderDetail instanceof \App\Models\Order) {
+            $this->setupOrderItems();
+        }
 
         if ($this->orderID) {
             $this->extraCharges = ($order->status === 'kot' && !$this->orderDetail) ? [] : $order->extraCharges;
@@ -465,7 +474,12 @@ class Pos extends Component
 
     public function updatedOrderTypeId($value)
     {
-        $this->orderItemPersistedTaxOverride = [];
+        // Only clear tax overrides when the cart already has items — i.e., the user
+        // explicitly changed the order type mid-session, not during mount initialisation
+        // (at mount time the cart is still empty so the override array is empty anyway).
+        if (!empty($this->orderItemList)) {
+            $this->orderItemPersistedTaxOverride = [];
+        }
         // Get the order type information efficiently
         $orderType = OrderType::select('slug', 'type')->find($value);
 
@@ -664,7 +678,7 @@ class Pos extends Component
         $this->noOfPax = $this->tableOrder->activeOrder->number_of_pax;
     }
 
-    public function showOrderDetail()
+    public function showOrderDetail(bool $runSetup = true)
     {
         $this->orderDetail = $this->tableOrder->activeOrder;
         $this->orderType = $this->orderDetail->order_type;
@@ -677,7 +691,10 @@ class Pos extends Component
         } else {
             $this->orderTypeSlug = $this->orderDetail->order_type;
         }
-        $this->setupOrderItems();
+
+        if ($runSetup) {
+            $this->setupOrderItems();
+        }
     }
 
     public function showPayment($id)
@@ -690,6 +707,21 @@ class Pos extends Component
     public function setupOrderItems()
     {
         if ($this->orderDetail) {
+            // Rehydrate must start from a clean cart state; otherwise newly-added
+            // in-memory lines can survive and be counted again alongside kot_* lines.
+            $this->kotList = [];
+            $this->orderItemList = [];
+            $this->orderItemVariation = [];
+            $this->orderItemQty = [];
+            $this->orderItemAmount = [];
+            $this->orderItemComboPack = [];
+            $this->orderItemOriginalPrice = [];
+            $this->orderItemComboDiscount = [];
+            $this->orderItemComboName = [];
+            $this->orderItemModifiersPrice = [];
+            $this->itemModifiersSelected = [];
+            $this->itemNotes = [];
+            $this->orderItemTaxDetails = [];
             $this->orderItemPersistedTaxOverride = [];
             // Track a unique instance number per combo pack across all KOTs.
             // Each KOT that contains a given combo gets its own instance number,
@@ -701,6 +733,10 @@ class Pos extends Component
             // recalculating from current menu prices.
             $persistedIndividualQueues = $this->buildPersistedIndividualOrderItemQueues($this->orderDetail->id);
 
+            // FIFO queues for combo order lines: keyed by combo_pack_id|menu_item_id|variation_id|qty.
+            // Preserves correct per-instance pricing when the same combo appears in multiple KOTs.
+            $persistedComboQueues = $this->buildPersistedComboOrderItemQueues($this->orderDetail->id);
+
             foreach ($this->orderDetail->kot as $kot) {
                 $this->kotList['kot_' . $kot->id] = $kot;
 
@@ -709,7 +745,7 @@ class Pos extends Component
                 $comboInThisKot = [];  // comboPackId => instanceKey assigned for this KOT
 
                 foreach ($kot->items as $item) {
-                    $key = '"kot_' . $kot->id . '_' . $item->id . '"';
+                    $key = 'kot_' . $kot->id . '_' . $item->id;
                     
                     $this->orderItemList[$key] = $item->menuItem;
                     $this->orderItemQty[$key] = $item->quantity;
@@ -726,38 +762,24 @@ class Pos extends Component
                         // New: combo_pack_id stored directly on KotItem — unambiguous.
                         $isComboItem = true;
                         $comboPackId = $item->combo_pack_id;
-                        $orderItem = OrderItem::where('order_id', $this->orderDetail->id)
-                            ->where('menu_item_id', $item->menu_item_id)
-                            ->when(
-                                $item->menu_item_variation_id !== null,
-                                fn($q) => $q->where('menu_item_variation_id', $item->menu_item_variation_id),
-                                fn($q) => $q->whereNull('menu_item_variation_id')
-                            )
-                            ->where('is_combo_item', true)
-                            ->where('combo_pack_id', $comboPackId)
-                            ->first();
+                        // Use FIFO queue so each combo instance gets the correct saved order_item.
+                        $orderItem = $this->shiftMatchingPersistedComboOrderItem(
+                            $persistedComboQueues, $comboPackId, $item
+                        );
                     } else {
-                        // Fallback for older KotItems without combo_pack_id column:
-                        // query order_items table, then legacy [COMBO:id] note.
-                        $orderItem = OrderItem::where('order_id', $this->orderDetail->id)
-                            ->where('menu_item_id', $item->menu_item_id)
-                            ->when(
-                                $item->menu_item_variation_id !== null,
-                                fn($q) => $q->where('menu_item_variation_id', $item->menu_item_variation_id),
-                                fn($q) => $q->whereNull('menu_item_variation_id')
-                            )
-                            ->where('is_combo_item', true)
-                            ->first();
-
-                        if ($orderItem) {
-                            $isComboItem = true;
-                            $comboPackId = $orderItem->combo_pack_id;
-                        } elseif ($item->note && str_contains($item->note, '[COMBO:')) {
-                            // Legacy fallback: note-based detection for orders saved before Phase 1.1
+                        // For lines without combo_pack_id on KotItem, avoid inferring combo state
+                        // by menu/variation lookup (ambiguous when same SKU also sold standalone).
+                        // Only legacy explicit note markers can classify these as combo lines.
+                        if ($item->note && str_contains($item->note, '[COMBO:')) {
                             preg_match('/\[COMBO:(\d+)\]/', $item->note, $matches);
                             if (!empty($matches[1])) {
                                 $comboPackId = (int)$matches[1];
                                 $isComboItem = true;
+                                $orderItem = $this->shiftMatchingPersistedComboOrderItem(
+                                    $persistedComboQueues,
+                                    $comboPackId,
+                                    $item
+                                );
                             }
                         }
                     }
@@ -939,6 +961,57 @@ class Pos extends Component
     protected function shiftMatchingPersistedIndividualOrderItem(array &$queues, KotItem $kotItem): ?OrderItem
     {
         $key = $this->persistedIndividualLineKey(
+            (int) $kotItem->menu_item_id,
+            $kotItem->menu_item_variation_id !== null ? (int) $kotItem->menu_item_variation_id : null,
+            (int) $kotItem->quantity
+        );
+
+        if (!isset($queues[$key]) || $queues[$key] === []) {
+            return null;
+        }
+
+        return array_shift($queues[$key]);
+    }
+
+    /**
+     * Build a FIFO queue of persisted combo OrderItems keyed by
+     * "comboPackId|menuItemId|variationId|quantity" so multiple instances of
+     * the same combo each get the correct saved order_item row instead of
+     * all sharing the same ->first() result.
+     *
+     * @return array<string, list<OrderItem>>
+     */
+    protected function buildPersistedComboOrderItemQueues(int $orderId): array
+    {
+        $items = OrderItem::query()
+            ->where('order_id', $orderId)
+            ->where('is_combo_item', true)
+            ->whereNotNull('combo_pack_id')
+            ->orderBy('id')
+            ->get();
+
+        $queues = [];
+        foreach ($items as $oi) {
+            $queues[$this->persistedComboLineKey(
+                (int) $oi->combo_pack_id,
+                (int) $oi->menu_item_id,
+                $oi->menu_item_variation_id !== null ? (int) $oi->menu_item_variation_id : null,
+                (int) $oi->quantity
+            )][] = $oi;
+        }
+
+        return $queues;
+    }
+
+    protected function persistedComboLineKey(int $comboPackId, int $menuItemId, ?int $variationId, int $quantity): string
+    {
+        return $comboPackId . '|' . $menuItemId . '|' . ($variationId ?? 'null') . '|' . $quantity;
+    }
+
+    protected function shiftMatchingPersistedComboOrderItem(array &$queues, int $comboPackId, KotItem $kotItem): ?OrderItem
+    {
+        $key = $this->persistedComboLineKey(
+            $comboPackId,
             (int) $kotItem->menu_item_id,
             $kotItem->menu_item_variation_id !== null ? (int) $kotItem->menu_item_variation_id : null,
             (int) $kotItem->quantity
@@ -1215,6 +1288,11 @@ class Pos extends Component
 
     public function deleteCartItems($id)
     {
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo items cannot be removed individually. Remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         if ($this->requiresRemovalReason($id)) {
             if (!user_can('Delete KOT Item')) {
                 $this->alert('error', __('messages.kotDeletePermissionDenied'), [
@@ -1235,6 +1313,11 @@ class Pos extends Component
 
     public function removeComboGroup(string $instanceKey): void
     {
+        if (!$this->canModifyCurrentOrderItems()) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         $keysToDelete = array_keys(array_filter(
             $this->orderItemComboPack ?? [],
             fn($v) => $v === $instanceKey
@@ -1357,6 +1440,11 @@ class Pos extends Component
             return;
         }
 
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo item quantity cannot be edited individually. Edit/remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         // Update table activity when changing quantities
         if ($this->tableId) {
             $table = Table::find($this->tableId);
@@ -1383,6 +1471,11 @@ class Pos extends Component
     public function subQty($id)
     {
         if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo items cannot be removed individually. Remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
             return;
         }
 
@@ -2034,6 +2127,9 @@ class Pos extends Component
         $kot = null;
         $kotIds = [];
         if ($status == 'kot') {
+            $hasLoadedKotLines = collect(array_keys($this->orderItemList))
+                ->contains(fn($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'));
+
             if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
                 // Group items by kitchen — each item goes to ONE kitchen only
                 // For multi-kitchen items, use the primary (first) kitchen
@@ -2042,7 +2138,7 @@ class Pos extends Component
                 foreach ($this->orderItemList as $key => $item) {
                     // Skip items already in an existing KOT (loaded via setupOrderItems with "kot_" keys).
                     // Only NEW items (added in the current session) should go into this new KOT.
-                    if (str_starts_with($key, '"kot_')) {
+                    if (str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) {
                         continue;
                     }
 
@@ -2117,7 +2213,7 @@ class Pos extends Component
 
                 foreach ($this->orderItemList as $key => $value) {
                     // Skip items already in an existing KOT — only new items go here.
-                    if (str_starts_with($key, '"kot_')) {
+                    if (str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) {
                         continue;
                     }
 
@@ -2143,8 +2239,18 @@ class Pos extends Component
             // The billing paths will delete and recreate them with full billing data.
             // Skip when immediately chaining to bill – the billing block handles OrderItem creation.
             if ($secondAction !== 'bill') {
-                $order->items()->delete();
+                // New KOT can be opened in "add-only" mode where existing KOT lines are not
+                // loaded in-memory. In that case, keep previous order_items and append only
+                // the newly added lines instead of deleting historical rows.
+                if (!$this->orderID || $hasLoadedKotLines) {
+                    $order->items()->delete();
+                }
+
                 foreach ($this->orderItemList as $key => $value) {
+                    if ($this->orderID && !$hasLoadedKotLines && (str_starts_with((string) $key, 'kot_') || str_starts_with((string) $key, '"kot_'))) {
+                        continue;
+                    }
+
                     $comboInstanceKey = $this->orderItemComboPack[$key] ?? null;
                     $comboPackIdKot = $comboInstanceKey ? (int)explode('_', (string)$comboInstanceKey)[0] : null;
                     $isComboItemKot = !empty($comboInstanceKey);
@@ -2183,6 +2289,20 @@ class Pos extends Component
             // Use in-memory arrays (calculated via calculateTotal) — they are always correct
             // regardless of what is in the DB at this point.
             if ($this->orderID) {
+                // In add-only New KOT sessions, in-memory arrays contain only newly added lines.
+                // Rehydrate from DB KOTs before total update so Orders overview gets full total.
+                if (!$hasLoadedKotLines) {
+                    $this->orderDetail = Order::with([
+                        'kot.items.menuItem',
+                        'kot.items.menuItemVariation',
+                        'kot.items.modifierOptions',
+                    ])->find($order->id);
+
+                    if ($this->orderDetail) {
+                        $this->setupOrderItems();
+                    }
+                }
+
                 $this->calculateTotal();
 
                 Order::where('id', $order->id)->update([
@@ -3254,8 +3374,8 @@ class Pos extends Component
      */
     public function getItemDisplayPrice($key)
     {
-        // For KOT items (keys like "kot_123_456"), check if we have combo pricing stored
-        if (str_starts_with($key, '"kot_') && isset($this->orderItemComboPack[$key])) {
+        // For KOT items (keys like kot_123_456), check if we have combo pricing stored
+        if ((str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) && isset($this->orderItemComboPack[$key])) {
             // This is a combo item from KOT, calculate per-unit price
             if (isset($this->orderItemOriginalPrice[$key]) && isset($this->orderItemQty[$key]) && $this->orderItemQty[$key] > 0) {
                 // Calculate unit price: (original - discount) / quantity
@@ -3428,6 +3548,21 @@ class Pos extends Component
         if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
             return;
         }
+
+        if ($this->isComboCartLine($id)) {
+            // Do not allow manual per-line quantity edits for combo members.
+            // Keep current qty as-is and guide user to remove/edit whole combo.
+            $context = $this->parseKotContext($id);
+            if ($context) {
+                $kotItem = KotItem::find($context['kot_item_id']);
+                if ($kotItem) {
+                    $this->orderItemQty[$id] = (int) $kotItem->quantity;
+                }
+            }
+
+            $this->alert('error', 'Combo item quantity cannot be edited individually. Edit/remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
         // Ensure quantity is at least 1
         $this->orderItemQty[$id] = max(1, intval($this->orderItemQty[$id]));
 
@@ -3447,6 +3582,31 @@ class Pos extends Component
 
         // Recalculate the total
         $this->calculateTotal();
+    }
+
+    protected function isComboCartLine($id): bool
+    {
+        return !empty($this->orderItemComboPack[$id] ?? null);
+    }
+
+    protected function canModifyCurrentOrderItems(): bool
+    {
+        if (!$this->orderID) {
+            return true;
+        }
+
+        $orderStatus = $this->orderDetail?->status;
+        if (!$orderStatus) {
+            $orderStatus = Order::where('id', $this->orderID)->value('status');
+        }
+
+        $isBilledOrPaid = in_array($orderStatus, ['billed', 'paid', 'payment_due'], true);
+
+        if ($isBilledOrPaid) {
+            return user_can('Edit Billed Order');
+        }
+
+        return user_can('Delete Order');
     }
 
     /**

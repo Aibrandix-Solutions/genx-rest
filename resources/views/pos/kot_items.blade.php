@@ -228,7 +228,13 @@
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
                     wire:key='menu-item-list-pos'>
-                    @php $renderedComboGroups = []; @endphp
+                    @php
+                        $renderedComboGroups = [];
+                        $orderStatusValue = $orderDetail->status ?? null;
+                        $canManageItems = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+                            ? user_can('Edit Billed Order')
+                            : user_can('Delete Order');
+                    @endphp
 
                     @forelse ($orderItemList as $key => $item)
                         @php
@@ -262,16 +268,18 @@
                                                     Save {{ currency_format($groupSavings, restaurant()->currency_id) }}
                                                 </span>
                                             @endif
-                                            <button
-                                                wire:click="removeComboGroup('{{ $comboId }}')"
-                                                wire:loading.attr="disabled"
-                                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
-                                                title="Remove whole combo">
-                                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"/>
-                                                </svg>
-                                                Remove
-                                            </button>
+                                            @if ($canManageItems)
+                                                <button
+                                                    wire:click="removeComboGroup('{{ $comboId }}')"
+                                                    wire:loading.attr="disabled"
+                                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                    title="Remove whole combo">
+                                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"/>
+                                                    </svg>
+                                                    Remove
+                                                </button>
+                                            @endif
                                         </div>
                                     </div>
                                 </td>
@@ -329,6 +337,7 @@
                                     wire:key='orderItemQty-{{ $key }}-counter'>
                                     <button type="button" wire:click="subQty('{{ $key }}')"
                                         wire:loading.attr="disabled" wire:loading.class="opacity-50"
+                                        @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
@@ -352,10 +361,11 @@
 
                                     <input type="text" wire:model.lazy="orderItemQty.{{ $key }}" wire:change="updateQty('{{ $key }}')"
                                         class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
-                                        min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+                                        min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
                                     <button type="button" wire:click="addQty('{{ $key }}')"
                                         wire:loading.attr="disabled" wire:loading.class="opacity-50"
+                                        @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
@@ -393,7 +403,7 @@
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
                             <td class="p-2 whitespace-nowrap text-right">
-                                @if(user_can('Delete Order'))
+                                @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
                                     wire:click="deleteCartItems('{{ $key }}')" wire:loading.attr="disabled"

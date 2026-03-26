@@ -310,10 +310,16 @@
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
                         wire:key='menu-item-list-{{ microtime() }}'>
-                    @php $renderedOrderComboGroups = []; @endphp
+                    @php
+                        $renderedOrderComboGroups = [];
+                        $orderStatusValue = $orderDetail->status ?? null;
+                        $canManageItems = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+                            ? user_can('Edit Billed Order')
+                            : user_can('Delete Order');
+                    @endphp
 
                         @forelse ($orderItemList as $key => $item)
-                            @continue(!strpos($key, 'kot_' . $kot->id))
+                            @continue(!str_contains($key, 'kot_' . $kot->id . '_'))
 
                         @php
                             $itemName = $item->item_name;
@@ -344,11 +350,25 @@
                                             </svg>
                                             {{ $orderItemComboName[$orderComboId] ?? 'Combo Pack' }}
                                         </span>
-                                        @if (!empty($orderGroupSavings) && $orderGroupSavings > 0)
-                                            <span class="text-xs font-medium text-green-600 dark:text-green-400">
-                                                Save {{ currency_format($orderGroupSavings, restaurant()->currency_id) }}
-                                            </span>
-                                        @endif
+                                        <div class="flex items-center gap-2">
+                                            @if (!empty($orderGroupSavings) && $orderGroupSavings > 0)
+                                                <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                    Save {{ currency_format($orderGroupSavings, restaurant()->currency_id) }}
+                                                </span>
+                                            @endif
+                                            @if ($canManageItems)
+                                                <button
+                                                    wire:click="removeComboGroup('{{ $orderComboId }}')"
+                                                    wire:loading.attr="disabled"
+                                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                    title="Remove whole combo">
+                                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                    Remove
+                                                </button>
+                                            @endif
+                                        </div>
                                     </div>
                                 </td>
                             </tr>
@@ -397,7 +417,7 @@
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
 
                                 <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')" class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                    <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                         </svg>
@@ -405,7 +425,7 @@
 
                                     <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly  />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')"  class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                    <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                         </svg>
@@ -421,7 +441,7 @@
                             <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
-                            @if (user_can('Delete Order'))
+                            @if ($canManageItems && !$isComboItem)
                             <td class="p-2 text-right whitespace-nowrap">
                                 <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
