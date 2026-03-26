@@ -696,7 +696,7 @@
                                 </button>
                             @endif
 
-                            @if ($order->status == 'billed' && user_can('Edit Billed Order'))
+                            @if (in_array($order->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
                                 <a href="{{ route('pos.kot', ['id' => $order->id]) }}"
                                     class="min-h-[60px] col-span-2 rounded-xl bg-gray-700 hover:bg-gray-800 text-white p-4 inline-flex items-center justify-center gap-3 transition-colors shadow-sm text-lg font-medium">
                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none"

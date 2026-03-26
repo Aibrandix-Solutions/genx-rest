@@ -658,6 +658,7 @@ class EditDirectPurchase extends Component
 
         $this->validate();
 
+        try {
         DB::transaction(function () {
             $previousStatus = $this->purchase->status;
             $oldLocationId  = (int) $this->purchase->location_id;
@@ -736,9 +737,12 @@ class EditDirectPurchase extends Component
                     // Revert previous account impact before applying new values.
                     if ($oldAccountId) {
                         $oldAccount = PaymentAccount::find($oldAccountId);
-                        if ($oldAccount) {
-                            $oldAccount->increment('current_balance', $oldAmount);
+                        if (!$oldAccount) {
+                            throw new \RuntimeException(
+                                trans('inventory::modules.purchaseOrder.payment_account_missing_revert')
+                            );
                         }
+                        $oldAccount->increment('current_balance', $oldAmount);
                     }
 
                     // Replace old account transaction logs for this payment.
@@ -820,6 +824,10 @@ class EditDirectPurchase extends Component
                 }
             }
         });
+        } catch (\RuntimeException $e) {
+            $this->alert('error', $e->getMessage());
+            return;
+        }
 
         $this->alert('success', 'Purchase updated successfully!');
         return redirect()->route('purchases.index');

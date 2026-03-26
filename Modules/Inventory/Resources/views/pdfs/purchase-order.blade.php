@@ -158,11 +158,21 @@
 </head>
 <body>
     @php
-        $restaurantLogoPath = null;
+        // DomPDF cannot reliably load file:// paths in img src; use data URI for local files or logo_url (HTTP/S3).
+        $restaurantLogoSrc = restaurant()->logo_url;
         if (!empty(restaurant()->logo)) {
             $candidate = public_path('user-uploads/logo/' . restaurant()->logo);
-            if (file_exists($candidate)) {
-                $restaurantLogoPath = $candidate;
+            if (is_file($candidate)) {
+                $data = base64_encode(file_get_contents($candidate));
+                $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+                $mime = match ($ext) {
+                    'png' => 'png',
+                    'gif' => 'gif',
+                    'webp' => 'webp',
+                    'svg' => 'svg+xml',
+                    default => 'jpeg',
+                };
+                $restaurantLogoSrc = 'data:image/' . $mime . ';base64,' . $data;
             }
         }
 
@@ -174,11 +184,7 @@
 
     <div class="header clearfix">
         <div class="logo">
-            @if($restaurantLogoPath)
-                <img src="{{ $restaurantLogoPath }}" style="max-height: 80px; width: auto;">
-            @else
-                <img src="{{ restaurant()->logo_url }}" style="max-height: 80px; width: auto;">
-            @endif
+            <img src="{{ $restaurantLogoSrc }}" alt="{{ restaurant()->name }}" style="max-height: 80px; width: auto;">
         </div>
         <div class="company-info">
             <div class="company-name">{{ restaurant()->name }}</div>
