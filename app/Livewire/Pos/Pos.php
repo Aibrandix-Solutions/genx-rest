@@ -1609,7 +1609,17 @@ class Pos extends Component
                 return;
             }
         } elseif ($this->orderID) {
-            if (!user_can('Update Order')) {
+            $orderForPerm = Order::find($this->orderID);
+            $kotAfterBilled = $action === 'kot'
+                && $orderForPerm
+                && in_array($orderForPerm->status, ['billed', 'paid', 'payment_due'], true);
+
+            if ($kotAfterBilled) {
+                if (!user_can('Edit Billed Order')) {
+                    $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                    return;
+                }
+            } elseif (!user_can('Update Order')) {
                 $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
                 return;
             }

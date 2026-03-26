@@ -466,7 +466,7 @@
                     </button>
                     @endif
 
-                    @if ($orderDetail->status == 'billed' && user_can('Edit Billed Order'))
+                    @if (in_array($orderDetail->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
                     <a href="{{ route('pos.kot', ['id' => $orderDetail->id]) }}"
                         class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base">
                         @lang('modules.order.newKot')
