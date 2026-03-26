@@ -619,6 +619,15 @@
                 </div>
             @endif
 
+            @if (in_array($orderDetail->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
+                <div class="flex gap-2 {{ $orderDetail->status == 'billed' && user_can('Update Order') ? 'mt-2' : '' }}">
+                    <a href="{{ route('pos.kot', ['id' => $orderDetail->id]) }}"
+                        class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100">
+                        @lang('modules.order.newKot')
+                    </a>
+                </div>
+            @endif
+
             @php
                 $displayDeliveryAddress = $orderDetail->delivery_address
                     ?: ($orderDetail->customer_address ?? null)
