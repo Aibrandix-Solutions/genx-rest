@@ -357,6 +357,7 @@ return [
         'items_received' => 'Items received successfully.',
         'cannot_receive' => 'This purchase order cannot be received.',
         'invalid_quantity' => 'Invalid receiving quantity.',
+        'payment_account_missing_revert' => 'The payment account used for this payment no longer exists, so the previous balance change cannot be reversed safely. Restore the account or contact an administrator before editing this payment.',
 
         // Stats
         'total_orders' => 'Total Purchases',
