@@ -61,9 +61,9 @@
                         <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->supplier->name }}</p>
                     </div>
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Branch</h4>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Location</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">
-                            {{ $purchaseOrder->branch ? $purchaseOrder->branch->name : 'All Branches' }}
+                            {{ $purchaseOrder->location?->display_name ?? '-' }}
                         </p>
                     </div>
                     <div>

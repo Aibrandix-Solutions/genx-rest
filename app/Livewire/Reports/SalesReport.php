@@ -176,7 +176,7 @@ class SalesReport extends Component
         }
 
         $query = $query->select(
-            DB::raw('DATE(CONVERT_TZ(orders.date_time, "+00:00", "' . $dateTimeData['offset'] . '")) as date'),
+            DB::raw('DATE(orders.date_time) as date'),
             DB::raw('COUNT(DISTINCT orders.id) as total_orders'),
             DB::raw('SUM(payments.amount) as total_amount'),
             DB::raw('SUM(CASE WHEN payments.payment_method = "cash" THEN payments.amount ELSE 0 END) as cash_amount'),
@@ -193,7 +193,7 @@ class SalesReport extends Component
 
         // Get outstanding payments data
         $outstandingData = $outstandingQuery->select(
-            DB::raw('DATE(CONVERT_TZ(date_time, "+00:00", "' . $dateTimeData['offset'] . '")) as date'),
+            DB::raw('DATE(date_time) as date'),
             DB::raw('COUNT(*) as outstanding_orders'),
             DB::raw('SUM(total) as outstanding_amount')
         )
@@ -224,7 +224,8 @@ class SalesReport extends Component
         }
 
         $orderData = $orderData->select(
-            DB::raw('DATE(CONVERT_TZ(date_time, "+00:00", "' . $dateTimeData['offset'] . '")) as date'),
+            DB::raw('DATE(date_time) as date'),
+            DB::raw('SUM(total) as orders_total'),
             DB::raw('SUM(discount_amount) as discount_amount'),
             DB::raw('SUM(tip_amount) as tip_amount'),
             DB::raw('SUM(delivery_fee) as delivery_fee'),
@@ -373,11 +374,12 @@ class SalesReport extends Component
             // Calculate total tax amount
             $totalTaxAmount = array_sum($taxAmounts);
 
+            $ordersTotal = $orderInfo->orders_total ?? $item->total_amount ?? 0;
             return [
                 'date' => $item->date,
                 'total_orders' => $item->total_orders,
-                'total_amount' => $item->total_amount ?? 0,
-                'total_excluding_tip' => ($item->total_amount ?? 0) - ($orderInfo->tip_amount ?? 0),
+                'total_amount' => $ordersTotal,
+                'total_excluding_tip' => $ordersTotal - ($orderInfo->tip_amount ?? 0),
                 'discount_amount' => $orderInfo->discount_amount ?? 0,
                 'tip_amount' => $orderInfo->tip_amount ?? 0,
                 'delivery_fee' => $orderInfo->delivery_fee ?? 0,

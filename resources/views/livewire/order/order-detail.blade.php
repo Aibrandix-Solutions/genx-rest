@@ -406,7 +406,7 @@
                                     @lang('modules.order.amount')
                                 </th>
 
-                                @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')) && user_can('Delete Order'))
                                     <th scope="col"
                                         class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                         @lang('app.action')
@@ -468,7 +468,7 @@
                                         {{ currency_format($item->amount, $currencyId) }}
                                     </td>
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')) && user_can('Delete Order'))
                                         <td class="p-2 text-right whitespace-nowrap">
                                             <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20"
                                                 wire:click="promptOrderItemRemoval({{ $item->id }})">
@@ -537,7 +537,7 @@
                                         ({{ $item->charge->charge_value }}%)
                                     @endif
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')))
                                         <span class="text-red-500 cursor-pointer hover:scale-110 active:scale-100"
                                             wire:click="removeCharge('{{ $item->id }}')">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
@@ -695,7 +695,50 @@
                                     @lang('modules.order.addPayment')
                                 </button>
                             @endif
+
+                            @if ($order->status == 'billed' && user_can('Edit Billed Order'))
+                                <a href="{{ route('pos.kot', ['id' => $order->id]) }}"
+                                    class="min-h-[60px] col-span-2 rounded-xl bg-gray-700 hover:bg-gray-800 text-white p-4 inline-flex items-center justify-center gap-3 transition-colors shadow-sm text-lg font-medium">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    @lang('modules.order.newKot')
+                                </a>
+                            @endif
                         </div>
+
+                        {{-- Discount section for billed / paid orders --}}
+                        @if (in_array($order->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
+                            <div class="mb-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
+                                @if (!is_null($order->discount_amount))
+                                    <div class="flex items-center justify-between text-sm text-green-600 dark:text-green-400 mb-2">
+                                        <span class="inline-flex items-center gap-1">
+                                            @lang('modules.order.discount')
+                                            @if ($order->discount_type == 'percent')
+                                                ({{ rtrim(rtrim(number_format($order->discount_value, 2), '0'), '.') }}%)
+                                            @endif
+                                            <button wire:click="removeDiscount"
+                                                title="@lang('app.remove')"
+                                                class="text-red-500 hover:scale-110 active:scale-100 transition-transform">
+                                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </span>
+                                        <span>-{{ currency_format($order->discount_amount, $currencyId) }}</span>
+                                    </div>
+                                @endif
+                                <button wire:click="showAddDiscount"
+                                    class="w-full p-2 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-500 inline-flex items-center justify-center gap-2 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14L15 8M9 9h.01M15 14h.01M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z" />
+                                    </svg>
+                                    @lang('modules.order.addDiscount')
+                                </button>
+                            </div>
+                        @endif
 
                         <!-- Secondary Actions - Utility buttons in a grid -->
                         <div class="grid grid-cols-4 gap-2">
@@ -1065,6 +1108,62 @@
         <x-slot name="footer">
             <x-button-cancel wire:click="cancelOrderItemRemoval" wire:loading.attr="disabled" />
             <x-button class="ms-2" wire:click="confirmOrderItemRemoval" wire:loading.attr="disabled">
+                @lang('app.save')
+            </x-button>
+        </x-slot>
+    </x-dialog-modal>
+
+    <x-dialog-modal wire:model.live="showDiscountModal" maxWidth="md">
+        <x-slot name="title">
+            @lang('modules.order.addDiscount')
+        </x-slot>
+
+        <x-slot name="content">
+            <div class="space-y-4">
+                <div>
+                    <x-label for="discountType" :value="__('modules.order.discountType')" />
+                    <div class="flex gap-4 mt-2">
+                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                            <input type="radio" wire:model.live="discountType" value="fixed" class="text-skin-base">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">@lang('modules.order.fixed')</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                            <input type="radio" wire:model.live="discountType" value="percent" class="text-skin-base">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">@lang('modules.order.percent') (%)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <x-label for="discountValue" :value="__('modules.order.discountValue')" />
+                    <div class="relative mt-1">
+                        <x-input id="discountValue" type="number" step="0.01" min="0"
+                            class="block w-full pr-10"
+                            wire:model.defer="discountValue"
+                            :placeholder="__('modules.order.enterDiscountValue')" />
+                        <span class="absolute inset-y-0 right-3 flex items-center text-gray-500 dark:text-gray-400 pointer-events-none">
+                            {{ $discountType === 'percent' ? '%' : '' }}
+                        </span>
+                    </div>
+                    <x-input-error for="discountValue" class="mt-1" />
+                </div>
+
+                @if (!is_null($discountValue) && $discountValue > 0 && $order)
+                    <div class="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-sm text-green-700 dark:text-green-400">
+                        @lang('modules.order.calculatedDiscount'):
+                        @if ($discountType === 'percent')
+                            {{ currency_format(round(($order->sub_total * $discountValue) / 100, 2), $currencyId) }}
+                        @else
+                            {{ currency_format($discountValue, $currencyId) }}
+                        @endif
+                    </div>
+                @endif
+            </div>
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-button-cancel wire:click="$set('showDiscountModal', false)" wire:loading.attr="disabled" />
+            <x-button class="ms-2" wire:click="applyDiscount" wire:loading.attr="disabled">
                 @lang('app.save')
             </x-button>
         </x-slot>

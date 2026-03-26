@@ -313,6 +313,7 @@ return array(
     'menuItemUpdateFailed' => 'Failed to update menu item. Please try again.',
     'logoRemoved' => 'Image Removed Successfully',
     'kotDeletePermissionDenied' => 'You do not have permission to deduct items from KOT.',
+    'editBilledOrderPermissionDenied' => 'You do not have permission to edit a billed or paid order.',
     'somethingWentWrong' => 'Something went wrong. Please try again.',
     'noOrderPlaceConfigured' => 'No order place printer configured.',
     'noActiveOrderPrinterConfigured' => 'No active order printer configured.',

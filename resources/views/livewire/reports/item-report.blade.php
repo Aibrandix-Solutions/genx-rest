@@ -28,7 +28,7 @@
                 </div>
             </div>
             <p class="text-3xl break-words font-bold text-skin-base dark:text-skin-base">
-                {{ currency_format($menuItems->sum(fn($item) => $item->price * $item->orders->sum('quantity')), restaurant()->currency_id) }}
+                {{ currency_format($totalRevenue, restaurant()->currency_id) }}
             </p>
             </div>
 
@@ -41,7 +41,7 @@
                 </div>
             </div>
             <p class="text-3xl break-words font-bold text-gray-800 dark:text-gray-100">
-                {{ $menuItems->sum(fn($item) => $item->orders->sum('quantity')) }}
+                {{ $totalQuantitySold }}
             </p>
             </div>
         </div>
@@ -149,64 +149,35 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
-                @forelse ($menuItems as $item)
-                    @if($item->variations->count() > 0)
-                        <!-- For items with variations, show each variation as a separate row -->
-                        @foreach($item->variations as $variation)
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                <td class="px-4 py-3">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ $item->item_name }} <span class="text-gray-500 dark:text-gray-400">({{ $variation->variation }})</span>
-                                    </div>
-                                </td>
-                                <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                                    {{ $item->category->category_name ?? '' }}
-                                </td>
-                                <td class="px-4 py-3">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white text-center">
-                                        {{ $item->orders->where('menu_item_variation_id', $variation->id)->sum('quantity') ?? 0 }}
-                                    </div>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white text-center">
-                                        {{ currency_format($variation->price, restaurant()->currency_id) }}
-                                    </div>
-                                </td>
-                                <td class="px-4 py-3">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white text-right">
-                                        {{ currency_format($variation->price * ($item->orders->where('menu_item_variation_id', $variation->id)->sum('quantity') ?? 0), restaurant()->currency_id) }}
-                                    </div>
-                                </td>
-                            </tr>
-                        @endforeach
-                    @else
-                        <!-- For items without variations, show a single row -->
-                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                            <td class="px-4 py-3">
-                                <div class="text-sm font-medium text-gray-900 dark:text-white">
-                                    {{ $item->item_name }}
-                                </div>
-                            </td>
-                            <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
-                                {{ $item->category->category_name ?? '' }}
-                            </td>
-                            <td class="px-4 py-3">
-                                <div class="text-sm font-medium text-gray-900 dark:text-white text-center">
-                                    {{ $item->orders->sum('quantity') }}
-                                </div>
-                            </td>
-                            <td class="px-4 py-3">
-                                <div class="text-sm font-medium text-gray-900 dark:text-white text-center">
-                                    {{ currency_format($item->price, restaurant()->currency_id) }}
-                                </div>
-                            </td>
-                            <td class="px-4 py-3">
-                                <div class="text-sm font-medium text-gray-900 dark:text-white text-right">
-                                    {{ currency_format($item->price * $item->orders->sum('quantity'), restaurant()->currency_id) }}
-                                </div>
-                            </td>
-                        </tr>
-                    @endif
+                @forelse ($reportRows as $row)
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                        <td class="px-4 py-3">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white">
+                                {{ $row->item_name }}
+                                @if(!empty($row->variation))
+                                    <span class="text-gray-500 dark:text-gray-400">({{ $row->variation }})</span>
+                                @endif
+                            </div>
+                        </td>
+                        <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
+                            {{ $row->category_name ?? '' }}
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white text-center">
+                                {{ $row->quantity_sold }}
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white text-center">
+                                {{ currency_format($row->sold_unit_price, restaurant()->currency_id) }}
+                            </div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white text-right">
+                                {{ currency_format($row->total_revenue, restaurant()->currency_id) }}
+                            </div>
+                        </td>
+                    </tr>
                 @empty
                     <tr>
                         <td colspan="5" class="px-4 py-4 text-sm text-center text-gray-500 dark:text-gray-400">

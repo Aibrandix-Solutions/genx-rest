@@ -246,9 +246,9 @@
                         </div>
                     </div>
 
-                    @if (user_can('Update Order'))
+                    @if (user_can('Update Order') || user_can('Delete Order'))
                         <div class="flex justify-end items-center mt-4 space-x-2 rtl:!space-x-reverse">
-                            @if ($orderStatus->value === 'placed')
+                            @if ($orderStatus->value === 'placed' && user_can('Delete Order'))
                                 <x-danger-button class="inline-flex items-center gap-2 dark:text-gray-200"
                                     wire:click="$toggle('confirmDeleteModal')">
                                     <span>{{ __('modules.order.cancelOrder') }}</span>
@@ -259,7 +259,7 @@
                                 </x-danger-button>
                             @endif
 
-                            @if ($currentIndex < count($statuses) - 1)
+                            @if ($currentIndex < count($statuses) - 1 && user_can('Update Order'))
                                 <x-secondary-button class="inline-flex items-center gap-2"
                                     wire:click="$set('orderStatus', '{{ $statuses[$nextIndex] }}')">
                                     <span>{{ __('modules.order.moveTo') }}

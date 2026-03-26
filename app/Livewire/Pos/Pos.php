@@ -116,6 +116,13 @@ class Pos extends Component
     public $customerDisplayStatus = 'idle';
     public $totalTaxAmount = 0;
     public $orderItemTaxDetails = [];
+    /**
+     * When a KOT-backed line is rehydrated from a persisted order_item row, keep item-level tax
+     * fields aligned with what was saved (calculateTotal() re-runs updateOrderItemTaxDetails()).
+     *
+     * @var array<string, array{tax_amount: float, tax_percentage: float|null, tax_breakup: mixed}>
+     */
+    public $orderItemPersistedTaxOverride = [];
     public $taxMode;
     public $pickupRange;
     public $showRemovalReasonModal = false;
@@ -427,6 +434,7 @@ class Pos extends Component
      */
     public function updateCartItemsPricing()
     {
+        $this->orderItemPersistedTaxOverride = [];
         // Update prices for all items in cart when order type or delivery platform changes
         foreach ($this->orderItemList as $key => $item) {
             if ($this->orderTypeId) {
@@ -457,6 +465,7 @@ class Pos extends Component
 
     public function updatedOrderTypeId($value)
     {
+        $this->orderItemPersistedTaxOverride = [];
         // Get the order type information efficiently
         $orderType = OrderType::select('slug', 'type')->find($value);
 
@@ -681,10 +690,16 @@ class Pos extends Component
     public function setupOrderItems()
     {
         if ($this->orderDetail) {
+            $this->orderItemPersistedTaxOverride = [];
             // Track a unique instance number per combo pack across all KOTs.
             // Each KOT that contains a given combo gets its own instance number,
             // so savings badges and grouping are isolated per KOT.
             $comboInstanceCounters = [];  // comboPackId => next instance number
+
+            // FIFO queues: persisted non-combo order lines (saved when KOT was placed) keyed by
+            // menu + variation + qty so reopening the order restores amounts/tax instead of
+            // recalculating from current menu prices.
+            $persistedIndividualQueues = $this->buildPersistedIndividualOrderItemQueues($this->orderDetail->id);
 
             foreach ($this->orderDetail->kot as $kot) {
                 $this->kotList['kot_' . $kot->id] = $kot;
@@ -815,25 +830,56 @@ class Pos extends Component
                             }
                         }
                     } else {
-                        // Regular item pricing
-                        // Set price context before calculating amounts
-                        if ($this->orderTypeId) {
-                            $item->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
-                            if ($item->menuItemVariation) {
-                                $item->menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                        // Regular item pricing — prefer a matching persisted order_item row (from
+                        // last KOT save) so line totals/tax stay stable if menu prices change.
+                        $savedIndividual = $this->shiftMatchingPersistedIndividualOrderItem($persistedIndividualQueues, $item);
+
+                        if ($savedIndividual) {
+                            $this->orderItemAmount[$key] = (float) $savedIndividual->amount;
+                            if ($this->orderTypeId) {
+                                if ($item->menuItem) {
+                                    $item->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                }
+                                if ($item->menuItemVariation) {
+                                    $item->menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                }
+                                foreach ($item->modifierOptions as $modifier) {
+                                    $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                }
                             }
-                            // Set context on modifiers too
-                            foreach ($item->modifierOptions as $modifier) {
-                                $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                            $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum(function ($modifier) {
+                                $qty = (int) ($modifier->pivot->quantity ?? 1);
+                                return $modifier->price * max(1, $qty);
+                            });
+                            if ($this->taxMode === 'item' && !is_null($savedIndividual->tax_amount)) {
+                                $this->orderItemPersistedTaxOverride[$key] = [
+                                    'tax_amount' => (float) $savedIndividual->tax_amount,
+                                    'tax_percentage' => $savedIndividual->tax_percentage !== null
+                                        ? (float) $savedIndividual->tax_percentage
+                                        : null,
+                                    'tax_breakup' => $savedIndividual->tax_breakup,
+                                ];
                             }
+                        } else {
+                            // Set price context before calculating amounts
+                            if ($this->orderTypeId) {
+                                $item->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                if ($item->menuItemVariation) {
+                                    $item->menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                }
+                                // Set context on modifiers too
+                                foreach ($item->modifierOptions as $modifier) {
+                                    $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                                }
+                            }
+
+                            $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum(function ($modifier) {
+                                $qty = (int) ($modifier->pivot->quantity ?? 1);
+                                return $modifier->price * max(1, $qty);
+                            });
+                            $basePrice = $item->menuItemVariation ? $item->menuItemVariation->price : $item->menuItem->price;
+                            $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
                         }
-                        
-                        $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum(function ($modifier) {
-                            $qty = (int) ($modifier->pivot->quantity ?? 1);
-                            return $modifier->price * max(1, $qty);
-                        });
-                        $basePrice = $item->menuItemVariation ? $item->menuItemVariation->price : $item->menuItem->price;
-                        $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
                     }
 
                     if ($item->menuItemVariation) {
@@ -857,6 +903,52 @@ class Pos extends Component
 
             $this->calculateTotal();
         }
+    }
+
+    /**
+     * @return array<string, list<OrderItem>>
+     */
+    protected function buildPersistedIndividualOrderItemQueues(int $orderId): array
+    {
+        $items = OrderItem::query()
+            ->where('order_id', $orderId)
+            ->where(function ($q) {
+                $q->where('is_combo_item', false)->orWhereNull('is_combo_item');
+            })
+            ->whereNull('combo_pack_id')
+            ->orderBy('id')
+            ->get();
+
+        $queues = [];
+        foreach ($items as $oi) {
+            $queues[$this->persistedIndividualLineKey(
+                (int) $oi->menu_item_id,
+                $oi->menu_item_variation_id !== null ? (int) $oi->menu_item_variation_id : null,
+                (int) $oi->quantity
+            )][] = $oi;
+        }
+
+        return $queues;
+    }
+
+    protected function persistedIndividualLineKey(int $menuItemId, ?int $variationId, int $quantity): string
+    {
+        return $menuItemId . '|' . ($variationId ?? 'null') . '|' . $quantity;
+    }
+
+    protected function shiftMatchingPersistedIndividualOrderItem(array &$queues, KotItem $kotItem): ?OrderItem
+    {
+        $key = $this->persistedIndividualLineKey(
+            (int) $kotItem->menu_item_id,
+            $kotItem->menu_item_variation_id !== null ? (int) $kotItem->menu_item_variation_id : null,
+            (int) $kotItem->quantity
+        );
+
+        if (!isset($queues[$key]) || $queues[$key] === []) {
+            return null;
+        }
+
+        return array_shift($queues[$key]);
     }
 
     public function addCartItems($id, $variationCount, $modifierCount)
@@ -1158,6 +1250,18 @@ class Pos extends Component
 
     public function deleteOrderItems($id)
     {
+        $orderStatus = $this->orderDetail?->status ?? null;
+        $isBilledOrPaid = in_array($orderStatus, ['billed', 'paid', 'payment_due']);
+
+        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+        if (!$isBilledOrPaid && !user_can('Delete Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         $orderItem = OrderItem::find($id);
 
         if ($orderItem) {
@@ -1513,6 +1617,19 @@ class Pos extends Component
 
     public function addDiscounts()
     {
+        $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
+        $isBilledOrPaid = $order && in_array($order->status, ['billed', 'paid', 'payment_due']);
+
+        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if (!$isBilledOrPaid && !user_can('Update Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         $this->validate([
             'discountValue' => 'required|numeric|min:0',
             'discountType' => 'required|in:fixed,percent',
@@ -1531,12 +1648,32 @@ class Pos extends Component
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
 
         if ($order) {
+            $subTotal = (float) $order->sub_total;
+
+            if ($this->discountType === 'percent') {
+                $discountAmount = round(($subTotal * $this->discountValue) / 100, 2);
+            } else {
+                $discountAmount = min((float) $this->discountValue, $subTotal);
+            }
+
+            $oldDiscount = (float) ($order->discount_amount ?? 0);
+            $newTotal    = max(0, ($order->total + $oldDiscount) - $discountAmount);
+
             $order->update([
-                'discount_type' => $this->discountType,
-                'discount_value' => $this->discountValue,
-                'discount_amount' => $this->discountAmount,
-                'total' => $this->total,
+                'discount_type'   => $this->discountType,
+                'discount_value'  => $this->discountValue,
+                'discount_amount' => $discountAmount,
+                'total'           => $newTotal,
             ]);
+
+            $this->discountAmount = $discountAmount;
+
+            // Reconcile payment records if already paid/partially paid
+            if (in_array($order->status, ['paid', 'payment_due'])) {
+                $order->refresh();
+                $order->load('payments');
+                $this->reconcilePaymentsAfterDiscount($order, $newTotal);
+            }
         }
 
         $this->calculateTotal();
@@ -1547,19 +1684,88 @@ class Pos extends Component
     public function removeCurrentDiscount()
     {
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
+        $isBilledOrPaid = $order && in_array($order->status, ['billed', 'paid', 'payment_due']);
+
+        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if (!$isBilledOrPaid && !user_can('Update Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
 
         if ($order) {
+            $removedDiscount = (float) $order->discount_amount;
+            $newTotal        = $order->total + $removedDiscount;
+
             $order->update([
                 'discount_type' => null,
                 'discount_value' => null,
                 'discount_amount' => null,
+                'total' => $newTotal,
             ]);
+
+            // If already paid/partially paid, the new higher total may create a shortfall
+            if (in_array($order->status, ['paid', 'payment_due'])) {
+                $order->refresh();
+                $amountPaid = $order->payments()
+                    ->where('payment_method', '!=', 'due')
+                    ->sum('amount');
+
+                if ($amountPaid < $newTotal) {
+                    $shortfall = round($newTotal - $amountPaid, 2);
+                    $order->payments()->create([
+                        'payment_method' => 'due',
+                        'amount'         => $shortfall,
+                        'order_id'       => $order->id,
+                    ]);
+                    $order->update(['status' => 'payment_due']);
+                }
+            }
         }
 
         $this->discountType = null;
         $this->discountValue = null;
         $this->discountAmount = null;
         $this->calculateTotal();
+    }
+
+    /**
+     * After a discount reduces the order total, trim any overpaid amounts and
+     * re-evaluate the order status (paid vs payment_due).
+     */
+    private function reconcilePaymentsAfterDiscount($order, float $newTotal): void
+    {
+        $payments = $order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->orderBy('id')
+            ->get();
+
+        $excess = round($payments->sum('amount') - $newTotal, 2);
+
+        if ($excess > 0) {
+            foreach ($payments->sortByDesc('id') as $payment) {
+                if ($excess <= 0) {
+                    break;
+                }
+                $canReduce = min((float) $payment->amount, $excess);
+                $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
+                $excess = round($excess - $canReduce, 2);
+            }
+        }
+
+        $amountPaid = $order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->sum('amount');
+
+        $newStatus = ($amountPaid >= $newTotal) ? 'paid' : 'payment_due';
+
+        $order->update([
+            'amount_paid' => $amountPaid,
+            'status'      => $newStatus,
+        ]);
     }
 
     public function removeExtraCharge($chargeId, $orderType)
@@ -1584,6 +1790,24 @@ class Pos extends Component
 
     public function saveOrder($action, $secondAction = null, $thirdAction = null)
     {
+        // Permission check before any other processing
+        if ($action === 'cancel') {
+            if (!user_can('Delete Order')) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+        } elseif ($this->orderID) {
+            if (!user_can('Update Order')) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+        } else {
+            if (!user_can('Create Order')) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+        }
+
         // Check if table is locked by another user before saving order
         if ($this->tableId && $this->orderType === 'dine_in') {
             $table = Table::find($this->tableId);
@@ -1784,9 +2008,6 @@ class Pos extends Component
                 'status' => $status,
                 'order_status' => $this->orderStatus ?? 'confirmed'
             ]);
-
-            $order->items()->delete();
-            $order->taxes()->delete();
         }
 
         if ($status == 'canceled') {
@@ -2029,6 +2250,9 @@ class Pos extends Component
         }
 
         if ($status == 'billed') {
+
+            $order->items()->delete();
+            $order->taxes()->delete();
 
             foreach ($this->orderItemList as $key => $value) {
                 // Set price context before using price
@@ -2424,6 +2648,7 @@ class Pos extends Component
         $this->showNewKotButton = false;
         $this->itemNotes = []; // Reset item notes
         $this->orderItemTaxDetails = [];
+        $this->orderItemPersistedTaxOverride = [];
         $this->totalTaxAmount = 0;
         $this->customerDisplayStatus = 'idle'; // Reset customer display status to idle
         // Save empty cart state to cache for customer display
@@ -2810,6 +3035,11 @@ class Pos extends Component
 
     public function cancelOrder()
     {
+        if (!user_can('Delete Order')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
         if (!$this->cancelReason && !$this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
                 'toast' => true,
@@ -2992,6 +3222,20 @@ class Pos extends Component
                 'display_price' => $isInclusive ? ($itemPriceWithModifiers - ($taxResult['tax_amount'] ?? 0)) : $itemPriceWithModifiers,
                 'qty' => $qty,
             ];
+
+            if (isset($this->orderItemPersistedTaxOverride[$key])) {
+                $ov = $this->orderItemPersistedTaxOverride[$key];
+                $this->orderItemTaxDetails[$key]['tax_amount'] = $ov['tax_amount'];
+                if ($ov['tax_percentage'] !== null) {
+                    $this->orderItemTaxDetails[$key]['tax_percent'] = $ov['tax_percentage'];
+                }
+                $breakup = $ov['tax_breakup'];
+                if ($breakup !== null && $breakup !== '') {
+                    $this->orderItemTaxDetails[$key]['tax_breakup'] = is_array($breakup)
+                        ? $breakup
+                        : json_decode((string) $breakup, true);
+                }
+            }
         }
     }
 

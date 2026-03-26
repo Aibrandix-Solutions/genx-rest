@@ -43,6 +43,11 @@ class ReceivePurchaseOrder extends Component
 
         DB::transaction(function () {
             $allReceived = true;
+            $purchaseLocation = $this->purchaseOrder->location;
+            $targetLocationId = $purchaseLocation?->id;
+            $targetBranchId = ($purchaseLocation && $purchaseLocation->type === 'branch' && $purchaseLocation->branch_id)
+                ? (int) $purchaseLocation->branch_id
+                : (int) $this->purchaseOrder->branch_id;
             
             foreach ($this->items as $item) {
                 if ($item['receiving_quantity'] > 0) {
@@ -57,7 +62,8 @@ class ReceivePurchaseOrder extends Component
 
                     // Create inventory movement
                     $poItem->inventoryItem->movements()->create([
-                        'branch_id' => branch()->id,
+                        'branch_id' => $targetBranchId,
+                        'location_id' => $targetLocationId,
                         'quantity' => $item['receiving_quantity'],
                         'transaction_type' => 'in',
                         'supplier_id' => $this->purchaseOrder->supplier_id,
@@ -66,7 +72,10 @@ class ReceivePurchaseOrder extends Component
 
                     // Update or create inventory stock
                     $poItem->inventoryItem->stocks()->updateOrCreate(
-                        ['branch_id' => branch()->id],
+                        [
+                            'branch_id' => $targetBranchId,
+                            'location_id' => $targetLocationId,
+                        ],
                         [
                             'quantity' => DB::raw('quantity + ' . $item['receiving_quantity'])
                         ]

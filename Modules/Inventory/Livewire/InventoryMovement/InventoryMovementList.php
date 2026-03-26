@@ -61,7 +61,7 @@ class InventoryMovementList extends Component
 
     public function viewDetails($movementId)
     {
-        $this->selectedMovement = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier'])
+        $this->selectedMovement = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier', 'location'])
             ->findOrFail($movementId);
         $this->showViewModal = true;
     }
@@ -69,7 +69,7 @@ class InventoryMovementList extends Component
     #[On('showEditMovementModal')]
     public function edit($movementId)
     {
-        $this->selectedMovement = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier'])
+        $this->selectedMovement = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier', 'location'])
             ->findOrFail($movementId);
         $this->showViewModal = false;
         $this->showEditModal = true;
@@ -103,7 +103,7 @@ class InventoryMovementList extends Component
     {
         $dateFilter = $this->getDateRangeFilter();
 
-        $query = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch'])
+        $query = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'location'])
             ->where('branch_id', branch()->id);
 
         if ($this->startDate && $this->endDate) {

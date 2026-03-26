@@ -56,6 +56,9 @@ class OrderDetail extends Component
     public $showRemovalReasonModal = false;
     public $removalReason = '';
     public $pendingOrderItemId = null;
+    public $showDiscountModal = false;
+    public $discountValue = null;
+    public $discountType = 'fixed';
 
     public function mount()
     {
@@ -206,6 +209,16 @@ class OrderDetail extends Component
             return;
         }
 
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->pendingOrderItemId = $id;
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
@@ -234,6 +247,16 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $this->performOrderItemDeletion($id);
     }
 
@@ -255,16 +278,27 @@ class OrderDetail extends Component
                 })
                 ->get();
 
-            foreach ($kotItems as $kotItem) {
-                KotAdjustmentLogger::log(
-                    $kotItem,
-                    'deleted',
+            if ($kotItems->isNotEmpty()) {
+                foreach ($kotItems as $kotItem) {
+                    KotAdjustmentLogger::log(
+                        $kotItem,
+                        'deleted',
+                        $note ?: __('modules.order.deleteOrderItemMessage'),
+                        $kotItem->quantity,
+                        0
+                    );
+
+                    $kotItem->delete();
+                }
+            } else {
+                // No KOT items — item was billed directly; log against the order item itself
+                KotAdjustmentLogger::logOrderItem(
+                    $orderItem,
+                    'deleted_from_order',
                     $note ?: __('modules.order.deleteOrderItemMessage'),
-                    $kotItem->quantity,
+                    $orderItem->quantity,
                     0
                 );
-
-                $kotItem->delete();
             }
         }
 
@@ -279,6 +313,11 @@ class OrderDetail extends Component
             }
 
             $this->recalculateOrderTotals();
+
+            // Keep payment records in sync with the revised total
+            if (in_array($this->order->status, ['paid', 'payment_due'])) {
+                $this->scalePaymentsToNewTotal($this->total);
+            }
         }
 
         $this->alert('success', __('messages.orderItemDeleted'), [
@@ -754,6 +793,16 @@ class OrderDetail extends Component
 
     public function removeCharge($chargeId)
     {
+        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
         $charge = OrderCharge::find($chargeId);
 
         if ($charge) {
@@ -817,6 +866,43 @@ class OrderDetail extends Component
     /**
      * Recalculate order totals including all components
      */
+    /**
+     * Reduce overpaid payment amounts so their sum equals the new order total.
+     * Works from the most-recent payment backwards, never letting any amount go below zero.
+     */
+    private function scalePaymentsToNewTotal(float $newTotal): void
+    {
+        $payments = $this->order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->orderBy('id')
+            ->get();
+
+        $excess = round($payments->sum('amount') - $newTotal, 2);
+
+        if ($excess <= 0) {
+            return;
+        }
+
+        // Reduce from the most recent payment first
+        foreach ($payments->sortByDesc('id') as $payment) {
+            if ($excess <= 0) {
+                break;
+            }
+            $canReduce = min((float) $payment->amount, $excess);
+            $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
+            $excess = round($excess - $canReduce, 2);
+        }
+
+        $this->order->update([
+            'amount_paid' => $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount'),
+        ]);
+
+        $this->order->refresh();
+        $this->order->load('payments');
+    }
+
     public function recalculateOrderTotals()
     {
         if (!$this->order) {
@@ -953,6 +1039,131 @@ class OrderDetail extends Component
         }
 
         return 0;
+    }
+
+    public function showAddDiscount()
+    {
+        if (!user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), [
+                'toast' => true, 'position' => 'top-end',
+                'showCancelButton' => false, 'cancelButtonText' => __('app.close'),
+            ]);
+            return;
+        }
+        $this->discountType  = $this->order->discount_type  ?? 'fixed';
+        $this->discountValue = $this->order->discount_value ?? null;
+        $this->showDiscountModal = true;
+    }
+
+    public function applyDiscount()
+    {
+        if (!user_can('Edit Billed Order')) {
+            return;
+        }
+
+        $this->validate(['discountValue' => 'required|numeric|min:0']);
+
+        $subTotal = (float) $this->order->sub_total;
+
+        if ($this->discountType === 'percent') {
+            if ($this->discountValue > 100) {
+                $this->addError('discountValue', __('messages.discountCannotExceedTotal'));
+                return;
+            }
+            $discountAmount = round(($subTotal * $this->discountValue) / 100, 2);
+        } else {
+            if ($this->discountValue > $subTotal) {
+                $this->addError('discountValue', __('messages.discountCannotExceedTotal'));
+                return;
+            }
+            $discountAmount = (float) $this->discountValue;
+        }
+
+        // Re-calculate total: add back any existing discount then subtract the new one
+        $oldDiscount = (float) ($this->order->discount_amount ?? 0);
+        $newTotal    = max(0, ($this->order->total + $oldDiscount) - $discountAmount);
+
+        $this->order->update([
+            'discount_type'   => $this->discountType,
+            'discount_value'  => $this->discountValue,
+            'discount_amount' => $discountAmount,
+            'total'           => $newTotal,
+        ]);
+
+        $this->order->refresh();
+        $this->order->load('payments');
+
+        // Reconcile payments if order has already been paid
+        if (in_array($this->order->status, ['paid', 'payment_due'])) {
+            $this->scalePaymentsToNewTotal($newTotal);
+            $this->order->refresh();
+
+            // Re-evaluate status: if total is now fully covered, mark as paid
+            $amountPaid = $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount');
+            $newStatus = ($amountPaid >= $newTotal) ? 'paid' : 'payment_due';
+            if ($this->order->status !== $newStatus) {
+                $this->order->update(['status' => $newStatus]);
+            }
+        }
+
+        $this->order->refresh();
+        $this->showDiscountModal = false;
+
+        $this->alert('success', __('modules.order.discountApplied'), [
+            'toast' => true, 'position' => 'top-end',
+            'showCancelButton' => false, 'cancelButtonText' => __('app.close'),
+        ]);
+
+        $this->dispatch('refreshPos');
+        $this->dispatch('refreshOrders');
+    }
+
+    public function removeDiscount()
+    {
+        if (!user_can('Edit Billed Order')) {
+            return;
+        }
+
+        $oldDiscount = (float) ($this->order->discount_amount ?? 0);
+        $newTotal    = $this->order->total + $oldDiscount;
+
+        $this->order->update([
+            'discount_type'   => null,
+            'discount_value'  => null,
+            'discount_amount' => null,
+            'total'           => $newTotal,
+        ]);
+
+        // If the order was paid and the new total exceeds what was collected, mark as payment_due
+        if (in_array($this->order->status, ['paid', 'payment_due'])) {
+            $this->order->refresh();
+            $amountPaid = $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount');
+
+            if ($amountPaid < $newTotal) {
+                $shortfall = round($newTotal - $amountPaid, 2);
+                // Create a 'due' record for the shortfall so the existing payment mechanism tracks it
+                $this->order->payments()->create([
+                    'payment_method' => 'due',
+                    'amount'         => $shortfall,
+                    'order_id'       => $this->order->id,
+                ]);
+                $this->order->update(['status' => 'payment_due']);
+            }
+        }
+
+        $this->order->refresh();
+
+        $this->alert('success', __('modules.order.discountRemoved'), [
+            'toast' => true, 'position' => 'top-end',
+            'showCancelButton' => false, 'cancelButtonText' => __('app.close'),
+        ]);
+
+        $this->dispatch('refreshPos');
+        $this->dispatch('refreshOrders');
     }
 
     public function render()

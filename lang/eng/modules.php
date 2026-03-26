@@ -363,6 +363,8 @@ return [
         'billAndPayment' => 'Bill & Payment',
         'discount' => 'Discount',
         'addDiscount' => 'Add Discount',
+        'discountApplied' => 'Discount applied successfully.',
+        'discountRemoved' => 'Discount removed successfully.',
         'discountType' => 'Discount Type',
         'fixed' => 'Fixed',
         'percent' => 'Percent',

@@ -33,7 +33,7 @@ class CreateMenuItem extends Component
     #[Validate('required')]
     public string $itemName = '';
 
-    #[Validate('nullable|string|max:50|unique:menu_items,item_code')]
+    #[Validate('nullable|string|max:50')]
     public string $itemCode = '';
 
     #[Validate('required')]
@@ -263,9 +263,10 @@ class CreateMenuItem extends Component
                            : (float)($this->variationPrice[$index] ?? 0);
 
         foreach ($this->deliveryApps as $app) {
-            // Calculate final price with commission
             $commission = (float)($app->commission_value ?? 0);
-            $finalPrice = $baseDeliveryPrice + ($baseDeliveryPrice * $commission / 100);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $baseDeliveryPrice + ($baseDeliveryPrice * $commission / 100)
+                : $baseDeliveryPrice + $commission;
 
             $this->variationDeliveryPrices[$index][$app->id] = number_format($finalPrice, 2);
         }
@@ -273,9 +274,31 @@ class CreateMenuItem extends Component
 
     public function updatedVariationPrice($value, $key): void
     {
-        // When variation price is updated, recalculate delivery prices
         $this->calculateVariationDeliveryPrices((int)$key);
         $this->updateVariationBreakdowns();
+    }
+
+    /**
+     * Copy the variation's standard price into all non-delivery order type fields
+     * AND into the base delivery price field, then recalculate platform prices.
+     * Always overwrites so the user gets a full sync when they click the button.
+     */
+    public function syncVariationPriceToAll(int $index): void
+    {
+        $price = $this->variationPrice[$index] ?? '';
+        if ($price === '' || $price === null) {
+            return;
+        }
+
+        foreach ($this->orderTypes as $orderType) {
+            if (strtolower($orderType->slug ?? $orderType->name) === 'delivery') {
+                continue;
+            }
+            $this->variationOrderTypePrices[$index][$orderType->id] = $price;
+        }
+
+        $this->variationBaseDeliveryPrice[$index] = $price;
+        $this->calculateVariationDeliveryPrices($index);
     }
 
     public function updatedVariationBaseDeliveryPrice($value, $key): void
@@ -488,12 +511,16 @@ class CreateMenuItem extends Component
             $this->itemPrice = reset($this->variationPrice) ?: '0';
         }
 
+        $branch = branch();
+        $itemCodeRule = Rule::unique('menu_items', 'item_code')
+            ->when($branch, fn($rule) => $rule->where('branch_id', $branch->id));
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
-            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code',
+            'itemCode' => ['nullable', 'string', 'max:50', $itemCodeRule],
             'isAvailable' => 'required|boolean',
             'orderTypePrices.*' => 'nullable|numeric|min:0',
             'platformAvailability.*' => 'nullable|boolean',
@@ -560,12 +587,18 @@ class CreateMenuItem extends Component
     }
 
     /**
-     * Generate unique item code
+     * Generate unique item code scoped to the current branch.
+     *
+     * Bypasses only AvailableMenuItemScope so unavailable items are still
+     * counted, while BranchScope remains active to keep codes branch-scoped.
+     * The do-while loop guarantees uniqueness against the same filtered set
+     * that the unique validation rule uses (branch-scoped, all availability).
      */
     private function generateItemCode(): string
     {
         $prefix = 'IT';
-        $lastItem = MenuItem::where('item_code', 'like', $prefix . '%')
+        $lastItem = MenuItem::withoutGlobalScope(\App\Scopes\AvailableMenuItemScope::class)
+            ->where('item_code', 'like', $prefix . '%')
             ->orderBy('item_code', 'desc')
             ->first();
 
@@ -578,7 +611,9 @@ class CreateMenuItem extends Component
         // Guarantee uniqueness even if existing item_code values are irregular.
         do {
             $candidate = $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
-            $exists = MenuItem::where('item_code', $candidate)->exists();
+            $exists = MenuItem::withoutGlobalScope(\App\Scopes\AvailableMenuItemScope::class)
+                ->where('item_code', $candidate)
+                ->exists();
             $number++;
         } while ($exists);
 
@@ -873,8 +908,10 @@ class CreateMenuItem extends Component
             : (!empty($this->itemPrice) ? (float)$this->itemPrice : 0);
 
         foreach ($this->deliveryApps as $app) {
-            $commission = $app->commission_value ?? 0;
-            $finalPrice = $basePrice + ($basePrice * $commission / 100);
+            $commission = (float)($app->commission_value ?? 0);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $basePrice + ($basePrice * $commission / 100)
+                : $basePrice + $commission;
             $this->deliveryPrices[$app->id] = number_format($finalPrice, 2);
         }
     }
@@ -981,9 +1018,10 @@ class CreateMenuItem extends Component
                 }
             }
 
-            // Calculate final price with commission
             $commission = (float)($app->commission_value ?? 0);
-            $calculatedPrice = $deliveryBase + ($deliveryBase * $commission / 100);
+            $calculatedPrice = ($app->commission_type === 'percent')
+                ? $deliveryBase + ($deliveryBase * $commission / 100)
+                : $deliveryBase + $commission;
 
             MenuItemPrices::create([
                 'menu_item_id' => $menuItemId,
@@ -992,7 +1030,7 @@ class CreateMenuItem extends Component
                 'menu_item_variation_id' => $variationId,
                 'calculated_price' => $deliveryBase,
                 'final_price' => $calculatedPrice,
-                'status' => $isAvailable, // Save the toggle state
+                'status' => $isAvailable,
             ]);
         }
     }

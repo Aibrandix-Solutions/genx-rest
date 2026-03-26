@@ -523,7 +523,18 @@
                                 <!-- Order Types Pricing -->
                                 @if($orderTypes->isNotEmpty())
                                 <div>
-                                    <x-label value="Order Types Pricing" class="mb-3 text-base font-semibold" />
+                                    <div class="flex items-center justify-between mb-3">
+                                        <x-label value="Order Types Pricing" class="!mb-0 text-base font-semibold" />
+                                        @if(!empty($variationPrice[$key]))
+                                        <button type="button"
+                                            wire:click="syncVariationPriceToAll({{ $key }})"
+                                            title="Set Dine In, Pickup, and Base Delivery Price to {{ restaurant()->currency->currency_symbol }}{{ $variationPrice[$key] }}"
+                                            class="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                            Copy price to all
+                                        </button>
+                                        @endif
+                                    </div>
                                     <div class="space-y-2">
                                         @foreach($orderTypes->reject(fn($type) => strtolower($type->slug ?? $type->name) === 'delivery') as $orderType)
                                         <div wire:key="variation-order-type-{{ $key }}-{{ $orderType->id }}">
@@ -546,12 +557,11 @@
                                 </div>
                                 @endif
 
-                                <!-- Delivery Platforms -->
-                                @if($deliveryApps->isNotEmpty())
+                                <!-- Delivery Pricing -->
                                 <div>
-                                    <x-label value="Delivery Platforms" class="mb-3 text-base font-semibold" />
+                                    <x-label value="Delivery Pricing" class="mb-3 text-base font-semibold" />
                                     <div class="space-y-2">
-                                        <!-- Base Delivery Price -->
+                                        <!-- Base Delivery Price — always shown so it feeds the delivery order type -->
                                         <div>
                                             <div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
                                                 <div class="flex items-center space-x-2">
@@ -571,7 +581,7 @@
                                             <x-input-error for="variationBaseDeliveryPrice.{{ $key }}" class="mt-2" />
                                         </div>
 
-                                        <!-- Delivery Apps -->
+                                        <!-- Per-platform rows — only when delivery apps are configured -->
                                         @foreach($deliveryApps as $app)
                                         <div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600" wire:key="delivery-app-{{ $key }}-{{ $app->id }}">
                                             <div class="flex items-center space-x-3">
@@ -591,7 +601,12 @@
                                                 <div>
                                                     <span class="font-medium text-gray-900 dark:text-white text-sm">{{ $app->name }}</span>
                                                     <div class="text-xs text-gray-500">
-                                                        Commission: {{ $app->commission_value ?? 0 }}%
+                                                        Commission:
+                                                        @if($app->commission_type === 'percent')
+                                                            {{ $app->commission_value ?? 0 }}%
+                                                        @else
+                                                            {{ restaurant()->currency->currency_symbol }}{{ $app->commission_value ?? 0 }}
+                                                        @endif
                                                     </div>
                                                 </div>
                                             </div>
@@ -613,7 +628,6 @@
                                         @endforeach
                                     </div>
                                 </div>
-                                @endif
 
                                 <!-- Tax Breakdown -->
                                 @if($isTaxModeItem && !empty($variationBreakdowns[$key]['breakdown']))
