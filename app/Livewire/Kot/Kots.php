@@ -215,6 +215,7 @@ class Kots extends Component
                 ->where('orders.date_time', '>=', $start)
                 ->where('orders.date_time', '<=', $end)
                 ->where('orders.status', '<>', 'draft')
+                ->whereHas('items')
                 ->with([
                     'kotPlace',
                     'items.menuItem',
@@ -264,6 +265,7 @@ class Kots extends Component
                 ->join('orders', 'kots.order_id', '=', 'orders.id')
                 ->where('orders.date_time', '>=', $start)->where('orders.date_time', '<=', $end)
                 ->where('orders.status', '<>', 'draft')
+                ->whereHas('items')
                 ->where(function ($q) use ($currentKitchenId) {
                     // KOTs directly assigned to this kitchen
                     $q->where('kots.kitchen_place_id', $currentKitchenId)
@@ -301,6 +303,7 @@ class Kots extends Component
                 ->where('orders.date_time', '>=', $start)
                 ->where('orders.date_time', '<=', $end)
                 ->where('orders.status', '<>', 'draft')
+                ->whereHas('items')
                 ->with('kotPlace', 'items', 'items.menuItem', 'items.claimedByKitchen', 'order', 'order.waiter', 'order.table', 'items.menuItemVariation', 'items.modifierOptions', 'cancelReason');
 
             if (user()->hasRole('Waiter_' . user()->restaurant_id)) {

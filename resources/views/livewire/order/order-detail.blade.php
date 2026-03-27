@@ -432,13 +432,30 @@
                                 $displayPrice = $this->getItemDisplayPrice($key);
                                 $isComboItem = !empty($item->combo_pack_id);
                                 $comboGroupId = $item->combo_pack_id ?? null;
-                                $showComboHeader = $comboGroupId && !in_array($comboGroupId, $renderedComboGroups, true);
+                                $comboInstanceKey = null;
+                                if ($isComboItem && !empty($item->note) && preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $item->note, $comboMatches)) {
+                                    $comboInstanceKey = trim((string) ($comboMatches[1] ?? ''));
+                                }
+                                $comboGroupKey = $isComboItem
+                                    ? ($comboInstanceKey ? 'instance:' . $comboInstanceKey : 'pack:' . (int) $comboGroupId)
+                                    : null;
+                                $showComboHeader = $comboGroupKey && !in_array($comboGroupKey, $renderedComboGroups, true);
 
                                 if ($showComboHeader) {
-                                    $renderedComboGroups[] = $comboGroupId;
-                                    $comboGroupSavings = $order->items
-                                        ->where('combo_pack_id', $comboGroupId)
-                                        ->sum('combo_discount_amount');
+                                    $renderedComboGroups[] = $comboGroupKey;
+                                    $comboGroupSavings = $order->items->filter(function ($groupItem) use ($comboGroupKey, $comboGroupId) {
+                                        if (str_starts_with($comboGroupKey, 'instance:')) {
+                                            if (empty($groupItem->note)) {
+                                                return false;
+                                            }
+                                            if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $groupItem->note, $groupMatches)) {
+                                                return ('instance:' . trim((string) ($groupMatches[1] ?? ''))) === $comboGroupKey;
+                                            }
+                                            return false;
+                                        }
+
+                                        return (int) ($groupItem->combo_pack_id ?? 0) === (int) $comboGroupId;
+                                    })->sum('combo_discount_amount');
                                 }
                             @endphp
                                 @if ($showComboHeader)
@@ -459,7 +476,7 @@
                                                     @endif
                                                     @if ($canManageItems)
                                                         <button type="button"
-                                                            wire:click="removeComboGroup({{ (int) $comboGroupId }})"
+                                                            wire:click="removeComboGroupByOrderItem({{ (int) $item->id }})"
                                                             wire:loading.attr="disabled"
                                                             class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
                                                             title="Remove whole combo">
