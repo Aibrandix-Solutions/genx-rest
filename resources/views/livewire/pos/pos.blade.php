@@ -10,7 +10,7 @@
             @include('pos.kot_items')
         @elseif($orderDetail->status == 'kot')
             @include('pos.order_items')
-        @elseif($orderDetail->status == 'billed' || $orderDetail->status == 'paid')
+        @elseif(in_array($orderDetail->status, ['billed', 'paid', 'payment_due'], true))
             @include('pos.order_detail')
         @endif
 

@@ -542,6 +542,7 @@ return [
         'saveAmount' => 'Save',
         'percentOff' => 'off',
         'comboNotAvailable' => 'This combo pack is not available',
+        'addingAsCombo' => 'is already in cart individually — adding as part of combo anyway.',
         'amountPerSplit' => 'Amount per split',
         'paddle' => 'Paddle',
         'customerOrderBoard' => 'Customer Order Board',

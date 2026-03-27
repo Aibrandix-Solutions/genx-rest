@@ -56,6 +56,7 @@ class OrderDetail extends Component
     public $showRemovalReasonModal = false;
     public $removalReason = '';
     public $pendingOrderItemId = null;
+    public $pendingComboPackId = null;
     public $showDiscountModal = false;
     public $discountValue = null;
     public $discountType = 'fixed';
@@ -127,7 +128,7 @@ class OrderDetail extends Component
     #[On('showOrderDetail')]
     public function showOrder($id, $fromPos = null)
     {
-        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'payments', 'cancelReason')->find($id);
+        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'items.comboPack', 'payments', 'cancelReason')->find($id);
         $this->orderStatus = $this->order->status;
         $this->fromPos = $fromPos;
         $this->orderProgressStatus = $this->order->order_status->value;
@@ -209,7 +210,7 @@ class OrderDetail extends Component
             return;
         }
 
-        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+        if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -220,6 +221,7 @@ class OrderDetail extends Component
         }
 
         $this->pendingOrderItemId = $id;
+        $this->pendingComboPackId = null;
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
     }
@@ -229,6 +231,7 @@ class OrderDetail extends Component
         $this->showRemovalReasonModal = false;
         $this->removalReason = '';
         $this->pendingOrderItemId = null;
+        $this->pendingComboPackId = null;
     }
 
     public function confirmOrderItemRemoval(): void
@@ -237,17 +240,21 @@ class OrderDetail extends Component
             'removalReason' => 'required|string|min:3',
         ]);
 
-        if (!$this->pendingOrderItemId) {
+        if (!$this->pendingOrderItemId && !$this->pendingComboPackId) {
             return;
         }
 
-        $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
+        if ($this->pendingComboPackId) {
+            $this->executeComboGroupRemoval((int) $this->pendingComboPackId, $this->removalReason);
+        } else {
+            $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
+        }
         $this->cancelOrderItemRemoval();
     }
 
     public function deleteOrderItems($id)
     {
-        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+        if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -260,7 +267,79 @@ class OrderDetail extends Component
         $this->performOrderItemDeletion($id);
     }
 
-    protected function performOrderItemDeletion($id, ?string $note = null): void
+    public function removeComboGroup(int $comboPackId): void
+    {
+        if (!$this->order) {
+            return;
+        }
+
+        if ($this->order->status === 'canceled') {
+            return;
+        }
+
+        if (!user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
+        if (in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
+        $comboItemIds = $this->order->items()
+            ->where('combo_pack_id', $comboPackId)
+            ->pluck('id')
+            ->all();
+
+        if (empty($comboItemIds)) {
+            return;
+        }
+
+        $this->pendingOrderItemId = null;
+        $this->pendingComboPackId = $comboPackId;
+        $this->removalReason = '';
+        $this->showRemovalReasonModal = true;
+    }
+
+    protected function executeComboGroupRemoval(int $comboPackId, string $note): void
+    {
+        if (!$this->order) {
+            return;
+        }
+
+        $comboItemIds = $this->order->items()
+            ->where('combo_pack_id', $comboPackId)
+            ->pluck('id')
+            ->all();
+
+        if (empty($comboItemIds)) {
+            return;
+        }
+
+        foreach ($comboItemIds as $orderItemId) {
+            $this->performOrderItemDeletion((int) $orderItemId, $note, false);
+        }
+
+        $this->alert('success', __('messages.orderItemDeleted'), [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close')
+        ]);
+    }
+
+    protected function performOrderItemDeletion($id, ?string $note = null, bool $notify = true): void
     {
         $orderItem = OrderItem::find($id);
 
@@ -320,12 +399,14 @@ class OrderDetail extends Component
             }
         }
 
-        $this->alert('success', __('messages.orderItemDeleted'), [
-            'toast' => true,
-            'position' => 'top-end',
-            'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
-        ]);
+        if ($notify) {
+            $this->alert('success', __('messages.orderItemDeleted'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+        }
 
         $this->dispatch('refreshPos');
     }
