@@ -230,7 +230,10 @@
                     wire:key='menu-item-list-pos'>
                     @php
                         $renderedComboGroups = [];
-                        $orderStatusValue = $orderDetail->status ?? null;
+                        $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
+                        $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
+                            ? $rawOrderStatus->value
+                            : (string) ($rawOrderStatus ?? '');
                         $canManageItems = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
                             ? user_can('Edit Billed Order')
                             : user_can('Delete Order');

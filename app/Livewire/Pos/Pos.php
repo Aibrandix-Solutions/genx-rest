@@ -130,6 +130,7 @@ class Pos extends Component
     public $pendingRemovalItem = null;
     public $pendingRemovalAction = null;
     public $pendingRemovalNewQuantity = null;
+    public $pendingRemovalComboItems = [];
     public $now;
     public $minDate;
     public $maxDate;
@@ -769,8 +770,18 @@ class Pos extends Component
                     } else {
                         // For lines without combo_pack_id on KotItem, avoid inferring combo state
                         // by menu/variation lookup (ambiguous when same SKU also sold standalone).
-                        // Only legacy explicit note markers can classify these as combo lines.
-                        if ($item->note && str_contains($item->note, '[COMBO:')) {
+                        // If there is no matching persisted individual line, we can safely
+                        // recover combo classification from persisted combo queues.
+                        if (!$this->hasPersistedIndividualQueueMatch($persistedIndividualQueues, $item)) {
+                            $orderItem = $this->shiftMatchingPersistedComboOrderItemWithoutPack($persistedComboQueues, $item);
+                            if ($orderItem && !empty($orderItem->combo_pack_id)) {
+                                $comboPackId = (int) $orderItem->combo_pack_id;
+                                $isComboItem = true;
+                            }
+                        }
+
+                        // Legacy explicit note markers remain supported.
+                        if (!$isComboItem && $item->note && str_contains($item->note, '[COMBO:')) {
                             preg_match('/\[COMBO:(\d+)\]/', $item->note, $matches);
                             if (!empty($matches[1])) {
                                 $comboPackId = (int)$matches[1];
@@ -973,6 +984,17 @@ class Pos extends Component
         return array_shift($queues[$key]);
     }
 
+    protected function hasPersistedIndividualQueueMatch(array $queues, KotItem $kotItem): bool
+    {
+        $key = $this->persistedIndividualLineKey(
+            (int) $kotItem->menu_item_id,
+            $kotItem->menu_item_variation_id !== null ? (int) $kotItem->menu_item_variation_id : null,
+            (int) $kotItem->quantity
+        );
+
+        return isset($queues[$key]) && $queues[$key] !== [];
+    }
+
     /**
      * Build a FIFO queue of persisted combo OrderItems keyed by
      * "comboPackId|menuItemId|variationId|quantity" so multiple instances of
@@ -1022,6 +1044,33 @@ class Pos extends Component
         }
 
         return array_shift($queues[$key]);
+    }
+
+    protected function shiftMatchingPersistedComboOrderItemWithoutPack(array &$queues, KotItem $kotItem): ?OrderItem
+    {
+        $menuItemId = (int) $kotItem->menu_item_id;
+        $variationId = $kotItem->menu_item_variation_id !== null ? (int) $kotItem->menu_item_variation_id : null;
+        $quantity = (int) $kotItem->quantity;
+        $suffix = '|' . $menuItemId . '|' . ($variationId ?? 'null') . '|' . $quantity;
+
+        $matchedKey = null;
+        foreach ($queues as $key => $rows) {
+            if ($rows === [] || !str_ends_with((string) $key, $suffix)) {
+                continue;
+            }
+
+            if ($matchedKey !== null) {
+                // Ambiguous combo match across multiple packs; bail out safely.
+                return null;
+            }
+            $matchedKey = (string) $key;
+        }
+
+        if ($matchedKey === null) {
+            return null;
+        }
+
+        return array_shift($queues[$matchedKey]);
     }
 
     public function addCartItems($id, $variationCount, $modifierCount)
@@ -1322,6 +1371,28 @@ class Pos extends Component
             $this->orderItemComboPack ?? [],
             fn($v) => $v === $instanceKey
         ));
+
+        // Keep combo-group removal guard identical to individual cart-line removal:
+        // existing KOT lines require Delete KOT Item permission.
+        if (!empty($keysToDelete) && $this->requiresRemovalReason($keysToDelete[0]) && !user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
+        if (!empty($keysToDelete) && $this->requiresRemovalReason($keysToDelete[0])) {
+            $this->pendingRemovalComboItems = $keysToDelete;
+            $this->pendingRemovalItem = '__combo__';
+            $this->pendingRemovalAction = 'delete_combo';
+            $this->pendingRemovalNewQuantity = null;
+            $this->removalReason = '';
+            $this->showRemovalReasonModal = true;
+            return;
+        }
 
         foreach ($keysToDelete as $key) {
             $this->executeDeleteCartItems($key);
@@ -2129,6 +2200,11 @@ class Pos extends Component
         if ($status == 'kot') {
             $hasLoadedKotLines = collect(array_keys($this->orderItemList))
                 ->contains(fn($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'));
+            $hasFullLoadedKotContext = $this->orderID
+                ? $this->hasCompleteLoadedKotContext($order)
+                : true;
+            // New KOT "add-only" sessions must append new lines and never wipe existing rows.
+            $appendOnlyKotSave = $this->orderID && (!$hasLoadedKotLines || !$hasFullLoadedKotContext);
 
             if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
                 // Group items by kitchen — each item goes to ONE kitchen only
@@ -2242,12 +2318,12 @@ class Pos extends Component
                 // New KOT can be opened in "add-only" mode where existing KOT lines are not
                 // loaded in-memory. In that case, keep previous order_items and append only
                 // the newly added lines instead of deleting historical rows.
-                if (!$this->orderID || $hasLoadedKotLines) {
+                if (!$this->orderID || !$appendOnlyKotSave) {
                     $order->items()->delete();
                 }
 
                 foreach ($this->orderItemList as $key => $value) {
-                    if ($this->orderID && !$hasLoadedKotLines && (str_starts_with((string) $key, 'kot_') || str_starts_with((string) $key, '"kot_'))) {
+                    if ($appendOnlyKotSave && (str_starts_with((string) $key, 'kot_') || str_starts_with((string) $key, '"kot_'))) {
                         continue;
                     }
 
@@ -2291,7 +2367,7 @@ class Pos extends Component
             if ($this->orderID) {
                 // In add-only New KOT sessions, in-memory arrays contain only newly added lines.
                 // Rehydrate from DB KOTs before total update so Orders overview gets full total.
-                if (!$hasLoadedKotLines) {
+                if ($appendOnlyKotSave) {
                     $this->orderDetail = Order::with([
                         'kot.items.menuItem',
                         'kot.items.menuItemVariation',
@@ -2843,6 +2919,7 @@ class Pos extends Component
         $this->pendingRemovalItem = null;
         $this->pendingRemovalAction = null;
         $this->pendingRemovalNewQuantity = null;
+        $this->pendingRemovalComboItems = [];
     }
 
     public function cancelRemovalReason(): void
@@ -2869,6 +2946,10 @@ class Pos extends Component
                 $this->pendingRemovalNewQuantity ?? 0,
                 $this->removalReason
             );
+        } elseif ($this->pendingRemovalAction === 'delete_combo') {
+            foreach ((array) $this->pendingRemovalComboItems as $comboKey) {
+                $this->executeDeleteCartItems($comboKey, $this->removalReason);
+            }
         }
 
         $this->resetRemovalReasonState();
@@ -2940,6 +3021,55 @@ class Pos extends Component
         }
     }
 
+    /**
+     * Remove the persisted order_items row that matches this KOT line so billed/paid
+     * edits stay consistent when using cart keys (deleteCartItems / removeComboGroup).
+     */
+    protected function deletePersistedOrderItemForKotLine(KotItem $kotItem): void
+    {
+        if (!$this->orderDetail instanceof Order) {
+            return;
+        }
+
+        $query = OrderItem::query()
+            ->where('order_id', $this->orderDetail->id)
+            ->where('menu_item_id', $kotItem->menu_item_id)
+            ->where('quantity', $kotItem->quantity);
+
+        if ($kotItem->menu_item_variation_id) {
+            $query->where('menu_item_variation_id', $kotItem->menu_item_variation_id);
+        } else {
+            $query->whereNull('menu_item_variation_id');
+        }
+
+        if ($kotItem->combo_pack_id) {
+            $query->where('is_combo_item', true)
+                ->where('combo_pack_id', $kotItem->combo_pack_id);
+        } else {
+            $query->where(function ($q) {
+                $q->where('is_combo_item', false)->orWhereNull('is_combo_item');
+            })->whereNull('combo_pack_id');
+        }
+
+        $orderItem = $query->orderBy('id')->first();
+
+        if (!$orderItem) {
+            $orderItem = OrderItem::query()
+                ->where('order_id', $this->orderDetail->id)
+                ->where('menu_item_id', $kotItem->menu_item_id)
+                ->where('quantity', $kotItem->quantity)
+                ->where('is_combo_item', true)
+                ->whereNotNull('combo_pack_id')
+                ->orderBy('id')
+                ->first();
+        }
+
+        if ($orderItem) {
+            $orderItem->modifierOptions()->detach();
+            $orderItem->delete();
+        }
+    }
+
     protected function executeDeleteCartItems($id, ?string $note = null): void
     {
         if ($this->tableId) {
@@ -2980,6 +3110,9 @@ class Pos extends Component
                 $this->logKotItemAdjustment($kotItem, 'deleted', $note, $kotItem->quantity, 0);
             }
             $kotItem->modifierOptions()->detach();
+            if ($this->orderID && $this->orderDetail instanceof Order) {
+                $this->deletePersistedOrderItemForKotLine($kotItem);
+            }
             $kotItem->delete();
         }
 
@@ -2993,6 +3126,7 @@ class Pos extends Component
                     'discount_amount' => $this->discountAmount,
                     'total_tax_amount' => $this->totalTaxAmount,
                 ]);
+                $this->orderDetail?->refresh();
             }
 
             return;
@@ -3607,6 +3741,27 @@ class Pos extends Component
         }
 
         return user_can('Delete Order');
+    }
+
+    /**
+     * True only when current in-memory cart has all persisted KOT-backed line keys.
+     * Used to decide whether saveOrder('kot') can safely replace order_items rows.
+     */
+    protected function hasCompleteLoadedKotContext(Order $order): bool
+    {
+        $expectedKotItemCount = KotItem::query()
+            ->whereHas('kot', fn($q) => $q->where('order_id', $order->id))
+            ->count();
+
+        if ($expectedKotItemCount === 0) {
+            return false;
+        }
+
+        $loadedKotKeysCount = collect(array_keys($this->orderItemList))
+            ->filter(fn($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'))
+            ->count();
+
+        return $loadedKotKeysCount >= $expectedKotItemCount;
     }
 
     /**
