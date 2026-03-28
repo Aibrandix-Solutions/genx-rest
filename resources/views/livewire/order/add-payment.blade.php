@@ -327,6 +327,7 @@
                                         </div>
 
                                         <select class="rounded-lg border-gray-300 w-28"
+                                            wire:change="updateSplitPaymentMethod({{ $i }}, $event.target.value)"
                                             wire:model.live="splits.{{ $i }}.paymentMethod">
                                             <option value="cash">{{ __('modules.order.cash') }}</option>
                                             <option value="card">{{ __('modules.order.card') }}</option>
@@ -376,6 +377,7 @@
                                                 oninput="if(this.value < 0) this.value = 0;">
                                         </div>
                                         <select class="rounded-lg border-gray-300 w-28"
+                                            wire:change="updateSplitPaymentMethod({{ $splitNumber }}, $event.target.value)"
                                             wire:model.live="splits.{{ $splitNumber }}.paymentMethod">
                                             <option value="cash">{{ __('modules.order.cash') }}</option>
                                             <option value="card">{{ __('modules.order.card') }}</option>

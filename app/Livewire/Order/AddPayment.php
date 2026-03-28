@@ -14,6 +14,8 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
+use App\Livewire\Customer\AddCustomer;
+use Illuminate\Support\Facades\DB;
 
 class AddPayment extends Component
 {
@@ -277,8 +279,117 @@ class AddPayment extends Component
 
     public function setPaymentMethod($method)
     {
+        if ($method === 'due' && $this->order) {
+            $this->order->refresh();
+            if (!$this->order->canRecordDueBalance()) {
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: true,
+                    forDuePayment: true,
+                    preferDueAfterAttach: true
+                )->to(AddCustomer::class);
+
+                return;
+            }
+        }
+
         $this->paymentMethod = $method;
         $this->updatedPaymentAmount();
+    }
+
+    #[On('customerReadyForDuePayment')]
+    public function onCustomerReadyForDuePayment(mixed $orderId = null): void
+    {
+        if (is_array($orderId)) {
+            $orderId = $orderId['orderId'] ?? $orderId['id'] ?? null;
+        }
+
+        if ($orderId === null || !$this->showAddPaymentModal || !$this->order || (int) $this->order->id !== (int) $orderId) {
+            return;
+        }
+
+        $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
+
+        if (!$this->order->customer_id) {
+            return;
+        }
+
+        $this->paymentMethod = 'due';
+        $this->updatedPaymentAmount();
+    }
+
+    protected function requiresRegisteredCustomerForSubmission(): bool
+    {
+        $this->order?->refresh();
+
+        if (!$this->order || $this->order->customer_id) {
+            return false;
+        }
+
+        return $this->submissionUsesDuePaymentMethod() || $this->submissionLeavesOutstandingBalance();
+    }
+
+    protected function submissionUsesDuePaymentMethod(): bool
+    {
+        if ($this->showSplitOptions && $this->splitType) {
+            foreach ($this->splits as $split) {
+                if (($split['paymentMethod'] ?? '') === 'due') {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return $this->paymentMethod === 'due';
+    }
+
+    protected function submissionLeavesOutstandingBalance(): bool
+    {
+        if ($this->showSplitOptions && $this->splitType) {
+            return $this->splitSubmissionLeavesOutstanding();
+        }
+
+        $paying = max(0, (float) $this->paymentAmount - (float) $this->returnAmount);
+
+        return $paying < $this->dueAmount - 0.0001;
+    }
+
+    protected function splitSubmissionLeavesOutstanding(): bool
+    {
+        if ($this->splitType === 'items') {
+            $total = 0.0;
+            foreach ($this->splits as $split) {
+                $total += (float) ($split['total'] ?? 0);
+            }
+
+            return $total < $this->dueAmount - 0.0001;
+        }
+
+        $total = 0.0;
+        foreach ($this->splits as $i => $split) {
+            if ($this->splitType === 'equal' && (int) $i === 0) {
+                continue;
+            }
+            $total += (float) ($split['amount'] ?? 0);
+        }
+
+        return $total < $this->dueAmount - 0.0001;
+    }
+
+    protected function promptCustomerForDuePayment(bool $preferDueAfterAttach = false): void
+    {
+        $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), ['toast' => true, 'position' => 'top-end']);
+        $this->dispatch(
+            'showAddCustomerModal',
+            id: $this->order->id,
+            customerId: null,
+            fromPos: true,
+            forDuePayment: true,
+            preferDueAfterAttach: $preferDueAfterAttach
+        )->to(AddCustomer::class);
     }
 
     public function quickAmount($amount)
@@ -422,65 +533,90 @@ class AddPayment extends Component
 
     public function submitForm()
     {
-        if ($this->showSplitOptions && $this->splitType) {
-            // Validate split by items
-            if ($this->splitType === 'items') {
-                $hasItemsInSplits = false;
-                foreach ($this->splits as $split) {
-                    if (!empty($split['items']) && count($split['items']) > 0) {
-                        $hasItemsInSplits = true;
-                        break;
+        $this->order?->refresh();
+
+        if ($this->requiresRegisteredCustomerForSubmission()) {
+            $this->promptCustomerForDuePayment(false);
+
+            return;
+        }
+
+        $epsilon = 0.0001;
+
+        try {
+            DB::beginTransaction();
+
+            if ($this->showSplitOptions && $this->splitType) {
+                if ($this->splitType === 'items') {
+                    $hasItemsInSplits = false;
+                    foreach ($this->splits as $split) {
+                        if (!empty($split['items']) && count($split['items']) > 0) {
+                            $hasItemsInSplits = true;
+                            break;
+                        }
+                    }
+
+                    if (!$hasItemsInSplits) {
+                        DB::rollBack();
+                        $this->alert('error', __('Please select items for payment'), ['toast' => true]);
+
+                        return;
                     }
                 }
 
-                if (!$hasItemsInSplits) {
-                    $this->alert('error', __('Please select items for payment'), ['toast' => true]);
-                    return;
+                $this->processSplitPayment();
+            } else {
+                if ($this->paymentAmount >= 0) {
+                    Payment::create([
+                        'order_id' => $this->order->id,
+                        'payment_method' => $this->paymentMethod,
+                        'amount' => $this->paymentAmount - $this->returnAmount,
+                        'balance' => $this->returnAmount,
+                        'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod),
+                    ]);
                 }
             }
 
-            $this->processSplitPayment();
+            $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
-        } else {
-            if ($this->paymentAmount >= 0) {
+            if ($this->order->split_type === 'items') {
+                $orderPaidAmount = $this->order->splitOrders()
+                    ->where('status', 'paid')
+                    ->sum('amount');
+            } else {
+                $orderPaidAmount = Payment::where('order_id', $this->order->id)
+                    ->where('payment_method', '!=', 'due')
+                    ->sum('amount');
+            }
+
+            $outstanding = (float) $this->order->total - (float) $orderPaidAmount;
+
+            if ($outstanding > $epsilon && !$this->order->canRecordDueBalance()) {
+                DB::rollBack();
+                $this->promptCustomerForDuePayment(false);
+
+                return;
+            }
+
+            $this->order->amount_paid = $orderPaidAmount;
+            $this->order->status = $orderPaidAmount >= $this->order->total - $epsilon ? 'paid' : 'payment_due';
+            $this->order->save();
+
+            Payment::where('order_id', $this->order->id)->where('payment_method', 'due')->delete();
+
+            if ($outstanding > $epsilon) {
                 Payment::create([
-                'order_id' => $this->order->id,
-                'payment_method' => $this->paymentMethod,
-                'amount' => $this->paymentAmount - $this->returnAmount,
-                'balance' => $this->returnAmount,
-                'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod)
+                    'order_id' => $this->order->id,
+                    'payment_method' => 'due',
+                    'amount' => $outstanding,
+                    'payment_account_id' => $this->getDefaultPaymentAccountId('due'),
                 ]);
             }
-        }
 
-        // Refresh the order data to get latest payment information
-        $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
-
-        // Calculate total paid amount based on payment type
-        if ($this->order->split_type === 'items') {
-            $orderPaidAmount = $this->order->splitOrders()
-                ->where('status', 'paid')
-                ->sum('amount');
-        } else {
-            $orderPaidAmount = Payment::where('order_id', $this->order->id)
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount');
-        }
-
-        $this->order->amount_paid = $orderPaidAmount;
-        $this->order->status = $orderPaidAmount >= $this->order->total ? 'paid' : 'payment_due';
-        $this->order->save();
-
-        // Handle due payments - always delete existing due payments first
-        Payment::where('order_id', $this->order->id)->where('payment_method', 'due')->delete();
-
-        if ($orderPaidAmount < $this->order->total) {
-            Payment::create([
-                'order_id' => $this->order->id,
-                'payment_method' => 'due',
-                'amount' => $this->order->total - $orderPaidAmount,
-                'payment_account_id' => $this->getDefaultPaymentAccountId('due')
-            ]);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
         }
 
         // Update table status
@@ -521,9 +657,17 @@ class AddPayment extends Component
 
     public function updateSplitPaymentMethod($splitId, $method)
     {
+        if ($method === 'due' && $this->order) {
+            $this->order->refresh();
+            if (!$this->order->canRecordDueBalance()) {
+                $this->promptCustomerForDuePayment(false);
+                $method = 'cash';
+            }
+        }
+
         if (isset($this->splits[$splitId])) {
             $this->splits[$splitId]['paymentMethod'] = $method;
-            $this->splits = $this->splits; // Trigger Livewire update
+            $this->splits = $this->splits;
         }
     }
 

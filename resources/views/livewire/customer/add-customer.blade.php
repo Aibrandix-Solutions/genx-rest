@@ -1,4 +1,4 @@
-<x-dialog-modal wire:model.live="showAddCustomerModal" maxWidth="2xl">
+<x-dialog-modal wire:model.live="showAddCustomerModal" maxWidth="2xl" modalZIndex="z-[70]">
     <x-slot name="title">
         <div class="flex items-center space-x-3">
             <div class="flex-shrink-0">

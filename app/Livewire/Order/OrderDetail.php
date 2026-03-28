@@ -21,6 +21,8 @@ use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Support\KotAdjustmentLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use App\Livewire\Customer\AddCustomer;
+use Illuminate\Support\Facades\DB;
 
 class OrderDetail extends Component
 {
@@ -1010,6 +1012,28 @@ class OrderDetail extends Component
             return;
         }
 
+        if ($paymentMethod === 'due') {
+            $this->order->refresh();
+            if (!$this->order->canRecordDueBalance()) {
+                $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: (bool) $this->fromPos,
+                    forDuePayment: true,
+                    preferDueAfterAttach: false
+                )->to(AddCustomer::class);
+
+                return;
+            }
+        }
+
         $payment->payment_method = $paymentMethod;
         $payment->save();
 
@@ -1266,30 +1290,45 @@ class OrderDetail extends Component
         // Re-calculate total: add back any existing discount then subtract the new one
         $oldDiscount = (float) ($this->order->discount_amount ?? 0);
         $newTotal    = max(0, ($this->order->total + $oldDiscount) - $discountAmount);
+        $statusBefore = $this->order->status;
 
-        $this->order->update([
-            'discount_type'   => $this->discountType,
-            'discount_value'  => $this->discountValue,
-            'discount_amount' => $discountAmount,
-            'total'           => $newTotal,
-        ]);
+        try {
+            DB::transaction(function () use ($discountAmount, $newTotal, $statusBefore) {
+                $this->order->update([
+                    'discount_type'   => $this->discountType,
+                    'discount_value'  => $this->discountValue,
+                    'discount_amount' => $discountAmount,
+                    'total'           => $newTotal,
+                ]);
 
-        $this->order->refresh();
-        $this->order->load('payments');
+                $this->order->refresh();
+                $this->order->load('payments');
 
-        // Reconcile payments if order has already been paid
-        if (in_array($this->order->status, ['paid', 'payment_due'])) {
-            $this->scalePaymentsToNewTotal($newTotal);
-            $this->order->refresh();
+                if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+                    $this->scalePaymentsToNewTotal($newTotal);
+                    $this->order->refresh();
 
-            // Re-evaluate status: if total is now fully covered, mark as paid
-            $amountPaid = $this->order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount');
-            $newStatus = ($amountPaid >= $newTotal) ? 'paid' : 'payment_due';
-            if ($this->order->status !== $newStatus) {
-                $this->order->update(['status' => $newStatus]);
-            }
+                    $amountPaid = $this->order->payments()
+                        ->where('payment_method', '!=', 'due')
+                        ->sum('amount');
+                    $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
+                    if ($newStatus === 'payment_due' && !$this->order->canRecordDueBalance()) {
+                        throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
+                    }
+                    if ($this->order->status !== $newStatus) {
+                        $this->order->update(['status' => $newStatus]);
+                    }
+                }
+            });
+        } catch (\RuntimeException $e) {
+            $this->alert('warning', $e->getMessage(), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close'),
+            ]);
+
+            return;
         }
 
         $this->order->refresh();
@@ -1312,6 +1351,32 @@ class OrderDetail extends Component
 
         $oldDiscount = (float) ($this->order->discount_amount ?? 0);
         $newTotal    = $this->order->total + $oldDiscount;
+        $statusBefore = $this->order->status;
+
+        if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+            $amountPaid = $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount');
+
+            if ($amountPaid < $newTotal - 0.0001 && !$this->order->canRecordDueBalance()) {
+                $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: (bool) $this->fromPos,
+                    forDuePayment: true,
+                    preferDueAfterAttach: false
+                )->to(AddCustomer::class);
+
+                return;
+            }
+        }
 
         $this->order->update([
             'discount_type'   => null,
@@ -1321,15 +1386,14 @@ class OrderDetail extends Component
         ]);
 
         // If the order was paid and the new total exceeds what was collected, mark as payment_due
-        if (in_array($this->order->status, ['paid', 'payment_due'])) {
+        if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
             $this->order->refresh();
             $amountPaid = $this->order->payments()
                 ->where('payment_method', '!=', 'due')
                 ->sum('amount');
 
-            if ($amountPaid < $newTotal) {
+            if ($amountPaid < $newTotal - 0.0001) {
                 $shortfall = round($newTotal - $amountPaid, 2);
-                // Create a 'due' record for the shortfall so the existing payment mechanism tracks it
                 $this->order->payments()->create([
                     'payment_method' => 'due',
                     'amount'         => $shortfall,
