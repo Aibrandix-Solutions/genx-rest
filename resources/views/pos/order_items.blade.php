@@ -318,7 +318,7 @@
                             : (string) ($rawOrderStatus ?? '');
                         $canManageItems = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
                             ? user_can('Edit Billed Order')
-                            : user_can('Delete Order');
+                            : (user_can('Delete Order') || user_can('Update Order'));
                     @endphp
 
                         @forelse ($orderItemList as $key => $item)

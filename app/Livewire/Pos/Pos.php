@@ -3826,7 +3826,7 @@ class Pos extends Component
             return user_can('Edit Billed Order');
         }
 
-        return user_can('Delete Order');
+        return user_can('Delete Order') || user_can('Update Order');
     }
 
     /**
