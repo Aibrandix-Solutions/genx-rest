@@ -167,6 +167,49 @@ class AddCustomer extends Component
         }
     }
 
+    /**
+     * POS due flow: one tap on a search result attaches the customer and continues payment.
+     */
+    public function selectOrAttachSearchResult(int $customerId): void
+    {
+        if ($this->forDuePayment && $this->preferDueAfterAttach && $this->order) {
+            $this->quickAttachExistingCustomer($customerId);
+
+            return;
+        }
+
+        $this->selectCustomer($customerId);
+    }
+
+    protected function quickAttachExistingCustomer(int $customerId): void
+    {
+        $customer = Customer::where('restaurant_id', restaurant()->id)->find($customerId);
+
+        if (!$customer || !$this->order) {
+            return;
+        }
+
+        $this->order->customer_id = $customer->id;
+        if (!empty($customer->delivery_address)) {
+            $this->order->delivery_address = $customer->delivery_address;
+        }
+        $this->order->save();
+
+        if ($this->forDuePayment && $this->preferDueAfterAttach) {
+            $this->dispatch('customerReadyForDuePayment', orderId: $this->order->id)
+                ->to(\App\Livewire\Order\AddPayment::class);
+        }
+
+        if (!$this->fromPos) {
+            $this->dispatch('showOrderDetail', id: $this->order->id);
+        }
+
+        $this->dispatch('refreshOrders');
+        $this->dispatch('refreshPos');
+
+        $this->resetForm();
+    }
+
     public function createNewCustomer()
     {
         // Store the search query before clearing it

@@ -1,5 +1,5 @@
 <div>
-    <x-dialog-modal wire:model.live="showAddPaymentModal" maxWidth="4xl" class="w-full max-w-full">
+    <x-dialog-modal wire:model.live="showAddPaymentModal" maxWidth="4xl" class="w-full max-w-full" modalZIndex="z-[100]">
         <x-slot name="title">
             @if($order)
 

@@ -46,9 +46,13 @@ class AddPayment extends Component
     public $canAddTip;
     public $predefinedAmounts = [];
 
+    /** When split bill "due" is chosen without a customer, we re-apply due to this split after attach. */
+    public ?int $pendingDueSplitIdForCustomerModal = null;
+
     #[On('showPaymentModal')]
     public function showPaymentModal($id)
     {
+        $this->pendingDueSplitIdForCustomerModal = null;
         $this->order = Order::with([
             'items',
             'items.menuItem',
@@ -279,6 +283,9 @@ class AddPayment extends Component
 
     public function setPaymentMethod($method)
     {
+        // Full payment: clear any split-bill due latch so customer attach targets the correct UI.
+        $this->pendingDueSplitIdForCustomerModal = null;
+
         if ($method === 'due' && $this->order) {
             $this->order->refresh();
             if (!$this->order->canRecordDueBalance()) {
@@ -313,6 +320,18 @@ class AddPayment extends Component
         $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
         if (!$this->order->customer_id) {
+            return;
+        }
+
+        if ($this->pendingDueSplitIdForCustomerModal !== null) {
+            $splitId = $this->pendingDueSplitIdForCustomerModal;
+            $this->pendingDueSplitIdForCustomerModal = null;
+
+            if (isset($this->splits[$splitId])) {
+                $this->splits[$splitId]['paymentMethod'] = 'due';
+                $this->splits = $this->splits;
+            }
+
             return;
         }
 
@@ -655,15 +674,33 @@ class AddPayment extends Component
         return view('livewire.order.add-payment');
     }
 
+    public function updatedShowAddPaymentModal($value): void
+    {
+        if (! $value) {
+            $this->pendingDueSplitIdForCustomerModal = null;
+        }
+    }
+
     public function updateSplitPaymentMethod($splitId, $method)
     {
         if ($method === 'due' && $this->order) {
             $this->order->refresh();
             if (!$this->order->canRecordDueBalance()) {
-                $this->promptCustomerForDuePayment(false);
-                $method = 'cash';
+                $this->pendingDueSplitIdForCustomerModal = (int) $splitId;
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: true,
+                    forDuePayment: true,
+                    preferDueAfterAttach: true
+                )->to(AddCustomer::class);
+
+                return;
             }
         }
+
+        $this->pendingDueSplitIdForCustomerModal = null;
 
         if (isset($this->splits[$splitId])) {
             $this->splits[$splitId]['paymentMethod'] = $method;
