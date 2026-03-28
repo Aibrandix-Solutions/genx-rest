@@ -232,16 +232,16 @@
                                     @endif
 
                                     {{-- Content Section --}}
-                                    <div class="p-2">
-                                        <h5 class="text-sm font-medium text-gray-900 dark:text-white min-h-[2.5rem]">
+                                    <div class="p-2 min-w-0">
+                                        <h5 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2">
                                             {{ $combo->getTranslation('name', app()->getLocale()) }}
                                         </h5>
-                                        <div class="mt-1 flex items-center justify-between gap-2">
-                                            <div class="flex flex-col">
-                                                <span class="text-xs text-gray-500 dark:text-gray-400 line-through">
-                                                    {{ currency_format($combo->regular_price, restaurant()->currency_id) }}
-                                                </span>
-                                                <span class="text-base font-semibold text-green-600 dark:text-green-400">
+                                        <div class="mt-1">
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 line-through">
+                                                {{ currency_format($combo->regular_price, restaurant()->currency_id) }}
+                                            </div>
+                                            <div class="flex items-center gap-1 flex-wrap">
+                                                <span class="text-sm font-semibold text-green-600 dark:text-green-400">
                                                     {{ currency_format($combo->discounted_price, restaurant()->currency_id) }}
                                                 </span>
                                                 @if($combo->discount_percent > 0)
@@ -251,8 +251,13 @@
                                                 @endif
                                             </div>
                                         </div>
-                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                            {{ $combo->comboPackItems->count() }} items
+                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 overflow-hidden">
+                                            @foreach($combo->comboPackItems->take(3) as $cItem)
+                                                <div class="truncate">{{ $cItem->quantity }}× {{ $cItem->menuItem?->item_name ?? '?' }}</div>
+                                            @endforeach
+                                            @if($combo->comboPackItems->count() > 3)
+                                                <div class="text-gray-400">+{{ $combo->comboPackItems->count() - 3 }} more</div>
+                                            @endif
                                         </div>
                                     </div>
                                 </label>
