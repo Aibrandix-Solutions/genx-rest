@@ -96,7 +96,6 @@ class DetailedSalesReport extends Component
     private function prepareDateTimeData()
     {
         $timezone = timezone();
-        $offset = Carbon::now($timezone)->format('P');
 
         $startDateTime = Carbon::createFromFormat('m/d/Y H:i', $this->startDate . ' ' . $this->startTime, $timezone)
             ->toDateTimeString();
@@ -107,7 +106,7 @@ class DetailedSalesReport extends Component
         $startTime = Carbon::parse($this->startTime, $timezone)->format('H:i');
         $endTime = Carbon::parse($this->endTime, $timezone)->format('H:i');
 
-        return compact('timezone', 'offset', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
+        return compact('timezone', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
     }
 
     public function updatedDateRangeType($value)
@@ -143,7 +142,6 @@ class DetailedSalesReport extends Component
                 $dateTimeData['startTime'],
                 $dateTimeData['endTime'],
                 $dateTimeData['timezone'],
-                $dateTimeData['offset'],
                 $this->filterByWaiter,
                 $this->filterPaymentMethod
             ),

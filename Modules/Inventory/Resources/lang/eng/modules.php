@@ -355,6 +355,7 @@ return [
 
         // Messages
         'items_received' => 'Items received successfully.',
+        'receive_location_required' => 'This purchase has no receive location. Set a location on the purchase or create an active branch location for this branch before receiving stock.',
         'cannot_receive' => 'This purchase order cannot be received.',
         'invalid_quantity' => 'Invalid receiving quantity.',
         'payment_account_missing_revert' => 'The payment account used for this payment no longer exists, so the previous balance change cannot be reversed safely. Restore the account or contact an administrator before editing this payment.',

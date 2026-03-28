@@ -243,9 +243,12 @@ class Pos extends Component
             $this->taxMode = $order->tax_mode ?? $this->taxMode;
             $this->selectedDeliveryApp = $order->delivery_app_id;
 
+            $this->selectDeliveryExecutive = $order->delivery_executive_id;
+
+            // kot.blade passes orderDetail="{{ $showOrderDetail }}" (URL flag). Only replace with the real Order
+            // when that flag is set — otherwise keep cart empty for "New KOT" (pos shows kot_items, not order_detail).
             if ($this->orderDetail) {
                 $this->orderDetail = $order;
-                $this->selectDeliveryExecutive = $order->delivery_executive_id;
             }
         }
 
@@ -2233,7 +2236,7 @@ class Pos extends Component
                 'delivery_fee' => ($this->orderType == 'delivery' ? $this->deliveryFee : 0),
                 'delivery_app_id' => ($this->orderType == 'delivery' ? $this->normalizeDeliveryAppId() : null),
                 'status' => $status,
-                'order_status' => $this->orderStatus ?? 'confirmed'
+                'order_status' => $this->orderStatus ?? 'confirmed',
             ]);
         }
 
