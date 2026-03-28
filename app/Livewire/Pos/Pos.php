@@ -796,14 +796,22 @@ class Pos extends Component
                     }
                     
                     if ($isComboItem && ($orderItem || $comboPackId)) {
-                        // Assign a unique instance key per combo per KOT.
-                        // The first time we see comboPackId in this KOT, allocate a new instance number.
-                        if (!isset($comboInThisKot[$comboPackId])) {
-                            $instanceNum = $comboInstanceCounters[$comboPackId] ?? 0;
-                            $comboInstanceCounters[$comboPackId] = $instanceNum + 1;
-                            $comboInThisKot[$comboPackId] = $comboPackId . '_' . $instanceNum;
+                        // Prefer persisted combo instance token so one combo split into multiple
+                        // kitchen KOTs still resolves to one "remove whole combo" group.
+                        $instanceKey = $this->extractComboInstanceKey($item->note)
+                            ?? $this->extractComboInstanceKey($orderItem?->note);
+
+                        // Backward-compatible fallback for old rows without instance tokens.
+                        if (!$instanceKey) {
+                            // Assign a unique instance key per combo per KOT.
+                            // The first time we see comboPackId in this KOT, allocate a new instance number.
+                            if (!isset($comboInThisKot[$comboPackId])) {
+                                $instanceNum = $comboInstanceCounters[$comboPackId] ?? 0;
+                                $comboInstanceCounters[$comboPackId] = $instanceNum + 1;
+                                $comboInThisKot[$comboPackId] = $comboPackId . '_' . $instanceNum;
+                            }
+                            $instanceKey = $comboInThisKot[$comboPackId];
                         }
-                        $instanceKey = $comboInThisKot[$comboPackId];
 
                         // Restore combo pricing from order item if available
                         if ($orderItem) {
@@ -920,8 +928,8 @@ class Pos extends Component
                     }
 
                     if ($item->note) {
-                        // Strip legacy [COMBO:id] markers — they are no longer injected into notes
-                        $cleanNote = trim(preg_replace('/\s*\[COMBO:\d+\]\s*/', '', $item->note));
+                        // Strip combo metadata markers so UI notes stay human-readable.
+                        $cleanNote = trim(preg_replace('/\s*\[(?:COMBO:\d+|COMBO_INSTANCE:[^\]]+)\]\s*/', '', $item->note));
                         if ($cleanNote !== '') {
                             $this->itemNotes[$key] = $cleanNote;
                         }
@@ -2293,7 +2301,8 @@ class Pos extends Component
                         continue;
                     }
 
-                    $note = $this->itemNotes[$key] ?? null;
+                    $comboInstanceKey = $this->orderItemComboPack[$key] ?? null;
+                    $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
 
                     $kotItem = KotItem::create([
                         'kot_id' => $kot->id,
@@ -2330,6 +2339,7 @@ class Pos extends Component
                     $comboInstanceKey = $this->orderItemComboPack[$key] ?? null;
                     $comboPackIdKot = $comboInstanceKey ? (int)explode('_', (string)$comboInstanceKey)[0] : null;
                     $isComboItemKot = !empty($comboInstanceKey);
+                    $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
 
                     if ($this->orderTypeId) {
                         $value->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
@@ -2353,7 +2363,7 @@ class Pos extends Component
                         'combo_discount_amount'   => $this->orderItemComboDiscount[$key] ?? null,
                         'is_combo_item'           => $isComboItemKot,
                         'amount'                  => $this->orderItemAmount[$key],
-                        'note'                    => $this->itemNotes[$key] ?? null,
+                        'note'                    => $note,
                         'tax_amount'              => $this->orderItemTaxDetails[$key]['tax_amount'] ?? null,
                         'tax_percentage'          => $this->orderItemTaxDetails[$key]['tax_percent'] ?? null,
                     ]);
@@ -2412,6 +2422,7 @@ class Pos extends Component
                     $originalPrice = $this->orderItemOriginalPrice[$key] ?? null;
                     $comboDiscountAmount = $this->orderItemComboDiscount[$key] ?? null;
                     $isComboItem = !empty($comboInstanceKey);
+                    $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
                     
                     // For combo items, calculate per-unit price from orderItemAmount
                     // For regular items, use menu item price
@@ -2430,6 +2441,7 @@ class Pos extends Component
                         'combo_discount_amount' => $comboDiscountAmount,
                         'is_combo_item' => $isComboItem,
                         'amount' => $this->orderItemAmount[$key],
+                        'note' => $note,
                     ]);
                     $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
                     $orderItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
@@ -2477,6 +2489,7 @@ class Pos extends Component
                 $originalPrice = $this->orderItemOriginalPrice[$key] ?? null;
                 $comboDiscountAmount = $this->orderItemComboDiscount[$key] ?? null;
                 $isComboItem = !empty($comboInstanceKey);
+                $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
                 
                 // For combo items, calculate per-unit price from orderItemAmount
                 // For regular items, use menu item price
@@ -2497,7 +2510,7 @@ class Pos extends Component
                     'combo_discount_amount' => $comboDiscountAmount,
                     'is_combo_item' => $isComboItem,
                     'amount' => $this->orderItemAmount[$key],
-                    'note' => $this->itemNotes[$key] ?? null,
+                    'note' => $note,
                     'tax_amount' => $this->orderItemTaxDetails[$key]['tax_amount'] ?? null,
                     'tax_percentage' => $this->orderItemTaxDetails[$key]['tax_percent'] ?? null,
                     'tax_breakup' => $taxBreakup,
@@ -2978,6 +2991,31 @@ class Pos extends Component
             'kot_id' => $parts[1],
             'kot_item_id' => $parts[2],
         ];
+    }
+
+    protected function extractComboInstanceKey(?string $note): ?string
+    {
+        if (!$note) {
+            return null;
+        }
+
+        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $note, $matches) && !empty($matches[1])) {
+            return trim((string) $matches[1]);
+        }
+
+        return null;
+    }
+
+    protected function withComboInstanceNote(?string $note, ?string $instanceKey): ?string
+    {
+        $base = trim((string) preg_replace('/\s*\[COMBO_INSTANCE:[^\]]+\]\s*/', ' ', (string) $note));
+
+        if (empty($instanceKey)) {
+            return $base !== '' ? $base : null;
+        }
+
+        $merged = trim($base . ' [COMBO_INSTANCE:' . $instanceKey . ']');
+        return $merged !== '' ? $merged : null;
     }
 
     protected function applyKotQuantityChange(string $itemId, int $newQuantity, ?string $note = null): void

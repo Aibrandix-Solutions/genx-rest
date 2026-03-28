@@ -57,6 +57,7 @@ class OrderDetail extends Component
     public $removalReason = '';
     public $pendingOrderItemId = null;
     public $pendingComboPackId = null;
+    public $pendingComboGroupKey = null;
     public $showDiscountModal = false;
     public $discountValue = null;
     public $discountType = 'fixed';
@@ -232,6 +233,7 @@ class OrderDetail extends Component
         $this->removalReason = '';
         $this->pendingOrderItemId = null;
         $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = null;
     }
 
     public function confirmOrderItemRemoval(): void
@@ -240,12 +242,15 @@ class OrderDetail extends Component
             'removalReason' => 'required|string|min:3',
         ]);
 
-        if (!$this->pendingOrderItemId && !$this->pendingComboPackId) {
+        if (!$this->pendingOrderItemId && !$this->pendingComboPackId && !$this->pendingComboGroupKey) {
             return;
         }
 
-        if ($this->pendingComboPackId) {
-            $this->executeComboGroupRemoval((int) $this->pendingComboPackId, $this->removalReason);
+        if ($this->pendingComboGroupKey) {
+            $this->executeComboGroupRemoval($this->pendingComboGroupKey, $this->removalReason);
+        } elseif ($this->pendingComboPackId) {
+            // Backward compatibility for old state shape.
+            $this->executeComboGroupRemoval('pack:' . (int) $this->pendingComboPackId, $this->removalReason);
         } else {
             $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
         }
@@ -267,7 +272,7 @@ class OrderDetail extends Component
         $this->performOrderItemDeletion($id);
     }
 
-    public function removeComboGroup(int $comboPackId): void
+    public function removeComboGroup(string $comboGroupKey): void
     {
         if (!$this->order) {
             return;
@@ -297,31 +302,48 @@ class OrderDetail extends Component
             return;
         }
 
-        $comboItemIds = $this->order->items()
-            ->where('combo_pack_id', $comboPackId)
-            ->pluck('id')
-            ->all();
+        $comboItemIds = $this->getComboOrderItemIdsByGroupKey($comboGroupKey);
 
         if (empty($comboItemIds)) {
             return;
         }
 
         $this->pendingOrderItemId = null;
-        $this->pendingComboPackId = $comboPackId;
+        $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = $this->normalizeComboGroupKey($comboGroupKey);
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
     }
 
-    protected function executeComboGroupRemoval(int $comboPackId, string $note): void
+    public function removeComboGroupByOrderItem(int $orderItemId): void
     {
         if (!$this->order) {
             return;
         }
 
-        $comboItemIds = $this->order->items()
-            ->where('combo_pack_id', $comboPackId)
-            ->pluck('id')
-            ->all();
+        $orderItem = $this->order->items()
+            ->whereNotNull('combo_pack_id')
+            ->find($orderItemId);
+
+        if (!$orderItem) {
+            return;
+        }
+
+        $instanceKey = $this->extractComboInstanceKey($orderItem->note);
+        $comboGroupKey = $instanceKey
+            ? 'instance:' . $instanceKey
+            : 'pack:' . (int) $orderItem->combo_pack_id;
+
+        $this->removeComboGroup($comboGroupKey);
+    }
+
+    protected function executeComboGroupRemoval(string $comboGroupKey, string $note): void
+    {
+        if (!$this->order) {
+            return;
+        }
+
+        $comboItemIds = $this->getComboOrderItemIdsByGroupKey($comboGroupKey);
 
         if (empty($comboItemIds)) {
             return;
@@ -409,6 +431,87 @@ class OrderDetail extends Component
         }
 
         $this->dispatch('refreshPos');
+    }
+
+    protected function extractComboInstanceKey(?string $note): ?string
+    {
+        if (!$note) {
+            return null;
+        }
+
+        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $note, $matches) && !empty($matches[1])) {
+            return trim((string) $matches[1]);
+        }
+
+        return null;
+    }
+
+    protected function normalizeComboGroupKey(?string $comboGroupKey): ?string
+    {
+        if ($comboGroupKey === null) {
+            return null;
+        }
+
+        $comboGroupKey = trim((string) $comboGroupKey);
+        if ($comboGroupKey === '') {
+            return null;
+        }
+
+        if (is_numeric($comboGroupKey)) {
+            return 'pack:' . (int) $comboGroupKey;
+        }
+
+        if (str_starts_with($comboGroupKey, 'instance:') || str_starts_with($comboGroupKey, 'pack:')) {
+            return $comboGroupKey;
+        }
+
+        return $comboGroupKey;
+    }
+
+    protected function getComboOrderItemIdsByGroupKey(?string $comboGroupKey): array
+    {
+        if (!$this->order) {
+            return [];
+        }
+
+        $normalizedKey = $this->normalizeComboGroupKey($comboGroupKey);
+        if (!$normalizedKey) {
+            return [];
+        }
+
+        $comboItems = $this->order->items()
+            ->whereNotNull('combo_pack_id')
+            ->get(['id', 'combo_pack_id', 'note']);
+
+        if (str_starts_with($normalizedKey, 'instance:')) {
+            $instanceKey = substr($normalizedKey, strlen('instance:'));
+            if ($instanceKey === '') {
+                return [];
+            }
+
+            return $comboItems
+                ->filter(fn ($item) => $this->extractComboInstanceKey($item->note) === $instanceKey)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
+
+        if (str_starts_with($normalizedKey, 'pack:')) {
+            $comboPackId = (int) substr($normalizedKey, strlen('pack:'));
+            if ($comboPackId <= 0) {
+                return [];
+            }
+
+            return $comboItems
+                ->where('combo_pack_id', $comboPackId)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
+
+        return [];
     }
 
     public function updatedOrderProgressStatus($value)
