@@ -91,7 +91,7 @@ class EditDirectPurchase extends Component
         'items.*.discount' => 'nullable|numeric|min:0',
         'items.*.discount_type' => 'required|in:fixed,percentage',
         'paymentAmount' => 'nullable|numeric|min:0',
-        'paymentDate' => 'required_if:recordPayment,true|date',
+        'paymentDate' => 'nullable|required_if:recordPayment,true|date_format:Y-m-d\TH:i',
         'paymentMethod' => 'required_if:recordPayment,true',
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
         'attachments.*' => 'nullable|file|mimes:pdf,jpeg,jpg,png,gif,webp|max:5120',
@@ -180,7 +180,7 @@ class EditDirectPurchase extends Component
         $this->recordPayment = true;
         $this->editingPaymentId = $payment->id;
         $this->paymentAmount = (float) $payment->amount;
-        $this->paymentDate = optional($payment->paid_on)->format('Y-m-d\\TH:i');
+        $this->paymentDate = optional($payment->paid_on)->format('Y-m-d\TH:i');
         $this->paymentMethod = $payment->payment_method ?: 'cash';
         $this->paymentAccountId = $payment->payment_account_id;
         $this->paymentNote = $payment->note;
@@ -190,7 +190,7 @@ class EditDirectPurchase extends Component
     {
         $this->editingPaymentId = null;
         $this->paymentAmount = null;
-        $this->paymentDate = now()->format('Y-m-d\\TH:i');
+        $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentMethod = 'cash';
         $this->paymentAccountId = null;
         $this->paymentNote = null;

@@ -14,19 +14,18 @@ use Maatwebsite\Excel\Concerns\{FromCollection, ShouldAutoSize, WithHeadings, Wi
 class SalesReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
-    protected string $startTime, $endTime, $timezone, $offset;
+    protected string $startTime, $endTime, $timezone;
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $offset)
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
-        $this->offset = $offset;
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');

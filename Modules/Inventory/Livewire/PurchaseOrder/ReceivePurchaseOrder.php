@@ -4,6 +4,7 @@ namespace Modules\Inventory\Livewire\PurchaseOrder;
 
 use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseLocation;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -41,13 +42,37 @@ class ReceivePurchaseOrder extends Component
             'items.*.receiving_quantity' => trans('inventory::modules.purchaseOrder.receiving_quantity'),
         ]);
 
-        DB::transaction(function () {
+        $this->purchaseOrder->loadMissing(['location', 'branch']);
+        $purchaseLocation = $this->purchaseOrder->location;
+
+        if (!$purchaseLocation && $this->purchaseOrder->location_id) {
+            $purchaseLocation = PurchaseLocation::find($this->purchaseOrder->location_id);
+        }
+
+        if (!$purchaseLocation) {
+            $restaurantId = $this->purchaseOrder->branch?->restaurant_id ?? restaurant()->id;
+            $purchaseLocation = PurchaseLocation::query()
+                ->where('restaurant_id', $restaurantId)
+                ->where('type', 'branch')
+                ->where('branch_id', $this->purchaseOrder->branch_id)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->first();
+        }
+
+        if (!$purchaseLocation) {
+            $this->alert('error', trans('inventory::modules.purchaseOrder.receive_location_required'));
+
+            return;
+        }
+
+        $targetLocationId = (int) $purchaseLocation->id;
+        $targetBranchId = ($purchaseLocation->type === 'branch' && $purchaseLocation->branch_id)
+            ? (int) $purchaseLocation->branch_id
+            : (int) $this->purchaseOrder->branch_id;
+
+        DB::transaction(function () use ($targetLocationId, $targetBranchId) {
             $allReceived = true;
-            $purchaseLocation = $this->purchaseOrder->location;
-            $targetLocationId = $purchaseLocation?->id;
-            $targetBranchId = ($purchaseLocation && $purchaseLocation->type === 'branch' && $purchaseLocation->branch_id)
-                ? (int) $purchaseLocation->branch_id
-                : (int) $this->purchaseOrder->branch_id;
             
             foreach ($this->items as $item) {
                 if ($item['receiving_quantity'] > 0) {
