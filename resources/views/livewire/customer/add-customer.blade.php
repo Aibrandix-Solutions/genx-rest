@@ -1,4 +1,4 @@
-<x-dialog-modal wire:model.live="showAddCustomerModal" maxWidth="2xl" modalZIndex="z-[200]">
+<x-dialog-modal wire:model.live="showAddCustomerModal" maxWidth="2xl">
     <x-slot name="title">
         <div class="flex items-center space-x-3">
             <div class="flex-shrink-0">
@@ -46,7 +46,7 @@
                     <!-- Search Results Dropdown -->
                     <div class="relative mt-3" @click.away="$wire.call('resetSearch')">
                         @if($availableResults && count($availableResults) > 0)
-                            <div class="absolute z-[300] w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+                            <div class="absolute z-50 w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
                                 <div class="max-h-60 overflow-y-auto">
                                     <div class="p-2 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
                                         <p class="text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -95,7 +95,7 @@
                                 </div>
                             </div>
                         @elseif($searchQuery && strlen($searchQuery) >= 2)
-                            <div class="absolute z-[300] w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
+                            <div class="absolute z-50 w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 overflow-hidden">
                                 <div class="p-4 text-center">
                                     <div class="w-12 h-12 mx-auto mb-3 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
                                         <svg class="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
