@@ -130,6 +130,10 @@
                         @endphp
 
                         @forelse($kitchenItems as $item)
+                            @php
+                                $itemKitchenCount = $item->kotPlaces()->count();
+                                $isMultiKitchen = $itemKitchenCount > 1;
+                            @endphp
                             <div class="flex items-center justify-between p-2 rounded-md transition-colors
                                 @if($searchItem && stripos($item->item_name, $searchItem) !== false)
                                     bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700
@@ -148,6 +152,14 @@
                                         @endif">
                                         {{ $item->item_name }}
                                     </span>
+                                    @if($isMultiKitchen)
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200" title="{{ $itemKitchenCount }} {{ __('kitchen::modules.menu.kitchens') }}">
+                                            <svg class="w-3 h-3 mr-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                                            </svg>
+                                            {{ $itemKitchenCount }}
+                                        </span>
+                                    @endif
                                 </div>
                                 <div class="flex items-center space-x-2">
                                     @if($item->variations && $item->variations->count() > 0)
@@ -159,7 +171,7 @@
                                             {{ currency_format($item->price, restaurant()->currency_id) }}
                                         </span>
                                     @endif
-                                    <button wire:click="removeItemFromKitchen({{ $item->id }})"
+                                    <button wire:click="removeItemFromKitchen({{ $item->id }}, {{ $kitchen->id }})"
                                         class="text-gray-400 hover:text-red-500 p-1 transition-colors">
                                         <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                                             <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />

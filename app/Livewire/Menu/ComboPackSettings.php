@@ -44,12 +44,21 @@ class ComboPackSettings extends Component
 
     protected function rules()
     {
+        // Discount value bounds: percent must be 0-100, fixed must not exceed regular price
+        if ($this->discountType === 'percent') {
+            $discountValueRule = 'required|numeric|min:0|max:100';
+        } elseif ($this->regularPrice > 0) {
+            $discountValueRule = 'required|numeric|min:0|max:' . $this->regularPrice;
+        } else {
+            $discountValueRule = 'required|numeric|min:0';
+        }
+
         return [
             'name' => 'required|string|max:255',
             'description' => 'nullable|string',
             'imageTemp' => 'nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048',
             'discountType' => 'required|in:fixed,percent',
-            'discountValue' => 'required|numeric|min:0',
+            'discountValue' => $discountValueRule,
             'isActive' => 'boolean',
             'selectedItems' => 'required|array|min:1',
             'selectedItems.*' => 'exists:menu_items,id',
@@ -212,7 +221,11 @@ class ComboPackSettings extends Component
             $menuItem = MenuItem::find($menuItemId);
             
             if ($menuItem) {
-                $quantity = $this->itemQuantities[$key] ?? 1;
+                $rawQuantity = $this->itemQuantities[$key] ?? 1;
+                if (is_string($rawQuantity)) {
+                    $rawQuantity = str_replace(',', '', $rawQuantity);
+                }
+                $quantity = is_numeric($rawQuantity) ? (float)$rawQuantity : 1.0;
                 $variationId = $variationId !== '0' ? (int)$variationId : null;
                 
                 if ($variationId) {
@@ -326,12 +339,22 @@ class ComboPackSettings extends Component
                 // Delete existing combo items
                 $combo->comboPackItems()->delete();
 
-                // Create new combo items
+                // Create new combo items with variation ownership validation
                 $sortOrder = 0;
                 foreach ($this->selectedItems as $key) {
                     [$menuItemId, $variationId] = explode('_', $key);
                     $variationId = $variationId !== '0' ? (int)$variationId : null;
-                    $quantity = $this->itemQuantities[$key] ?? 1;
+                    $quantity = (int)($this->itemQuantities[$key] ?? 1);
+
+                    // Phase 1.3: Validate that variation belongs to its menu item
+                    if ($variationId) {
+                        $validVariation = \App\Models\MenuItemVariation::where('id', $variationId)
+                            ->where('menu_item_id', (int)$menuItemId)
+                            ->exists();
+                        if (!$validVariation) {
+                            throw new \Exception("Variation ID {$variationId} does not belong to menu item ID {$menuItemId}.");
+                        }
+                    }
 
                     ComboPackItem::create([
                         'combo_pack_id' => $combo->id,

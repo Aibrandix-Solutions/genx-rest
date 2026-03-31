@@ -187,7 +187,40 @@ class MenuItem extends BaseModel
 
     public function kotPlace()
     {
-        return $this->belongsTo(KotPlace::class, 'kot_places_id');
+        return $this->belongsTo(KotPlace::class, 'kot_place_id');
+    }
+
+    /**
+     * Many-to-many: all kitchen places this item can be prepared in.
+     */
+    public function kotPlaces(): BelongsToMany
+    {
+        return $this->belongsToMany(KotPlace::class, 'menu_item_kot_place', 'menu_item_id', 'kot_place_id')
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
+
+    /**
+     * Get all kitchen place IDs (from pivot table, falling back to kot_place_id).
+     */
+    public function getKitchenPlaceIds(): array
+    {
+        $pivotIds = $this->kotPlaces()->pluck('kot_places.id')->toArray();
+
+        if (!empty($pivotIds)) {
+            return $pivotIds;
+        }
+
+        // Fallback to legacy single kot_place_id
+        return $this->kot_place_id ? [$this->kot_place_id] : [];
+    }
+
+    /**
+     * Check if item is assigned to multiple kitchens.
+     */
+    public function isMultiKitchen(): bool
+    {
+        return count($this->getKitchenPlaceIds()) > 1;
     }
 
     public function taxes(): BelongsToMany

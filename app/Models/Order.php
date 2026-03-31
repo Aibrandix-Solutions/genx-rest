@@ -52,6 +52,14 @@ class Order extends BaseModel
         return $this->belongsTo(Customer::class);
     }
 
+    /**
+     * Whether this order may have an outstanding balance tracked as "due" (POS / ledger policy).
+     */
+    public function canRecordDueBalance(): bool
+    {
+        return (bool) $this->customer_id;
+    }
+
     public function waiter(): BelongsTo
     {
         return $this->belongsTo(User::class)->withoutGlobalScope(BranchScope::class);

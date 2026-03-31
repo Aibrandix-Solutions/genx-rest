@@ -16,6 +16,13 @@
                                     wire:model.live.debounce.500ms="search" />
                             </div>
                         </form>
+                        <div class="ml-2">
+                            <select wire:model.live="filterCustomer" class="px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg focus:ring-4 focus:ring-primary-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-700 dark:focus:ring-gray-700">
+                                <option value="all">@lang('modules.customer.allCustomers')</option>
+                                <option value="with_outstanding">@lang('modules.customer.withOutstanding')</option>
+                                <option value="no_outstanding">@lang('modules.customer.noOutstanding')</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="flex items-center space-x-2">
                         {{-- <x-button type='button' wire:click="$set('showImportCustomer', true)">@lang('app.import')</x-button> --}}
@@ -53,7 +60,7 @@
 
         </div>
 
-        <livewire:customer.customer-table :search='$search' key='customer-table-{{ microtime() }}' />
+        <livewire:customer.customer-table :search='$search' :filterCustomer='$filterCustomer' key='customer-table-{{ microtime() }}' />
 
 
     </div>

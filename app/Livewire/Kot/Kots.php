@@ -145,7 +145,21 @@ class Kots extends Component
             return;
         }
 
-        $kot = Kot::findOrFail($id);
+        $kot = Kot::with('items')->findOrFail($id);
+
+        // Guard: prevent cancelling a KOT whose items are all claimed by another kitchen
+        $currentKitchenId = $this->kotPlace?->id;
+        if ($currentKitchenId) {
+            $allClaimedByOthers = $kot->items->count() > 0 && $kot->items->every(function ($item) use ($currentKitchenId) {
+                return $item->is_multi_kitchen && $item->claimed_by_kitchen_id && $item->claimed_by_kitchen_id != $currentKitchenId;
+            });
+            if ($allClaimedByOthers) {
+                $this->confirmDeleteKotModal = false;
+                $this->dispatch('refreshKots');
+                return;
+            }
+        }
+
         $order = $kot->order;
         $kotCounts = $order->kot()->whereNot('status', 'cancelled')->count();
 
@@ -195,13 +209,17 @@ class Kots extends Component
         if ($this->showAllKitchens) {
             // For all kitchens view - show KOTs from all kitchens
             $kots = Kot::withCount('items')
-                ->orderBy('id', 'desc')
+                ->select('kots.*')
+                ->orderBy('kots.id', 'desc')
                 ->join('orders', 'kots.order_id', '=', 'orders.id')
                 ->where('orders.date_time', '>=', $start)
                 ->where('orders.date_time', '<=', $end)
                 ->where('orders.status', '<>', 'draft')
+                ->whereHas('items')
                 ->with([
+                    'kotPlace',
                     'items.menuItem',
+                    'items.claimedByKitchen',
                     'order',
                     'order.waiter',
                     'order.table',
@@ -211,11 +229,9 @@ class Kots extends Component
                     'cancelReason'
                 ]);
 
-            // Filter by kitchen if selected
+            // Filter by kitchen if selected (use KOT's kitchen_place_id for multi-kitchen support)
             if ($this->selectedKitchen) {
-                $kots = $kots->whereHas('items.menuItem', function ($q) {
-                    $q->where('kot_place_id', $this->selectedKitchen);
-                });
+                $kots = $kots->where('kots.kitchen_place_id', $this->selectedKitchen);
             }
 
             // Search functionality
@@ -239,32 +255,37 @@ class Kots extends Component
 
             $kots = $kots->get();
         } elseif (module_enabled('Kitchen') && in_array('Kitchen', restaurant_modules())) {
-            // Original kitchen module logic
-            $kots = Kot::withCount(['items' => function ($query) {
-                $query->whereHas('menuItem', function ($q) {
-                    $q->where('kitchen_place_id', $this->kotPlace?->id)
-                        ->orWhereNull('kitchen_place_id');
-                });
-            }])->orderBy('id', 'desc')
+            // Kitchen module logic — show KOTs assigned to this kitchen OR
+            // KOTs containing multi-kitchen items assigned to this kitchen via pivot
+            $currentKitchenId = $this->kotPlace?->id;
+            $kots = Kot::withCount('items')
+                ->select('kots.*')
+                ->distinct()
+                ->orderBy('kots.id', 'desc')
                 ->join('orders', 'kots.order_id', '=', 'orders.id')
                 ->where('orders.date_time', '>=', $start)->where('orders.date_time', '<=', $end)
                 ->where('orders.status', '<>', 'draft')
-                ->whereHas('items.menuItem', function ($q) {
-                    $q->where('kot_place_id', $this->kotPlace?->id);
+                ->whereHas('items')
+                ->where(function ($q) use ($currentKitchenId) {
+                    // KOTs directly assigned to this kitchen
+                    $q->where('kots.kitchen_place_id', $currentKitchenId)
+                      // OR KOTs with multi-kitchen items that are assigned to this kitchen
+                      ->orWhereHas('items', function ($itemQuery) use ($currentKitchenId) {
+                          $itemQuery->where('is_multi_kitchen', true)
+                              ->whereHas('menuItem.kotPlaces', function ($pivotQuery) use ($currentKitchenId) {
+                                  $pivotQuery->where('kot_places.id', $currentKitchenId);
+                              });
+                      });
                 })
                 ->with([
+                    'kotPlace',
                     'items' => function ($query) {
-                        $query->whereHas('menuItem', function ($q) {
-                            $q->where('kot_place_id', $this->kotPlace?->id);
-                        })->with(['menuItem', 'menuItemVariation', 'modifierOptions']);
+                        $query->with(['menuItem', 'menuItemVariation', 'modifierOptions', 'claimedByKitchen']);
                     },
-                    'items.menuItem',
                     'order',
                     'order.waiter',
                     'order.table',
                     'order.orderType',
-                    'items.menuItemVariation',
-                    'items.modifierOptions',
                     'cancelReason'
                 ]);
 
@@ -275,12 +296,15 @@ class Kots extends Component
             $kots = $kots->get();
         } else {
             // Original non-kitchen module logic
-            $kots = Kot::withCount('items')->orderBy('id', 'desc')
+            $kots = Kot::withCount('items')
+                ->select('kots.*')
+                ->orderBy('kots.id', 'desc')
                 ->join('orders', 'kots.order_id', '=', 'orders.id')
                 ->where('orders.date_time', '>=', $start)
                 ->where('orders.date_time', '<=', $end)
                 ->where('orders.status', '<>', 'draft')
-                ->with('items', 'items.menuItem', 'order', 'order.waiter', 'order.table', 'items.menuItemVariation', 'items.modifierOptions', 'cancelReason');
+                ->whereHas('items')
+                ->with('kotPlace', 'items', 'items.menuItem', 'items.claimedByKitchen', 'order', 'order.waiter', 'order.table', 'items.menuItemVariation', 'items.modifierOptions', 'cancelReason');
 
             if (user()->hasRole('Waiter_' . user()->restaurant_id)) {
                 $kots = $kots->where('orders.waiter_id', user()->id);

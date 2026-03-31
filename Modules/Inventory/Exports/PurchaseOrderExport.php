@@ -88,7 +88,7 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
                 $query->where('status', $this->status);
             })
             ->when($this->startDate && $this->endDate, function($query) {
-                $query->whereBetween('po_date', [$this->startDate, $this->endDate]);
+                $query->whereBetween('order_date', [$this->startDate, $this->endDate]);
             })
             ->latest()
             ->get();

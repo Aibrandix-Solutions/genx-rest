@@ -50,6 +50,12 @@ class PurchaseOrder extends Model
         return $this->hasMany(SupplierPayment::class);
     }
 
+    // Relationship to Purchase Attachments
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(PurchaseAttachment::class);
+    }
+
     // Calculate subtotal from items (before discount)
     public function getSubtotalAttribute()
     {

@@ -101,26 +101,6 @@ class ComboPack extends BaseModel
     }
 
     /**
-     * Calculate discount and update combo pack.
-     */
-    public function calculateDiscount(): void
-    {
-        if ($this->discount_type === 'fixed') {
-            // Fixed amount discount
-            $this->discount_amount = $this->regular_price - $this->discounted_price;
-            if ($this->regular_price > 0) {
-                $this->discount_percent = round(($this->discount_amount / $this->regular_price) * 100, 2);
-            } else {
-                $this->discount_percent = 0;
-            }
-        } else {
-            // Percentage discount
-            $this->discount_amount = round(($this->regular_price * $this->discount_percent) / 100, 2);
-            $this->discounted_price = $this->regular_price - $this->discount_amount;
-        }
-    }
-
-    /**
      * Get price for specific order type and delivery app context.
      */
     public function getPriceForContext(?int $orderTypeId = null, ?int $deliveryAppId = null): float
