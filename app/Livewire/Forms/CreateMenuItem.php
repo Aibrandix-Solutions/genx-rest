@@ -830,13 +830,27 @@ class CreateMenuItem extends Component
         // Use native filesize() via getRealPath() to avoid Livewire's livewire-tmp disk lookup,
         // which can fail on some hosting environments (UnableToRetrieveMetadata).
         $realPath = $this->itemImageTemp->getRealPath();
+        $sizeInBytes = null;
         if ($realPath && file_exists($realPath)) {
-            $sizeInKb = filesize($realPath) / 1024;
-            if ($sizeInKb > 2048) {
-                $this->addError('itemImageTemp', 'The image must not be greater than 2MB.');
-                $this->itemImageTemp = null;
-                return;
+            $sizeInBytes = filesize($realPath);
+        } else {
+            $fallbackSize = $this->itemImageTemp->getSize();
+            if (is_numeric($fallbackSize) && (int) $fallbackSize > 0) {
+                $sizeInBytes = (int) $fallbackSize;
             }
+        }
+
+        if ($sizeInBytes === null) {
+            $this->addError('itemImageTemp', 'Unable to validate image size');
+            $this->itemImageTemp = null;
+            return;
+        }
+
+        $sizeInKb = $sizeInBytes / 1024;
+        if ($sizeInKb > 2048) {
+            $this->addError('itemImageTemp', 'The image must not be greater than 2MB.');
+            $this->itemImageTemp = null;
+            return;
         }
 
         // Check image dimensions

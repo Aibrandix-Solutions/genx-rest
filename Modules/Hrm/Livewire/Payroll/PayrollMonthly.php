@@ -401,8 +401,12 @@ class PayrollMonthly extends Component
             ->whereDate('date', '>=', $from->toDateString())
             ->whereDate('date', '<=', $to->toDateString())
             ->where(function ($q) {
-                $q->whereNull('branch_id')
-                    ->orWhere('branch_id', (int) $this->branchId);
+                if ((int) $this->branchId > 0) {
+                    $q->whereNull('branch_id')
+                        ->orWhere('branch_id', (int) $this->branchId);
+                } else {
+                    $q->whereNull('branch_id');
+                }
             })
             ->count();
 
@@ -421,7 +425,7 @@ class PayrollMonthly extends Component
         // Pre-fetch EPF settings once outside the loop to avoid N+1 queries
         $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
         $epfBasic = $epfAutoCalc ? HrmSetting::get('epf_basic_salary', 0) : 0;
-        $epfRate = $epfAutoCalc ? HrmSetting::get('epf_employee_rate', 8) : 0;
+        $epfRate = (float) HrmSetting::get('epf_employee_rate', 8);
         $epfCalculated = $epfAutoCalc ? ($epfBasic * $epfRate) / 100 : 0;
 
         foreach ($employees as $e) {
@@ -478,6 +482,7 @@ class PayrollMonthly extends Component
                 'additional_pay' => round($additionalPay, 2),
                 'advance' => round($advance, 2),
                 'epf' => round($epf, 2),
+                'epf_rate' => round((float) $epfRate, 2),
                 'etf' => round($etf, 2),
                 'time_deduction' => round($timeDeduction, 2),
                 'credit_purchase' => round($creditPurchase, 2),
@@ -613,7 +618,19 @@ class PayrollMonthly extends Component
         $this->authorize('Manage Payroll');
 
         $this->validate([
-            'branchId' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))],
+            'branchId' => [
+                'required',
+                function ($attribute, $value, $fail) {
+                    if ($value === null) {
+                        $fail('Select a branch or Company Level.');
+                    } elseif ((int) $value !== 0 && !DB::table('branches')
+                        ->where('id', $value)
+                        ->where('restaurant_id', restaurant()->id)
+                        ->exists()) {
+                        $fail('Invalid branch selected.');
+                    }
+                },
+            ],
             'month' => ['required', 'date_format:Y-m'],
             'importFile' => ['required', 'file', 'mimes:xlsx,xls,csv'],
         ]);

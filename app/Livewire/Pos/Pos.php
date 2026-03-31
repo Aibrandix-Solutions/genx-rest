@@ -2591,8 +2591,16 @@ class Pos extends Component
                             MenuItem::withoutGlobalScopes()
                                 ->whereKey($menuItem->id)
                                 ->update(['kot_place_id' => $defaultKotPlaceId]);
+                            $kotPlaceId = $defaultKotPlaceId;
                         }
-                        continue;
+
+                        if ($kotPlaceId) {
+                            $kitchenIds = [$kotPlaceId];
+                        }
+
+                        if (empty($kitchenIds)) {
+                            continue;
+                        }
                     }
 
                     // Use the first (primary) kitchen — item goes to ONE KOT only

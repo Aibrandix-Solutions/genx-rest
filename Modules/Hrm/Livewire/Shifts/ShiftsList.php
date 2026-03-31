@@ -80,7 +80,9 @@ class ShiftsList extends Component
     {
         $this->authorize('Manage Shift Assignments');
 
-        $a = ShiftAssignment::query()->findOrFail($id);
+        $a = ShiftAssignment::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->assignEditingId = $a->id;
         $this->assign_branch_id = (int) $a->branch_id;
@@ -98,8 +100,8 @@ class ShiftsList extends Component
 
         $this->validate([
             'assign_branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'assign_employee_id' => ['required', 'integer', Rule::exists('hrm_employees', 'id')],
-            'assign_shift_id' => ['required', 'integer', Rule::exists('hrm_shifts', 'id')],
+            'assign_employee_id' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'assign_shift_id' => ['required', 'integer', Rule::exists('hrm_shifts', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'assign_from_date' => ['required', 'date'],
             'assign_to_date' => ['required', 'date', 'after_or_equal:assign_from_date'],
         ]);
@@ -124,7 +126,7 @@ class ShiftsList extends Component
         }
 
         $assignment = $this->assignEditingId
-            ? ShiftAssignment::query()->findOrFail($this->assignEditingId)
+            ? ShiftAssignment::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->assignEditingId)
             : new ShiftAssignment();
 
         $assignment->restaurant_id = restaurant()->id;
@@ -156,7 +158,14 @@ class ShiftsList extends Component
             return;
         }
 
-        ShiftAssignment::query()->where('id', $this->assignDeleteId)->delete();
+        $assignment = ShiftAssignment::query()
+            ->where('id', $this->assignDeleteId)
+            ->where('restaurant_id', restaurant()->id)
+            ->first();
+
+        if ($assignment) {
+            $assignment->delete();
+        }
         $this->showAssignDeleteModal = false;
         $this->assignDeleteId = null;
     }
@@ -179,7 +188,9 @@ class ShiftsList extends Component
     {
         $this->authorize('Update Shift');
 
-        $shift = Shift::query()->findOrFail($id);
+        $shift = Shift::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $shift->id;
         $this->branch_id = $shift->branch_id;
@@ -226,7 +237,7 @@ class ShiftsList extends Component
         ]);
 
         $shift = $this->editingId
-            ? Shift::query()->findOrFail($this->editingId)
+            ? Shift::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new Shift();
 
         $shift->restaurant_id = restaurant()->id;
@@ -260,7 +271,9 @@ class ShiftsList extends Component
             return;
         }
 
-        $shift = Shift::query()->findOrFail($this->deleteId);
+        $shift = Shift::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->deleteId);
         $shift->delete();
 
         $this->showDeleteModal = false;
@@ -298,6 +311,7 @@ class ShiftsList extends Component
     public function render()
     {
         $shifts = Shift::query()
+            ->where('restaurant_id', restaurant()->id)
             ->with(['branch:id,name'])
             ->when($this->branchFilterId !== null, function ($q) {
                 if ($this->branchFilterId === 0) {
@@ -330,6 +344,7 @@ class ShiftsList extends Component
         }
 
         $assignments = ShiftAssignment::query()
+            ->where('restaurant_id', restaurant()->id)
             ->with(['employee:id,name,staff_code', 'shift:id,name'])
             ->when($this->branchFilterId, fn($q) => $q->where('branch_id', $this->branchFilterId))
             ->orderByDesc('from_date')

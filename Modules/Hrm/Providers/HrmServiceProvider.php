@@ -23,9 +23,6 @@ class HrmServiceProvider extends ServiceProvider
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->name, 'Database/Migrations'));
 
-        // Ensure the module appears in custom_module_plugins() cache
-        cache()->forget('custom_module_plugins');
-
         $this->registerBladeComponents();
     }
 

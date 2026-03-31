@@ -255,6 +255,7 @@
                             @endif
                         @endforeach
                     </div>
+                </div>
                 @endif
 
                 <div class="lg:col-span-2">

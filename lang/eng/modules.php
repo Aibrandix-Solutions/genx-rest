@@ -231,6 +231,7 @@ return [
         'selectDeliveryExecutive' => 'Select Delivery Executive',
         'totalItem' => 'Item(s)',
         'subTotal' => 'Sub Total',
+        'extra' => 'Extra',
         'total' => 'Total',
         'totalOrder' => 'Total Orders',
         'orderNumber' => 'Order',

@@ -47,7 +47,9 @@ class LeaveTypesList extends Component
     {
         $this->authorize('Manage Leave Types');
 
-        $t = LeaveType::query()->findOrFail($id);
+        $t = LeaveType::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $t->id;
         $this->name = (string) $t->name;
@@ -79,7 +81,7 @@ class LeaveTypesList extends Component
         ]);
 
         $t = $this->editingId
-            ? LeaveType::query()->findOrFail($this->editingId)
+            ? LeaveType::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new LeaveType();
 
         $t->restaurant_id = restaurant()->id;
@@ -111,7 +113,10 @@ class LeaveTypesList extends Component
             return;
         }
 
-        LeaveType::query()->where('id', $this->deleteId)->delete();
+        LeaveType::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->where('id', $this->deleteId)
+            ->delete();
 
         $this->showDeleteModal = false;
         $this->deleteId = null;

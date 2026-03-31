@@ -1,4 +1,6 @@
-<?php
+Verify each finding against the current code and only fix it if needed.
+
+In @Modules/Hrm/Livewire/CreditPurchases/CreditPurchaseManager.php around lines 19 - 31, The $employee_id property is being used both as the list filter and the form input which causes state conflicts; introduce a separate property (e.g. $filterEmployeeId) for list filtering and update all filtering logic to use $filterEmployeeId while keeping $employee_id exclusively for the form, then ensure methods that open the form (e.g. editCreditPurchase, createCreditPurchase, saveCreditPurchase, resetForm) set or clear $employee_id without touching $filterEmployeeId and any render/listing code or filter handlers use $filterEmployeeId instead so editing a record no longer changes the active list filter.<?php
 
 namespace Modules\Hrm\Livewire\CreditPurchases;
 

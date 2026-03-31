@@ -239,7 +239,7 @@
                                 <td class="amount">{{ number_format((float)$row['advance'], 2) }}</td>
                             </tr>
                             <tr class="alt">
-                                <td class="lbl">EPF – Employee (8%)</td>
+                                <td class="lbl">EPF - Employee ({{ rtrim(rtrim(number_format((float)($row['epf_rate'] ?? 8), 2, '.', ''), '0'), '.') }}%)</td>
                                 <td class="amount">{{ number_format((float)$row['epf'], 2) }}</td>
                             </tr>
                             <tr>

@@ -479,11 +479,6 @@
                 $orderExtrasTotal = collect($orderExtras ?? [])->sum(fn($e) => (float) ($e['amount'] ?? 0));
             @endphp
 
-            @if(app()->environment('local'))
-                <div class="text-left text-xs text-gray-400" wire:key="dbg-allow-custom-order-extras">
-                    DBG allow_custom_order_extras={{ (int) (restaurant()->allow_custom_order_extras ?? 0) }} (restaurant_id={{ restaurant()->id ?? 'n/a' }})
-                </div>
-            @endif
             @if (count($orderItemList) > 0 && user_can('Update Order'))
                 <div class="text-left">
                     <x-secondary-button wire:click="showAddDiscount">

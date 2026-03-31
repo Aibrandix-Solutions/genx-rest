@@ -339,7 +339,7 @@
         <div class="summary">
             @php
                 $extrasTotal = (float) ($order->extras?->sum('amount') ?? 0);
-                $chargeTaxBase = $order->sub_total + $extrasTotal - ($order->discount_amount ?? 0);
+                $chargeTaxBase = max(0, $order->sub_total + $extrasTotal - ($order->discount_amount ?? 0));
             @endphp
             <div class="summary-row">
                 <span>@lang('modules.order.subTotal'):</span>
