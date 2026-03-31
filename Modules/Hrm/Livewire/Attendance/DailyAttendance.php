@@ -144,7 +144,7 @@ class DailyAttendance extends Component
                 $this->toDate = now()->subWeek()->endOfWeek()->toDateString();
                 break;
             case 'last7Days':
-                $this->fromDate = now()->subDays(7)->toDateString();
+                $this->fromDate = now()->subDays(6)->toDateString();
                 $this->toDate = now()->toDateString();
                 break;
             case 'currentMonth':
@@ -260,7 +260,7 @@ class DailyAttendance extends Component
                 },
             ],
             'editingEmployeeId' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'shift_id' => ['nullable', 'integer', Rule::exists('hrm_shifts', 'id')],
+            'shift_id' => ['nullable', 'integer', Rule::exists('hrm_shifts', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'status' => ['required', 'string', 'max:50'],
             'clock_in_at' => ['nullable', 'date'],
             'clock_out_at' => ['nullable', 'date', 'after:clock_in_at'],
@@ -417,7 +417,7 @@ class DailyAttendance extends Component
 
         $employees = Employee::query()
             ->where('restaurant_id', restaurant()->id)
-            ->tap($this->branchFilter())
+            ->availableAtBranch($this->branchId)
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code']);
 
@@ -580,6 +580,7 @@ class DailyAttendance extends Component
     public function render()
     {
         $shifts = Shift::query()
+            ->where('restaurant_id', restaurant()->id)
             ->where('is_active', true)
             ->when($this->branchId !== null, function ($q) {
                 if ($this->isCompanyLevel()) {
@@ -613,7 +614,7 @@ class DailyAttendance extends Component
         if ($this->branchId !== null) {
             $employees = Employee::query()
                 ->where('restaurant_id', restaurant()->id)
-                ->tap($this->branchFilter())
+                ->availableAtBranch($this->branchId)
                 ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
                 ->orderBy('name')
                 ->paginate(25);
@@ -698,7 +699,7 @@ class DailyAttendance extends Component
 
                     $employeesAll = Employee::query()
                         ->where('restaurant_id', restaurant()->id)
-                        ->tap($this->branchFilter())
+                        ->availableAtBranch($this->branchId)
                         ->when($this->search, function ($q) {
                             $q->where('name', 'like', "%{$this->search}%")
                                 ->orWhere('staff_code', 'like', "%{$this->search}%");

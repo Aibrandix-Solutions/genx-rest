@@ -23,6 +23,7 @@ class CustomerList extends Component
     public $showAddCustomer;
     public $file;
     public $showImportCustomer;
+    public $filterCustomer = 'all';
 
     public function exportCustomerList()
     {
@@ -32,7 +33,7 @@ class CustomerList extends Component
         }
         else
         {
-            return Excel::download(new CustomerExport, 'customers-' . now()->toDateTimeString() . '.xlsx');
+            return Excel::download(new CustomerExport($this->filterCustomer), 'customers-' . now()->toDateTimeString() . '.xlsx');
         }
     }
 

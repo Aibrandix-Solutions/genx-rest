@@ -29,9 +29,9 @@ class EditSupplier extends Component
     {
         $this->validate([
             'name' => 'required',
-            'email' => 'required|email',
+            'email' => 'nullable|email',
             'phone' => 'required',
-            'address' => 'required',
+            'address' => 'nullable|string',
         ]);
 
         $this->supplier->update([

@@ -45,7 +45,7 @@ class AddMenuItem extends Component
     public $languages = [];
     public $globalLocale;
     public $kitchenTypes;
-    public $kitchenType;
+    public array $selectedKitchenTypes = [];
     public $taxes = [];
     public $selectedTaxes = [];
     public $taxInclusive = false;
@@ -168,9 +168,18 @@ class AddMenuItem extends Component
             'type' => $this->itemType,
             'menu_id' => $this->menu,
             'preparation_time' => $this->preparationTime,
-            'kot_place_id' => $this->kitchenType,
+            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
             'tax_inclusive' => ($this->isTaxModeItem) ? $this->taxInclusive : false,
         ]);
+
+        // Sync multi-kitchen pivot table
+        if (!empty($this->selectedKitchenTypes)) {
+            $pivotData = [];
+            foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
+                $pivotData[$kitchenId] = ['is_primary' => $index === 0];
+            }
+            $menuItem->kotPlaces()->sync($pivotData);
+        }
 
         $translations = collect($this->translationNames)
             ->filter(fn($name, $locale) => !empty($name) || !empty($this->translationDescriptions[$locale]))

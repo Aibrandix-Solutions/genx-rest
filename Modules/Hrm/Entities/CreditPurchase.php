@@ -5,6 +5,7 @@ namespace Modules\Hrm\Entities;
 use App\Traits\HasRestaurant;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class CreditPurchase extends Model
 {
@@ -73,27 +74,29 @@ class CreditPurchase extends Model
      */
     public function recordPayment(float $amount, string $method = 'cash', ?string $reference = null, ?string $notes = null, ?int $recordedBy = null)
     {
-        $payment = $this->payments()->create([
-            'restaurant_id' => $this->restaurant_id,
-            'employee_id' => $this->employee_id,
-            'payment_date' => now(),
-            'amount' => $amount,
-            'payment_method' => $method,
-            'reference_number' => $reference,
-            'notes' => $notes,
-            'recorded_by' => $recordedBy ?? auth()->id(),
-        ]);
+        return DB::transaction(function () use ($amount, $method, $reference, $notes, $recordedBy) {
+            $payment = $this->payments()->create([
+                'restaurant_id' => $this->restaurant_id,
+                'employee_id' => $this->employee_id,
+                'payment_date' => now(),
+                'amount' => $amount,
+                'payment_method' => $method,
+                'reference_number' => $reference,
+                'notes' => $notes,
+                'recorded_by' => $recordedBy ?? auth()->id(),
+            ]);
 
-        // Update paid amount and status
-        $newPaidAmount = $this->paid_amount + $amount;
-        $status = $newPaidAmount >= $this->amount ? 'paid' : 'partial';
+            // Update paid amount and status
+            $newPaidAmount = $this->paid_amount + $amount;
+            $status = $newPaidAmount >= $this->amount ? 'paid' : 'partial';
 
-        $this->update([
-            'paid_amount' => min($newPaidAmount, $this->amount),
-            'status' => $status,
-        ]);
+            $this->update([
+                'paid_amount' => min($newPaidAmount, $this->amount),
+                'status' => $status,
+            ]);
 
-        return $payment;
+            return $payment;
+        });
     }
 
     /**

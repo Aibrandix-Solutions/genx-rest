@@ -83,7 +83,9 @@ class EmployeesList extends Component
     {
         $this->authorize('Update Employee');
 
-        $employee = Employee::query()->findOrFail($id);
+        $employee = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $employee->id;
         $this->branch_id = $employee->branch_id;
@@ -122,8 +124,10 @@ class EmployeesList extends Component
         $this->validate([
             'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')],
-            'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')],
+            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'extraBranchIds' => ['nullable', 'array'],
+            'extraBranchIds.*' => ['integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'staff_code' => [
                 'required',
                 'string',
@@ -144,7 +148,7 @@ class EmployeesList extends Component
         ]);
 
         $employee = $this->editingId
-            ? Employee::query()->findOrFail($this->editingId)
+            ? Employee::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new Employee();
 
         $employee->restaurant_id = restaurant()->id;
@@ -195,7 +199,9 @@ class EmployeesList extends Component
             return;
         }
 
-        $employee = Employee::query()->findOrFail($this->deleteId);
+        $employee = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->deleteId);
 
         Customer::query()
             ->where('employee_id', $employee->id)
@@ -245,12 +251,15 @@ class EmployeesList extends Component
 
         if (!$customer && $employee->email) {
             $customer = Customer::query()
+                ->where('restaurant_id', $employee->restaurant_id)
                 ->where('email', $employee->email)
+                ->whereNull('employee_id')
                 ->first();
         }
 
         if (!$customer && $employee->phone) {
             $matches = Customer::query()
+                ->where('restaurant_id', $employee->restaurant_id)
                 ->where('phone', $employee->phone)
                 ->whereNull('employee_id')
                 ->limit(2)
@@ -283,8 +292,14 @@ class EmployeesList extends Component
 
     public function render()
     {
-        $departments = Department::query()->orderBy('name')->get(['id', 'name']);
-        $designations = Designation::query()->orderBy('name')->get(['id', 'name']);
+        $departments = Department::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        $designations = Designation::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         $users = User::query()
             ->where('restaurant_id', restaurant()->id)
@@ -293,6 +308,7 @@ class EmployeesList extends Component
             ->get(['id', 'name', 'email']);
 
         $employees = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
             ->with([
                 'branch:id,name',
                 'extraBranches:id,name',

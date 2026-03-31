@@ -109,7 +109,7 @@
                         @endphp
                         @continue($extraAmount <= 0 && $extraNote === '')
                         <div class="flex justify-between text-base">
-                            <span class="text-gray-500">{{ $extraNote !== '' ? $extraNote : 'Extra' }}</span>
+                            <span class="text-gray-500">{{ $extraNote !== '' ? $extraNote : __('modules.order.extra') }}</span>
                             <span class="text-orange-600">+{{ currency_format($extraAmount, restaurant()->currency_id) }}</span>
                         </div>
                     @endforeach

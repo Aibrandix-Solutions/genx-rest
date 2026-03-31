@@ -178,11 +178,9 @@
             </thead>
             <tbody>
                 @php
-                    $items = isset($kotPlaceId)
-                        ? $kot->items->filter(function($item) use($kotPlaceId) {
-                            return $item->menuItem && $item->menuItem->kot_place_id == $kotPlaceId;
-                        })
-                        : $kot->items;
+                    // With multi-kitchen routing, each KOT is already per-kitchen.
+                    // Show all items in this KOT (fallback filter for legacy KOTs)
+                    $items = $kot->items;
                 @endphp
                 @foreach($items as $item)
                     <tr>

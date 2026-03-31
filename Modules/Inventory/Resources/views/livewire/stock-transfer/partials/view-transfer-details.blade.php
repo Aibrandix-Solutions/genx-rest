@@ -90,19 +90,22 @@
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
                             {{ __('inventory::modules.transfers.status') }}
                         </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                            {{ __('inventory::modules.transfers.notes') }}
+                        </th>
                     </tr>
                 </thead>
                 <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     @foreach($selectedTransfer->items as $item)
-                        <tr>
+                        <tr class="align-top">
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
                                 {{ $item->sourceItem->name }}
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                                {{ number_format($item->requested_quantity, 2) }} {{ $item->sourceItem->unit->symbol ?? '' }}
+                                {{ number_format($item->requested_quantity, 2) }} {{ $item->unit?->symbol ?? $item->sourceItem->unit?->symbol ?? '' }}
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
-                                {{ $item->confirmed_quantity ? number_format($item->confirmed_quantity, 2) . ' ' . ($item->destinationItem->unit->symbol ?? '') : '--' }}
+                                {{ $item->confirmed_quantity ? number_format($item->confirmed_quantity, 2) . ' ' . ($item->unit?->symbol ?? $item->destinationItem->unit?->symbol ?? '') : '--' }}
                             </td>
                             <td class="px-4 py-3 text-sm">
                                 <span @class([
@@ -115,6 +118,9 @@
                                 ])>
                                     {{ __('inventory::modules.transfers.item_status_' . $item->status) }}
                                 </span>
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 max-w-[160px]">
+                                {{ $item->notes ?: '—' }}
                             </td>
                         </tr>
                     @endforeach

@@ -14,19 +14,18 @@ use Maatwebsite\Excel\Concerns\{FromCollection, ShouldAutoSize, WithHeadings, Wi
 class SalesReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
-    protected string $startTime, $endTime, $timezone, $offset;
+    protected string $startTime, $endTime, $timezone;
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $offset)
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
-        $this->offset = $offset;
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -131,7 +130,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                 }
             })
             ->select(
-                DB::raw("DATE(CONVERT_TZ(orders.date_time, '+00:00', '{$this->offset}')) as date"),
+                DB::raw("DATE(orders.date_time) as date"),
                 DB::raw('COUNT(DISTINCT orders.id) as total_orders'),
                 DB::raw('SUM(payments.amount) as total_amount'),
                 DB::raw('SUM(CASE WHEN payments.payment_method = "cash" THEN payments.amount ELSE 0 END) as cash_amount'),
@@ -159,7 +158,8 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                 }
             })
             ->select(
-                DB::raw("DATE(CONVERT_TZ(date_time, '+00:00', '{$this->offset}')) as date"),
+                DB::raw("DATE(date_time) as date"),
+                DB::raw('SUM(total) as orders_total'),
                 DB::raw('SUM(discount_amount) as discount_amount'),
                 DB::raw('SUM(tip_amount) as tip_amount'),
                 DB::raw('SUM(delivery_fee) as delivery_fee'),
@@ -172,11 +172,12 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             // Get order-level data for this date
             $orderInfo = $orderData->get($item->date);
             
+            $ordersTotal = $orderInfo->orders_total ?? $item->total_amount ?? 0;
             $row = [
                 'date' => $item->date,
                 'total_orders' => $item->total_orders,
-                'total_amount' => $item->total_amount ?? 0,
-                'total_excluding_tip' => ($item->total_amount ?? 0) - ($orderInfo->tip_amount ?? 0),
+                'total_amount' => $ordersTotal,
+                'total_excluding_tip' => $ordersTotal - ($orderInfo->tip_amount ?? 0),
                 'delivery_fee' => $orderInfo->delivery_fee ?? 0,
                 'tip_amount' => $orderInfo->tip_amount ?? 0,
                 'cash_amount' => $item->cash_amount ?? 0,

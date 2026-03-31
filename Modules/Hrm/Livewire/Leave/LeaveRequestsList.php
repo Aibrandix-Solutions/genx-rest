@@ -122,7 +122,10 @@ class LeaveRequestsList extends Component
     {
         $this->authorize('Manage Leave Requests');
 
-        $r = LeaveRequest::query()->with(['employee', 'leaveType'])->findOrFail($id);
+        $r = LeaveRequest::query()
+            ->with(['employee', 'leaveType'])
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $r->id;
         $this->branch_id = $r->branch_id !== null ? (int) $r->branch_id : null;
@@ -164,10 +167,16 @@ class LeaveRequestsList extends Component
 
         // Enforce max_per_year as max leave DAYS per calendar year (0 = unlimited)
         if ((int) $leaveType->max_per_year > 0) {
-            $year = (int) date('Y', strtotime((string) $this->from_date));
             $from = \Carbon\Carbon::parse($this->from_date)->startOfDay();
             $to = \Carbon\Carbon::parse($this->to_date)->startOfDay();
-            $requestedDays = (int) $from->diffInDays($to) + 1;
+            $year = (int) $from->year;
+            $yearStart = \Carbon\Carbon::parse("$year-01-01")->startOfDay();
+            $yearEnd = \Carbon\Carbon::parse("$year-12-31")->endOfDay();
+            $requestOverlapStart = $from->copy()->max($yearStart);
+            $requestOverlapEnd = $to->copy()->min($yearEnd);
+            $requestedDays = $requestOverlapStart->gt($requestOverlapEnd)
+                ? 0
+                : ((int) $requestOverlapStart->diffInDays($requestOverlapEnd) + 1);
 
             $alreadyApprovedDays = LeaveRequest::query()
                 ->where('restaurant_id', restaurant()->id)
@@ -175,13 +184,18 @@ class LeaveRequestsList extends Component
                 ->where('leave_type_id', (int) $this->leave_type_id)
                 ->where('status', 'approved')
                 ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-                ->whereYear('from_date', $year)
+                ->whereDate('from_date', '<=', $yearEnd->toDateString())
+                ->whereDate('to_date', '>=', $yearStart->toDateString())
                 ->get(['from_date', 'to_date'])
-                ->sum(function ($row) {
+                ->sum(function ($row) use ($yearStart, $yearEnd) {
                     $from = \Carbon\Carbon::parse($row->from_date)->startOfDay();
                     $to = \Carbon\Carbon::parse($row->to_date)->startOfDay();
+                    $overlapStart = $from->copy()->max($yearStart);
+                    $overlapEnd = $to->copy()->min($yearEnd);
 
-                    return (int) $from->diffInDays($to) + 1;
+                    return $overlapStart->gt($overlapEnd)
+                        ? 0
+                        : ((int) $overlapStart->diffInDays($overlapEnd) + 1);
                 });
 
             if (($alreadyApprovedDays + $requestedDays) > (int) $leaveType->max_per_year && $this->request_status === 'approved') {
@@ -191,7 +205,7 @@ class LeaveRequestsList extends Component
         }
 
         $r = $this->editingId
-            ? LeaveRequest::query()->findOrFail($this->editingId)
+            ? LeaveRequest::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new LeaveRequest();
 
         $r->restaurant_id = restaurant()->id;
@@ -208,10 +222,12 @@ class LeaveRequestsList extends Component
             $r->created_by = user()->id;
         }
 
-        if ($this->request_status === 'approved') {
+        $previousStatus = $r->exists ? (string) $r->getOriginal('status') : null;
+        $nextStatus = (string) $this->request_status;
+        if ($previousStatus !== 'approved' && $nextStatus === 'approved') {
             $r->approved_by = user()->id;
             $r->approved_at = now();
-        } else {
+        } elseif ($previousStatus === 'approved' && $nextStatus !== 'approved') {
             $r->approved_by = null;
             $r->approved_at = null;
         }
@@ -239,7 +255,10 @@ class LeaveRequestsList extends Component
             return;
         }
 
-        LeaveRequest::query()->where('id', $this->deleteId)->delete();
+        LeaveRequest::query()
+            ->where('id', $this->deleteId)
+            ->where('restaurant_id', restaurant()->id)
+            ->delete();
 
         $this->showDeleteModal = false;
         $this->deleteId = null;

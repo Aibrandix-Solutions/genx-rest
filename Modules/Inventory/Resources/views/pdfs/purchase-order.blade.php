@@ -157,16 +157,41 @@
     </style>
 </head>
 <body>
+    @php
+        // DomPDF cannot reliably load file:// paths in img src; use data URI for local files or logo_url (HTTP/S3).
+        $restaurantLogoSrc = restaurant()->logo_url;
+        if (!empty(restaurant()->logo)) {
+            $candidate = public_path('user-uploads/logo/' . restaurant()->logo);
+            if (is_file($candidate)) {
+                $data = base64_encode(file_get_contents($candidate));
+                $ext = strtolower(pathinfo($candidate, PATHINFO_EXTENSION));
+                $mime = match ($ext) {
+                    'png' => 'png',
+                    'gif' => 'gif',
+                    'webp' => 'webp',
+                    'svg' => 'svg+xml',
+                    default => 'jpeg',
+                };
+                $restaurantLogoSrc = 'data:image/' . $mime . ';base64,' . $data;
+            }
+        }
+
+        $purchaseLocation = $purchaseOrder->location;
+        $locationName = $purchaseLocation?->display_name ?? '-';
+        $locationAddress = $purchaseLocation?->address ?? ($purchaseLocation?->branch?->address ?? branch()->address);
+        $locationPhone = $purchaseLocation?->branch?->phone ?? branch()->phone;
+    @endphp
+
     <div class="header clearfix">
         <div class="logo">
-            <img src="{{ restaurant()->logo_url }}"  style="max-height: 80px; width: auto;">
+            <img src="{{ $restaurantLogoSrc }}" alt="{{ restaurant()->name }}" style="max-height: 80px; width: auto;">
         </div>
         <div class="company-info">
             <div class="company-name">{{ restaurant()->name }}</div>
             <div class="company-details">
-                {{ $purchaseOrder->branch ? $purchaseOrder->branch->name : branch()->name }}<br>
-                {{ $purchaseOrder->branch ? $purchaseOrder->branch->address : branch()->address }}<br>
-                {{ $purchaseOrder->branch ? $purchaseOrder->branch->phone : branch()->phone }}
+                {{ $locationName }}<br>
+                {{ $locationAddress }}<br>
+                {{ $locationPhone }}
             </div>
         </div>
         <div class="document-info">

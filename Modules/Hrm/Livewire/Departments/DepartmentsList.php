@@ -43,7 +43,9 @@ class DepartmentsList extends Component
     {
         $this->authorize('Update Department');
 
-        $department = Department::query()->findOrFail($id);
+        $department = Department::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $department->id;
         $this->name = (string) $department->name;
@@ -75,7 +77,7 @@ class DepartmentsList extends Component
         ]);
 
         $department = $this->editingId
-            ? Department::query()->findOrFail($this->editingId)
+            ? Department::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new Department();
 
         $department->restaurant_id = restaurant()->id;
@@ -105,7 +107,9 @@ class DepartmentsList extends Component
             return;
         }
 
-        $department = Department::query()->findOrFail($this->deleteId);
+        $department = Department::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->deleteId);
         $department->delete();
 
         $this->showDeleteModal = false;
@@ -129,6 +133,7 @@ class DepartmentsList extends Component
     public function render()
     {
         $departments = Department::query()
+            ->where('restaurant_id', restaurant()->id)
             ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
             ->orderBy('name')
             ->paginate(15);

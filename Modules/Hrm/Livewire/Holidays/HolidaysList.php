@@ -3,6 +3,7 @@
 namespace Modules\Hrm\Livewire\Holidays;
 
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Livewire\Component;
@@ -65,7 +66,9 @@ class HolidaysList extends Component
     {
         $this->authorize('Manage Holidays');
 
-        $h = Holiday::query()->findOrFail($id);
+        $h = Holiday::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $h->id;
         $this->date = $h->date?->toDateString();
@@ -87,30 +90,27 @@ class HolidaysList extends Component
             'note' => ['nullable', 'string'],
         ]);
 
-        // App-level uniqueness to handle branch_id NULL (MySQL unique indexes allow multiple NULLs)
-        $dup = Holiday::query()
-            ->where('restaurant_id', restaurant()->id)
-            ->when($this->editingId, fn ($q) => $q->where('id', '!=', $this->editingId))
-            ->whereDate('date', $this->date)
-            ->where('name', $this->name)
-            ->when($this->branch_id, fn ($q) => $q->where('branch_id', (int) $this->branch_id), fn ($q) => $q->whereNull('branch_id'))
-            ->exists();
-
-        if ($dup) {
-            $this->addError('name', 'Holiday already exists for this date and scope.');
-            return;
-        }
-
         $h = $this->editingId
-            ? Holiday::query()->findOrFail($this->editingId)
+            ? Holiday::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new Holiday();
 
-        $h->restaurant_id = restaurant()->id;
+        $h->restaurant_id = $h->restaurant_id ?: restaurant()->id;
+        if ((int) $h->restaurant_id !== (int) restaurant()->id) {
+            abort(403);
+        }
         $h->branch_id = $this->branch_id ? (int) $this->branch_id : null;
         $h->date = $this->date;
         $h->name = $this->name;
         $h->note = $this->note;
-        $h->save();
+        try {
+            $h->save();
+        } catch (QueryException $e) {
+            if ((int) $e->getCode() === 23000) {
+                $this->addError('name', 'Holiday already exists for this date and scope.');
+                return;
+            }
+            throw $e;
+        }
 
         $this->showModal = false;
         $this->resetForm();
@@ -133,7 +133,10 @@ class HolidaysList extends Component
             return;
         }
 
-        Holiday::query()->where('id', $this->deleteId)->delete();
+        Holiday::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->where('id', $this->deleteId)
+            ->delete();
 
         $this->showDeleteModal = false;
         $this->deleteId = null;

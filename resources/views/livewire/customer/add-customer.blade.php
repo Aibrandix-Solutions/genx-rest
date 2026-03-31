@@ -55,7 +55,7 @@
                                     </div>
                                     @foreach($availableResults as $result)
                                         <div wire:key="customer-{{ $result->id }}"
-                                             wire:click="selectCustomer({{ $result->id }})"
+                                             wire:click="selectOrAttachSearchResult({{ $result->id }})"
                                              class="group flex items-center p-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors border-b border-gray-100 dark:border-gray-600 last:border-b-0">
                                             <div class="flex-shrink-0 ltr:mr-3 rtl:ml-3">
                                                 <div class="w-8 h-8 rounded-full bg-skin-base flex items-center justify-center">

@@ -141,7 +141,7 @@ class AttendanceImport implements ToCollection, WithHeadingRow
                 $clockOutAt = $this->parseDateTime($row['clock_out_at'] ?? null, $date);
 
                 if ($clockInAt && $clockOutAt && $clockOutAt->lessThanOrEqualTo($clockInAt)) {
-                    $clockOutAt = null;
+                    $clockOutAt = $clockOutAt->copy()->addDay();
                 }
 
                 $shiftId = !empty($row['shift_id']) ? (int) $row['shift_id'] : null;
@@ -149,6 +149,7 @@ class AttendanceImport implements ToCollection, WithHeadingRow
                     $shiftName = trim((string) $row['shift']);
                     if ($shiftName !== '') {
                         $shiftId = Shift::query()
+                            ->where('restaurant_id', $this->restaurantId)
                             ->where('name', $shiftName)
                             ->where(function ($q) {
                                 $q->whereNull('branch_id')

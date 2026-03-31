@@ -35,10 +35,18 @@ class HrmSetting extends Model
     /**
      * Get a setting by key for a restaurant
      */
-    public static function get(string $key, $default = null)
+    public static function get(string $key, $default = null, $restaurantId = null)
     {
+        $resolvedRestaurantId = $restaurantId;
+        if ($resolvedRestaurantId === null) {
+            $resolvedRestaurantId = restaurant()?->id;
+        }
+        if (!$resolvedRestaurantId) {
+            return $default;
+        }
+
         $setting = self::query()
-            ->where('restaurant_id', restaurant()->id)
+            ->where('restaurant_id', $resolvedRestaurantId)
             ->where('setting_key', $key)
             ->first();
 

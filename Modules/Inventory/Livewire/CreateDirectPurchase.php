@@ -3,9 +3,13 @@
 namespace Modules\Inventory\Livewire;
 
 use Livewire\Component;
+use Livewire\WithFileUploads;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\InventoryItemCategory;
+use Modules\Inventory\Entities\Unit;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseOrderItem;
 use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\InventoryMovement;
@@ -16,10 +20,13 @@ use App\Models\BranchPaymentAccountSetting;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\PurchaseItemsImportTemplateExport;
+use Modules\Inventory\Entities\PurchaseAttachment;
 
 class CreateDirectPurchase extends Component
 {
-    use LivewireAlert;
+    use WithFileUploads, LivewireAlert;
 
     // Main form fields
     public $supplierId;
@@ -29,12 +36,25 @@ class CreateDirectPurchase extends Component
     public $notes;
     public $discount = 0;
     public $discount_type = 'fixed';
+
+    // Attachments
+    public $attachments = [];
     
     // Items
     public $items = [];
+    public $itemImportFile;
     public $searchItem = '';
     public $filteredItems = [];
     public $showSearchResults = false;
+
+    // Quick-add new inventory item
+    public $showQuickAddModal = false;
+    public $quickAddName = '';
+    public $quickAddCategoryId = '';
+    public $quickAddUnitId = '';
+    public $quickAddPrice = 0;
+    public $quickAddThresholdQuantity = 0;
+    public $quickAddSaving = false;
     
     // Payment fields (optional)
     public $recordPayment = false;
@@ -48,6 +68,8 @@ class CreateDirectPurchase extends Component
     // Readonly data
     public $suppliers = [];
     public $inventoryItems = [];
+    public $itemCategories = [];
+    public $units = [];
     public $locations = [];
     public $paymentMethods = ['cash', 'card', 'bank_transfer', 'cheque', 'other'];
 
@@ -70,6 +92,8 @@ class CreateDirectPurchase extends Component
         'paymentMethod' => 'nullable|in:cash,card,bank_transfer,cheque,other',
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
         'paymentNote' => 'nullable|string|max:500',
+        'attachments.*' => 'nullable|file|mimes:pdf,jpeg,jpg,png,gif,webp|max:5120',
+        'itemImportFile' => 'nullable|file|mimes:xlsx,xls,csv,txt|max:5120',
     ];
 
     protected $messages = [
@@ -111,6 +135,8 @@ class CreateDirectPurchase extends Component
         $this->loadInventoryItems();
         $this->loadLocations();
         $this->loadPaymentAccounts();
+        $this->itemCategories = InventoryItemCategory::orderBy('name')->get();
+        $this->units = Unit::orderBy('name')->get();
         
         // Add first item
         $this->addItem();
@@ -127,6 +153,7 @@ class CreateDirectPurchase extends Component
     public function loadInventoryItems()
     {
         $this->inventoryItems = InventoryItem::with(['unit', 'category'])
+            ->where('restaurant_id', restaurant()->id)
             ->orderBy('name')
             ->get();
     }
@@ -162,14 +189,181 @@ class CreateDirectPurchase extends Component
 
     public function addItem()
     {
-        $this->items[] = [
+        $this->items[] = $this->makePurchaseItemRow();
+    }
+
+    public function downloadItemsImportTemplate()
+    {
+        return Excel::download(new PurchaseItemsImportTemplateExport(), 'purchase-items-template.xlsx');
+    }
+
+    public function importItemsFromFile(): void
+    {
+        $this->validateOnly('itemImportFile');
+
+        if (!$this->itemImportFile) {
+            return;
+        }
+
+        $rows = Excel::toArray([], $this->itemImportFile)[0] ?? [];
+        if (count($rows) < 2) {
+            $this->addError('itemImportFile', 'Template appears empty. Please add at least one row.');
+            return;
+        }
+
+        $headers = array_map(
+            fn ($h) => strtolower(trim((string) $h)),
+            (array) ($rows[0] ?? [])
+        );
+        $requiredHeaders = ['item_name', 'quantity'];
+        foreach ($requiredHeaders as $requiredHeader) {
+            if (!in_array($requiredHeader, $headers, true)) {
+                $this->addError('itemImportFile', "Missing required column: {$requiredHeader}");
+                return;
+            }
+        }
+
+        $indexMap = array_flip($headers);
+        $errors = [];
+        $importedCount = 0;
+        $this->items = array_values(array_filter($this->items, fn ($row) => !empty($row['inventory_item_id'])));
+
+        for ($i = 1; $i < count($rows); $i++) {
+            $row = (array) $rows[$i];
+            if (count(array_filter($row, fn ($v) => trim((string) $v) !== '')) === 0) {
+                continue;
+            }
+
+            $itemName = trim((string) ($row[$indexMap['item_name']] ?? ''));
+            $quantityRaw = $row[$indexMap['quantity']] ?? null;
+            $unitPriceRaw = $row[$indexMap['unit_price']] ?? null;
+            $discountRaw = $row[$indexMap['discount']] ?? 0;
+            $discountTypeRaw = strtolower(trim((string) ($row[$indexMap['discount_type']] ?? 'fixed')));
+            $excelRow = $i + 1;
+
+            if ($itemName === '') {
+                $errors[] = "Row {$excelRow}: item_name is required.";
+                continue;
+            }
+
+            $quantity = is_numeric($quantityRaw) ? (float) $quantityRaw : null;
+            if ($quantity === null || $quantity <= 0) {
+                $errors[] = "Row {$excelRow}: quantity must be greater than 0.";
+                continue;
+            }
+
+            $item = InventoryItem::query()
+                ->where('restaurant_id', restaurant()->id)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($itemName)])
+                ->first();
+
+            if (!$item) {
+                $errors[] = "Row {$excelRow}: item '{$itemName}' not found.";
+                continue;
+            }
+
+            $unitPrice = is_numeric($unitPriceRaw) ? (float) $unitPriceRaw : (float) ($item->unit_purchase_price ?? 0);
+            $discount = is_numeric($discountRaw) ? (float) $discountRaw : 0;
+            $discountType = in_array($discountTypeRaw, ['fixed', 'percentage'], true) ? $discountTypeRaw : 'fixed';
+
+            $this->items[] = [
+                ...$this->makePurchaseItemRow(),
+                'inventory_item_id' => $item->id,
+                'quantity' => $quantity,
+                'unit_price' => max(0, $unitPrice),
+                'discount' => max(0, $discount),
+                'discount_type' => $discountType,
+                'last_purchase_price' => PurchaseOrderItem::where('inventory_item_id', $item->id)
+                    ->orderBy('created_at', 'desc')
+                    ->value('unit_price'),
+            ];
+            $importedCount++;
+        }
+
+        $this->itemImportFile = null;
+
+        if (!empty($errors)) {
+            $this->addError('itemImportFile', implode(' ', array_slice($errors, 0, 5)));
+        }
+
+        if ($importedCount > 0) {
+            $this->alert('success', "{$importedCount} item rows imported.");
+        } elseif (empty($errors)) {
+            $this->addError('itemImportFile', 'No rows were imported.');
+        }
+    }
+
+    protected function makePurchaseItemRow(): array
+    {
+        return [
             '_key' => (string) Str::uuid(),
             'inventory_item_id' => '',
             'quantity' => 1,
             'unit_price' => 0,
             'discount' => 0,
             'discount_type' => 'fixed',
+            'last_purchase_price' => null,
         ];
+    }
+
+    public function openQuickAddModal()
+    {
+        $this->quickAddName = $this->searchItem;
+        $this->quickAddCategoryId = '';
+        $this->quickAddUnitId = '';
+        $this->quickAddPrice = 0;
+        $this->quickAddThresholdQuantity = 0;
+        $this->showQuickAddModal = true;
+        $this->showSearchResults = false;
+    }
+
+    public function closeQuickAddModal()
+    {
+        $this->showQuickAddModal = false;
+        $this->reset(['quickAddName', 'quickAddCategoryId', 'quickAddUnitId', 'quickAddPrice', 'quickAddThresholdQuantity', 'quickAddSaving']);
+    }
+
+    public function saveQuickAddItem()
+    {
+        if ($this->quickAddSaving) {
+            return;
+        }
+
+        $this->quickAddSaving = true;
+
+        $this->validateOnly('quickAddName', ['quickAddName' => 'required|string|max:255']);
+        $this->validateOnly('quickAddCategoryId', ['quickAddCategoryId' => 'required|exists:inventory_item_categories,id']);
+        $this->validateOnly('quickAddUnitId', ['quickAddUnitId' => 'required|exists:units,id']);
+        $this->validateOnly('quickAddPrice', ['quickAddPrice' => 'required|numeric|min:0']);
+        $this->validateOnly('quickAddThresholdQuantity', ['quickAddThresholdQuantity' => 'required|numeric|min:0']);
+
+        try {
+            $item = InventoryItem::create([
+                'name' => $this->quickAddName,
+                'restaurant_id' => restaurant()->id,
+                'inventory_item_category_id' => $this->quickAddCategoryId,
+                'unit_id' => $this->quickAddUnitId,
+                'threshold_quantity' => $this->quickAddThresholdQuantity,
+                'unit_purchase_price' => $this->quickAddPrice,
+            ]);
+
+            $this->loadInventoryItems();
+            $this->items[] = [
+                ...$this->makePurchaseItemRow(),
+                'inventory_item_id' => $item->id,
+                'unit_price' => $item->unit_purchase_price ?? 0,
+                'last_purchase_price' => null,
+            ];
+
+            $this->searchItem = '';
+            $this->filteredItems = [];
+            $this->showSearchResults = false;
+            $this->showQuickAddModal = false;
+            $this->reset(['quickAddName', 'quickAddCategoryId', 'quickAddUnitId', 'quickAddPrice', 'quickAddThresholdQuantity']);
+            $this->alert('success', 'Item "' . $item->name . '" created and added.');
+        } finally {
+            $this->quickAddSaving = false;
+        }
     }
 
     public function searchItems()
@@ -187,8 +381,14 @@ class CreateDirectPurchase extends Component
             ->where('restaurant_id', restaurant()->id)
             ->where('name', 'like', '%' . $term . '%')
             ->limit(10)
-            ->get();
-        
+            ->get()
+            ->map(function ($item) {
+                $item->last_purchase_price = PurchaseOrderItem::where('inventory_item_id', $item->id)
+                    ->orderBy('created_at', 'desc')
+                    ->value('unit_price');
+                return $item;
+            });
+
         $this->showSearchResults = true;
     }
 
@@ -212,14 +412,7 @@ class CreateDirectPurchase extends Component
 
             if ($targetIndex === null) {
                 $targetIndex = count($this->items);
-                $this->items[] = [
-                    '_key' => (string) Str::uuid(),
-                    'inventory_item_id' => '',
-                    'quantity' => 1,
-                    'unit_price' => 0,
-                    'discount' => 0,
-                    'discount_type' => 'fixed',
-                ];
+                $this->items[] = $this->makePurchaseItemRow();
             }
 
             if (empty($this->items[$targetIndex]['_key'])) {
@@ -241,6 +434,11 @@ class CreateDirectPurchase extends Component
             if (empty($this->items[$targetIndex]['discount_type'])) {
                 $this->items[$targetIndex]['discount_type'] = 'fixed';
             }
+
+            // Store the last purchased price for info display
+            $this->items[$targetIndex]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+                ->orderBy('created_at', 'desc')
+                ->value('unit_price');
             
             // Clear search
             $this->searchItem = '';
@@ -263,10 +461,14 @@ class CreateDirectPurchase extends Component
     public function updateItemPrice($index)
     {
         if (isset($this->items[$index]['inventory_item_id']) && $this->items[$index]['inventory_item_id']) {
-            $item = InventoryItem::find($this->items[$index]['inventory_item_id']);
+            $itemId = $this->items[$index]['inventory_item_id'];
+            $item = InventoryItem::find($itemId);
             if ($item && $item->unit_purchase_price !== null) {
                 $this->items[$index]['unit_price'] = $item->unit_purchase_price;
             }
+            $this->items[$index]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+                ->orderBy('created_at', 'desc')
+                ->value('unit_price');
         }
     }
 
@@ -325,7 +527,7 @@ class CreateDirectPurchase extends Component
                 'supplier_id' => $this->supplierId,
                 'location_id' => $this->location_id,
                 'order_date' => $this->orderDate,
-                'total_amount' => $this->itemSubtotal,
+                'total_amount' => $this->finalTotal,
                 'discount' => (float) ($this->discount ?? 0),
                 'discount_type' => $this->discount_type,
                 'status' => $this->status,
@@ -354,6 +556,29 @@ class CreateDirectPurchase extends Component
             // Record payment if provided
             if ($this->recordPayment && $this->paymentAmount > 0) {
                 $this->recordPaymentForPurchase($purchase);
+            }
+
+            // Save attachments
+            if (!empty($this->attachments)) {
+                $dir = public_path('user-uploads/' . PurchaseAttachment::UPLOAD_DIR);
+                if (!\Illuminate\Support\Facades\File::exists($dir)) {
+                    \Illuminate\Support\Facades\File::makeDirectory($dir, 0775, true);
+                }
+                foreach ($this->attachments as $file) {
+                    $mimeType     = $file->getMimeType();
+                    $originalName = $file->getClientOriginalName();
+                    $ext          = strtolower($file->getClientOriginalExtension());
+                    $filename     = md5(microtime()) . '.' . $ext;
+                    copy($file->getRealPath(), $dir . '/' . $filename);
+                    PurchaseAttachment::create([
+                        'purchase_order_id' => $purchase->id,
+                        'file_path'         => $filename,
+                        'original_name'     => $originalName,
+                        'mime_type'         => $mimeType,
+                        'file_type'         => PurchaseAttachment::resolveFileType($mimeType ?? ''),
+                        'uploaded_by'       => user()->id,
+                    ]);
+                }
             }
         });
 
@@ -391,6 +616,7 @@ class CreateDirectPurchase extends Component
             // Create inventory movement record
             InventoryMovement::create([
                 'branch_id' => $targetBranchId,
+                'location_id' => $purchase->location_id,
                 'inventory_item_id' => $item->inventory_item_id,
                 'quantity' => $quantity,
                 'transaction_type' => 'in',

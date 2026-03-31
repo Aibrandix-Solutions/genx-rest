@@ -40,4 +40,50 @@ class KotItem extends BaseModel
     {
         return $this->belongsTo(Kot::class);
     }
+
+    /**
+     * The kitchen that claimed this item for preparation.
+     */
+    public function claimedByKitchen(): BelongsTo
+    {
+        return $this->belongsTo(KotPlace::class, 'claimed_by_kitchen_id');
+    }
+
+    /**
+     * Check if this item has been claimed by any kitchen.
+     */
+    public function isClaimed(): bool
+    {
+        return !is_null($this->claimed_by_kitchen_id);
+    }
+
+    /**
+     * Claim this item for a specific kitchen (first-come-first-served).
+     * Uses atomic update to prevent race conditions between kitchens.
+     * Returns true if claim was successful, false if already claimed by another.
+     */
+    public function claimForKitchen(int $kitchenId): bool
+    {
+        if ($this->isClaimed()) {
+            return $this->claimed_by_kitchen_id === $kitchenId;
+        }
+
+        // Atomic: only update if still unclaimed (prevents race condition)
+        $affected = self::where('id', $this->id)
+            ->whereNull('claimed_by_kitchen_id')
+            ->update([
+                'claimed_by_kitchen_id' => $kitchenId,
+                'claimed_at' => now(),
+            ]);
+
+        if ($affected > 0) {
+            $this->claimed_by_kitchen_id = $kitchenId;
+            $this->claimed_at = now();
+            return true;
+        }
+
+        // Someone else claimed it between our check and update
+        $this->refresh();
+        return $this->claimed_by_kitchen_id === $kitchenId;
+    }
 }

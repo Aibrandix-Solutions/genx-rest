@@ -10,7 +10,7 @@ class ViewPurchaseOrder extends Component
 {
     public $showModal = false;
     public $purchaseOrder;
-    public $activeTab = 'details'; // details, payments
+    public $activeTab = 'details'; // details, payments, attachments
 
     protected $listeners = [
         'viewPurchaseOrder' => 'show',
@@ -21,10 +21,11 @@ class ViewPurchaseOrder extends Component
     {
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
-            'branch',
+            'location.branch',
             'items.inventoryItem.unit',
             'payments.account',
             'payments.addedBy',
+            'attachments',
         ]);
         $this->activeTab = 'details';
         $this->showModal = true;
@@ -36,6 +37,9 @@ class ViewPurchaseOrder extends Component
         if ($tab === 'payments') {
             $this->purchaseOrder->load(['payments.account', 'payments.addedBy']);
         }
+        if ($tab === 'attachments') {
+            $this->purchaseOrder->load(['attachments']);
+        }
     }
 
     public function downloadPdf()
@@ -43,13 +47,17 @@ class ViewPurchaseOrder extends Component
         // Reload with withoutGlobalScopes just in case
         $this->purchaseOrder->load([
             'supplier',
-            'branch',
+            'location.branch',
             'items.inventoryItem.unit',
         ]);
 
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [
             'purchaseOrder' => $this->purchaseOrder
         ]);
+
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
 
         return response()->streamDownload(function() use ($pdf) {
             echo $pdf->output();

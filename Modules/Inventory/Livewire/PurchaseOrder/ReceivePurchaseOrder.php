@@ -4,6 +4,7 @@ namespace Modules\Inventory\Livewire\PurchaseOrder;
 
 use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseLocation;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -41,7 +42,36 @@ class ReceivePurchaseOrder extends Component
             'items.*.receiving_quantity' => trans('inventory::modules.purchaseOrder.receiving_quantity'),
         ]);
 
-        DB::transaction(function () {
+        $this->purchaseOrder->loadMissing(['location', 'branch']);
+        $purchaseLocation = $this->purchaseOrder->location;
+
+        if (!$purchaseLocation && $this->purchaseOrder->location_id) {
+            $purchaseLocation = PurchaseLocation::find($this->purchaseOrder->location_id);
+        }
+
+        if (!$purchaseLocation) {
+            $restaurantId = $this->purchaseOrder->branch?->restaurant_id ?? restaurant()->id;
+            $purchaseLocation = PurchaseLocation::query()
+                ->where('restaurant_id', $restaurantId)
+                ->where('type', 'branch')
+                ->where('branch_id', $this->purchaseOrder->branch_id)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->first();
+        }
+
+        if (!$purchaseLocation) {
+            $this->alert('error', trans('inventory::modules.purchaseOrder.receive_location_required'));
+
+            return;
+        }
+
+        $targetLocationId = (int) $purchaseLocation->id;
+        $targetBranchId = ($purchaseLocation->type === 'branch' && $purchaseLocation->branch_id !== null)
+            ? (int) $purchaseLocation->branch_id
+            : ($this->purchaseOrder->branch_id !== null ? (int) $this->purchaseOrder->branch_id : null);
+
+        DB::transaction(function () use ($targetLocationId, $targetBranchId) {
             $allReceived = true;
             
             foreach ($this->items as $item) {
@@ -57,7 +87,8 @@ class ReceivePurchaseOrder extends Component
 
                     // Create inventory movement
                     $poItem->inventoryItem->movements()->create([
-                        'branch_id' => branch()->id,
+                        'branch_id' => $targetBranchId,
+                        'location_id' => $targetLocationId,
                         'quantity' => $item['receiving_quantity'],
                         'transaction_type' => 'in',
                         'supplier_id' => $this->purchaseOrder->supplier_id,
@@ -66,7 +97,10 @@ class ReceivePurchaseOrder extends Component
 
                     // Update or create inventory stock
                     $poItem->inventoryItem->stocks()->updateOrCreate(
-                        ['branch_id' => branch()->id],
+                        [
+                            'branch_id' => $targetBranchId,
+                            'location_id' => $targetLocationId,
+                        ],
                         [
                             'quantity' => DB::raw('quantity + ' . $item['receiving_quantity'])
                         ]

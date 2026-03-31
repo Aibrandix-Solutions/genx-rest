@@ -1,5 +1,4 @@
 <?php
-
 namespace Modules\Hrm\Livewire\CreditPurchases;
 
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
