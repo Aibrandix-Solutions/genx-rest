@@ -19,9 +19,9 @@ class AddSupplier extends Component
     {
         $this->validate([
             'name' => 'required',
-            'email' => 'required|email',
+            'email' => 'nullable|email',
             'phone' => 'required',
-            'address' => 'required',
+            'address' => 'nullable|string',
         ]);
 
         Supplier::create([

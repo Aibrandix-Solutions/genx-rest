@@ -60,12 +60,28 @@
                             @lang('app.export')
                         </x-secondary-button>
 
+                        <x-secondary-button wire:click="downloadImportTemplate" wire:loading.attr="disabled">
+                            Download Import Template
+                        </x-secondary-button>
+
+                        <label class="inline-flex items-center px-3 py-2 text-sm font-medium border rounded-md cursor-pointer border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200">
+                            Import File
+                            <input type="file" class="hidden" wire:model="importFile" accept=".xlsx,.xls,.csv,.txt">
+                        </label>
+
+                        <x-button type="button" wire:click="importItems" wire:loading.attr="disabled" wire:target="importFile,importItems">
+                            Upload
+                        </x-button>
+
                         @if(user_can('Create Inventory Item'))
                         <x-button type='button' wire:click="$set('showAddInventoryItem', true)" >@lang('inventory::modules.inventoryItem.addInventoryItem')</x-button>
                         @endif
                     </div>
 
                 </div>
+                @error('importFile')
+                    <p class="text-sm text-red-600 mt-2">{{ $message }}</p>
+                @enderror
 
 
             </div>
