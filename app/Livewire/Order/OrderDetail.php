@@ -1321,6 +1321,11 @@ class OrderDetail extends Component
                 }
             });
         } catch (\RuntimeException $e) {
+            // Ensure component state matches rolled-back database values.
+            if ($this->order) {
+                $this->order->refresh();
+                $this->order->load('payments');
+            }
             $this->alert('warning', $e->getMessage(), [
                 'toast' => true,
                 'position' => 'top-end',

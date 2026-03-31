@@ -1,6 +1,6 @@
 ---
 description: Extra caution for POS, KOT, and cart/order Livewire flows
-globs: app/Livewire/Pos/**/*.php,resources/views/pos/**/*.blade.php,resources/views/livewire/pos/**/*.blade.php
+globs: app/Livewire/Pos/**/*.php,app/Livewire/Order/**/*.php,app/Livewire/Customer/**/*.php,resources/views/pos/**/*.blade.php,resources/views/livewire/pos/**/*.blade.php,resources/views/livewire/order/**/*.blade.php,resources/views/livewire/customer/**/*.blade.php
 alwaysApply: false
 ---
 

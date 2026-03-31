@@ -703,8 +703,10 @@ class AddPayment extends Component
         $this->pendingDueSplitIdForCustomerModal = null;
 
         if (isset($this->splits[$splitId])) {
-            $this->splits[$splitId]['paymentMethod'] = $method;
-            $this->splits = $this->splits;
+            if (($this->splits[$splitId]['paymentMethod'] ?? null) !== $method) {
+                $this->splits[$splitId]['paymentMethod'] = $method;
+                $this->splits = $this->splits;
+            }
         }
     }
 
@@ -869,6 +871,12 @@ class AddPayment extends Component
     {
         // Update balance calculations whenever splits change
         $this->updateBalanceAmount();
+
+        // If payment method changed, run due-customer gating / modal flow.
+        if (is_string($key) && preg_match('/(?:^|\.)(\d+)\.paymentMethod$/', $key, $matches)) {
+            $splitId = (int) $matches[1];
+            $this->updateSplitPaymentMethod($splitId, (string) $value);
+        }
     }
 
     public function addNewSplit()

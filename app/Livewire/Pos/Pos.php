@@ -1849,7 +1849,8 @@ class Pos extends Component
                     if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
                         $order->refresh();
                         $order->load('payments');
-                        $this->reconcilePaymentsAfterDiscount($order, $newTotal);
+                        $canonicalTotal = (float) $order->total;
+                        $this->reconcilePaymentsAfterDiscount($order, $canonicalTotal);
                     }
                 });
             } catch (\RuntimeException $e) {
