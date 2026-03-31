@@ -1,0 +1,12 @@
+---
+description: Extra caution for POS, KOT, and cart/order Livewire flows
+globs: app/Livewire/Pos/**/*.php,app/Livewire/Order/**/*.php,app/Livewire/Customer/**/*.php,resources/views/pos/**/*.blade.php,resources/views/livewire/pos/**/*.blade.php,resources/views/livewire/order/**/*.blade.php,resources/views/livewire/customer/**/*.blade.php
+alwaysApply: false
+---
+
+# POS / KOT
+
+- **Cart keys** matter: keys prefixed like `kot_{id}_` tie to persisted KOT rows; removal flows use `requiresRemovalReason` / `Delete KOT Item`. Do not change key formats or `str_starts_with` / `str_contains` logic without tracing **all** callers (e.g. `saveOrder`, `getItemDisplayPrice`, combo handling).
+- **Permissions**: UI visibility (`Delete Order`, `Update Order`, `Delete KOT Item`, `Edit Billed Order`) and backend checks must stay aligned; changing Blade `$canManage*` without matching `Pos.php` checks (or the reverse) causes silent UX bugs.
+- **`orderDetail` on KOT screens**: can be a flag vs the `Order` model—verify `kot.blade.php` / `pos.blade.php` before assuming type.
+- Test mentally: **new order**, **KOT sent**, **billed**, **paid**, **combo packs**—a fix for one state must not break others.

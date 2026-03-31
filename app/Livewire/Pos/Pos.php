@@ -31,7 +31,9 @@ use App\Models\RestaurantCharge;
 use App\Models\DeliveryExecutive;
 use App\Models\MenuItemVariation;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use App\Livewire\Customer\AddCustomer;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Models\Customer;
 use App\Models\Menu;
@@ -1833,22 +1835,36 @@ class Pos extends Component
 
             $oldDiscount = (float) ($order->discount_amount ?? 0);
             $newTotal    = max(0, ($order->total + $oldDiscount) - $discountAmount);
+            $statusBefore = $order->status;
 
-            $order->update([
-                'discount_type'   => $this->discountType,
-                'discount_value'  => $this->discountValue,
-                'discount_amount' => $discountAmount,
-                'total'           => $newTotal,
-            ]);
+            try {
+                DB::transaction(function () use ($order, $discountAmount, $newTotal, $statusBefore) {
+                    $order->update([
+                        'discount_type'   => $this->discountType,
+                        'discount_value'  => $this->discountValue,
+                        'discount_amount' => $discountAmount,
+                        'total'           => $newTotal,
+                    ]);
+
+                    if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+                        $order->refresh();
+                        $order->load('payments');
+                        $canonicalTotal = (float) $order->total;
+                        $this->reconcilePaymentsAfterDiscount($order, $canonicalTotal);
+                    }
+                });
+            } catch (\RuntimeException $e) {
+                $this->alert('warning', $e->getMessage(), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+
+                return;
+            }
 
             $this->discountAmount = $discountAmount;
-
-            // Reconcile payment records if already paid/partially paid
-            if (in_array($order->status, ['paid', 'payment_due'])) {
-                $order->refresh();
-                $order->load('payments');
-                $this->reconcilePaymentsAfterDiscount($order, $newTotal);
-            }
         }
 
         $this->calculateTotal();
@@ -1872,8 +1888,34 @@ class Pos extends Component
         }
 
         if ($order) {
+            $statusBefore = $order->status;
             $removedDiscount = (float) $order->discount_amount;
             $newTotal        = $order->total + $removedDiscount;
+
+            if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+                $amountPaid = $order->payments()
+                    ->where('payment_method', '!=', 'due')
+                    ->sum('amount');
+
+                if ($amountPaid < $newTotal - 0.0001 && !$order->canRecordDueBalance()) {
+                    $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                        'showCancelButton' => false,
+                        'cancelButtonText' => __('app.close'),
+                    ]);
+                    $this->dispatch(
+                        'showAddCustomerModal',
+                        id: $order->id,
+                        customerId: null,
+                        fromPos: true,
+                        forDuePayment: true,
+                        preferDueAfterAttach: false
+                    )->to(AddCustomer::class);
+
+                    return;
+                }
+            }
 
             $order->update([
                 'discount_type' => null,
@@ -1883,13 +1925,13 @@ class Pos extends Component
             ]);
 
             // If already paid/partially paid, the new higher total may create a shortfall
-            if (in_array($order->status, ['paid', 'payment_due'])) {
+            if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
                 $order->refresh();
                 $amountPaid = $order->payments()
                     ->where('payment_method', '!=', 'due')
                     ->sum('amount');
 
-                if ($amountPaid < $newTotal) {
+                if ($amountPaid < $newTotal - 0.0001) {
                     $shortfall = round($newTotal - $amountPaid, 2);
                     $order->payments()->create([
                         'payment_method' => 'due',
@@ -1935,7 +1977,11 @@ class Pos extends Component
             ->where('payment_method', '!=', 'due')
             ->sum('amount');
 
-        $newStatus = ($amountPaid >= $newTotal) ? 'paid' : 'payment_due';
+        $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
+
+        if ($newStatus === 'payment_due' && !$order->canRecordDueBalance()) {
+            throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
+        }
 
         $order->update([
             'amount_paid' => $amountPaid,
@@ -3781,7 +3827,7 @@ class Pos extends Component
             return user_can('Edit Billed Order');
         }
 
-        return user_can('Delete Order');
+        return user_can('Delete Order') || user_can('Update Order');
     }
 
     /**

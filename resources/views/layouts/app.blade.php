@@ -153,11 +153,12 @@
 
         @livewire('order.OrderDetail')
 
-        @livewire('customer.addCustomer')
-
         @livewire('settings.upgradeLicense')
 
+        {{-- Payment modal below customer modal in DOM; customer uses higher z-index so it stacks on top for due/customer flow --}}
         @livewire('order.addPayment')
+
+        @livewire('customer.addCustomer')
 
         @include('sections.payment-gateway-include')
 

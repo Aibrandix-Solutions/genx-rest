@@ -304,6 +304,7 @@ return [
         'returnAmount' => 'Amount to be returned',
         'payableAmount' => 'Payable Amount',
         'dueAmount' => 'Due Amount',
+        'customerRequiredForDuePayment' => 'Due or partial payment needs a registered customer. Select an existing customer or add a new one.',
         'paymentMethod' => 'Payment Method',
         'method' => 'Method',
         'taxes' => 'Taxes',

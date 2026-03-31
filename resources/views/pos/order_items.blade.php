@@ -285,6 +285,15 @@
 
             <div class="flex flex-col rounded">
                 <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                    @php
+                        $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
+                        $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
+                            ? $rawOrderStatus->value
+                            : (string) ($rawOrderStatus ?? '');
+                        $showActionColumn = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+                            ? user_can('Edit Billed Order')
+                            : (user_can('Delete Order') || user_can('Update Order'));
+                    @endphp
                     <thead>
                         <tr>
                             <th scope="col" class="p-3 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-left">
@@ -301,7 +310,7 @@
                                 class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                 @lang('modules.order.amount')
                             </th>
-                            @if (user_can('Delete Order'))
+                            @if ($showActionColumn)
                             <th scope="col" class="p-3 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                 @lang('app.action')
                             </th>
@@ -312,13 +321,6 @@
                         wire:key='menu-item-list-{{ microtime() }}'>
                     @php
                         $renderedOrderComboGroups = [];
-                        $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
-                        $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
-                            ? $rawOrderStatus->value
-                            : (string) ($rawOrderStatus ?? '');
-                        $canManageItems = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
-                            ? user_can('Edit Billed Order')
-                            : user_can('Delete Order');
                     @endphp
 
                         @forelse ($orderItemList as $key => $item)
@@ -345,7 +347,7 @@
 
                         @if ($showOrderComboHeader)
                             <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
-                                <td colspan="5" class="px-2 py-1.5">
+                                <td colspan="{{ $showActionColumn ? 5 : 4 }}" class="px-2 py-1.5">
                                     <div class="flex items-center justify-between">
                                         <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -359,7 +361,7 @@
                                                     Save {{ currency_format($orderGroupSavings, restaurant()->currency_id) }}
                                                 </span>
                                             @endif
-                                            @if ($canManageItems)
+                                            @if ($showActionColumn)
                                                 <button
                                                     wire:click="removeComboGroup('{{ $orderComboId }}')"
                                                     wire:loading.attr="disabled"
@@ -444,7 +446,7 @@
                             <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
-                            @if ($canManageItems && !$isComboItem)
+                            @if ($showActionColumn && !$isComboItem)
                             <td class="p-2 text-right whitespace-nowrap">
                                 <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
                                     <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
@@ -458,7 +460,7 @@
                             @endif
                         @empty
                             <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
-                                <td class="p-2 space-x-6" colspan="5">
+                                <td class="p-2 space-x-6" colspan="{{ $showActionColumn ? 5 : 4 }}">
                                     @lang('messages.noItemAdded')
                                 </td>
                             </tr>

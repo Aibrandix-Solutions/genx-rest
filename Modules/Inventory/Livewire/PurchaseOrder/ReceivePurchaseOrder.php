@@ -67,9 +67,9 @@ class ReceivePurchaseOrder extends Component
         }
 
         $targetLocationId = (int) $purchaseLocation->id;
-        $targetBranchId = ($purchaseLocation->type === 'branch' && $purchaseLocation->branch_id)
+        $targetBranchId = ($purchaseLocation->type === 'branch' && $purchaseLocation->branch_id !== null)
             ? (int) $purchaseLocation->branch_id
-            : (int) $this->purchaseOrder->branch_id;
+            : ($this->purchaseOrder->branch_id !== null ? (int) $this->purchaseOrder->branch_id : null);
 
         DB::transaction(function () use ($targetLocationId, $targetBranchId) {
             $allReceived = true;
