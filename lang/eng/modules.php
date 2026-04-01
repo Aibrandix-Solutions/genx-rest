@@ -230,6 +230,7 @@ return [
         'selectWaiter' => 'Select Waiter',
         'selectDeliveryExecutive' => 'Select Delivery Executive',
         'totalItem' => 'Item(s)',
+        'existingItems' => 'Existing Items',
         'subTotal' => 'Sub Total',
         'extra' => 'Extra',
         'total' => 'Total',

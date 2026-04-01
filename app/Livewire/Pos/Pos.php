@@ -101,6 +101,8 @@ class Pos extends Component
     public $orderItemOriginalPrice = [];
     public $orderItemComboDiscount = [];
     public $orderItemComboName = [];
+    public $orderItemUnitPrice = [];
+    public $orderItemDisplayPrice = [];
     public $extraCharges;
     public $orderExtras = [];
     public $discountedTotal;
@@ -910,6 +912,8 @@ class Pos extends Component
             $this->orderItemOriginalPrice = [];
             $this->orderItemComboDiscount = [];
             $this->orderItemComboName = [];
+            $this->orderItemUnitPrice = [];
+            $this->orderItemDisplayPrice = [];
             $this->orderItemModifiersPrice = [];
             $this->itemModifiersSelected = [];
             $this->itemNotes = [];
@@ -1128,12 +1132,237 @@ class Pos extends Component
                 }
             }
 
+            // Lines billed/saved as order_items but never matched to a KotItem stay in the FIFO
+            // queues. Prepend them so the POS cart and totals match the full bill (KOT + non-KOT).
+            $prependMaps = $this->buildCartMapsFromUnmatchedPersistedOrderItems(
+                $persistedIndividualQueues,
+                $persistedComboQueues,
+                $comboInstanceCounters
+            );
+
+            if (!empty($prependMaps['orderItemList'])) {
+                $this->orderItemList = $prependMaps['orderItemList'] + $this->orderItemList;
+                $this->orderItemQty = $prependMaps['orderItemQty'] + $this->orderItemQty;
+                $this->orderItemAmount = $prependMaps['orderItemAmount'] + $this->orderItemAmount;
+                $this->orderItemVariation = $prependMaps['orderItemVariation'] + $this->orderItemVariation;
+                $this->itemModifiersSelected = $prependMaps['itemModifiersSelected'] + $this->itemModifiersSelected;
+                $this->itemNotes = $prependMaps['itemNotes'] + $this->itemNotes;
+                $this->orderItemModifiersPrice = $prependMaps['orderItemModifiersPrice'] + $this->orderItemModifiersPrice;
+                $this->orderItemPersistedTaxOverride = $prependMaps['orderItemPersistedTaxOverride'] + $this->orderItemPersistedTaxOverride;
+                $this->orderItemComboPack = $prependMaps['orderItemComboPack'] + $this->orderItemComboPack;
+                $this->orderItemOriginalPrice = $prependMaps['orderItemOriginalPrice'] + $this->orderItemOriginalPrice;
+                $this->orderItemComboDiscount = $prependMaps['orderItemComboDiscount'] + $this->orderItemComboDiscount;
+                $this->orderItemComboName = $prependMaps['orderItemComboName'] + $this->orderItemComboName;
+                $this->orderItemUnitPrice = $prependMaps['orderItemUnitPrice'] + $this->orderItemUnitPrice;
+                $this->orderItemDisplayPrice = $prependMaps['orderItemDisplayPrice'] + $this->orderItemDisplayPrice;
+            }
+
             // Calculate tax details for existing items after setting up all items
             if ($this->taxMode === 'item') {
                 $this->updateOrderItemTaxDetails();
             }
 
             $this->calculateTotal();
+        }
+    }
+
+    /**
+     * True for cart keys that rehydrate an existing order_items row (no duplicate KOT / inserts).
+     */
+    protected function isAlreadyPersistedOrderItemCartKey(string $key): bool
+    {
+        $k = str_replace('"', '', (string) $key);
+
+        return str_starts_with($k, 'order_item_');
+    }
+
+    /**
+     * Lines already on a KOT or already stored as order_items must not be sent as a "new" KOT payload.
+     */
+    protected function shouldExcludeFromNewKotTicketPayload(string $key): bool
+    {
+        $k = str_replace('"', '', (string) $key);
+
+        return str_starts_with($k, 'kot_') || str_starts_with($k, 'order_item_');
+    }
+
+    /**
+     * Build cart slice maps for OrderItem rows still left in persisted queues after KOT matching.
+     *
+     * @param  array<string, list<OrderItem>>  $persistedIndividualQueues
+     * @param  array<string, list<OrderItem>>  $persistedComboQueues
+     * @param  array<int, int>  $comboInstanceCounters
+     * @return array<string, array<string, mixed>>
+     */
+    protected function buildCartMapsFromUnmatchedPersistedOrderItems(
+        array $persistedIndividualQueues,
+        array $persistedComboQueues,
+        array &$comboInstanceCounters
+    ): array {
+        $emptyMaps = [
+            'orderItemList' => [],
+            'orderItemQty' => [],
+            'orderItemAmount' => [],
+            'orderItemVariation' => [],
+            'itemModifiersSelected' => [],
+            'itemNotes' => [],
+            'orderItemModifiersPrice' => [],
+            'orderItemPersistedTaxOverride' => [],
+            'orderItemComboPack' => [],
+            'orderItemOriginalPrice' => [],
+            'orderItemComboDiscount' => [],
+            'orderItemComboName' => [],
+            'orderItemUnitPrice' => [],
+            'orderItemDisplayPrice' => [],
+        ];
+
+        $maps = $emptyMaps;
+
+        $individuals = [];
+        foreach ($persistedIndividualQueues as $list) {
+            foreach ($list as $oi) {
+                $individuals[] = $oi;
+            }
+        }
+        usort($individuals, fn ($a, $b) => $a->id <=> $b->id);
+
+        foreach ($individuals as $oi) {
+            $this->appendPersistedOrderItemToCartMaps($oi, null, $maps, $comboInstanceCounters);
+        }
+
+        $comboOrphans = [];
+        foreach ($persistedComboQueues as $list) {
+            foreach ($list as $oi) {
+                $comboOrphans[] = $oi;
+            }
+        }
+        usort($comboOrphans, fn ($a, $b) => $a->id <=> $b->id);
+
+        $byInstance = [];
+        $remainingCombo = [];
+        foreach ($comboOrphans as $oi) {
+            $ik = $this->extractComboInstanceKey($oi->note);
+            if ($ik !== null && $ik !== '') {
+                $byInstance[$ik][] = $oi;
+            } else {
+                $remainingCombo[] = $oi;
+            }
+        }
+
+        foreach ($byInstance as $ik => $rows) {
+            usort($rows, fn ($a, $b) => $a->id <=> $b->id);
+            foreach ($rows as $oi) {
+                $this->appendPersistedOrderItemToCartMaps($oi, $ik, $maps, $comboInstanceCounters);
+            }
+        }
+
+        $n = count($remainingCombo);
+        $i = 0;
+        while ($i < $n) {
+            $pack = (int) $remainingCombo[$i]->combo_pack_id;
+            $j = $i + 1;
+            while ($j < $n
+                && (int) $remainingCombo[$j]->combo_pack_id === $pack
+                && ($this->extractComboInstanceKey($remainingCombo[$j]->note) === null
+                    || $this->extractComboInstanceKey($remainingCombo[$j]->note) === '')) {
+                $j++;
+            }
+
+            $instanceNum = $comboInstanceCounters[$pack] ?? 0;
+            $comboInstanceCounters[$pack] = $instanceNum + 1;
+            $allocatedInstanceKey = $pack . '_' . $instanceNum;
+
+            for ($k = $i; $k < $j; $k++) {
+                $this->appendPersistedOrderItemToCartMaps($remainingCombo[$k], $allocatedInstanceKey, $maps, $comboInstanceCounters);
+            }
+            $i = $j;
+        }
+
+        return $maps;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $maps
+     * @param  array<int, int>  $comboInstanceCounters
+     */
+    protected function appendPersistedOrderItemToCartMaps(
+        OrderItem $oi,
+        ?string $forcedComboInstanceKey,
+        array &$maps,
+        array &$comboInstanceCounters
+    ): void {
+        $oi->loadMissing(['menuItem', 'menuItemVariation', 'modifierOptions']);
+
+        if (!$oi->menuItem) {
+            return;
+        }
+
+        $key = 'order_item_' . $oi->id;
+
+        $maps['orderItemList'][$key] = $oi->menuItem;
+        $maps['orderItemQty'][$key] = (int) $oi->quantity;
+        $maps['orderItemAmount'][$key] = (float) $oi->amount;
+        $savedQty = max(1, (int) $oi->quantity);
+        $savedPerUnitFromAmount = $savedQty > 0 ? ((float) $oi->amount / $savedQty) : 0.0;
+        $savedUnitPrice = $oi->price !== null ? (float) $oi->price : $savedPerUnitFromAmount;
+        $maps['orderItemUnitPrice'][$key] = $savedUnitPrice;
+        $maps['orderItemDisplayPrice'][$key] = $savedPerUnitFromAmount > 0 ? $savedPerUnitFromAmount : $savedUnitPrice;
+        $maps['itemModifiersSelected'][$key] = $oi->modifierOptions->pluck('pivot.quantity', 'id')->toArray();
+        $maps['orderItemModifiersPrice'][$key] = $oi->modifierOptions->sum(function ($modifier) {
+            $qty = (float) ($modifier->pivot->quantity ?? 1);
+            $unitPrice = $modifier->pivot->price !== null
+                ? (float) $modifier->pivot->price
+                : (float) $modifier->price;
+
+            return $unitPrice * max(1, $qty);
+        });
+
+        if ($oi->menuItemVariation) {
+            $maps['orderItemVariation'][$key] = $oi->menuItemVariation;
+        }
+
+        if ($oi->note) {
+            $cleanNote = trim(preg_replace('/\s*\[(?:COMBO:\d+|COMBO_INSTANCE:[^\]]+)\]\s*/', '', (string) $oi->note));
+            if ($cleanNote !== '') {
+                $maps['itemNotes'][$key] = $cleanNote;
+            }
+        }
+
+        if ($this->taxMode === 'item' && $oi->tax_amount !== null) {
+            $maps['orderItemPersistedTaxOverride'][$key] = [
+                'tax_amount' => (float) $oi->tax_amount,
+                'tax_percentage' => $oi->tax_percentage !== null ? (float) $oi->tax_percentage : null,
+                'tax_breakup' => $oi->tax_breakup,
+            ];
+        }
+
+        $isComboRow = (bool) $oi->getAttribute('is_combo_item') && $oi->combo_pack_id;
+
+        if ($isComboRow) {
+            $packId = (int) $oi->combo_pack_id;
+
+            if ($forcedComboInstanceKey !== null && $forcedComboInstanceKey !== '') {
+                $instanceKey = $forcedComboInstanceKey;
+            } else {
+                $instanceKey = $this->extractComboInstanceKey($oi->note);
+                if ($instanceKey === null || $instanceKey === '') {
+                    $num = $comboInstanceCounters[$packId] ?? 0;
+                    $comboInstanceCounters[$packId] = $num + 1;
+                    $instanceKey = $packId . '_' . $num;
+                }
+            }
+
+            $maps['orderItemComboPack'][$key] = $instanceKey;
+            $maps['orderItemOriginalPrice'][$key] = (float) ($oi->original_price ?? 0);
+            $maps['orderItemComboDiscount'][$key] = (float) ($oi->combo_discount_amount ?? 0);
+            $maps['orderItemModifiersPrice'][$key] = 0;
+
+            if ($packId > 0 && empty($maps['orderItemComboName'][$instanceKey])) {
+                $comboNameModel = \App\Models\ComboPack::find($packId);
+                if ($comboNameModel) {
+                    $maps['orderItemComboName'][$instanceKey] = $comboNameModel->getTranslation('name', app()->getLocale());
+                }
+            }
         }
     }
 
@@ -1583,7 +1812,14 @@ class Pos extends Component
             return;
         }
 
-        if (!empty($keysToDelete) && $this->requiresRemovalReason($keysToDelete[0])) {
+        $firstComboKey = $keysToDelete[0] ?? null;
+        $isPersistedExistingCombo = $firstComboKey
+            ? $this->isAlreadyPersistedOrderItemCartKey((string) $firstComboKey)
+            : false;
+
+        // Existing-items combos (order_item_*) must also collect a reason to stay aligned with
+        // KOT reduction/removal workflow.
+        if (!empty($keysToDelete) && ($this->requiresRemovalReason($firstComboKey) || $isPersistedExistingCombo)) {
             $this->pendingRemovalComboItems = $keysToDelete;
             $this->pendingRemovalItem = '__combo__';
             $this->pendingRemovalAction = 'delete_combo';
@@ -2572,9 +2808,9 @@ class Pos extends Component
                 }
 
                 foreach ($this->orderItemList as $key => $item) {
-                    // Skip items already in an existing KOT (loaded via setupOrderItems with "kot_" keys).
+                    // Skip items already in an existing KOT (kot_*) or already stored as order_items (order_item_*).
                     // Only NEW items (added in the current session) should go into this new KOT.
-                    if (str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) {
+                    if ($this->shouldExcludeFromNewKotTicketPayload($key)) {
                         continue;
                     }
 
@@ -2665,8 +2901,8 @@ class Pos extends Component
                 ]);
 
                 foreach ($this->orderItemList as $key => $value) {
-                    // Skip items already in an existing KOT — only new items go here.
-                    if (str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) {
+                    // Skip items already on a KOT or already persisted as order_items.
+                    if ($this->shouldExcludeFromNewKotTicketPayload($key)) {
                         continue;
                     }
 
@@ -2702,6 +2938,9 @@ class Pos extends Component
 
                 foreach ($this->orderItemList as $key => $value) {
                     if ($appendOnlyKotSave && (str_starts_with((string) $key, 'kot_') || str_starts_with((string) $key, '"kot_'))) {
+                        continue;
+                    }
+                    if ($appendOnlyKotSave && $this->isAlreadyPersistedOrderItemCartKey((string) $key)) {
                         continue;
                     }
 
@@ -2758,7 +2997,9 @@ class Pos extends Component
                     }
                 }
 
-                $this->calculateTotal();
+                if (!$appendOnlyKotSave) {
+                    $this->calculateTotal();
+                }
 
                 Order::where('id', $order->id)->update([
                     'sub_total'        => $this->subTotal,
@@ -3219,6 +3460,8 @@ class Pos extends Component
         $this->orderItemVariation = [];
         $this->orderItemQty = [];
         $this->orderItemAmount = [];
+        $this->orderItemUnitPrice = [];
+        $this->orderItemDisplayPrice = [];
         // Prefer restoring last selection from session (New Order should not force Dine In)
         $this->selectedDeliveryApp = null;
         $this->selectedDeliveryPlatformName = null;
@@ -3406,6 +3649,22 @@ class Pos extends Component
         ];
     }
 
+    protected function parsePersistedOrderItemContext($id): ?array
+    {
+        $parts = explode('_', str_replace('"', '', (string) $id));
+
+        if (count($parts) < 3 || $parts[0] !== 'order' || $parts[1] !== 'item') {
+            return null;
+        }
+
+        $orderItemId = (int) ($parts[2] ?? 0);
+        if ($orderItemId <= 0) {
+            return null;
+        }
+
+        return ['order_item_id' => $orderItemId];
+    }
+
     protected function extractComboInstanceKey(?string $note): ?string
     {
         if (!$note) {
@@ -3539,9 +3798,43 @@ class Pos extends Component
         unset($this->orderItemComboPack[$id]);
         unset($this->orderItemOriginalPrice[$id]);
         unset($this->orderItemComboDiscount[$id]);
+        unset($this->orderItemUnitPrice[$id]);
+        unset($this->orderItemDisplayPrice[$id]);
 
         if (!$this->orderDetail || !is_object($this->orderDetail)) {
             $this->calculateTotal();
+            return;
+        }
+
+        $persistedOrderItemContext = $this->parsePersistedOrderItemContext($id);
+        if ($persistedOrderItemContext) {
+            if (!$this->canModifyCurrentOrderItems()) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+                return;
+            }
+
+            $orderItem = OrderItem::query()
+                ->where('id', $persistedOrderItemContext['order_item_id'])
+                ->where('order_id', $this->orderDetail->id)
+                ->first();
+
+            if ($orderItem) {
+                $orderItem->modifierOptions()->detach();
+                $orderItem->delete();
+            }
+
+            $this->calculateTotal();
+
+            if ($this->orderID) {
+                Order::where('id', $this->orderID)->update([
+                    'sub_total' => $this->subTotal,
+                    'total' => $this->total,
+                    'discount_amount' => $this->discountAmount,
+                    'total_tax_amount' => $this->totalTaxAmount,
+                ]);
+                $this->orderDetail?->refresh();
+            }
+
             return;
         }
 
@@ -3959,8 +4252,10 @@ class Pos extends Component
      */
     public function getItemDisplayPrice($key)
     {
-        // For KOT items (keys like kot_123_456), check if we have combo pricing stored
-        if ((str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) && isset($this->orderItemComboPack[$key])) {
+        // KOT lines and rehydrated persisted order_item_* combo lines use stored combo amounts
+        $isKotComboKey = (str_starts_with($key, 'kot_') || str_starts_with($key, '"kot_')) && isset($this->orderItemComboPack[$key]);
+        $isPersistedOiComboKey = str_starts_with($key, 'order_item_') && isset($this->orderItemComboPack[$key]);
+        if (($isKotComboKey || $isPersistedOiComboKey)) {
             // This is a combo item from KOT, calculate per-unit price
             if (isset($this->orderItemOriginalPrice[$key]) && isset($this->orderItemQty[$key]) && $this->orderItemQty[$key] > 0) {
                 // Calculate unit price: (original - discount) / quantity
@@ -3970,6 +4265,16 @@ class Pos extends Component
             // Fallback: use amount / quantity if available
             if (isset($this->orderItemAmount[$key]) && isset($this->orderItemQty[$key]) && $this->orderItemQty[$key] > 0) {
                 return $this->orderItemAmount[$key] / $this->orderItemQty[$key];
+            }
+        }
+
+        // Rehydrated persisted order_item_* rows should keep their original saved display price.
+        if (str_starts_with((string) $key, 'order_item_')) {
+            if (isset($this->orderItemDisplayPrice[$key])) {
+                return (float) $this->orderItemDisplayPrice[$key];
+            }
+            if (isset($this->orderItemUnitPrice[$key])) {
+                return (float) $this->orderItemUnitPrice[$key];
             }
         }
         
