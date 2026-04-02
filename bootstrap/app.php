@@ -31,6 +31,10 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Add CORS middleware globally to handle all CORS requests
         $middleware->append(\Illuminate\Http\Middleware\HandleCors::class);
+
+        $middleware->web(append: [
+            \App\Http\Middleware\SetApplicationTimezone::class,
+        ]);
     })
 
     ->withExceptions(function (Exceptions $exceptions) {

@@ -181,6 +181,17 @@
             color: #555;
         }
 
+        .combo-items {
+            margin-top: 1mm;
+            font-size: 8pt;
+            color: #333;
+        }
+
+        .combo-items div {
+            margin-top: 0.5mm;
+            padding-left: 2mm;
+        }
+
         @media print {
             @page {
                 margin: 0;
@@ -322,7 +333,112 @@
                 </tr>
             </thead>
             <tbody>
+                @php
+                    $renderedComboGroups = [];
+                    $comboInstanceItems = [];
+                    $comboInstanceToStructure = [];
+                    $comboStructureMeta = [];
+
+                    foreach ($order->items as $comboCandidate) {
+                        $candidateIsCombo = (bool) ($comboCandidate->is_combo_item ?? false) && !is_null($comboCandidate->combo_pack_id);
+                        if (!$candidateIsCombo) {
+                            continue;
+                        }
+
+                        $candidateInstanceKey = null;
+                        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', (string) $comboCandidate->note, $matches) && !empty($matches[1])) {
+                            $candidateInstanceKey = trim((string) $matches[1]);
+                        }
+
+                        $instanceBucketKey = ((int) $comboCandidate->combo_pack_id) . '::' . ($candidateInstanceKey ?: ('legacy-item-' . (int) $comboCandidate->id));
+                        if (!isset($comboInstanceItems[$instanceBucketKey])) {
+                            $comboInstanceItems[$instanceBucketKey] = collect();
+                        }
+                        $comboInstanceItems[$instanceBucketKey]->push($comboCandidate);
+                    }
+
+                    foreach ($comboInstanceItems as $instanceBucketKey => $bucketItems) {
+                        $firstComboItem = $bucketItems->first();
+                        if (!$firstComboItem) {
+                            continue;
+                        }
+
+                        $structureParts = $bucketItems->map(function ($entry) {
+                            return implode('|', [
+                                (int) ($entry->menu_item_id ?? 0),
+                                (int) ($entry->menu_item_variation_id ?? 0),
+                                (int) ($entry->quantity ?? 1),
+                            ]);
+                        })->sort()->values()->all();
+
+                        $structureKey = ((int) $firstComboItem->combo_pack_id) . '::' . md5(json_encode($structureParts));
+                        $comboInstanceToStructure[$instanceBucketKey] = $structureKey;
+
+                        if (!isset($comboStructureMeta[$structureKey])) {
+                            $comboStructureMeta[$structureKey] = [
+                                'pack_count' => 0,
+                                'total_amount' => 0,
+                                'display_items' => $bucketItems,
+                            ];
+                        }
+
+                        $comboStructureMeta[$structureKey]['pack_count']++;
+                        $comboStructureMeta[$structureKey]['total_amount'] += (float) $bucketItems->sum('amount');
+                    }
+                @endphp
+
                 @foreach ($order->items as $item)
+                    @php
+                        $isComboItem = (bool) ($item->is_combo_item ?? false) && !is_null($item->combo_pack_id);
+                        $instanceKey = null;
+                        if ($isComboItem && preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', (string) $item->note, $matches) && !empty($matches[1])) {
+                            $instanceKey = trim((string) $matches[1]);
+                        }
+                        $instanceBucketKey = $isComboItem
+                            ? (((int) ($item->combo_pack_id ?? 0)) . '::' . ($instanceKey ?: ('legacy-item-' . (int) $item->id)))
+                            : null;
+                        $comboGroupKey = $isComboItem
+                            ? ($comboInstanceToStructure[$instanceBucketKey] ?? $instanceBucketKey)
+                            : null;
+                    @endphp
+
+                    @if ($isComboItem)
+                        @continue(in_array($comboGroupKey, $renderedComboGroups, true))
+                        @php
+                            $renderedComboGroups[] = $comboGroupKey;
+                            $comboMeta = $comboStructureMeta[$comboGroupKey] ?? null;
+                            $comboPackCount = (int) ($comboMeta['pack_count'] ?? 1);
+                            $comboAmount = (float) ($comboMeta['total_amount'] ?? $item->amount);
+                            $comboUnitPrice = $comboPackCount > 0 ? ($comboAmount / $comboPackCount) : $comboAmount;
+                            $comboDisplayItems = $comboMeta['display_items'] ?? collect([$item]);
+                            $comboPackName = optional($item->comboPack)->getTranslation('name', app()->getLocale()) ?? optional($item->comboPack)->name ?? __('modules.combo.comboPack');
+                        @endphp
+                        <tr>
+                            <td class="qty">{{ $comboPackCount }}</td>
+                            <td class="description">
+                                <strong>{{ $comboPackName }}</strong>
+                                <div class="combo-items">
+                                    @foreach ($comboDisplayItems as $comboItem)
+                                        @php
+                                            $baseQty = (int) ($comboItem->quantity ?? 1);
+                                            $displayQty = $baseQty * max(1, $comboPackCount);
+                                        @endphp
+                                        <div>
+                                            - {{ $displayQty }}
+                                            {{ $comboItem->menuItem->item_name ?? __('app.item') }}
+                                            @if ($comboItem->menuItemVariation)
+                                                ({{ $comboItem->menuItemVariation->variation }})
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </td>
+                            <td class="price">{{ currency_format_for_receipt_item($comboUnitPrice, restaurant()->currency_id) }}</td>
+                            <td class="amount">{{ currency_format_for_receipt_item($comboAmount, restaurant()->currency_id) }}</td>
+                        </tr>
+                        @continue
+                    @endif
+
                     <tr>
                         <td class="qty">{{ $item->quantity }}</td>
                         <td class="description">

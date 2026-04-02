@@ -80,7 +80,6 @@ class SalesReport extends Component
     private function prepareDateTimeData()
     {
         $timezone = timezone();
-        $offset = Carbon::now($timezone)->format('P');
 
         $startDateTime = Carbon::createFromFormat('m/d/Y H:i', $this->startDate . ' ' . $this->startTime, $timezone)
             ->toDateTimeString();
@@ -91,7 +90,7 @@ class SalesReport extends Component
         $startTime = Carbon::parse($this->startTime, $timezone)->format('H:i');
         $endTime = Carbon::parse($this->endTime, $timezone)->format('H:i');
 
-        return compact('timezone', 'offset', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
+        return compact('timezone', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
     }
 
     public function exportReport()
@@ -110,7 +109,6 @@ class SalesReport extends Component
                 $dateTimeData['startTime'],
                 $dateTimeData['endTime'],
                 $dateTimeData['timezone'],
-                $dateTimeData['offset']
             ),
             'sales-report-' . now()->format('Y-m-d_His') . '.xlsx'
         );
