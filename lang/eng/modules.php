@@ -234,6 +234,7 @@ return [
         'total' => 'Total',
         'totalOrder' => 'Total Orders',
         'orderNumber' => 'Order',
+        'existingItems' => 'Existing Items',
         'prefixType' => 'Prefix Type',
         'custom' => 'Custom',
         'customPrefix' => 'Custom Prefix',

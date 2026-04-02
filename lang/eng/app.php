@@ -168,6 +168,7 @@ return array(
     'import' => 'Import',
     'downloadSample' => 'Download Sample File',
     'noResults' => 'No results found',
+    'noResultFound' => 'No results found',
     'optional' => 'Optional',
     'other' => 'Other',
     'disable' => 'Disable',
