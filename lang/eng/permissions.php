@@ -54,10 +54,6 @@ return [
         'Show Expense' => 'Show Expenses',
         'Update Expense' => 'Update Expenses',
         'Delete Expense' => 'Delete Expenses',
-        'Create Vendor' => 'Create Vendor',
-        'Show Vendor' => 'Show Vendor',
-        'Update Vendor' => 'Update Vendor',
-        'Delete Vendor' => 'Delete Vendor',
 
         'Create Inventory Item' => 'Create Inventory Item',
         'Show Inventory Item' => 'Show Inventory Item',
@@ -181,7 +177,6 @@ return [
         'Settings' => 'Settings',
         'Waiter Request' => 'Waiter Request',
         'Expense' => 'Expenses',
-        'Vendor' => 'Vendor',
         'Inventory' => 'Inventory',
         'HRM' => 'HRM',
         'Sms' => 'Sms',

@@ -33,8 +33,6 @@ class PermissionSeeder extends Seeder
         $deliveryExecutiveModule = Module::where('name', 'Delivery Executive')->first();
         $waiterRequestModule = Module::where('name', 'Waiter Request')->first();
         $expenseModule = Module::where('name', 'Expense')->first();
-        $vendorModule = Module::where('name', 'Vendor')->first();
-        $expenseCategoryModule = Module::where('name', 'Expense Category')->first();
         $inventoryModule = Module::where('name', 'Inventory')->first();
         $hrmModule = Module::where('name', 'HRM')->first();
 
@@ -42,7 +40,7 @@ class PermissionSeeder extends Seeder
         if (!$menuModule || !$menuItemModule || !$itemCategoryModule || !$areaModule || !$tableModule || 
             !$reservationModule || !$kotModule || !$orderModule || !$customerModule || !$staffModule || 
             !$paymentModule || !$reportModule || !$settingsModule || !$deliveryExecutiveModule || 
-            !$waiterRequestModule || !$expenseModule || !$vendorModule || !$expenseCategoryModule || !$inventoryModule || !$hrmModule) {
+            !$waiterRequestModule || !$expenseModule || !$inventoryModule || !$hrmModule) {
             
             // Log error or handle missing modules gracefully
             // For now, we will skip seeding permissions for missing modules or you might want to run ModuleSeeder
