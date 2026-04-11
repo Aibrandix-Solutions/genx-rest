@@ -167,6 +167,134 @@
     @script
     <script>
         let qtySyncTimeout = null;
+        let clientOpsFlushTimer = null;
+        let clientOpsInFlight = false;
+        const clientOpQueue = [];
+
+        const flushClientOps = async () => {
+            if (clientOpsInFlight || clientOpQueue.length === 0) {
+                return;
+            }
+
+            clientOpsInFlight = true;
+
+            const queuedOps = clientOpQueue.splice(0, 40);
+            const aggregatedQty = {};
+            const normalizedOps = [];
+
+            for (const op of queuedOps) {
+                if (!op || typeof op !== 'object') {
+                    continue;
+                }
+
+                if (op.type === 'qty_delta') {
+                    const key = String(op.key || '');
+                    const delta = Number(op.delta || 0);
+                    if (!key || Number.isNaN(delta) || delta === 0) {
+                        continue;
+                    }
+                    aggregatedQty[key] = (aggregatedQty[key] || 0) + delta;
+                    continue;
+                }
+
+                normalizedOps.push(op);
+            }
+
+            Object.entries(aggregatedQty).forEach(([key, delta]) => {
+                if (!delta) {
+                    return;
+                }
+                normalizedOps.push({ type: 'qty_delta', key, delta });
+            });
+
+            try {
+                if (normalizedOps.length > 0) {
+                    await $wire.call('applyClientOps', normalizedOps);
+                }
+            } catch (error) {
+                for (let i = queuedOps.length - 1; i >= 0; i--) {
+                    clientOpQueue.unshift(queuedOps[i]);
+                }
+                console.error('POS client-op sync failed', error);
+            } finally {
+                clientOpsInFlight = false;
+
+                if (clientOpQueue.length > 0) {
+                    clientOpsFlushTimer = setTimeout(flushClientOps, 100);
+                }
+            }
+        };
+
+        const queueClientOp = (operation) => {
+            clientOpQueue.push(operation);
+
+            if (clientOpsFlushTimer) {
+                clearTimeout(clientOpsFlushTimer);
+            }
+
+            clientOpsFlushTimer = setTimeout(flushClientOps, 80);
+        };
+
+        window.posClient = {
+            queueAddItem(payload) {
+                const id = Number(payload?.id || 0);
+                const variationCount = Number(payload?.variationCount || 0);
+                const modifierCount = Number(payload?.modifierCount || 0);
+
+                if (variationCount > 0 || modifierCount > 0) {
+                    if (clientOpsFlushTimer) {
+                        clearTimeout(clientOpsFlushTimer);
+                        clientOpsFlushTimer = null;
+                    }
+
+                    flushClientOps().finally(() => {
+                        $wire.call('addCartItems', id, variationCount, modifierCount)
+                            .catch((error) => {
+                                console.error('POS immediate add-item failed', error);
+                            });
+                    });
+                    return;
+                }
+
+                queueClientOp({
+                    type: 'add_item',
+                    id,
+                    variationCount,
+                    modifierCount,
+                });
+            },
+
+            queueAddCombo(comboId) {
+                queueClientOp({
+                    type: 'add_combo',
+                    comboId: Number(comboId || 0),
+                });
+            },
+
+            queueQtyDelta(key, delta, sourceEl = null) {
+                const safeKey = String(key || '');
+                const safeDelta = Number(delta || 0);
+
+                if (!safeKey || Number.isNaN(safeDelta) || safeDelta === 0) {
+                    return;
+                }
+
+                const wrapper = sourceEl?.closest('div.relative.flex.items-center');
+                const qtyInput = wrapper?.querySelector('input[data-pos-qty-key]');
+
+                if (qtyInput) {
+                    const currentVal = Number(qtyInput.value || 0);
+                    const nextVal = Math.max(0, currentVal + safeDelta);
+                    qtyInput.value = String(nextVal);
+                }
+
+                queueClientOp({
+                    type: 'qty_delta',
+                    key: safeKey,
+                    delta: safeDelta,
+                });
+            },
+        };
 
         $wire.on('play_beep', () => {
             new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();

@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PrintJobController;
 use App\Http\Controllers\Api\PosBootstrapController;
 use App\Http\Controllers\Api\PosCartBatchSyncController;
+use App\Http\Controllers\Api\PosVueOrderController;
 use App\Http\Middleware\DesktopUniqueKeyMiddleware;
 use App\Http\Middleware\CorsMiddleware;
 
@@ -73,4 +74,5 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/bootstrap', [PosBootstrapController::class, 'bootstrap']);
     Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
+    Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
 });

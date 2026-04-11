@@ -423,15 +423,15 @@
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
 
                                 <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                         </svg>
                                     </button>
 
-                                    <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly  />
+                                    <input type="text" data-pos-qty-key="{{ $key }}" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly  />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                         </svg>
@@ -614,13 +614,13 @@
 
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
                                     <div class="relative flex items-center max-w-[8rem] mx-auto">
-                                        <button type="button" wire:click="optimisticSubQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                        <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                             </svg>
                                         </button>
-                                        <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" readonly />
-                                        <button type="button" wire:click="optimisticAddQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                        <input type="text" data-pos-qty-key="{{ $key }}" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" readonly />
+                                        <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                             </svg>

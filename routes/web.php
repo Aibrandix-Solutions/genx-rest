@@ -147,6 +147,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
 
     Route::get('pos/order/{id}', [PosController::class, 'order'])->name('pos.order');
     Route::get('pos/kot/{id}', [PosController::class, 'kot'])->name('pos.kot');
+    Route::get('pos/vue', [PosController::class, 'vue'])->name('pos.vue');
     Route::resource('pos', PosController::class);
 
     Route::resource('kots', KotController::class);

@@ -1887,6 +1887,70 @@ class Pos extends Component
         $this->calculateTotal();
     }
 
+    /**
+     * Apply a batch of client-queued POS operations in a single request.
+     * Keeps interaction client-first while reducing Livewire round-trips.
+     */
+    public function applyClientOps(array $operations): void
+    {
+        if (empty($operations)) {
+            return;
+        }
+
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        $maxOps = 40;
+        $ops = array_slice($operations, 0, $maxOps);
+
+        foreach ($ops as $op) {
+            if (!is_array($op)) {
+                continue;
+            }
+
+            $type = (string) ($op['type'] ?? '');
+
+            if ($type === 'add_item') {
+                $itemId = (int) ($op['id'] ?? 0);
+                $variationCount = (int) ($op['variationCount'] ?? 0);
+                $modifierCount = (int) ($op['modifierCount'] ?? 0);
+
+                if ($itemId > 0) {
+                    $this->addCartItems($itemId, $variationCount, $modifierCount);
+                }
+                continue;
+            }
+
+            if ($type === 'add_combo') {
+                $comboId = (int) ($op['comboId'] ?? 0);
+                if ($comboId > 0) {
+                    $this->addComboToCart($comboId);
+                }
+                continue;
+            }
+
+            if ($type === 'qty_delta') {
+                $lineKey = (string) ($op['key'] ?? '');
+                $delta = (int) ($op['delta'] ?? 0);
+
+                if ($lineKey === '' || $delta === 0) {
+                    continue;
+                }
+
+                if ($delta > 0) {
+                    for ($i = 0; $i < $delta; $i++) {
+                        $this->optimisticAddQty($lineKey);
+                    }
+                } else {
+                    for ($i = 0; $i < abs($delta); $i++) {
+                        $this->optimisticSubQty($lineKey);
+                    }
+                }
+            }
+        }
+    }
+
     public function deleteOrderItems($id)
     {
         $orderStatus = $this->orderDetail?->status ?? null;
@@ -2088,7 +2152,7 @@ class Pos extends Component
         $this->calculateTotal();
     }
 
-    public function calculateTotal()
+    public function calculateTotal(bool $skipRealtimeSideEffects = false)
     {
         $this->total = 0;
         $this->subTotal = 0;
@@ -2171,75 +2235,77 @@ class Pos extends Component
             $this->total += $this->deliveryFee;
         }
 
-        // Calculate tax and charge amounts for display
-        $taxesForDisplay = collect($this->taxes ?? [])->map(function ($tax) {
-            $amount = (($tax->tax_percent / 100) * $this->discountedTotal);
-            return [
-                'name' => $tax->tax_name,
-                'percent' => $tax->tax_percent,
-                'amount' => $amount,
+        if (!$skipRealtimeSideEffects) {
+            // Calculate tax and charge amounts for display
+            $taxesForDisplay = collect($this->taxes ?? [])->map(function ($tax) {
+                $amount = (($tax->tax_percent / 100) * $this->discountedTotal);
+                return [
+                    'name' => $tax->tax_name,
+                    'percent' => $tax->tax_percent,
+                    'amount' => $amount,
+                ];
+            })->toArray();
+            $chargesForDisplay = collect($this->extraCharges ?? [])->map(function ($charge) {
+                return [
+                    'name' => $charge->name,
+                    'amount' => $charge->getAmount($this->discountedTotal),
+                ];
+            })->toArray();
+            $displayItems = $this->getCustomerDisplayItems();
+            $displayCustomExtras = $this->getCustomerDisplayCustomExtras();
+
+            $paymentGateway = restaurant()->paymentGateways;
+            $qrCodeImageUrl = $paymentGateway && $paymentGateway->is_qr_payment_enabled ? $paymentGateway->qr_code_image_url : null;
+
+            $customerDisplayData = [
+                'order_number' => $this->orderNumber,
+                'formatted_order_number' => $this->formattedOrderNumber,
+                'items' => $displayItems,
+                'custom_extras' => $displayCustomExtras,
+                'sub_total' => $this->subTotal,
+                'discount' => $this->discountAmount ?? 0,
+                'total' => $this->total,
+                'taxes' => $taxesForDisplay,
+                'extra_charges' => $chargesForDisplay,
+                'tip' => $this->tipAmount,
+                'delivery_fee' => $this->deliveryFee,
+                'order_type' => $this->orderType,
+                'status' => $this->customerDisplayStatus ?? 'idle',
+                'cash_due' => ($this->customerDisplayStatus ?? null) === 'billed' ? $this->total : null,
+                'qr_code_image_url' => $qrCodeImageUrl,
             ];
-        })->toArray();
-        $chargesForDisplay = collect($this->extraCharges ?? [])->map(function ($charge) {
-            return [
-                'name' => $charge->name,
-                'amount' => $charge->getAmount($this->discountedTotal),
-            ];
-        })->toArray();
-        $displayItems = $this->getCustomerDisplayItems();
-        $displayCustomExtras = $this->getCustomerDisplayCustomExtras();
 
-        $paymentGateway = restaurant()->paymentGateways;
-        $qrCodeImageUrl = $paymentGateway && $paymentGateway->is_qr_payment_enabled ? $paymentGateway->qr_code_image_url : null;
+            $userId = auth()->id();
+            $cacheKey = 'customer_display_cart_user_' . $userId;
+            Cache::put($cacheKey, $customerDisplayData, now()->addMinutes(30));
 
-        $customerDisplayData = [
-            'order_number' => $this->orderNumber,
-            'formatted_order_number' => $this->formattedOrderNumber,
-            'items' => $displayItems,
-            'custom_extras' => $displayCustomExtras,
-            'sub_total' => $this->subTotal,
-            'discount' => $this->discountAmount ?? 0,
-            'total' => $this->total,
-            'taxes' => $taxesForDisplay,
-            'extra_charges' => $chargesForDisplay,
-            'tip' => $this->tipAmount,
-            'delivery_fee' => $this->deliveryFee,
-            'order_type' => $this->orderType,
-            'status' => $this->customerDisplayStatus ?? 'idle',
-            'cash_due' => ($this->customerDisplayStatus ?? null) === 'billed' ? $this->total : null,
-            'qr_code_image_url' => $qrCodeImageUrl,
-        ];
-
-        $userId = auth()->id();
-        $cacheKey = 'customer_display_cart_user_' . $userId;
-        Cache::put($cacheKey, $customerDisplayData, now()->addMinutes(30));
-
-        // Broadcast customer display update if Pusher is enabled
-        $isPusherEnabled = (bool) optional(pusherSettings())->is_enabled_pusher_broadcast;
-        if ($isPusherEnabled) {
-            try {
-                broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
-            } catch (\Exception $e) {
-                // Log the error but don't break the request
-                // Common causes: network timeout, SSL issues, Pusher API down
-                \Log::warning('Pusher broadcast failed for CustomerDisplayUpdated', [
-                    'error' => $e->getMessage(),
-                    'user_id' => $userId,
-                    'exception_class' => get_class($e),
-                ]);
+            // Broadcast customer display update if Pusher is enabled
+            $isPusherEnabled = (bool) optional(pusherSettings())->is_enabled_pusher_broadcast;
+            if ($isPusherEnabled) {
+                try {
+                    broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
+                } catch (\Exception $e) {
+                    // Log the error but don't break the request
+                    // Common causes: network timeout, SSL issues, Pusher API down
+                    \Log::warning('Pusher broadcast failed for CustomerDisplayUpdated', [
+                        'error' => $e->getMessage(),
+                        'user_id' => $userId,
+                        'exception_class' => get_class($e),
+                    ]);
+                }
             }
-        }
 
-        // Optionally, still dispatch browser event
-        $this->dispatch('orderUpdated', [
-            'order_number' => $this->orderNumber,
-            'formatted_order_number' => $this->formattedOrderNumber,
-            'items' => $displayItems,
-            'custom_extras' => $displayCustomExtras,
-            'sub_total' => $this->subTotal,
-            'discount' => $this->discountAmount ?? 0,
-            'total' => $this->total,
-        ]);
+            // Optionally, still dispatch browser event
+            $this->dispatch('orderUpdated', [
+                'order_number' => $this->orderNumber,
+                'formatted_order_number' => $this->formattedOrderNumber,
+                'items' => $displayItems,
+                'custom_extras' => $displayCustomExtras,
+                'sub_total' => $this->subTotal,
+                'discount' => $this->discountAmount ?? 0,
+                'total' => $this->total,
+            ]);
+        }
     }
 
     public function updated($name, $value)
@@ -2251,7 +2317,7 @@ class Pos extends Component
 
     public function updatedOrderExtras()
     {
-        $this->calculateTotal();
+        $this->calculateTotal(true);
     }
 
     public function addOrderExtraRow()
@@ -2269,7 +2335,7 @@ class Pos extends Component
             'note' => '',
         ];
 
-        $this->calculateTotal();
+        $this->calculateTotal(true);
     }
 
     public function removeOrderExtraRow($index)
