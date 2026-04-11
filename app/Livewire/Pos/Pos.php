@@ -40,6 +40,8 @@ use App\Models\Customer;
 use App\Models\Menu;
 use App\Models\DeliveryPlatform;
 use App\Support\KotAdjustmentLogger;
+use App\Services\PosBootstrapService;
+use App\Services\PosBatchSyncService;
 
 class Pos extends Component
 {
@@ -156,10 +158,86 @@ class Pos extends Component
     public $orderTypeName = null;
     public $selectedDeliveryPlatformName = null;
 
+    // Optimistic qty update properties
+    public $pendingQtySyncs = [];  // Track items awaiting debounced sync
+    public $qtyDebounceTimer = null;  // Handle for debounce timer
+    public $isQtyOptimisticMode = true;  // Enable optimistic qty updates
+
     public function setCustomer($customerId = null)
     {
         $this->customerId = $customerId;
         $this->customer = Customer::find($customerId);
+    }
+
+    protected function applyBootstrapContext(array $bootstrap): void
+    {
+        $this->categoryList = $bootstrap['categories'] ?? ItemCategory::all();
+        $this->availableOrderTypes = isset($bootstrap['order_types']) ? $bootstrap['order_types']->toArray() : [];
+        $this->availableDeliveryPlatforms = isset($bootstrap['delivery_platforms']) ? $bootstrap['delivery_platforms']->toArray() : [];
+        $this->users = $bootstrap['waiters'] ?? collect();
+        $this->taxes = $bootstrap['taxes'] ?? Tax::all();
+        $this->deliveryExecutives = $bootstrap['delivery_executives'] ?? collect();
+        $this->pickupRange = (int) ($bootstrap['pickup_days_range'] ?? $this->pickupRange ?? 1);
+        $this->taxMode = $bootstrap['tax_mode'] ?? $this->taxMode;
+        $this->selectWaiter = user()->id;
+        $this->maxDate = now()->addDays($this->pickupRange - 1)->endOfDay()->format('Y-m-d\TH:i');
+    }
+
+    protected function loadBootstrapContext(): void
+    {
+        $startedAt = microtime(true);
+
+        try {
+            $resolved = app(PosBootstrapService::class)->resolve();
+            $this->applyBootstrapContext($resolved['data']);
+
+            Log::info('POS bootstrap loaded', [
+                'source' => $resolved['cached'] ? 'cache' : 'compute',
+                'restaurant_id' => restaurant()->id ?? null,
+                'branch_id' => branch()->id ?? null,
+                'ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
+
+            return;
+        } catch (\Throwable $e) {
+            Log::warning('POS bootstrap failed, falling back to legacy queries', [
+                'restaurant_id' => restaurant()->id ?? null,
+                'branch_id' => branch()->id ?? null,
+                'ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $this->loadLegacyBootstrapContext();
+    }
+
+    protected function loadLegacyBootstrapContext(): void
+    {
+        $this->categoryList = ItemCategory::all();
+
+        $this->availableOrderTypes = OrderType::where('is_active', true)
+            ->orderBy('order_type_name')
+            ->get(['id', 'order_type_name', 'slug', 'type'])
+            ->toArray();
+
+        $this->availableDeliveryPlatforms = DeliveryPlatform::where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->toArray();
+
+        $this->users = User::withoutGlobalScope(BranchScope::class)
+            ->where(function ($q) {
+                return $q->where('branch_id', branch()->id)
+                    ->orWhereNull('branch_id');
+            })
+            ->role('waiter_' . restaurant()->id)
+            ->where('restaurant_id', restaurant()->id)
+            ->get();
+
+        $this->taxMode = restaurant()->tax_mode;
+        $this->taxes = Tax::all();
+        $this->selectWaiter = user()->id;
+        $this->deliveryExecutives = DeliveryExecutive::where('status', 'available')->get();
     }
 
     public function mount()
@@ -167,8 +245,8 @@ class Pos extends Component
 
         $this->total = 0;
         $this->subTotal = 0;
-        $this->categoryList = ItemCategory::all();
         $this->pickupRange = restaurant()->pickup_days_range ?? 1;
+        $this->loadBootstrapContext();
         // Set minimum date to next minute to avoid past times
         $this->minDate = now()->addMinute()->format('Y-m-d\TH:i');
         $this->maxDate = now()->addDays($this->pickupRange - 1)->endOfDay()->format('Y-m-d\TH:i');
@@ -223,37 +301,9 @@ class Pos extends Component
             }
         }
 
-        // Dropdown options (avoid queries in Blade)
-        $this->availableOrderTypes = OrderType::where('is_active', true)
-            ->orderBy('order_type_name')
-            ->get(['id', 'order_type_name', 'slug', 'type'])
-            ->toArray();
-
-        $this->availableDeliveryPlatforms = DeliveryPlatform::where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name'])
-            ->toArray();
-
         $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
         $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
         $this->showOrderTypeDropdown = !$this->orderTypeId;
-
-        $this->users = User::withoutGlobalScope(BranchScope::class)
-            ->where(function ($q) {
-                return $q->where('branch_id', branch()->id)
-                    ->orWhereNull('branch_id');
-            })
-            ->role('waiter_' . restaurant()->id)
-            ->where('restaurant_id', restaurant()->id)
-            ->get();
-
-        $this->taxMode = restaurant()->tax_mode;
-
-        $this->taxes = Tax::all();
-
-        $this->selectWaiter = user()->id;
-
-        $this->deliveryExecutives = DeliveryExecutive::where('status', 'available')->get();
 
         if ($this->tableOrderID) {
             $this->tableId = $this->tableOrderID;
@@ -2122,7 +2172,7 @@ class Pos extends Component
         }
 
         // Calculate tax and charge amounts for display
-        $taxesForDisplay = $this->taxes->map(function ($tax) {
+        $taxesForDisplay = collect($this->taxes ?? [])->map(function ($tax) {
             $amount = (($tax->tax_percent / 100) * $this->discountedTotal);
             return [
                 'name' => $tax->tax_name,
@@ -2136,6 +2186,8 @@ class Pos extends Component
                 'amount' => $charge->getAmount($this->discountedTotal),
             ];
         })->toArray();
+        $displayItems = $this->getCustomerDisplayItems();
+        $displayCustomExtras = $this->getCustomerDisplayCustomExtras();
 
         $paymentGateway = restaurant()->paymentGateways;
         $qrCodeImageUrl = $paymentGateway && $paymentGateway->is_qr_payment_enabled ? $paymentGateway->qr_code_image_url : null;
@@ -2143,8 +2195,8 @@ class Pos extends Component
         $customerDisplayData = [
             'order_number' => $this->orderNumber,
             'formatted_order_number' => $this->formattedOrderNumber,
-            'items' => $this->getCustomerDisplayItems(),
-            'custom_extras' => $this->getCustomerDisplayCustomExtras(),
+            'items' => $displayItems,
+            'custom_extras' => $displayCustomExtras,
             'sub_total' => $this->subTotal,
             'discount' => $this->discountAmount ?? 0,
             'total' => $this->total,
@@ -2163,7 +2215,8 @@ class Pos extends Component
         Cache::put($cacheKey, $customerDisplayData, now()->addMinutes(30));
 
         // Broadcast customer display update if Pusher is enabled
-        if (pusherSettings()->is_enabled_pusher_broadcast) {
+        $isPusherEnabled = (bool) optional(pusherSettings())->is_enabled_pusher_broadcast;
+        if ($isPusherEnabled) {
             try {
                 broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
             } catch (\Exception $e) {
@@ -2181,8 +2234,8 @@ class Pos extends Component
         $this->dispatch('orderUpdated', [
             'order_number' => $this->orderNumber,
             'formatted_order_number' => $this->formattedOrderNumber,
-            'items' => $this->getCustomerDisplayItems(),
-            'custom_extras' => $this->getCustomerDisplayCustomExtras(),
+            'items' => $displayItems,
+            'custom_extras' => $displayCustomExtras,
             'sub_total' => $this->subTotal,
             'discount' => $this->discountAmount ?? 0,
             'total' => $this->total,
@@ -3973,6 +4026,283 @@ class Pos extends Component
     #[On('setPosModifier')]
     public function setPosModifier($modifierIds)
     {
+        // Handle modifier selection from modal
+        $this->handleSetPosModifier($modifierIds);
+    }
+
+    /**
+     * Optimistic qty update - updates UI immediately, syncs to server in background
+     * This provides instant feedback for quantity changes without Livewire round-trip delay
+     */
+    public function optimisticAddQty($id)
+    {
+        // Check permissions first
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        // Reject if combo item
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo item quantity cannot be edited individually. Edit/remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Update table activity
+        if ($this->tableId) {
+            $table = Table::find($this->tableId);
+            $table?->updateActivity(user()->id);
+        }
+
+        // OPTIMISTIC: Update UI immediately
+        $oldQty = $this->orderItemQty[$id] ?? 0;
+        $this->orderItemQty[$id] = $oldQty + 1;
+
+        // Update amount for display
+        if ($this->orderTypeId) {
+            if (isset($this->orderItemVariation[$id])) {
+                $this->orderItemVariation[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+            }
+            if (isset($this->orderItemList[$id])) {
+                $this->orderItemList[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+            }
+        }
+
+        $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
+        $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
+
+        // OPTIMISTIC: Update totals for display
+        $this->calculateTotal();
+
+        // Queue debounced server sync
+        $this->pendingQtySyncs[$id] = [
+            'action' => 'add',
+            'qty' => $this->orderItemQty[$id],
+            'timestamp' => now()->timestamp
+        ];
+
+        $this->debouncedQtySync();
+    }
+
+    /**
+     * Optimistic qty dec - updates UI immediately, syncs to server in background
+     */
+    public function optimisticSubQty($id)
+    {
+        // Check permissions
+        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+            return;
+        }
+
+        // Reject if combo item
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo items cannot be removed individually. Remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Check if removal reason is required (KOT-backed item that was already saved)
+        if ($this->requiresRemovalReason($id)) {
+            if (!user_can('Delete KOT Item')) {
+                $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close')
+                ]);
+                return;
+            }
+
+            // For saved items, use normal flow since it requires modal
+            $this->subQty($id);
+            return;
+        }
+
+        // Update table activity
+        if ($this->tableId) {
+            $table = Table::find($this->tableId);
+            $table?->updateActivity(user()->id);
+        }
+
+        // OPTIMISTIC: Update UI immediately
+        $oldQty = $this->orderItemQty[$id] ?? 1;
+        $newQty = max(0, $oldQty - 1);
+
+        if ($newQty <= 0) {
+            // Item completely removed
+            $comboInstanceKey = $this->orderItemComboPack[$id] ?? null;
+
+            unset($this->orderItemQty[$id]);
+            unset($this->orderItemAmount[$id]);
+            unset($this->orderItemList[$id]);
+            unset($this->orderItemVariation[$id]);
+            unset($this->itemModifiersSelected[$id]);
+            unset($this->orderItemModifiersPrice[$id]);
+            unset($this->orderItemTaxDetails[$id]);
+            unset($this->itemNotes[$id]);
+            unset($this->orderItemComboPack[$id]);
+            unset($this->orderItemComboDiscount[$id]);
+            unset($this->orderItemUnitPrice[$id]);
+            unset($this->orderItemDisplayPrice[$id]);
+            unset($this->orderItemOriginalPrice[$id]);
+            unset($this->orderItemPersistedTaxOverride[$id]);
+
+            if ($comboInstanceKey) {
+                unset($this->orderItemComboName[$comboInstanceKey]);
+            }
+        } else {
+            // Qty decreased
+            $this->orderItemQty[$id] = $newQty;
+
+            // Update amount for display
+            if ($this->orderTypeId) {
+                if (isset($this->orderItemVariation[$id])) {
+                    $this->orderItemVariation[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+                if (isset($this->orderItemList[$id])) {
+                    $this->orderItemList[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+            }
+
+            $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
+            $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
+        }
+
+        // OPTIMISTIC: Update totals for display
+        $this->calculateTotal();
+
+        // Queue debounced server sync
+        $this->pendingQtySyncs[$id] = [
+            'action' => $newQty <= 0 ? 'delete' : 'sub',
+            'qty' => $newQty,
+            'timestamp' => now()->timestamp
+        ];
+
+        $this->debouncedQtySync();
+    }
+
+    /**
+     * Debounced queue for syncing pending qty changes to server
+     * Collects multiple qty updates within 1 second, then syncs as batch
+     */
+    public function debouncedQtySync()
+    {
+        // Clear existing debounce timer if any
+        if ($this->qtyDebounceTimer) {
+            // Timer would be client-side in JS, but for now just track
+        }
+
+        // Set debounce delay (1 second) - this triggers the actual sync
+        // In real implementation with JS, this prevents multiple round-trips
+        $this->dispatch('scheduleQtySync', ['delay' => 1000]);
+    }
+
+    /**
+     * Execute queued qty syncs to the server
+     * Called after debounce period expires
+     */
+    public function syncPendingQtys()
+    {
+        if (empty($this->pendingQtySyncs)) {
+            return;
+        }
+
+        try {
+            $syncStartedAt = microtime(true);
+            $batchResult = app(PosBatchSyncService::class)->apply($this->exportBatchSyncState(), $this->pendingQtySyncs);
+            $this->applyBatchSyncState($batchResult['state'] ?? []);
+
+            // Clear pending syncs
+            $this->pendingQtySyncs = [];
+
+            // Final recalc to ensure server and UI are in sync
+            $this->calculateTotal();
+
+            Log::info('POS batch qty sync completed', [
+                'restaurant_id' => restaurant()->id ?? null,
+                'branch_id' => branch()->id ?? null,
+                'applied' => $batchResult['applied'] ?? 0,
+                'removed' => $batchResult['removed_ids'] ?? [],
+                'ms' => (int) round((microtime(true) - $syncStartedAt) * 1000),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync pending qty changes: ' . $e->getMessage());
+            $this->reloadAuthoritativeOrderState();
+            $this->alert('error', 'Failed to sync quantity changes. Please refresh and try again.', [
+                'toast' => true,
+                'position' => 'top-end'
+            ]);
+        }
+    }
+
+    protected function reloadAuthoritativeOrderState(): void
+    {
+        $this->pendingQtySyncs = [];
+        $this->qtyDebounceTimer = null;
+
+        $order = null;
+
+        if ($this->orderDetail instanceof Order) {
+            $order = $this->orderDetail->refresh()->load([
+                'kot.items.menuItem',
+                'kot.items.menuItemVariation',
+                'kot.items.modifierOptions',
+                'items.menuItem',
+                'items.menuItemVariation',
+                'items.modifierOptions',
+                'table',
+            ]);
+        } elseif ($this->orderID) {
+            $order = Order::with([
+                'kot.items.menuItem',
+                'kot.items.menuItemVariation',
+                'kot.items.modifierOptions',
+                'items.menuItem',
+                'items.menuItemVariation',
+                'items.modifierOptions',
+                'table',
+            ])->find($this->orderID);
+        }
+
+        if ($order) {
+            $this->orderDetail = $order;
+            $this->setupOrderItems();
+            $this->calculateTotal();
+        }
+    }
+
+    protected function exportBatchSyncState(): array
+    {
+        return [
+            'orderItemQty' => $this->orderItemQty,
+            'orderItemAmount' => $this->orderItemAmount,
+            'orderItemList' => $this->orderItemList,
+            'orderItemVariation' => $this->orderItemVariation,
+            'itemModifiersSelected' => $this->itemModifiersSelected,
+            'orderItemModifiersPrice' => $this->orderItemModifiersPrice,
+            'orderItemTaxDetails' => $this->orderItemTaxDetails,
+            'itemNotes' => $this->itemNotes,
+            'orderItemComboPack' => $this->orderItemComboPack,
+            'orderItemComboDiscount' => $this->orderItemComboDiscount,
+            'orderItemUnitPrice' => $this->orderItemUnitPrice,
+            'orderItemDisplayPrice' => $this->orderItemDisplayPrice,
+            'orderItemOriginalPrice' => $this->orderItemOriginalPrice,
+            'orderItemPersistedTaxOverride' => $this->orderItemPersistedTaxOverride,
+            'orderItemComboName' => $this->orderItemComboName,
+        ];
+    }
+
+    protected function applyBatchSyncState(array $state): void
+    {
+        foreach (array_keys($this->exportBatchSyncState()) as $key) {
+            if (array_key_exists($key, $state)) {
+                $this->{$key} = $state[$key];
+            }
+        }
+    }
+
+    // Continuation of setPosModifier method body
+    protected function handleSetPosModifier($modifierIds)
+    {
         $this->showModifiersModal = false;
 
         $selection = is_array($modifierIds) ? (reset($modifierIds) ?: []) : [];
@@ -4366,6 +4696,31 @@ class Pos extends Component
     private function getCustomerDisplayItems()
     {
         $items = [];
+        $selectedModifiersByItem = [];
+        $modifierIds = [];
+
+        foreach ($this->orderItemList as $key => $item) {
+            $selected = [];
+            if (!empty($this->itemModifiersSelected[$key])) {
+                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                $modifierIds = array_merge($modifierIds, array_keys($selected));
+            }
+
+            $selectedModifiersByItem[$key] = $selected;
+        }
+
+        $modifierOptions = collect();
+        if (!empty($modifierIds)) {
+            $modifierIds = array_values(array_unique(array_map('intval', $modifierIds)));
+            $modifierOptions = \App\Models\ModifierOption::whereIn('id', $modifierIds)->get()->keyBy('id');
+
+            if ($this->orderTypeId) {
+                foreach ($modifierOptions as $modifierOption) {
+                    $modifierOption->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+            }
+        }
+
         foreach ($this->orderItemList as $key => $item) {
             // Set price context before using prices
             if ($this->orderTypeId) {
@@ -4379,22 +4734,20 @@ class Pos extends Component
             $basePrice = $variation->price ?? $item->price ?? 0;
             $modifiers = [];
             $modifierTotal = 0;
-            if (!empty($this->itemModifiersSelected[$key])) {
-                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+            $selected = $selectedModifiersByItem[$key] ?? [];
+            if (!empty($selected)) {
                 foreach ($selected as $modifierId => $qty) {
-                    $modifier = \App\Models\ModifierOption::find((int) $modifierId);
-                    if ($modifier) {
-                        // Set price context for modifier
-                        if ($this->orderTypeId) {
-                            $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
-                        }
-                        $modifiers[] = [
-                            'name' => $modifier->name,
-                            'price' => $modifier->price,
-                            'quantity' => (int) $qty,
-                        ];
-                        $modifierTotal += ($modifier->price * (int) $qty);
+                    $modifier = $modifierOptions->get((int) $modifierId);
+                    if (!$modifier) {
+                        continue;
                     }
+
+                    $modifiers[] = [
+                        'name' => $modifier->name,
+                        'price' => $modifier->price,
+                        'quantity' => (int) $qty,
+                    ];
+                    $modifierTotal += ($modifier->price * (int) $qty);
                 }
             }
             $totalUnitPrice = $basePrice + $modifierTotal;

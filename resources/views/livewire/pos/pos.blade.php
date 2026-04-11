@@ -26,7 +26,7 @@
                 'menuItem' => $menuItem, 
                 'orderTypeId' => $orderTypeId,
                 'deliveryAppId' => $this->normalizedDeliveryAppId
-            ], key(str()->random(50)))
+            ], key('item-variations-' . ($menuItem->id ?? 'none') . '-' . ($orderTypeId ?? 'none') . '-' . ($this->normalizedDeliveryAppId ?? 'none')))
             @endif
         </x-slot>
 
@@ -159,13 +159,15 @@
                     'menuItemId' => $selectedModifierItem,
                     'orderTypeId' => $orderTypeId,
                     'deliveryAppId' => $selectedDeliveryApp
-                ], key(str()->random(50)))
+                ], key('item-modifiers-' . ($selectedModifierItem ?? 'none') . '-' . ($orderTypeId ?? 'none') . '-' . ($selectedDeliveryApp ?? 'none')))
             @endif
         </x-slot>
     </x-dialog-modal>
 
     @script
     <script>
+        let qtySyncTimeout = null;
+
         $wire.on('play_beep', () => {
             new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();
         });
@@ -175,6 +177,18 @@
             anchor.href = url;
             anchor.target = '_blank';
             anchor.click();
+        });
+
+        $wire.on('scheduleQtySync', (payload) => {
+            const delay = payload?.delay ?? (Array.isArray(payload) ? payload[0]?.delay : null) ?? 1000;
+
+            if (qtySyncTimeout) {
+                clearTimeout(qtySyncTimeout);
+            }
+
+            qtySyncTimeout = setTimeout(() => {
+                $wire.call('syncPendingQtys');
+            }, delay);
         });
 
     </script>

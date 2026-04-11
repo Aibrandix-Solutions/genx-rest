@@ -323,7 +323,7 @@
                         @endif
 
                         <tr class="hover:bg-gray-100 dark:hover:bg-gray-700"
-                            wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class='opacity-50'>
+                            wire:key='menu-item-{{ $key }}' wire:loading.class='opacity-50'>
                             <td class="flex flex-col p-2 mr-12 lg:min-w-20 @if($comboId) pl-4 border-l-2 border-blue-200 dark:border-blue-800 @endif">
                                 <div class="inline-flex items-center gap-2">
                                     <div
@@ -371,7 +371,7 @@
 
                                 <div class="relative flex items-center max-w-[8rem] mx-auto"
                                     wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')"
+                                    <button type="button" wire:click="optimisticSubQty('{{ $key }}')"
                                         wire:loading.attr="disabled" wire:loading.class="opacity-50"
                                         @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
@@ -380,8 +380,8 @@
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
-                                        {{-- Loading spinner for subQty --}}
-                                        <div wire:loading.flex wire:target="subQty('{{ $key }}')"
+                                        {{-- Loading spinner for optimisticSubQty --}}
+                                        <div wire:loading.flex wire:target="optimisticSubQty('{{ $key }}')"
                                             class="absolute inset-0 items-center justify-center">
                                             <svg class="animate-spin h-3 w-3 text-skin-base"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none"
@@ -399,7 +399,7 @@
                                         class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')"
+                                    <button type="button" wire:click="optimisticAddQty('{{ $key }}')"
                                         wire:loading.attr="disabled" wire:loading.class="opacity-50"
                                         @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
@@ -408,8 +408,8 @@
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
-                                        {{-- Loading spinner for addQty --}}
-                                        <div wire:loading.flex wire:target="addQty('{{ $key }}')"
+                                        {{-- Loading spinner for optimisticAddQty --}}
+                                        <div wire:loading.flex wire:target="optimisticAddQty('{{ $key }}')"
                                             class="absolute inset-0 items-center justify-center">
                                             <svg class="animate-spin h-3 w-3 text-skin-base"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none"

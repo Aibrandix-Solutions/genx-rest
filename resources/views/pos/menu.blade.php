@@ -109,7 +109,7 @@
                         <li class="group relative">
                             <input type="checkbox" id="item-{{ $item->id }}" value="{{ $item->id }}"
                                 wire:click='addCartItems({{ $item->id }}, {{ $item->variations_count }}, {{ $item->modifier_groups_count }})'
-                                wire:key='item-input-{{ $item->id . microtime() }}'
+                                wire:key='item-input-{{ $item->id }}'
                                 wire:loading.attr="disabled"
                                 class="hidden peer">
                             <label for="item-{{ $item->id }}"
@@ -170,9 +170,9 @@
                                             </span>
                                         @endif
                                     </div>
+                                    @endif
                                 </div>
-                            @endif
-                        </label>
+                            </label>
                     </li>
                 @empty
                     <li class="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
@@ -196,7 +196,7 @@
                             <li class="group relative">
                                 <input type="checkbox" id="combo-{{ $combo->id }}" value="combo-{{ $combo->id }}"
                                     wire:click='addComboToCart({{ $combo->id }})'
-                                    wire:key='combo-input-{{ $combo->id . microtime() }}'
+                                    wire:key='combo-input-{{ $combo->id }}'
                                     wire:loading.attr="disabled"
                                     class="hidden peer">
                                 <label for="combo-{{ $combo->id }}"
