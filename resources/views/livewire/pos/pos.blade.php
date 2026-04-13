@@ -170,6 +170,65 @@
         let clientOpsFlushTimer = null;
         let clientOpsInFlight = false;
         const clientOpQueue = [];
+        const clientOpsTransport = String(window.POS_CLIENT_OPS_TRANSPORT || 'livewire').toLowerCase();
+        const clientOpsEndpoint = String(window.POS_CLIENT_OPS_ENDPOINT || '/ajax/pos/client-ops');
+
+        const sendClientOps = async (normalizedOps) => {
+            if (clientOpsTransport === 'ajax') {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const clientState = (window.posClientState && typeof window.posClientState === 'object') ? window.posClientState : {};
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+                try {
+                    const response = await fetch(clientOpsEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                        body: JSON.stringify({
+                            state: clientState,
+                            operations: normalizedOps,
+                        }),
+                        signal: controller.signal,
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        const errorBody = await response.text();
+                        throw new Error(`POS AJAX client-op sync failed with status ${response.status}: ${errorBody}`);
+                    }
+
+                    let payload;
+                    const text = await response.text();
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (parseError) {
+                        throw new Error(`Failed to parse JSON response: ${text}`);
+                    }
+
+                    if (payload?.state && typeof payload.state === 'object') {
+                        window.posClientState = payload.state;
+                    }
+
+                    return;
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    if (error.name === 'AbortError') {
+                        console.error('POS client-op sync timed out after 10s');
+                    } else {
+                        console.error('POS client-op sync error:', error.message);
+                    }
+                    throw error;
+                }
+            }
+
+            await $wire.call('applyClientOps', normalizedOps);
+        };
 
         const flushClientOps = async () => {
             if (clientOpsInFlight || clientOpQueue.length === 0) {
@@ -179,37 +238,98 @@
             clientOpsInFlight = true;
 
             const queuedOps = clientOpQueue.splice(0, 40);
-            const aggregatedQty = {};
             const normalizedOps = [];
+            const lineStates = new Map();
+
+            const upsertLineState = (key, nextState) => {
+                if (!key) {
+                    return;
+                }
+
+                if (nextState === null) {
+                    lineStates.delete(key);
+                    return;
+                }
+
+                lineStates.set(key, nextState);
+            };
 
             for (const op of queuedOps) {
                 if (!op || typeof op !== 'object') {
                     continue;
                 }
 
-                if (op.type === 'qty_delta') {
+                const opType = String(op.type || '');
+
+                if (opType === 'qty_delta') {
                     const key = String(op.key || '');
                     const delta = Number(op.delta || 0);
+
                     if (!key || Number.isNaN(delta) || delta === 0) {
                         continue;
                     }
-                    aggregatedQty[key] = (aggregatedQty[key] || 0) + delta;
+
+                    const currentState = lineStates.get(key);
+
+                    if (currentState?.type === 'remove_item') {
+                        continue;
+                    }
+
+                    if (currentState?.type === 'qty_set') {
+                        const nextQty = Number(currentState.qty || 0) + delta;
+                        if (nextQty <= 0) {
+                            upsertLineState(key, { type: 'remove_item', key });
+                        } else {
+                            upsertLineState(key, { type: 'qty_set', key, qty: nextQty });
+                        }
+                        continue;
+                    }
+
+                    const nextDelta = Number(currentState?.delta || 0) + delta;
+                    if (nextDelta === 0) {
+                        upsertLineState(key, null);
+                    } else {
+                        upsertLineState(key, { type: 'qty_delta', key, delta: nextDelta });
+                    }
+                    continue;
+                }
+
+                if (opType === 'qty_set') {
+                    const key = String(op.key || '');
+                    const qty = Number(op.qty || 0);
+
+                    if (!key || Number.isNaN(qty)) {
+                        continue;
+                    }
+
+                    if (qty <= 0) {
+                        upsertLineState(key, { type: 'remove_item', key });
+                    } else {
+                        upsertLineState(key, { type: 'qty_set', key, qty });
+                    }
+                    continue;
+                }
+
+                if (opType === 'remove_item') {
+                    const key = String(op.key || '');
+                    if (!key) {
+                        continue;
+                    }
+
+                    upsertLineState(key, { type: 'remove_item', key });
                     continue;
                 }
 
                 normalizedOps.push(op);
             }
 
-            Object.entries(aggregatedQty).forEach(([key, delta]) => {
-                if (!delta) {
-                    return;
-                }
-                normalizedOps.push({ type: 'qty_delta', key, delta });
+            lineStates.forEach((state) => {
+                normalizedOps.push(state);
             });
 
             try {
                 if (normalizedOps.length > 0) {
-                    await $wire.call('applyClientOps', normalizedOps);
+                    await sendClientOps(normalizedOps);
                 }
             } catch (error) {
                 for (let i = queuedOps.length - 1; i >= 0; i--) {
@@ -261,6 +381,49 @@
                     id,
                     variationCount,
                     modifierCount,
+                });
+            },
+
+            queueDeleteItem(key, sourceEl = null) {
+                const safeKey = String(key || '');
+
+                if (!safeKey) {
+                    return;
+                }
+
+                const row = sourceEl?.closest('tr');
+                if (row) {
+                    row.dataset.pendingDelete = '1';
+                    row.style.opacity = '0.6';
+                    row.style.pointerEvents = 'none';
+                }
+
+                queueClientOp({
+                    type: 'remove_item',
+                    key: safeKey,
+                });
+            },
+
+            queueQtySet(key, qty, sourceEl = null) {
+                const safeKey = String(key || '');
+                const rawQty = Number(qty || 0);
+                const safeQty = Math.max(1, Math.floor(rawQty));
+
+                if (!safeKey || Number.isNaN(safeQty)) {
+                    return;
+                }
+
+                const wrapper = sourceEl?.closest('div.relative.flex.items-center');
+                const qtyInput = wrapper?.querySelector('input[data-pos-qty-key]');
+
+                if (qtyInput) {
+                    qtyInput.value = String(safeQty);
+                }
+
+                queueClientOp({
+                    type: 'qty_set',
+                    key: safeKey,
+                    qty: safeQty,
                 });
             },
 

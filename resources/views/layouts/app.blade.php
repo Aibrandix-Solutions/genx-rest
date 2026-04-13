@@ -151,14 +151,20 @@
 
     @if (user()->restaurant_id)
 
-        @livewire('order.OrderDetail')
+        @if (request()->routeIs('pos.*'))
+            {{-- Vue POS routes use the existing order detail and payment side drawers. --}}
+            @livewire('order.OrderDetail')
+            @livewire('order.addPayment')
+        @else
+            @livewire('order.OrderDetail')
 
-        @livewire('settings.upgradeLicense')
+            @livewire('settings.upgradeLicense')
 
-        {{-- Payment modal below customer modal in DOM; customer uses higher z-index so it stacks on top for due/customer flow --}}
-        @livewire('order.addPayment')
+            {{-- Payment modal below customer modal in DOM; customer uses higher z-index so it stacks on top for due/customer flow --}}
+            @livewire('order.addPayment')
 
-        @livewire('customer.addCustomer')
+            @livewire('customer.addCustomer')
+        @endif
 
         @include('sections.payment-gateway-include')
 

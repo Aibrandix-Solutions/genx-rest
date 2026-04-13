@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PrintJobController;
 use App\Http\Controllers\Api\PosBootstrapController;
 use App\Http\Controllers\Api\PosCartBatchSyncController;
+use App\Http\Controllers\Api\PosSupportController;
 use App\Http\Controllers\Api\PosVueOrderController;
 use App\Http\Middleware\DesktopUniqueKeyMiddleware;
 use App\Http\Middleware\CorsMiddleware;
@@ -72,6 +73,17 @@ Route::post('/force-disconnect-pusher', function (Request $request) {
 // POS Bootstrap API - Cache-first endpoint for POS initialization
 Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/bootstrap', [PosBootstrapController::class, 'bootstrap']);
+    Route::get('/pos/get-order-number', [PosSupportController::class, 'getOrderNumber']);
+    Route::get('/pos/order-types', [PosSupportController::class, 'orderTypes']);
+    Route::get('/pos/delivery-platforms', [PosSupportController::class, 'deliveryPlatforms']);
+    Route::get('/pos/phone-codes', [PosSupportController::class, 'phoneCodes']);
+    Route::get('/pos/customers', [PosSupportController::class, 'customers']);
+    Route::post('/pos/customers', [PosSupportController::class, 'storeCustomer']);
+    Route::get('/pos/extra-charges/{orderType}', [PosSupportController::class, 'extraCharges']);
+    Route::get('/pos/tables', [PosSupportController::class, 'tables']);
+    Route::get('/pos/reservations/today', [PosSupportController::class, 'reservationsToday']);
+    Route::post('/pos/tables/{id}/unlock', [PosSupportController::class, 'unlockTable']);
+    Route::get('/pos/orders/{id}', [PosVueOrderController::class, 'show']);
     Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
     Route::post('/pos/orders', [PosVueOrderController::class, 'store']);

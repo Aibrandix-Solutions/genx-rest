@@ -381,7 +381,14 @@
                                         </svg>
                                     </button>
 
-                                    <input type="text" data-pos-qty-key="{{ $key }}" wire:model.lazy="orderItemQty.{{ $key }}" wire:change="updateQty('{{ $key }}')"
+                                    <input type="text" data-pos-qty-key="{{ $key }}" value="{{ $orderItemQty[$key] ?? 1 }}"
+                                        onchange="
+                                            const val = parseInt(this.value, 10);
+                                            const normalized = isNaN(val) || val < 1 ? 1 : val;
+                                            this.value = normalized;
+                                            window.posClient?.queueQtySet(@js((string) $key), normalized, this);
+                                            return false;
+                                        "
                                         class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
@@ -414,7 +421,7 @@
                                 @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
-                                    wire:click="deleteCartItems('{{ $key }}')" wire:loading.attr="disabled"
+                                    onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;" wire:loading.attr="disabled"
                                     wire:loading.class="opacity-50">
                                     <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor" viewBox="0 0 20 20"
                                         xmlns="http://www.w3.org/2000/svg">

@@ -1947,6 +1947,36 @@ class Pos extends Component
                         $this->optimisticSubQty($lineKey);
                     }
                 }
+                continue;
+            }
+
+            if ($type === 'qty_set') {
+                $lineKey = (string) ($op['key'] ?? '');
+                $qty = (int) ($op['qty'] ?? 0);
+
+                if ($lineKey === '') {
+                    continue;
+                }
+
+                if ($qty <= 0) {
+                    // Remove line through full deletion path to clear all dependent cart state.
+                    $this->executeDeleteCartItems($lineKey);
+                } else {
+                    // Set new quantity
+                    $this->orderItemQty[$lineKey] = $qty;
+                    $this->updateQty($lineKey);
+                }
+                continue;
+            }
+
+            if ($type === 'remove_item') {
+                $lineKey = (string) ($op['key'] ?? '');
+
+                if ($lineKey === '') {
+                    continue;
+                }
+
+                $this->deleteCartItems($lineKey);
             }
         }
     }
@@ -2317,7 +2347,7 @@ class Pos extends Component
 
     public function updatedOrderExtras()
     {
-        $this->calculateTotal(true);
+        $this->calculateTotal();
     }
 
     public function addOrderExtraRow()
@@ -2335,7 +2365,7 @@ class Pos extends Component
             'note' => '',
         ];
 
-        $this->calculateTotal(true);
+        $this->calculateTotal();
     }
 
     public function removeOrderExtraRow($index)

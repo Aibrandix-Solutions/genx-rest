@@ -6,6 +6,10 @@ class PosBatchSyncService
 {
     public function apply(array $state, array $operations): array
     {
+        if ($this->looksLikeTypedOperations($operations)) {
+            return $this->applyTypedOperations($state, $operations);
+        }
+
         $normalizedOperations = $this->normalizeOperations($operations);
         $removedIds = [];
 
@@ -22,28 +26,91 @@ class PosBatchSyncService
             $lineId = (string) $id;
             $previousQty = (int) ($state['orderItemQty'][$lineId] ?? 0);
             $state['orderItemQty'][$lineId] = $qty;
-
-            $variation = $state['orderItemVariation'][$lineId] ?? null;
-            $item = $state['orderItemList'][$lineId] ?? null;
-            $basePrice = $this->readPrice($variation) ?: $this->readPrice($item);
-
-            $modifierPrice = (float) ($state['orderItemModifiersPrice'][$lineId] ?? 0);
-            $lineAmount = $qty * ($basePrice + $modifierPrice);
-            $state['orderItemAmount'][$lineId] = $lineAmount;
-
-            if (isset($state['orderItemTaxDetails'][$lineId]) && is_array($state['orderItemTaxDetails'][$lineId])) {
-                $state['orderItemTaxDetails'][$lineId] = $this->recalculateTaxDetails(
-                    $state['orderItemTaxDetails'][$lineId],
-                    $previousQty,
-                    $qty
-                );
-            }
+            $this->syncLineComputedState($state, $lineId, $previousQty, $qty);
         }
 
         return [
             'state' => $state,
             'applied' => count($normalizedOperations),
             'removed_ids' => $removedIds,
+            'synced_at' => now()->toIso8601String(),
+        ];
+    }
+
+    private function looksLikeTypedOperations(array $operations): bool
+    {
+        foreach ($operations as $operation) {
+            if (is_array($operation) && array_key_exists('type', $operation)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function applyTypedOperations(array $state, array $operations): array
+    {
+        $applied = 0;
+        $removedIds = [];
+
+        foreach ($operations as $operation) {
+            if (!is_array($operation)) {
+                continue;
+            }
+
+            $type = (string) ($operation['type'] ?? '');
+            $lineId = (string) ($operation['key'] ?? '');
+
+            if ($lineId === '') {
+                continue;
+            }
+
+            if ($type === 'remove_item') {
+                $this->removeLineState($state, $lineId);
+                $removedIds[] = $lineId;
+                $applied++;
+                continue;
+            }
+
+            if ($type === 'qty_set') {
+                $nextQty = (int) ($operation['qty'] ?? 0);
+                if ($nextQty <= 0) {
+                    $this->removeLineState($state, $lineId);
+                    $removedIds[] = $lineId;
+                } else {
+                    $previousQty = (int) ($state['orderItemQty'][$lineId] ?? 0);
+                    $state['orderItemQty'][$lineId] = $nextQty;
+                    $this->syncLineComputedState($state, $lineId, $previousQty, $nextQty);
+                }
+                $applied++;
+                continue;
+            }
+
+            if ($type === 'qty_delta') {
+                $delta = (int) ($operation['delta'] ?? 0);
+                if ($delta === 0) {
+                    continue;
+                }
+
+                $previousQty = (int) ($state['orderItemQty'][$lineId] ?? 0);
+                $nextQty = $previousQty + $delta;
+
+                if ($nextQty <= 0) {
+                    $this->removeLineState($state, $lineId);
+                    $removedIds[] = $lineId;
+                } else {
+                    $state['orderItemQty'][$lineId] = $nextQty;
+                    $this->syncLineComputedState($state, $lineId, $previousQty, $nextQty);
+                }
+
+                $applied++;
+            }
+        }
+
+        return [
+            'state' => $state,
+            'applied' => $applied,
+            'removed_ids' => array_values(array_unique($removedIds)),
             'synced_at' => now()->toIso8601String(),
         ];
     }
@@ -82,6 +149,26 @@ class PosBatchSyncService
         }
 
         return 0.0;
+    }
+
+    private function syncLineComputedState(array &$state, string $lineId, int $previousQty, int $newQty): void
+    {
+        $variation = $state['orderItemVariation'][$lineId] ?? null;
+        $item = $state['orderItemList'][$lineId] ?? null;
+        $variationPrice = $variation ? $this->readPrice($variation) : 0.0;
+        $itemPrice = $item ? $this->readPrice($item) : 0.0;
+        $basePrice = $variationPrice > 0 ? $variationPrice : $itemPrice;
+
+        $modifierPrice = (float) ($state['orderItemModifiersPrice'][$lineId] ?? 0);
+        $lineAmount = $newQty * ($basePrice + $modifierPrice);        $state['orderItemAmount'][$lineId] = $lineAmount;
+
+        if (isset($state['orderItemTaxDetails'][$lineId]) && is_array($state['orderItemTaxDetails'][$lineId])) {
+            $state['orderItemTaxDetails'][$lineId] = $this->recalculateTaxDetails(
+                $state['orderItemTaxDetails'][$lineId],
+                $previousQty,
+                $newQty
+            );
+        }
     }
 
     private function recalculateTaxDetails(array $taxDetails, int $previousQty, int $newQty): array

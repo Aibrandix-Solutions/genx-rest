@@ -8,21 +8,56 @@ use App\Models\ItemModifier;
 use App\Models\ModifierGroup;
 use App\Models\ComboPack;
 use App\Models\Order;
+use App\Services\PosBatchSyncService;
 use App\Services\PosBootstrapService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 
 class PosController extends Controller
 {
 
-    public function index()
+    public function index(PosBootstrapService $bootstrapService)
     {
         abort_if((!in_array('Order', restaurant_modules()) || !user_can('Create Order')), 403);
-        return view('pos.index');
+
+        return $this->renderVuePos($bootstrapService);
     }
 
     public function vue(PosBootstrapService $bootstrapService)
     {
         abort_if((!in_array('Order', restaurant_modules()) || !user_can('Create Order')), 403);
 
+        return $this->renderVuePos($bootstrapService);
+    }
+
+    public function bootstrap(PosBootstrapService $bootstrapService): JsonResponse
+    {
+        abort_if((!in_array('Order', restaurant_modules()) || !user_can('Create Order')), 403);
+
+        return response()->json($this->buildPosVueBootstrapPayload($bootstrapService));
+    }
+
+    public function clientOps(Request $request, PosBatchSyncService $batchSyncService): JsonResponse
+    {
+        abort_if((!in_array('Order', restaurant_modules()) || !user_can('Create Order')), 403);
+
+        $request->validate([
+            'state' => ['nullable', 'array'],
+            'operations' => ['required', 'array'],
+            'operations.*' => ['required', 'array'],
+        ]);
+
+        $state = $request->input('state', []);
+        $operations = $request->input('operations', []);
+
+        return response()->json($batchSyncService->apply(
+            is_array($state) ? $state : [],
+            is_array($operations) ? $operations : []
+        ));
+    }
+
+    private function buildPosVueBootstrapPayload(PosBootstrapService $bootstrapService): array
+    {
         $bootstrap = $bootstrapService->resolve();
         $data = $bootstrap['data'] ?? [];
 
@@ -43,7 +78,6 @@ class PosController extends Controller
                 'variations:id,menu_item_id,variation,price',
             ])
             ->withCount(['variations', 'modifierGroups'])
-            ->select('id', 'menu_id', 'item_category_id', 'type', 'price', 'in_stock', 'image')
             ->orderBy('id')
             ->get();
 
@@ -107,8 +141,8 @@ class PosController extends Controller
                     'item_name' => (string) $item->item_name,
                     'type' => (string) ($item->type ?? 'veg'),
                     'price' => (float) ($item->price ?? 0),
+                    'item_photo_url' => (string) ($item->item_photo_url ?? ''),
                     'in_stock' => (bool) ($item->in_stock ?? true),
-                    'item_photo_url' => (string) $item->item_photo_url,
                     'variations_count' => (int) ($item->variations_count ?? 0),
                     'modifier_groups_count' => (int) ($item->modifier_groups_count ?? 0),
                     'variations' => $item->variations->map(function ($variation) {
@@ -201,9 +235,7 @@ class PosController extends Controller
 
         $payload['combo_packs'] = $comboPacks;
 
-        return view('pos.posvue', [
-            'posVueBootstrap' => $payload,
-        ]);
+        return $payload;
     }
 
     public function show($id)
@@ -213,21 +245,25 @@ class PosController extends Controller
         return view('pos.show', compact('tableOrderID'));
     }
 
-    public function order($id)
+    public function order($id, PosBootstrapService $bootstrapService)
     {
         abort_if((!in_array('Order', restaurant_modules())), 403);
-        $tableOrderID = $id;
-        return view('pos.order', compact('tableOrderID'));
+
+        return $this->renderVuePos($bootstrapService);
     }
 
-    public function kot($id)
+    public function kot($id, PosBootstrapService $bootstrapService)
     {
         abort_if((!in_array('Order', restaurant_modules())), 403);
-        $orderID = $id;
-        $order = Order::find($orderID);
 
-        $showOrderDetail = request()->get('show-order-detail') == 'true' ? true : false;
-        return view('pos.kot', compact('orderID', 'showOrderDetail'));
+        return $this->renderVuePos($bootstrapService);
+    }
+
+    private function renderVuePos(PosBootstrapService $bootstrapService)
+    {
+        return view('pos.posvue', [
+            'posVueBootstrap' => $this->buildPosVueBootstrapPayload($bootstrapService),
+        ]);
     }
 
     public function customerDisplay()

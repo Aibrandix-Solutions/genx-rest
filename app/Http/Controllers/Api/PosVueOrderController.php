@@ -21,11 +21,94 @@ use Illuminate\Validation\Rule;
 
 class PosVueOrderController extends Controller
 {
+    public function show(int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('View Order'), 403);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->with([
+                'items.modifierOptions',
+                'items.menuItem',
+                'items.menuItemVariation',
+            ])
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $comboInstancesByPack = [];
+        $currentComboPackId = null;
+        $currentComboInstanceKey = null;
+        $itemsInCurrentCombo = 0;
+
+        $lines = $order->items->map(function ($item, $index) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey, &$itemsInCurrentCombo) {
+            $comboInstanceKey = null;
+            if (!empty($item->combo_pack_id)) {
+                $packId = (int) $item->combo_pack_id;
+                
+                // Start a new combo instance if this is a different pack or we've completed the current one
+                if ($packId !== $currentComboPackId) {
+                    $currentComboPackId = $packId;
+                    $itemsInCurrentCombo = 1;
+                    $comboInstancesByPack[$packId] = ($comboInstancesByPack[$packId] ?? 0) + 1;
+                    $currentComboInstanceKey = 'combo_' . $packId . '_' . $comboInstancesByPack[$packId];
+                } else {
+                    // Same pack, increment item count in current combo
+                    $itemsInCurrentCombo++;
+                }
+                
+                $comboInstanceKey = $currentComboInstanceKey;
+            } else {
+                // Reset combo tracking when we hit a non-combo item
+                $currentComboPackId = null;
+                $currentComboInstanceKey = null;
+                $itemsInCurrentCombo = 0;
+            }
+
+            $modifierQtyMap = $item->modifierOptions
+                ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                ->all();
+
+            return [
+                'order_item_id' => (int) $item->id,
+                'menu_item_id' => (int) $item->menu_item_id,
+                'item_name' => (string) ($item->menuItem?->item_name ?? ''),
+                'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
+                'variation_name' => (string) ($item->menuItemVariation?->variation ?? ''),
+                'qty' => (int) ($item->quantity ?? 1),
+                'unit_price' => (float) ($item->price ?? 0),
+                'amount' => (float) ($item->amount ?? 0),
+                'note' => $item->note,
+                'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
+                'combo_instance_key' => $comboInstanceKey,
+                'modifier_option_quantities' => $modifierQtyMap,
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order' => [
+                    'id' => (int) $order->id,
+                    'status' => (string) $order->status,
+                    'order_type_id' => $order->order_type_id ? (int) $order->order_type_id : null,
+                    'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+                    'sub_total' => (float) ($order->sub_total ?? 0),
+                    'total' => (float) ($order->total ?? 0),
+                    'lines' => $lines,
+                ],
+            ],
+        ]);
+    }
+
     public function store(Request $request)
     {
         abort_if(!in_array('Order', restaurant_modules()) || !user_can('Create Order'), 403);
 
         $validated = $request->validate([
+            'order_id' => ['nullable', 'integer', 'exists:orders,id'],
             'action' => ['nullable', 'string', Rule::in(['kot', 'bill'])],
             'open_payment' => ['nullable', 'boolean'],
             'order_type_id' => ['nullable', 'integer', 'exists:order_types,id'],
@@ -42,8 +125,9 @@ class PosVueOrderController extends Controller
             'lines.*.combo_instance_key' => ['nullable', 'string'],
         ]);
 
+        $editingOrderId = isset($validated['order_id']) ? (int) $validated['order_id'] : null;
         $action = $validated['action'] ?? 'kot';
-    $openPayment = (bool) ($validated['open_payment'] ?? false);
+        $openPayment = (bool) ($validated['open_payment'] ?? false);
         $status = $action === 'bill' ? 'billed' : 'kot';
 
         $branch = branch();
@@ -62,24 +146,64 @@ class PosVueOrderController extends Controller
             $orderTypeValue = 'dine_in';
         }
 
-        $result = DB::transaction(function () use ($validated, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant) {
-            $numberData = Order::generateOrderNumber($branch);
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant) {
+            $isUpdate = false;
 
-            $order = Order::create([
-                'order_number' => $numberData['order_number'],
-                'formatted_order_number' => $numberData['formatted_order_number'],
-                'date_time' => now(),
-                'waiter_id' => $validated['waiter_id'] ?? null,
-                'sub_total' => 0,
-                'total' => 0,
-                'order_type' => $orderTypeValue,
-                'order_type_id' => $orderType?->id,
-                'custom_order_type_name' => $orderType?->order_type_name,
-                'status' => $status,
-                'order_status' => 'confirmed',
-                'placed_via' => 'pos_vue',
-                'tax_mode' => $restaurant->tax_mode ?? 'item',
-            ]);
+            if ($editingOrderId) {
+                $order = Order::query()
+                    ->where('id', $editingOrderId)
+                    ->where('branch_id', $branch->id)
+                    ->firstOrFail();
+
+                $isUpdate = true;
+
+                foreach ($order->items()->with('modifierOptions')->get() as $existingOrderItem) {
+                    $existingOrderItem->modifierOptions()->detach();
+                }
+
+                $order->items()->delete();
+                $order->taxes()->delete();
+
+                foreach ($order->kot()->with('items.modifierOptions')->get() as $existingKot) {
+                    foreach ($existingKot->items as $existingKotItem) {
+                        $existingKotItem->modifierOptions()->detach();
+                    }
+                    $existingKot->items()->delete();
+                    $existingKot->delete();
+                }
+
+                $order->update([
+                    'date_time' => now(),
+                    'waiter_id' => $validated['waiter_id'] ?? null,
+                    'sub_total' => 0,
+                    'total' => 0,
+                    'order_type' => $orderTypeValue,
+                    'order_type_id' => $orderType?->id,
+                    'custom_order_type_name' => $orderType?->order_type_name,
+                    'status' => $status,
+                    'order_status' => 'confirmed',
+                    'placed_via' => 'pos',
+                    'tax_mode' => $restaurant->tax_mode ?? 'item',
+                ]);
+            } else {
+                $numberData = Order::generateOrderNumber($branch);
+
+                $order = Order::create([
+                    'order_number' => $numberData['order_number'],
+                    'formatted_order_number' => $numberData['formatted_order_number'],
+                    'date_time' => now(),
+                    'waiter_id' => $validated['waiter_id'] ?? null,
+                    'sub_total' => 0,
+                    'total' => 0,
+                    'order_type' => $orderTypeValue,
+                    'order_type_id' => $orderType?->id,
+                    'custom_order_type_name' => $orderType?->order_type_name,
+                    'status' => $status,
+                    'order_status' => 'confirmed',
+                    'placed_via' => 'pos',
+                    'tax_mode' => $restaurant->tax_mode ?? 'item',
+                ]);
+            }
 
             $subtotal = 0.0;
             $orderItemsCreated = [];
@@ -282,6 +406,7 @@ class PosVueOrderController extends Controller
                 'order' => $order->fresh(),
                 'order_item_ids' => $orderItemsCreated,
                 'kot_ids' => $kotIds,
+                'is_update' => $isUpdate,
             ];
         });
 
@@ -290,6 +415,7 @@ class PosVueOrderController extends Controller
             'message' => $action === 'bill' ? __('messages.billedSuccess') : __('messages.kotGenerated'),
             'data' => [
                 'order_id' => $result['order']->id,
+                'is_update' => (bool) ($result['is_update'] ?? false),
                 'order_uuid' => $result['order']->uuid,
                 'status' => $result['order']->status,
                 'sub_total' => (float) $result['order']->sub_total,
