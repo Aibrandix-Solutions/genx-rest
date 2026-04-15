@@ -29,6 +29,10 @@ class PosBootstrapService
 
         $data = array_merge($stableData, [
             'delivery_executives' => $this->freshDeliveryExecutives(),
+            'pos_preferences' => [
+                'default_order_type_id' => auth()->user()?->default_order_type_id,
+                'selected_delivery_app' => session()->get('pos.delivery_app_id', 'default'),
+            ],
         ]);
 
         return [
@@ -71,7 +75,7 @@ class PosBootstrapService
                 ->get(),
 
             'delivery_platforms' => DeliveryPlatform::where('is_active', true)
-                ->select('id', 'name')
+                ->select('id', 'name', 'commission_type', 'commission_value')
                 ->orderBy('name')
                 ->get(),
 

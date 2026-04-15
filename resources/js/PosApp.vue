@@ -32,19 +32,23 @@
         <!-- Main POS Content -->
         <div v-else class="flex flex-col lg:flex-row lg:flex-nowrap flex-grow h-auto pt-6 min-w-0 overflow-x-hidden">
             <MenuPanel class="w-full lg:basis-[70%] lg:max-w-[70%] min-w-0" :search="search" :menu-id="menuId"
-                :filter-categories="filterCategories" :menus="menus" :categories="categories" :items="menuItems"
+                :filter-categories="filterCategories" :menus="menus" :categories="categories" :items="contextualMenuItems"
                 :currency-symbol="currencySymbol" @update:search="search = $event" @update:menuId="menuId = $event"
                 @update:filterCategories="filterCategories = $event" @add-to-cart="handleAddToCart" @reset="handleReset" />
 
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
-                :waiters="waiters" :cart-items="cartItems" :taxes="taxes" :saving-action="savingAction"
-                :extra-charges="extraCharges" :discount-amount="discountAmount" :discount-type="discountType"
-                :discount-value="discountValue" :is-online="isOnline" :total-tax-amount="totalTaxAmount"
-                :is-inclusive="false" :currency-symbol="currencySymbol" @update:orderType="orderType = $event"
+                :waiters="waiters" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
+                :saving-action="savingAction" :extra-charges="extraCharges" :discount-amount="discountAmount"
+                :discount-type="discountType" :discount-value="discountValue" :is-online="isOnline"
+                :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
+                :delivery-platforms="deliveryPlatforms" :selected-delivery-app="selectedDeliveryApp"
+                :current-user="currentUser" :can-edit-waiter="canEditWaiter"
+                :set-as-default-order-type="setAsDefaultOrderType" @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @select-table="handleSelectTable"
                 @update:pax="pax = $event" @update:waiterId="waiterId = $event" @add-note="handleAddNote"
-                @update-quantity="handleUpdateQuantity" @increase-quantity="handleIncreaseQuantity"
+                @update-quantity="handleUpdateQuantity" @update:selectedDeliveryApp="selectedDeliveryApp = $event"
+                @update:setAsDefaultOrderType="setAsDefaultOrderType = $event" @increase-quantity="handleIncreaseQuantity"
                 @decrease-quantity="handleDecreaseQuantity" @remove-item="handleRemoveItem" @save-order="handleSaveOrder"
                 @update:extraCharges="extraCharges = $event" @apply-discount="handleApplyDiscount"
                 @remove-discount="handleRemoveDiscount" :order="order" />
@@ -74,6 +78,7 @@ import TableChangeModal from "./components/pos/TableChangeModal.vue";
 import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
+import { showPosAlert } from "./utils/posAlerts.js";
 
 // Generate unique tab ID to avoid concurrent increment collisions
 const tabId = ref('tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
@@ -135,9 +140,10 @@ const getBootstrapData = () => {
 };
 
 const bootstrapData = ref(getBootstrapData());
+const initialOrderData = computed(() => bootstrapData.value?.initial_order || null);
 
-// Diagnostics
-const isLoading = ref(true);
+// Diagnostics - If bootstrap data is available inline, we're not loading
+const isLoading = ref(!bootstrapData.value);
 
 // Log bootstrap data for debugging
 console.log("POS Bootstrap Data:", bootstrapData.value);
@@ -173,6 +179,7 @@ const menuItems = ref([]);
 const comboPacks = ref([]);
 const availableTaxes = ref([]);
 const orderTypes = ref([]);
+const deliveryPlatforms = ref([]);
 const restaurant = ref(null);
 const currencySymbol = ref("$");
 
@@ -182,6 +189,8 @@ const orderNumber = ref("");
 const pax = ref(1);
 const waiterId = ref(null);
 const waiters = ref([]);
+const currentUser = ref(null);
+const canEditWaiter = ref(true);
 const cartItems = ref([]);
 const taxes = ref([]);
 const savingAction = ref(null); // Track which action is being saved: 'kot', 'bill', 'bill_payment', etc.
@@ -191,6 +200,8 @@ const discountType = ref("");
 const discountValue = ref(0);
 const order = ref(null);
 const orderTypeId = ref(null);
+const selectedDeliveryApp = ref("default");
+const setAsDefaultOrderType = ref(false);
 // Modal state
 const showReservationModal = ref(false);
 const showTableChangeConfirmationModal = ref(false);
@@ -210,6 +221,7 @@ const currentTable = ref("");
 const currentTableId = ref(null);
 const newTable = ref("");
 const newTableId = ref(null);
+const newTableActiveOrderId = ref(null);
 const showAddNoteModal = ref(false);
 const orderNote = ref("");
 
@@ -236,12 +248,12 @@ const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
 
     if (item) {
         // Resolve the correct price based on variation
-        let price = item.price || item.contextual_price || 0;
+        let price = resolveContextualPrice(item);
 
         if (variantId && item.variations && item.variations.length > 0) {
             const variation = item.variations.find((v) => v.id === variantId);
             if (variation) {
-                price = variation.price || variation.contextual_price || item.price || 0;
+                price = resolveContextualPrice(item, variation.id);
                 console.log("Using variation price:", price);
             }
         }
@@ -326,19 +338,120 @@ const resolveOrderType = (value) => {
     return found || null;
 };
 
+const getDeliveryPlatform = (deliveryAppId) => {
+    const appId = Number(deliveryAppId || 0);
+    if (!appId) {
+        return null;
+    }
+
+    return deliveryPlatforms.value.find(
+        (platform) => Number(platform.id) === appId
+    ) || null;
+};
+
+const applyDeliveryCommission = (basePrice, deliveryAppId) => {
+    const platform = getDeliveryPlatform(deliveryAppId);
+    if (!platform) {
+        return Number(basePrice || 0);
+    }
+
+    const commissionType = String(platform.commission_type || "fixed").toLowerCase();
+    const commissionValue = Number(platform.commission_value || 0);
+    const numericBasePrice = Number(basePrice || 0);
+
+    if (commissionValue <= 0 || numericBasePrice <= 0) {
+        return numericBasePrice;
+    }
+
+    if (commissionType === "percent") {
+        return numericBasePrice + (numericBasePrice * commissionValue) / 100;
+    }
+
+    return numericBasePrice + commissionValue;
+};
+
+const resolveContextualPrice = (item, variationId = null) => {
+    if (!item) {
+        return 0;
+    }
+
+    const selectedType = resolveOrderType(orderType.value);
+    const orderTypeId = Number(selectedType?.id || 0) || null;
+    const normalizedType = normalizeOrderTypeSlug(selectedType?.slug || orderType.value);
+    const deliveryAppId =
+        normalizedType === "delivery" && selectedDeliveryApp.value !== "default"
+            ? Number(selectedDeliveryApp.value || 0) || null
+            : null;
+
+    const pricingRows = variationId
+        ? (item.variations || []).find((variation) => Number(variation.id) === Number(variationId))?.pricing_rows || []
+        : item.pricing_rows || [];
+
+    const exact = pricingRows.find((row) => {
+        const rowOrderTypeId = row.order_type_id ? Number(row.order_type_id) : null;
+        const rowDeliveryAppId = row.delivery_app_id ? Number(row.delivery_app_id) : null;
+
+        return rowOrderTypeId === orderTypeId && rowDeliveryAppId === deliveryAppId;
+    });
+
+    if (exact) {
+        return Number(exact.final_price || 0);
+    }
+
+    const relaxedDelivery = pricingRows.find((row) => {
+        const rowOrderTypeId = row.order_type_id ? Number(row.order_type_id) : null;
+        const rowDeliveryAppId = row.delivery_app_id ? Number(row.delivery_app_id) : null;
+
+        return rowOrderTypeId === orderTypeId && rowDeliveryAppId === null;
+    });
+
+    if (relaxedDelivery) {
+        const relaxedPrice = Number(relaxedDelivery.final_price || 0);
+        return deliveryAppId ? applyDeliveryCommission(relaxedPrice, deliveryAppId) : relaxedPrice;
+    }
+
+    const orderTypeOnly = pricingRows.find((row) => {
+        const rowOrderTypeId = row.order_type_id ? Number(row.order_type_id) : null;
+        return rowOrderTypeId === orderTypeId;
+    });
+
+    if (orderTypeOnly) {
+        return Number(orderTypeOnly.final_price || 0);
+    }
+
+    const fallbackBasePrice = variationId
+        ? Number((item.variations || []).find((variation) => Number(variation.id) === Number(variationId))?.price || 0)
+        : Number(item.price || item.contextual_price || 0);
+
+    return deliveryAppId ? applyDeliveryCommission(fallbackBasePrice, deliveryAppId) : fallbackBasePrice;
+};
+
+const contextualMenuItems = computed(() => {
+    return menuItems.value.map((item) => ({
+        ...item,
+        contextual_price: resolveContextualPrice(item),
+        variations: Array.isArray(item.variations)
+            ? item.variations.map((variation) => ({
+                ...variation,
+                contextual_price: resolveContextualPrice(item, variation.id),
+            }))
+            : [],
+    }));
+});
+
 const handleSelectTable = (table) => {
     const selectedTableCode = table.table_code;
     const selectedTableId = table.id;
+    const selectedActiveOrderId = table.active_order_id ? Number(table.active_order_id) : null;
 
     // Show confirmation modal if there's an existing table that's different
     if (currentTable.value && currentTable.value !== selectedTableCode) {
         newTable.value = selectedTableCode;
         newTableId.value = selectedTableId;
+        newTableActiveOrderId.value = selectedActiveOrderId;
         showTableChangeConfirmationModal.value = true;
     } else {
-        // Just update the table directly
-        currentTable.value = selectedTableCode;
-        currentTableId.value = selectedTableId;
+        applySelectedTable(selectedTableCode, selectedTableId, selectedActiveOrderId);
     }
 };
 
@@ -680,6 +793,19 @@ const dispatchLivewireEvent = (eventName, payload) => {
     return true;
 };
 
+const clearCartAfterSave = () => {
+    // Clear cart after successful order save (Speeder behavior)
+    // This ensures fresh start for next order
+    cartItems.value = [];
+    orderNote.value = "";
+    discountAmount.value = 0;
+    discountType.value = "";
+    discountValue.value = 0;
+    extraCharges.value = [];
+    availableTaxes.value = [];
+    calculateTaxes();
+};
+
 const handleSaveOrder = async (...actions) => {
     // Create action key for tracking which button is being pressed
     const actionKey = actions.join("_") || "kot"; // e.g., "kot", "bill", "kot_print", "bill_payment", etc.
@@ -687,7 +813,7 @@ const handleSaveOrder = async (...actions) => {
     try {
         // Validate cart has items
         if (!cartItems.value || cartItems.value.length === 0) {
-            alert("Cart is empty. Please add items before saving.");
+            showPosAlert("error", "Cart is empty. Please add items before saving.");
             savingAction.value = null;
             return;
         }
@@ -724,6 +850,10 @@ const handleSaveOrder = async (...actions) => {
             action,
             open_payment: openPayment,
             order_type_id: selectedOrderType?.id || null,
+            delivery_app_id:
+                normalizeOrderTypeSlug(selectedOrderType?.slug) === "delivery"
+                    ? selectedDeliveryApp.value || "default"
+                    : null,
             waiter_id: waiterId.value,
             note: orderNote.value,
             lines: lines,
@@ -760,6 +890,9 @@ const handleSaveOrder = async (...actions) => {
             await incrementOrderNumberOffline();
         } else {
             console.log("Order saved successfully:", result.data);
+
+            // Clear cart after successful save (Speeder behavior)
+            clearCartAfterSave();
 
             const orderIdToOpen = result.data.order_id;
 
@@ -833,12 +966,16 @@ const handleSaveOrder = async (...actions) => {
             fullError: error
         });
 
-        // Show validation errors to user
+        // Legacy alert style: keep the message simple and direct
         if (Object.keys(errors).length > 0) {
-            const errorList = Object.entries(errors).map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(", ") : msgs}`).join("\n");
-            alert(`Order validation failed:\n${errorList}`);
+            const firstError = Object.values(errors)
+                .flat()
+                .filter(Boolean)
+                .map((message) => String(message))
+                .join("\n");
+            showPosAlert("error", firstError || errorMessage);
         } else {
-            alert(`Error saving order: ${errorMessage}`);
+            showPosAlert("error", errorMessage);
         }
     } finally {
         savingAction.value = null;
@@ -857,11 +994,15 @@ const handleConfirmDifferentCustomer = () => {
     showReservationModal.value = false;
 };
 
-const handleConfirmTableChange = () => {
+const handleConfirmTableChange = async () => {
     // TODO: Implement API call to confirm table change
     console.log("confirmTableChange");
-    currentTable.value = newTable.value;
-    currentTableId.value = newTableId.value;
+    await applySelectedTable(
+        newTable.value,
+        newTableId.value,
+        newTableActiveOrderId.value
+    );
+    newTableActiveOrderId.value = null;
     showTableChangeConfirmationModal.value = false;
 };
 
@@ -997,10 +1138,45 @@ const loadMenuData = async () => {
             console.log("Loaded order types:", orderTypes.value);
         }
 
+        if (bootstrap.current_user) {
+            currentUser.value = bootstrap.current_user;
+            canEditWaiter.value = !!bootstrap.current_user.can_update_order;
+        }
+
+        if (bootstrap.pos_preferences) {
+            const selectedApp = bootstrap.pos_preferences.selected_delivery_app;
+            selectedDeliveryApp.value = selectedApp ? String(selectedApp) : "default";
+
+            const defaultOrderTypeId = Number(bootstrap.pos_preferences.default_order_type_id || 0);
+            if (!orderId.value && mode.value === "new" && defaultOrderTypeId > 0) {
+                const preferredType = orderTypes.value.find(
+                    (type) => Number(type.id) === defaultOrderTypeId
+                );
+
+                if (preferredType) {
+                    orderType.value =
+                        preferredType.slug === "dine_in"
+                            ? "Dine In"
+                            : preferredType.slug === "pickup"
+                                ? "Pickup"
+                                : "Delivery";
+                }
+            }
+        }
+
+        if (Array.isArray(bootstrap.delivery_platforms) && bootstrap.delivery_platforms.length > 0) {
+            deliveryPlatforms.value = bootstrap.delivery_platforms;
+            console.log("Loaded delivery platforms:", deliveryPlatforms.value);
+        }
+
         if (Array.isArray(bootstrap.waiters) && bootstrap.waiters.length > 0) {
             waiters.value = bootstrap.waiters;
             if (!waiterId.value && waiters.value.length > 0) {
-                waiterId.value = waiters.value[0].id;
+                if (bootstrap.current_user?.is_waiter && bootstrap.current_user?.id) {
+                    waiterId.value = Number(bootstrap.current_user.id);
+                } else {
+                    waiterId.value = waiters.value[0].id;
+                }
                 console.log("Set default waiter to:", waiterId.value);
             }
         }
@@ -1015,66 +1191,94 @@ const loadMenuData = async () => {
 };
 
 // Fetch order and load KOT items into cart
-const loadOrderData = async () => {
-    if (!orderId.value) {
+const loadOrderData = async (targetOrderId = null) => {
+    const activeOrderId = targetOrderId || orderId.value;
+    if (!activeOrderId) {
         return; // No order ID, skip loading order data
     }
 
     try {
-        const response = await axios.get(`/api/pos/orders/${orderId.value}`);
+        const response = await axios.get(`/api/pos/orders/${activeOrderId}`);
         const payload = response.data?.data?.order || null;
 
         if (response.data.success && payload) {
-            order.value = payload.id;
-
-            // Load order details
-            waiterId.value = payload.waiter_id || "";
-            orderNote.value = payload.note || "";
-
-            const selectedType =
-                (bootstrapData.value?.order_types || []).find(
-                    (type) => Number(type.id) === Number(payload.order_type_id)
-                ) || null;
-
-            if (selectedType) {
-                orderTypeId.value = selectedType.id;
-                orderType.value =
-                    selectedType.slug === "dine_in"
-                        ? "Dine In"
-                        : selectedType.slug === "pickup"
-                            ? "Pickup"
-                            : "Delivery";
-            }
-
-            const lines = Array.isArray(payload.lines) ? payload.lines : [];
-            const loadedItems = lines.map((line, index) => ({
-                id:
-                    line.order_item_id !== undefined &&
-                        line.order_item_id !== null
-                        ? `order_item_${line.order_item_id}`
-                        : `loaded_${line.menu_item_id}_${index}`,
-                menu_item_id: Number(line.menu_item_id),
-                name: line.item_name || "Unknown Item",
-                price: Number(line.unit_price || 0),
-                quantity: Number(line.qty || 1),
-                variant_id: line.menu_item_variation_id || 0,
-                modifier_id: 0,
-                note: line.note || "",
-                combo_pack_id: line.combo_pack_id || null,
-                combo_instance_key: line.combo_instance_key || null,
-                modifier_option_quantities:
-                    line.modifier_option_quantities || {},
-            }));
-
-            cartItems.value = loadedItems;
-            saveCartToStorage(cartItems.value);
-            calculateTaxes();
-
-            console.log("Order data loaded successfully:", payload);
+            applyOrderPayload(payload, activeOrderId);
         }
     } catch (error) {
         console.error("Error loading order data:", error);
     }
+};
+
+const applyOrderPayload = (payload, activeOrderId) => {
+    if (!payload) {
+        return;
+    }
+
+    order.value = payload.id;
+
+    // Load order details
+    waiterId.value = payload.waiter_id || "";
+    orderNote.value = payload.note || "";
+
+    const selectedType =
+        (bootstrapData.value?.order_types || []).find(
+            (type) => Number(type.id) === Number(payload.order_type_id)
+        ) || null;
+
+    if (selectedType) {
+        orderTypeId.value = selectedType.id;
+        orderType.value =
+            selectedType.slug === "dine_in"
+                ? "Dine In"
+                : selectedType.slug === "pickup"
+                    ? "Pickup"
+                    : "Delivery";
+    }
+
+    selectedDeliveryApp.value = payload.delivery_app_id
+        ? String(payload.delivery_app_id)
+        : "default";
+
+    const lines = Array.isArray(payload.lines) ? payload.lines : [];
+    const loadedItems = lines.map((line, index) => ({
+        id:
+            line.order_item_id !== undefined &&
+                line.order_item_id !== null
+                ? `order_item_${line.order_item_id}`
+                : `loaded_${line.menu_item_id}_${index}`,
+        menu_item_id: Number(line.menu_item_id),
+        name: line.item_name || "Unknown Item",
+        price: Number(line.unit_price || 0),
+        quantity: Number(line.qty || 1),
+        variant_id: line.menu_item_variation_id || 0,
+        modifier_id: 0,
+        note: line.note || "",
+        combo_pack_id: line.combo_pack_id || null,
+        combo_instance_key: line.combo_instance_key || null,
+        modifier_option_quantities:
+            line.modifier_option_quantities || {},
+    }));
+
+    cartItems.value = loadedItems;
+    saveCartToStorage(cartItems.value);
+    calculateTaxes();
+    orderId.value = String(activeOrderId);
+
+    console.log("Order data loaded successfully:", payload);
+};
+
+const applySelectedTable = async (tableCode, tableId, activeOrderId = null) => {
+    currentTable.value = tableCode;
+    currentTableId.value = tableId;
+
+    if (activeOrderId) {
+        await loadOrderData(activeOrderId);
+        return;
+    }
+
+    // No active order on this table: keep the current draft cart and just attach the table.
+    orderId.value = null;
+    order.value = null;
 };
 
 // Load initial data
@@ -1087,20 +1291,25 @@ onMounted(async () => {
                 : "Dine In";
     orderType.value = defaultOrderType;
 
-    // Load order data if orderId is present in URL
-    if (orderId.value) {
+    // Load order data if present in bootstrap or URL
+    if (initialOrderData.value) {
+        applyOrderPayload(initialOrderData.value, initialOrderData.value.id);
+    } else if (orderId.value) {
         await loadOrderData();
     }
 
-    // Load cart from localStorage (only if no orderId was loaded)
-    if (!orderId.value) {
-        const savedCart = loadCartFromStorage();
-        if (savedCart && savedCart.length > 0) {
-            cartItems.value = savedCart;
-            console.log("Loaded cart from localStorage:", savedCart);
-            // Calculate taxes after loading cart
-            calculateTaxes();
-        }
+    // FIX: Cart persistence (only restore if editing existing order)
+    // In Speeder, cart only loads if you're editing an order
+    // Fresh POS sessions start with empty cart (no localStorage restore)
+    // Cart is only saved to database after KOT/Bill button is clicked
+    if (orderId.value) {
+        // Editing existing order - cart data already loaded via loadOrderData() above
+        // which populates cartItems from the API response
+        console.log("Editing existing order - cart loaded from API");
+    } else {
+        // Fresh POS session - don't restore cart from localStorage
+        // This prevents stale items from previous sessions
+        console.log("Fresh POS session - cart starts empty");
     }
 
     // Load customer from localStorage
@@ -1137,6 +1346,8 @@ onMounted(async () => {
     }
 
     // Mark loading as complete
+    // FIX: If bootstrap was loaded inline, isLoading was set to false immediately
+    // This prevents blank page while loadMenuData processes
     isLoading.value = false;
     console.log("POS App loaded successfully");
 });

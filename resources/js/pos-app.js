@@ -10,4 +10,21 @@ if (csrf?.content) {
     axios.defaults.headers.common['X-CSRF-TOKEN'] = csrf.content;
 }
 
-createApp(PosApp).mount('#pos-app');
+const mountPosApp = () => {
+    const posAppElement = document.querySelector('#pos-app');
+
+    if (!posAppElement || posAppElement.dataset.posAppMounted === 'true') {
+        return;
+    }
+
+    posAppElement.dataset.posAppMounted = 'true';
+    createApp(PosApp).mount(posAppElement);
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountPosApp);
+} else {
+    mountPosApp();
+}
+
+document.addEventListener('livewire:navigated', mountPosApp);

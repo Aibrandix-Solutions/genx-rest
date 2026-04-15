@@ -2,18 +2,48 @@
     <div
         class="w-full min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto px-3 py-4 dark:bg-gray-800 overflow-x-hidden overflow-y-auto">
         <!-- Order Type -->
-        <div
-            class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <span class="text-xs text-gray-500 dark:text-gray-400">Order Type:</span>
-                <span class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ orderType }}
-                </span>
+        <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-gray-500 dark:text-gray-400">Order Type:</span>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white">
+                        {{ orderType }}
+                    </span>
+                </div>
+                <button type="button" @click="showOrderTypeDropdown = !showOrderTypeDropdown"
+                    class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
+                    {{ showOrderTypeDropdown ? "Close" : "Change" }}
+                </button>
             </div>
-            <button type="button" @click="showOrderTypeModal = true"
-                class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
-                Change
-            </button>
+
+            <div v-if="showOrderTypeDropdown" class="mt-3 grid grid-cols-1 gap-2">
+                <label class="text-xs text-gray-600 dark:text-gray-400">Select Order Type</label>
+                <select v-model="localOrderTypeId" @change="handleOrderTypeChange"
+                    class="text-sm w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-500">
+                    <option v-if="loadingOrderTypes" value="">Loading...</option>
+                    <option v-for="type in availableOrderTypes" :key="type.id" :value="type.id">
+                        {{ type.order_type_name }}
+                    </option>
+                </select>
+
+                <label class="flex items-center gap-2 cursor-pointer select-none w-full mt-1">
+                    <input type="checkbox" v-model="localSetAsDefaultOrderType" @change="handleSetDefaultOrderType"
+                        class="w-4 h-4 text-skin-base bg-gray-100 border-gray-300 rounded focus:ring-skin-base focus:ring-2 dark:bg-gray-700 dark:border-gray-600 dark:focus:ring-skin-base">
+                    <span class="text-xs text-gray-700 dark:text-gray-300">Set as default</span>
+                </label>
+
+                <template v-if="selectedOrderTypeSlug === 'delivery'">
+                    <label class="text-xs text-gray-600 dark:text-gray-400 mt-1">Platform</label>
+                    <select v-model="localSelectedDeliveryApp" @change="handleSelectDeliveryPlatform"
+                        class="text-sm w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-500">
+                        <option value="default">Default</option>
+                        <option v-for="platform in availableDeliveryPlatforms" :key="platform.id"
+                            :value="String(platform.id)">
+                            {{ platform.name }}
+                        </option>
+                    </select>
+                </template>
+            </div>
         </div>
 
         <!-- Order Header -->
@@ -128,24 +158,17 @@
                             </path>
                         </svg>
                         <span class="text-sm text-gray-600 dark:text-gray-300">Waiter:</span>
-                        <div class="relative">
-                            <select v-model="localWaiterId" @change="
-                                $emit('update:waiterId', localWaiterId)
-                                "
-                                class="w-36 pl-2 pr-6 py-1 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 text-sm focus:outline-none focus:ring-1 focus:ring-gray-500 dark:focus:ring-gray-400 focus:border-transparent appearance-none cursor-pointer">
-                                <option value="">Select Waiter</option>
-                                <option v-for="waiter in waiters" :key="waiter.id" :value="waiter.id">
-                                    {{ waiter.name }}
-                                </option>
-                            </select>
-                            <div class="absolute inset-y-0 right-0 flex items-center pr-1 pointer-events-none">
-                                <svg class="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor"
-                                    viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M19 9l-7 7-7-7" />
-                                </svg>
-                            </div>
-                        </div>
+                        <select v-if="showWaiterSelect" v-model="localWaiterId"
+                            @change="$emit('update:waiterId', localWaiterId)"
+                            class="w-36 px-2 py-1 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 text-sm focus:outline-none focus:ring-1 focus:ring-gray-500 dark:focus:ring-gray-400 focus:border-transparent cursor-pointer">
+                            <option value="">Select Waiter</option>
+                            <option v-for="waiter in availableWaiters" :key="waiter.id" :value="waiter.id">
+                                {{ waiter.name }}
+                            </option>
+                        </select>
+                        <span v-else class="text-sm font-medium text-gray-800 dark:text-gray-100">
+                            {{ selectedWaiterName || 'Select Waiter' }}
+                        </span>
                     </div>
                 </div>
             </div>
@@ -683,9 +706,6 @@
         <!-- Discount Modal -->
         <DiscountModal :show="showDiscountModal" @close="showDiscountModal = false" @save="handleApplyDiscount" />
 
-        <!-- Order Type Modal -->
-        <OrderTypeModal :show="showOrderTypeModal" @close="showOrderTypeModal = false" @select="handleSelectOrderType" />
-
         <!-- Table Assignment Modal -->
         <TableAssignmentModal :show="showTableAssignmentModal" @close="showTableAssignmentModal = false"
             @select="handleSelectTable" />
@@ -696,8 +716,8 @@
 import { ref, computed, watch, onMounted } from "vue";
 import axios from "axios";
 import DiscountModal from "./DiscountModal.vue";
-import OrderTypeModal from "./OrderTypeModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
+import { showPosAlert } from "../../utils/posAlerts.js";
 
 const props = defineProps({
     orderType: {
@@ -719,6 +739,14 @@ const props = defineProps({
     waiterId: {
         type: [String, Number],
         default: "",
+    },
+    currentUser: {
+        type: Object,
+        default: () => null,
+    },
+    canEditWaiter: {
+        type: Boolean,
+        default: true,
     },
     waiters: {
         type: Array,
@@ -776,6 +804,22 @@ const props = defineProps({
         type: Object,
         default: () => null,
     },
+    orderTypes: {
+        type: Array,
+        default: () => [],
+    },
+    deliveryPlatforms: {
+        type: Array,
+        default: () => [],
+    },
+    selectedDeliveryApp: {
+        type: [String, Number],
+        default: "default",
+    },
+    setAsDefaultOrderType: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits([
@@ -797,14 +841,24 @@ const emit = defineEmits([
     "update:deliveryFee",
     "update:extraCharges",
     "apply-discount",
+    "update:selectedDeliveryApp",
+    "update:setAsDefaultOrderType",
 ]);
 
 const localPax = ref(props.pax);
 const localWaiterId = ref(props.waiterId);
 const showDiscountModal = ref(false);
-const showOrderTypeModal = ref(false);
+const showOrderTypeDropdown = ref(false);
 const showTableAssignmentModal = ref(false);
 const formattedOrderNumber = ref(props.orderNumber || "");
+const availableOrderTypes = ref([]);
+const availableDeliveryPlatforms = ref([]);
+const localOrderTypeId = ref("");
+const localSelectedDeliveryApp = ref("default");
+const localSetAsDefaultOrderType = ref(false);
+const loadingOrderTypes = ref(false);
+const savingOrderPreferences = ref(false);
+const fallbackWaiters = ref([]);
 
 watch(
     () => props.pax,
@@ -817,6 +871,226 @@ watch(
     () => props.waiterId,
     (newVal) => {
         localWaiterId.value = newVal;
+    }
+);
+
+watch(
+    () => props.currentUser,
+    (newUser) => {
+        if (newUser?.is_waiter && newUser?.id) {
+            localWaiterId.value = Number(newUser.id);
+            emit("update:waiterId", localWaiterId.value);
+        }
+    },
+    { immediate: true, deep: true }
+);
+
+const normalizeOrderTypeSlug = (value) => {
+    const normalized = String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "_");
+
+    if (normalized === "dine_in" || normalized === "dine in") {
+        return "dine_in";
+    }
+
+    if (normalized === "pickup") {
+        return "pickup";
+    }
+
+    if (normalized === "delivery") {
+        return "delivery";
+    }
+
+    return "dine_in";
+};
+
+const slugToDisplayType = (slug) => {
+    if (slug === "dine_in") return "Dine In";
+    if (slug === "pickup") return "Pickup";
+    if (slug === "delivery") return "Delivery";
+    return slug;
+};
+
+const selectedOrderTypeSlug = computed(() => {
+    const selectedId = Number(localOrderTypeId.value);
+    const selectedType = availableOrderTypes.value.find(
+        (type) => Number(type.id) === selectedId
+    );
+
+    return selectedType
+        ? normalizeOrderTypeSlug(selectedType.slug)
+        : normalizeOrderTypeSlug(props.orderType);
+});
+
+const isCurrentUserWaiter = computed(() => {
+    return !!props.currentUser?.is_waiter;
+});
+
+const showWaiterSelect = computed(() => {
+    return !!props.canEditWaiter && !isCurrentUserWaiter.value;
+});
+
+const availableWaiters = computed(() => {
+    const source = Array.isArray(props.waiters) && props.waiters.length > 0
+        ? props.waiters
+        : fallbackWaiters.value;
+
+    if (!Array.isArray(source)) {
+        return [];
+    }
+
+    return source
+        .map((waiter) => ({
+            id: waiter?.id ?? waiter?.value ?? waiter?.user_id ?? waiter?.waiter_id ?? "",
+            name: String(
+                waiter?.name ?? waiter?.full_name ?? waiter?.display_name ?? waiter?.label ?? ""
+            ).trim(),
+        }))
+        .filter((waiter) => waiter.id !== "" && waiter.name !== "");
+});
+
+const selectedWaiterName = computed(() => {
+    const selectedId = Number(localWaiterId.value || 0);
+    if (!selectedId) {
+        return "";
+    }
+
+    const selected = availableWaiters.value.find(
+        (waiter) => Number(waiter.id) === selectedId
+    );
+
+    if (selected?.name) {
+        return selected.name;
+    }
+
+    if (props.currentUser?.id && Number(props.currentUser.id) === selectedId) {
+        return String(props.currentUser.name || "");
+    }
+
+    return "";
+});
+
+const syncLocalOrderTypeId = () => {
+    const currentSlug = normalizeOrderTypeSlug(props.orderType);
+    const matchedType = availableOrderTypes.value.find(
+        (type) => normalizeOrderTypeSlug(type.slug) === currentSlug
+    );
+
+    localOrderTypeId.value = matchedType ? String(matchedType.id) : "";
+};
+
+const fetchOrderTypes = async () => {
+    if (loadingOrderTypes.value || availableOrderTypes.value.length > 0) return;
+
+    loadingOrderTypes.value = true;
+    try {
+        const response = await axios.get("/api/pos/order-types");
+        if (Array.isArray(response.data)) {
+            availableOrderTypes.value = response.data;
+            syncLocalOrderTypeId();
+        }
+    } catch (error) {
+        console.error("Error fetching order types:", error);
+    } finally {
+        loadingOrderTypes.value = false;
+    }
+};
+
+const fetchWaiters = async () => {
+    if (availableWaiters.value.length > 0) {
+        return;
+    }
+
+    try {
+        const response = await axios.get("/api/pos/waiters");
+        if (Array.isArray(response.data)) {
+            fallbackWaiters.value = response.data;
+        }
+    } catch (error) {
+        console.error("Error fetching waiters:", error);
+    }
+};
+
+const persistOrderPreferences = async () => {
+    if (savingOrderPreferences.value) {
+        return;
+    }
+
+    const selectedId = Number(localOrderTypeId.value);
+    if (!selectedId) {
+        return;
+    }
+
+    savingOrderPreferences.value = true;
+    try {
+        await axios.post("/api/pos/order-preferences", {
+            order_type_id: selectedId,
+            set_as_default_order_type: !!localSetAsDefaultOrderType.value,
+            selected_delivery_app:
+                selectedOrderTypeSlug.value === "delivery"
+                    ? localSelectedDeliveryApp.value || "default"
+                    : null,
+        });
+    } catch (error) {
+        console.error("Error saving POS order preferences:", error);
+    } finally {
+        savingOrderPreferences.value = false;
+    }
+};
+
+watch(
+    () => props.orderTypes,
+    (newVal) => {
+        if (Array.isArray(newVal) && newVal.length > 0) {
+            availableOrderTypes.value = newVal;
+            syncLocalOrderTypeId();
+        }
+    },
+    { immediate: true }
+);
+
+watch(
+    () => props.deliveryPlatforms,
+    (newVal) => {
+        if (Array.isArray(newVal) && newVal.length > 0) {
+            availableDeliveryPlatforms.value = newVal;
+        }
+    },
+    { immediate: true }
+);
+
+watch(
+    () => props.selectedDeliveryApp,
+    (newVal) => {
+        localSelectedDeliveryApp.value = newVal ? String(newVal) : "default";
+    },
+    { immediate: true }
+);
+
+watch(
+    () => props.setAsDefaultOrderType,
+    (newVal) => {
+        localSetAsDefaultOrderType.value = !!newVal;
+    },
+    { immediate: true }
+);
+
+watch(
+    () => props.orderType,
+    () => {
+        syncLocalOrderTypeId();
+    },
+    { immediate: true }
+);
+
+watch(
+    () => showOrderTypeDropdown.value,
+    (isOpen) => {
+        if (isOpen && availableOrderTypes.value.length === 0) {
+            fetchOrderTypes();
+        }
     }
 );
 
@@ -964,6 +1238,7 @@ onMounted(() => {
     if (props.orderType) {
         fetchExtraCharges(props.orderType);
     }
+    fetchWaiters();
     // Fetch order number if not provided
     if (!props.orderNumber) {
         fetchOrderNumber();
@@ -985,10 +1260,36 @@ const handleApplyDiscount = (discountData, done) => {
     }
 };
 
-// Handle order type selection
-const handleSelectOrderType = (orderTypeData) => {
-    emit("update:orderType", orderTypeData.displayType);
-    showOrderTypeModal.value = false;
+// Handle order type selection from dropdown
+const handleOrderTypeChange = () => {
+    const selectedId = Number(localOrderTypeId.value);
+    const selectedType = availableOrderTypes.value.find(
+        (type) => Number(type.id) === selectedId
+    );
+
+    if (!selectedType) {
+        return;
+    }
+
+    if (normalizeOrderTypeSlug(selectedType.slug) !== "delivery") {
+        localSelectedDeliveryApp.value = "default";
+    }
+
+    emit("update:orderType", slugToDisplayType(selectedType.slug));
+    emit("update:selectedDeliveryApp", localSelectedDeliveryApp.value);
+    emit("update:setAsDefaultOrderType", !!localSetAsDefaultOrderType.value);
+    persistOrderPreferences();
+    showOrderTypeDropdown.value = false;
+};
+
+const handleSetDefaultOrderType = () => {
+    emit("update:setAsDefaultOrderType", !!localSetAsDefaultOrderType.value);
+    persistOrderPreferences();
+};
+
+const handleSelectDeliveryPlatform = () => {
+    emit("update:selectedDeliveryApp", localSelectedDeliveryApp.value || "default");
+    persistOrderPreferences();
 };
 
 // Handle table selection
@@ -1001,7 +1302,7 @@ const handleSelectTable = (table) => {
 const handleSaveOrder = (...actions) => {
     // Validate that there are items in the cart
     if (!props.cartItems || props.cartItems.length === 0) {
-        alert("You need to add items to the order.");
+        showPosAlert("error", "You need to add items to the order.");
         return;
     }
 

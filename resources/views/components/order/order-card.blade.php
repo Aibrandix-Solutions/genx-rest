@@ -96,9 +96,13 @@
     @endif
 
     <a @class(['group flex flex-col gap-3 items-center '])
-        @if ($order->status == 'kot') href="{{ route('pos.kot', $order->id).'?show-order-detail=true' }}" wire:navigate
-        @else wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })" @endif
-        wire:key='order-item-{{ $order->id . microtime() }}' href="javascript:;">
+        @if ($order->status == 'kot') 
+            href="{{ route('pos.kot', $order->id).'?show-order-detail=true' }}"
+        @else 
+            wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })"
+            href="javascript:;"
+        @endif
+        wire:key='order-item-{{ $order->id . microtime() }}'>
         <div class="flex gap-4 justify-between  w-full">
             <div class="flex gap-3 space-y-1">
 

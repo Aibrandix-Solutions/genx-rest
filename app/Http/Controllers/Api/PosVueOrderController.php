@@ -7,6 +7,7 @@ use App\Models\Kot;
 use App\Models\KotItem;
 use App\Models\KotPlace;
 use App\Models\ComboPack;
+use App\Models\DeliveryPlatform;
 use App\Models\MenuItem;
 use App\Models\MenuItemVariation;
 use App\Models\ModifierOption;
@@ -94,7 +95,9 @@ class PosVueOrderController extends Controller
                     'id' => (int) $order->id,
                     'status' => (string) $order->status,
                     'order_type_id' => $order->order_type_id ? (int) $order->order_type_id : null,
+                    'delivery_app_id' => $order->delivery_app_id ? (int) $order->delivery_app_id : null,
                     'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+                    'note' => (string) ($order->note ?? ''),
                     'sub_total' => (float) ($order->sub_total ?? 0),
                     'total' => (float) ($order->total ?? 0),
                     'lines' => $lines,
@@ -112,6 +115,7 @@ class PosVueOrderController extends Controller
             'action' => ['nullable', 'string', Rule::in(['kot', 'bill'])],
             'open_payment' => ['nullable', 'boolean'],
             'order_type_id' => ['nullable', 'integer', 'exists:order_types,id'],
+            'delivery_app_id' => ['nullable'],
             'waiter_id' => ['nullable', 'integer', 'exists:users,id'],
             'note' => ['nullable', 'string'],
             'lines' => ['required', 'array', 'min:1'],
@@ -146,7 +150,33 @@ class PosVueOrderController extends Controller
             $orderTypeValue = 'dine_in';
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant) {
+        $deliveryAppId = null;
+        $sessionDeliveryAppId = null;
+        if ($orderTypeValue === 'delivery') {
+            $deliveryAppRaw = $validated['delivery_app_id'] ?? null;
+            if ($deliveryAppRaw === 'default' || $deliveryAppRaw === null || $deliveryAppRaw === '') {
+                $deliveryAppId = null;
+                $sessionDeliveryAppId = 'default';
+            } else {
+                $candidateId = (int) $deliveryAppRaw;
+                $deliveryApp = DeliveryPlatform::query()
+                    ->where('id', $candidateId)
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($deliveryApp) {
+                    $deliveryAppId = (int) $deliveryApp->id;
+                    $sessionDeliveryAppId = $deliveryAppId;
+                } else {
+                    $sessionDeliveryAppId = 'default';
+                }
+            }
+        } else {
+            $sessionDeliveryAppId = false;
+        }
+
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId) {
+            // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
             if ($editingOrderId) {
@@ -175,6 +205,7 @@ class PosVueOrderController extends Controller
                 $order->update([
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
+                    'delivery_app_id' => $deliveryAppId,
                     'sub_total' => 0,
                     'total' => 0,
                     'order_type' => $orderTypeValue,
@@ -193,6 +224,7 @@ class PosVueOrderController extends Controller
                     'formatted_order_number' => $numberData['formatted_order_number'],
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
+                    'delivery_app_id' => $deliveryAppId,
                     'sub_total' => 0,
                     'total' => 0,
                     'order_type' => $orderTypeValue,
@@ -409,6 +441,15 @@ class PosVueOrderController extends Controller
                 'is_update' => $isUpdate,
             ];
         });
+
+        // Update session only after transaction succeeds
+        if ($sessionDeliveryAppId !== null) {
+            if ($sessionDeliveryAppId === false) {
+                session()->forget('pos.delivery_app_id');
+            } else {
+                session()->put('pos.delivery_app_id', $sessionDeliveryAppId);
+            }
+        }
 
         return response()->json([
             'success' => true,

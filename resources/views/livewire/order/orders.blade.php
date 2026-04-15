@@ -110,7 +110,7 @@
             </div>
 
             @if(user_can('Create Order'))
-                <x-primary-link wire:navigate href="{{ route('pos.index') }}">@lang('modules.order.newOrder')</x-primary-link>
+                <x-primary-link href="{{ route('pos.index') }}">@lang('modules.order.newOrder')</x-primary-link>
             @endif
 
         </div>

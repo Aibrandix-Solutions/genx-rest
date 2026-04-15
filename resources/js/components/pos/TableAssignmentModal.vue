@@ -188,6 +188,7 @@
 <script setup>
 import { ref, computed, watch, onMounted } from "vue";
 import axios from "axios";
+import { showPosAlert, showPosConfirm } from "../../utils/posAlerts.js";
 
 const props = defineProps({
     show: {
@@ -294,13 +295,18 @@ const handleUnlockTable = async (tableId, isLockedByCurrentUser) => {
         return;
     }
 
-    if (
-        !confirm(
-            isLockedByCurrentUser
-                ? "Do you want to unlock this table?"
-                : `This table is locked by ${table.locked_by_user_name || "another user"}. Do you want to force unlock it?`
-        )
-    ) {
+    const confirmed = await showPosConfirm(
+        isLockedByCurrentUser
+            ? "Do you want to unlock this table?"
+            : `This table is locked by ${table.locked_by_user_name || "another user"}. Do you want to force unlock it?`,
+        {
+            icon: "warning",
+            confirmButtonText: isLockedByCurrentUser ? "Unlock" : "Force Unlock",
+            cancelButtonText: "Cancel",
+        }
+    );
+
+    if (!confirmed) {
         return;
     }
 
@@ -311,11 +317,12 @@ const handleUnlockTable = async (tableId, isLockedByCurrentUser) => {
             // Refresh tables after unlock
             await fetchTables();
         } else {
-            alert(response.data.message || "Failed to unlock table");
+            showPosAlert("error", response.data.message || "Failed to unlock table");
         }
     } catch (error) {
         console.error("Error unlocking table:", error);
-        alert(
+        showPosAlert(
+            "error",
             error.response?.data?.message ||
             "Failed to unlock table. Please try again."
         );
@@ -328,7 +335,8 @@ const handleUnlockTable = async (tableId, isLockedByCurrentUser) => {
 const handleSelectTable = async (table) => {
     // Check if table is locked by another user
     if (table.is_locked_by_other_user) {
-        alert(
+        showPosAlert(
+            "warning",
             `This table is locked by ${table.locked_by_user_name || "another user"}. Please unlock it first or choose another table.`
         );
         return;

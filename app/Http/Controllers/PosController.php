@@ -75,7 +75,13 @@ class PosController extends Controller
 
         $menuItems = MenuItem::query()
             ->with([
-                'variations:id,menu_item_id,variation,price',
+                'prices:id,menu_item_id,order_type_id,delivery_app_id,menu_item_variation_id,final_price,status',
+                'variations' => function ($query) {
+                    $query->select('id', 'menu_item_id', 'variation', 'price')
+                        ->with([
+                            'prices:id,menu_item_id,menu_item_variation_id,order_type_id,delivery_app_id,final_price,status',
+                        ]);
+                },
             ])
             ->withCount(['variations', 'modifierGroups'])
             ->orderBy('id')
@@ -150,8 +156,30 @@ class PosController extends Controller
                             'id' => (int) $variation->id,
                             'variation' => (string) ($variation->variation ?? ''),
                             'price' => (float) ($variation->price ?? 0),
+                            'pricing_rows' => $variation->prices
+                                ->map(function ($priceRow) {
+                                    return [
+                                        'order_type_id' => $priceRow->order_type_id ? (int) $priceRow->order_type_id : null,
+                                        'delivery_app_id' => $priceRow->delivery_app_id ? (int) $priceRow->delivery_app_id : null,
+                                        'menu_item_variation_id' => $priceRow->menu_item_variation_id ? (int) $priceRow->menu_item_variation_id : null,
+                                        'final_price' => (float) ($priceRow->final_price ?? 0),
+                                    ];
+                                })
+                                ->values()
+                                ->all(),
                         ];
                     })->values()->all(),
+                    'pricing_rows' => $item->prices
+                        ->map(function ($priceRow) {
+                            return [
+                                'order_type_id' => $priceRow->order_type_id ? (int) $priceRow->order_type_id : null,
+                                'delivery_app_id' => $priceRow->delivery_app_id ? (int) $priceRow->delivery_app_id : null,
+                                'menu_item_variation_id' => $priceRow->menu_item_variation_id ? (int) $priceRow->menu_item_variation_id : null,
+                                'final_price' => (float) ($priceRow->final_price ?? 0),
+                            ];
+                        })
+                        ->values()
+                        ->all(),
                     'modifier_groups' => array_values($baseGroupsByItem[$itemId] ?? []),
                     'variation_modifier_groups' => collect($variationGroupsByItem[$itemId] ?? [])
                         ->mapWithKeys(function ($groups, $variationId) {
@@ -178,6 +206,12 @@ class PosController extends Controller
                     'slug' => (string) ($orderType->slug ?? ''),
                 ];
             })->values(),
+            'current_user' => [
+                'id' => (int) (auth()->id() ?? 0),
+                'name' => (string) (auth()->user()?->name ?? ''),
+                'is_waiter' => (bool) auth()->user()?->hasRole('waiter_' . (restaurant()?->id ?? 0)),
+                'can_update_order' => (bool) user_can('Update Order'),
+            ],
             'waiters' => collect($data['waiters'] ?? [])->map(function ($waiter) {
                 return [
                     'id' => (int) ($waiter->id ?? 0),
@@ -193,6 +227,14 @@ class PosController extends Controller
             })->values(),
             'tax_mode' => (string) ($data['tax_mode'] ?? 'item'),
             'currency_symbol' => (string) (restaurant()->currency?->currency_symbol ?? '$'),
+            'delivery_platforms' => collect($data['delivery_platforms'] ?? [])->map(function ($platform) {
+                return [
+                    'id' => (int) ($platform->id ?? 0),
+                    'name' => (string) ($platform->name ?? ''),
+                    'commission_type' => (string) ($platform->commission_type ?? 'fixed'),
+                    'commission_value' => (float) ($platform->commission_value ?? 0),
+                ];
+            })->values(),
         ];
 
         $branch = branch();
@@ -252,18 +294,105 @@ class PosController extends Controller
         return $this->renderVuePos($bootstrapService);
     }
 
-    public function kot($id, PosBootstrapService $bootstrapService)
+    public function kot($id, PosBootstrapService $bootstrapService, Request $request)
     {
         abort_if((!in_array('Order', restaurant_modules())), 403);
 
-        return $this->renderVuePos($bootstrapService);
+        return $this->renderVuePos($bootstrapService, $this->buildInitialOrderBootstrapPayload((int) $id, $request->boolean('show-order-detail')));
     }
 
-    private function renderVuePos(PosBootstrapService $bootstrapService)
+    private function renderVuePos(PosBootstrapService $bootstrapService, array $extraBootstrapData = [])
     {
         return view('pos.posvue', [
-            'posVueBootstrap' => $this->buildPosVueBootstrapPayload($bootstrapService),
+            'posVueBootstrap' => array_merge(
+                $this->buildPosVueBootstrapPayload($bootstrapService),
+                $extraBootstrapData,
+            ),
         ]);
+    }
+
+    private function buildInitialOrderBootstrapPayload(int $orderId, bool $showOrderDetail): array
+    {
+        if (!$showOrderDetail || $orderId <= 0) {
+            return [];
+        }
+
+        $branch = branch();
+        if (!$branch) {
+            return [];
+        }
+
+        $order = Order::query()
+            ->with([
+                'items.modifierOptions',
+                'items.menuItem',
+                'items.menuItemVariation',
+            ])
+            ->where('id', $orderId)
+            ->where('branch_id', $branch->id)
+            ->first();
+
+        if (!$order) {
+            return [];
+        }
+
+        $comboInstancesByPack = [];
+        $currentComboPackId = null;
+        $currentComboInstanceKey = null;
+
+        $lines = $order->items->map(function ($item) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey) {
+            $comboInstanceKey = null;
+
+            if (!empty($item->combo_pack_id)) {
+                $packId = (int) $item->combo_pack_id;
+
+                if ($packId !== $currentComboPackId) {
+                    $currentComboPackId = $packId;
+                    $comboInstancesByPack[$packId] = ($comboInstancesByPack[$packId] ?? 0) + 1;
+                    $currentComboInstanceKey = 'combo_' . $packId . '_' . $comboInstancesByPack[$packId];
+                }
+
+                $comboInstanceKey = $currentComboInstanceKey;
+            } else {
+                $currentComboPackId = null;
+                $currentComboInstanceKey = null;
+            }
+
+            $modifierQtyMap = $item->modifierOptions
+                ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                ->all();
+
+            return [
+                'order_item_id' => (int) $item->id,
+                'menu_item_id' => (int) $item->menu_item_id,
+                'item_name' => (string) ($item->menuItem?->item_name ?? ''),
+                'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
+                'variation_name' => (string) ($item->menuItemVariation?->variation ?? ''),
+                'qty' => (int) ($item->quantity ?? 1),
+                'unit_price' => (float) ($item->price ?? 0),
+                'amount' => (float) ($item->amount ?? 0),
+                'note' => (string) ($item->note ?? ''),
+                'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
+                'combo_instance_key' => $comboInstanceKey,
+                'modifier_option_quantities' => $modifierQtyMap,
+            ];
+        })->values();
+
+        return [
+            'initial_order' => [
+                'id' => (int) $order->id,
+                'status' => (string) $order->status,
+                'order_type_id' => $order->order_type_id ? (int) $order->order_type_id : null,
+                'delivery_app_id' => $order->delivery_app_id ? (int) $order->delivery_app_id : null,
+                'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+                'note' => (string) ($order->note ?? ''),
+                'sub_total' => (float) ($order->sub_total ?? 0),
+                'total' => (float) ($order->total ?? 0),
+                'lines' => $lines,
+            ],
+            'initial_order_id' => (int) $order->id,
+            'initial_show_order_detail' => true,
+        ];
     }
 
     public function customerDisplay()

@@ -11,6 +11,8 @@ use App\Models\OrderType;
 use App\Models\Reservation;
 use App\Models\RestaurantCharge;
 use App\Models\Table;
+use App\Models\User;
+use App\Scopes\BranchScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 
@@ -55,6 +57,82 @@ class PosSupportController extends Controller
                     'logo_url' => $platform->logo_url,
                 ])->values()
         );
+    }
+
+    public function waiters()
+    {
+        $restaurant = restaurant();
+        $branch = branch();
+
+        if (!$restaurant || !$branch) {
+            return response()->json([]);
+        }
+
+        return response()->json(
+            User::withoutGlobalScope(BranchScope::class)
+                ->where(function ($query) use ($branch) {
+                    $query->where('branch_id', $branch->id)
+                        ->orWhereNull('branch_id');
+                })
+                ->role('waiter_' . $restaurant->id)
+                ->where('restaurant_id', $restaurant->id)
+                ->select('id', 'name')
+                ->orderBy('name')
+                ->get()
+                ->map(fn($waiter) => [
+                    'id' => (int) $waiter->id,
+                    'name' => (string) $waiter->name,
+                ])->values()
+        );
+    }
+
+    public function saveOrderPreferences(Request $request)
+    {
+        $validated = $request->validate([
+            'order_type_id' => ['required', 'integer', 'exists:order_types,id'],
+            'set_as_default_order_type' => ['nullable', 'boolean'],
+            'selected_delivery_app' => ['nullable', 'string'],
+        ]);
+
+        $user = auth()->user();
+        $orderType = OrderType::query()->findOrFail((int) $validated['order_type_id']);
+        $setAsDefault = (bool) ($validated['set_as_default_order_type'] ?? false);
+
+        if ($user) {
+            if ($setAsDefault) {
+                $user->update(['default_order_type_id' => (int) $orderType->id]);
+            } elseif ((int) ($user->default_order_type_id ?? 0) === (int) $orderType->id) {
+                $user->update(['default_order_type_id' => null]);
+            }
+        }
+
+        $selectedDeliveryApp = $validated['selected_delivery_app'] ?? null;
+        if ($orderType->slug !== 'delivery') {
+            session()->forget('pos.delivery_app_id');
+        } elseif ($selectedDeliveryApp === 'default' || $selectedDeliveryApp === null || $selectedDeliveryApp === '') {
+            session()->put('pos.delivery_app_id', 'default');
+        } else {
+            $platformId = (int) $selectedDeliveryApp;
+            $platformExists = DeliveryPlatform::query()
+                ->where('id', $platformId)
+                ->where('is_active', true)
+                ->exists();
+
+            if ($platformExists) {
+                session()->put('pos.delivery_app_id', $platformId);
+            } else {
+                session()->put('pos.delivery_app_id', 'default');
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_type_id' => (int) $orderType->id,
+                'set_as_default_order_type' => $setAsDefault,
+                'selected_delivery_app' => session()->get('pos.delivery_app_id'),
+            ],
+        ]);
     }
 
     public function phoneCodes()
@@ -180,6 +258,7 @@ class PosSupportController extends Controller
                     'id' => (int) $table->id,
                     'table_code' => (string) $table->table_code,
                     'status' => (string) ($table->status ?? 'active'),
+                    'active_order_id' => $table->activeOrder ? (int) $table->activeOrder->id : null,
                     'available_status' => $isRunning ? 'running' : (string) ($table->available_status ?? 'available'),
                     'area_id' => (int) ($table->area_id ?? 0),
                     'area_name' => (string) ($table->area?->area_name ?? 'Unknown Area'),

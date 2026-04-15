@@ -35,7 +35,7 @@
                     </form>
                 </div>
 
-                <x-primary-link href="{{ route('pos.index') }}" wire:navigate
+                <x-primary-link href="{{ route('pos.index') }}"
                     class="inline-flex items-center px-3 py-2 gap-1 text-sm">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
                         class="bi bi-arrow-clockwise" viewBox="0 0 16 16">

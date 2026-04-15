@@ -396,6 +396,7 @@
 <script setup>
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import axios from "axios";
+import { showPosAlert } from "../../utils/posAlerts.js";
 
 const props = defineProps({
     show: {
@@ -626,7 +627,7 @@ const handleSave = async () => {
         if (!name) missingFields.push("Name");
         if (!phone) missingFields.push("Phone");
         if (!phone_code) missingFields.push("Phone Code");
-        alert(`Please fill in all required fields: ${missingFields.join(", ")}`);
+        showPosAlert("error", `Please fill in all required fields: ${missingFields.join(", ")}`);
         return;
     }
 
@@ -659,7 +660,7 @@ const handleSave = async () => {
             (error.response?.data?.errors ? JSON.stringify(error.response.data.errors) : null) ||
             error.message ||
             "Failed to save customer";
-        alert(errorMessage);
+        showPosAlert("error", errorMessage);
     } finally {
         saving.value = false;
     }

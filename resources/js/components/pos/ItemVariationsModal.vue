@@ -55,7 +55,7 @@
 
                         <!-- Price -->
                         <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
-                            {{ currencySymbol }} {{ formatPrice(variation.price) }}
+                            {{ currencySymbol }} {{ formatPrice(variation.contextual_price ?? variation.price) }}
                         </div>
 
                         <!-- Select Button -->

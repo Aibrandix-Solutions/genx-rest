@@ -145,7 +145,7 @@ const handleClick = async () => {
             "add-to-cart",
             props.item.id,
             props.item.variant_id || 0,
-            props.item.modifier_id || 0,
+            {}, // Empty options payload for items without configurable options
             () => {
                 loading.value = false;
             }
