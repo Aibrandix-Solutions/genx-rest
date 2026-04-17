@@ -38,15 +38,20 @@
 
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
-                :waiters="waiters" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
+                :waiters="waiters" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
                 :saving-action="savingAction" :extra-charges="extraCharges" :discount-amount="discountAmount"
                 :discount-type="discountType" :discount-value="discountValue" :is-online="isOnline"
                 :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
-                :delivery-platforms="deliveryPlatforms" :selected-delivery-app="selectedDeliveryApp"
-                :current-user="currentUser" :can-edit-waiter="canEditWaiter"
-                :set-as-default-order-type="setAsDefaultOrderType" @update:orderType="orderType = $event"
-                @show-add-customer="showAddCustomerModal = true" @select-table="handleSelectTable"
-                @update:pax="pax = $event" @update:waiterId="waiterId = $event" @add-note="handleAddNote"
+                :order-status="orderStatus" :delivery-platforms="deliveryPlatforms"
+                :selected-delivery-app="selectedDeliveryApp" :current-user="currentUser" :can-edit-waiter="canEditWaiter"
+                :set-as-default-order-type="setAsDefaultOrderType" :delivery-executives="deliveryExecutives"
+                :selected-delivery-executive="selectedDeliveryExecutive" :delivery-fee="deliveryFee"
+                @update:orderType="orderType = $event"
+                @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
+                @select-table="handleSelectTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
+                @update:orderStatus="handleOrderStatusUpdate" @add-note="handleAddNote"
+                @update:selectedDeliveryExecutive="handleDeliveryExecutiveUpdate"
+                @update:deliveryFee="handleDeliveryFeeUpdate"
                 @update-quantity="handleUpdateQuantity" @update:selectedDeliveryApp="selectedDeliveryApp = $event"
                 @update:setAsDefaultOrderType="setAsDefaultOrderType = $event" @increase-quantity="handleIncreaseQuantity"
                 @decrease-quantity="handleDecreaseQuantity" @remove-item="handleRemoveItem" @save-order="handleSaveOrder"
@@ -78,7 +83,7 @@ import TableChangeModal from "./components/pos/TableChangeModal.vue";
 import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
-import { showPosAlert } from "./utils/posAlerts.js";
+import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 
 // Generate unique tab ID to avoid concurrent increment collisions
 const tabId = ref('tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
@@ -92,6 +97,7 @@ const {
     loadCart: loadCartFromStorage,
     saveCustomer: saveCustomerToStorage,
     loadCustomer: loadCustomerFromStorage,
+    clearCustomer: clearCustomerFromStorage,
     syncPendingOperations,
     offlineApiCall,
 } = useOfflineMode();
@@ -202,6 +208,11 @@ const order = ref(null);
 const orderTypeId = ref(null);
 const selectedDeliveryApp = ref("default");
 const setAsDefaultOrderType = ref(false);
+const customerId = ref(null);
+const orderStatus = ref("");
+const deliveryExecutives = ref([]);
+const selectedDeliveryExecutive = ref("");
+const deliveryFee = ref(0);
 // Modal state
 const showReservationModal = ref(false);
 const showTableChangeConfirmationModal = ref(false);
@@ -217,6 +228,30 @@ const customer = ref({
     phone_code: "",
     address: "",
 });
+
+const getEmptyCustomer = () => ({
+    name: "",
+    email: "",
+    phone: "",
+    phone_code: "",
+    address: "",
+});
+
+const normalizeCustomerPayload = (payloadCustomer) => {
+    if (!payloadCustomer?.id) {
+        return getEmptyCustomer();
+    }
+
+    return {
+        id: Number(payloadCustomer.id),
+        name: payloadCustomer.name || "",
+        email: payloadCustomer.email || "",
+        phone: payloadCustomer.phone || "",
+        phone_code: payloadCustomer.phone_code || "",
+        address: payloadCustomer.address || payloadCustomer.delivery_address || "",
+        delivery_address: payloadCustomer.delivery_address || payloadCustomer.address || "",
+    };
+};
 const currentTable = ref("");
 const currentTableId = ref(null);
 const newTable = ref("");
@@ -241,17 +276,25 @@ const playBeepSound = () => {
 // Methods
 const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
     console.log("addCartItems:", itemId, variantId, modifierId);
+    const normalizedItemId = Number(itemId);
+    const normalizedVariantId = Number(variantId || 0);
+    const normalizedModifierId = Number(modifierId || 0);
+    const lineKey = createCartLineKey(
+        normalizedItemId,
+        normalizedVariantId,
+        normalizedModifierId
+    );
 
     // Find item and determine the correct price
-    const item = menuItems.value.find((i) => i.id === itemId);
+    const item = menuItems.value.find((i) => Number(i.id) === normalizedItemId);
     console.log("Found item:", item);
 
     if (item) {
         // Resolve the correct price based on variation
         let price = resolveContextualPrice(item);
 
-        if (variantId && item.variations && item.variations.length > 0) {
-            const variation = item.variations.find((v) => v.id === variantId);
+        if (normalizedVariantId && item.variations && item.variations.length > 0) {
+            const variation = item.variations.find((v) => Number(v.id) === normalizedVariantId);
             if (variation) {
                 price = resolveContextualPrice(item, variation.id);
                 console.log("Using variation price:", price);
@@ -259,23 +302,21 @@ const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
         }
 
         const existingItem = cartItems.value.find(
-            (ci) =>
-                ci.id === itemId &&
-                ci.variant_id === variantId &&
-                ci.modifier_id === modifierId
+            (ci) => getCartLineKey(ci) === lineKey
         );
         if (existingItem) {
             existingItem.quantity++;
             console.log("Updated existing item:", existingItem);
         } else {
             const newCartItem = {
-                id: itemId,
-                menu_item_id: Number(itemId),
+                id: normalizedItemId,
+                menu_item_id: normalizedItemId,
                 name: item.item_name || item.name || "Unknown Item",
                 price: price,
                 quantity: 1,
-                variant_id: variantId,
-                modifier_id: modifierId,
+                variant_id: normalizedVariantId,
+                modifier_id: normalizedModifierId,
+                line_key: lineKey,
             };
             cartItems.value.push(newCartItem);
             console.log("Added new cart item:", newCartItem);
@@ -290,6 +331,31 @@ const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
         console.error("Item not found with id:", itemId);
         console.log("Available menu items:", menuItems.value);
     }
+};
+
+const createCartLineKey = (itemId, variantId = 0, modifierId = 0) => {
+    return `${itemId}:${Number(variantId || 0)}:${Number(modifierId || 0)}`;
+};
+
+const getCartLineKey = (item) => {
+    if (!item) {
+        return null;
+    }
+
+    return (
+        item.line_key ||
+        createCartLineKey(item.id, item.variant_id || 0, item.modifier_id || 0)
+    );
+};
+
+const findCartLine = (itemId, variantId = 0, modifierId = 0) => {
+    return cartItems.value.find(
+        (ci) =>
+            getCartLineKey(ci) === itemId ||
+            (ci.id === itemId &&
+                Number(ci.variant_id || 0) === Number(variantId || 0) &&
+                Number(ci.modifier_id || 0) === Number(modifierId || 0))
+    );
 };
 
 const handleReset = () => {
@@ -480,7 +546,7 @@ const handleSaveNote = (note) => {
 };
 
 const handleIncreaseQuantity = (itemId) => {
-    const item = cartItems.value.find((i) => i.id === itemId);
+    const item = findCartLine(itemId);
     if (item) {
         item.quantity++;
         // Save cart to localStorage
@@ -489,18 +555,24 @@ const handleIncreaseQuantity = (itemId) => {
 };
 
 const handleDecreaseQuantity = (itemId) => {
-    const item = cartItems.value.find((i) => i.id === itemId);
+    const item = findCartLine(itemId);
     if (item && item.quantity > 1) {
         item.quantity--;
     } else if (item) {
-        cartItems.value = cartItems.value.filter((i) => i.id !== itemId);
+        cartItems.value = cartItems.value.filter(
+            (ci) => getCartLineKey(ci) !== itemId
+        );
     }
     // Save cart to localStorage
     saveCartToStorage(cartItems.value);
 };
 
 const handleUpdateQuantity = (quantityData) => {
-    const item = cartItems.value.find((i) => i.id === quantityData.id);
+    const item = findCartLine(
+        quantityData.line_key || quantityData.id,
+        quantityData.variant_id,
+        quantityData.modifier_id
+    );
     if (item) {
         const newQty = parseInt(quantityData.quantity, 10);
         if (newQty > 0) {
@@ -509,14 +581,22 @@ const handleUpdateQuantity = (quantityData) => {
             saveCartToStorage(cartItems.value);
         } else {
             // Remove item if quantity is 0 or less
-            cartItems.value = cartItems.value.filter((i) => i.id !== quantityData.id);
+            cartItems.value = cartItems.value.filter(
+                (ci) =>
+                    !(
+                        getCartLineKey(ci) === (quantityData.line_key || quantityData.id) ||
+                        (ci.id === quantityData.id &&
+                            Number(ci.variant_id || 0) === Number(quantityData.variant_id || 0) &&
+                            Number(ci.modifier_id || 0) === Number(quantityData.modifier_id || 0))
+                    )
+            );
             saveCartToStorage(cartItems.value);
         }
     }
 };
 
 const handleRemoveItem = (itemId) => {
-    cartItems.value = cartItems.value.filter((i) => i.id !== itemId);
+    cartItems.value = cartItems.value.filter((ci) => getCartLineKey(ci) !== itemId);
     // Save cart to localStorage
     saveCartToStorage(cartItems.value);
 };
@@ -797,12 +877,23 @@ const clearCartAfterSave = () => {
     // Clear cart after successful order save (Speeder behavior)
     // This ensures fresh start for next order
     cartItems.value = [];
+    saveCartToStorage([]);
+
+    // Clear selected customer like other order draft state
+    customer.value = getEmptyCustomer();
+    customerId.value = null;
+    clearCustomerFromStorage(); // Properly remove from localStorage
+
     orderNote.value = "";
     discountAmount.value = 0;
     discountType.value = "";
     discountValue.value = 0;
     extraCharges.value = [];
     availableTaxes.value = [];
+    orderId.value = null;
+    orderStatus.value = "";
+    selectedDeliveryExecutive.value = "";
+    deliveryFee.value = 0;
     calculateTaxes();
 };
 
@@ -856,6 +947,25 @@ const handleSaveOrder = async (...actions) => {
                     : null,
             waiter_id: waiterId.value,
             note: orderNote.value,
+            customer_id: customerId.value || customer.value?.id || null,
+            customer: customer.value?.id
+                ? {
+                    id: customer.value.id,
+                    name: customer.value.name || "",
+                    phone: customer.value.phone || "",
+                    phone_code: customer.value.phone_code || "",
+                    email: customer.value.email || null,
+                    address: customer.value.address || null,
+                }
+                : null,
+            delivery_executive_id:
+                normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value) === "delivery"
+                    ? (selectedDeliveryExecutive.value ? Number(selectedDeliveryExecutive.value) : null)
+                    : null,
+            delivery_fee:
+                normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value) === "delivery"
+                    ? Number(deliveryFee.value || 0)
+                    : 0,
             lines: lines,
         };
 
@@ -882,9 +992,8 @@ const handleSaveOrder = async (...actions) => {
 
         if (result.offline) {
             console.log("Order queued for sync:", result.operationId);
-            // Clear cart after queueing
-            cartItems.value = [];
-            saveCartToStorage([]);
+            // Clear draft state after queueing for sync
+            clearCartAfterSave();
 
             // Increment order number for next offline order
             await incrementOrderNumberOffline();
@@ -939,13 +1048,6 @@ const handleSaveOrder = async (...actions) => {
                     console.warn("Print URL not available in response");
                 }
             }
-
-            // Clear cart after successful save
-            cartItems.value = [];
-            saveCartToStorage([]);
-
-            // Reset edit context after successful save.
-            orderId.value = null;
 
             // Fetch new order number when online
             if (isOnline.value) {
@@ -1007,40 +1109,124 @@ const handleConfirmTableChange = async () => {
 };
 
 const handleSaveCustomer = async (customerData) => {
-    console.log("saveCustomer:", customerData);
+    // Customer is already created/updated in AddCustomerModal.
+    // Here we only bind it to current POS state (legacy behavior).
+    customer.value = { ...customerData };
+    customerId.value = customerData?.id || null;
+    saveCustomerToStorage(customer.value);
+    showAddCustomerModal.value = false;
+};
+
+const handleRemoveCustomer = () => {
+    customer.value = getEmptyCustomer();
+    customerId.value = null;
+    clearCustomerFromStorage();
+};
+
+const handleWaiterUpdate = async (newWaiterId) => {
+    waiterId.value = newWaiterId ? Number(newWaiterId) : "";
+
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId) {
+        return;
+    }
+
     try {
-        // Use offline API call wrapper
-        const result = await offlineApiCall(
-            async () => {
-                // API call when online
-                const response = await axios.post(
-                    "/api/pos/customers",
-                    customerData
-                );
-                return response.data;
-            },
+        const response = await axios.post(`/api/pos/orders/${activeOrderId}/waiter`, {
+            waiter_id: waiterId.value || null,
+        });
+
+        if (response.data?.success) {
+            showPosAlert("success", response.data?.message || "Waiter updated successfully");
+        }
+    } catch (error) {
+        console.error("Error updating waiter:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to update waiter");
+    }
+};
+
+const handleOrderStatusUpdate = async (nextOrderStatus) => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId || !nextOrderStatus) {
+        return;
+    }
+
+    if (String(nextOrderStatus).toLowerCase() === "cancelled") {
+        const confirmed = await showPosConfirm(
+            "Are you sure you want to cancel this order?",
             {
-                type: "save_customer",
-                data: customerData,
+                confirmButtonText: "Yes, cancel",
+                cancelButtonText: "No",
             }
         );
 
-        // Save customer locally regardless of online/offline
-        customer.value = { ...customerData };
-        saveCustomerToStorage(customer.value);
-
-        if (result.offline) {
-            console.log("Customer queued for sync:", result.operationId);
-        } else {
-            console.log("Customer saved successfully:", result.data);
+        if (!confirmed) {
+            return;
         }
+    }
 
-        showAddCustomerModal.value = false;
+    try {
+        const response = await axios.post(`/api/pos/orders/${activeOrderId}/status`, {
+            order_status: nextOrderStatus,
+        });
+
+        if (response.data?.success) {
+            orderStatus.value = response.data?.data?.order_status || nextOrderStatus;
+            showPosAlert("success", response.data?.message || "Order status updated successfully");
+        }
     } catch (error) {
-        console.error("Error saving customer:", error);
-        // Still save locally even if API fails
-        customer.value = { ...customerData };
-        saveCustomerToStorage(customer.value);
+        console.error("Error updating order status:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to update order status");
+    }
+};
+
+const handleDeliveryExecutiveUpdate = async (newDeliveryExecutiveId) => {
+    selectedDeliveryExecutive.value = newDeliveryExecutiveId
+        ? Number(newDeliveryExecutiveId)
+        : "";
+
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId) {
+        return;
+    }
+
+    try {
+        const response = await axios.post(
+            `/api/pos/orders/${activeOrderId}/delivery-executive`,
+            {
+                delivery_executive_id: selectedDeliveryExecutive.value || null,
+            }
+        );
+
+        if (response.data?.success) {
+            showPosAlert("success", response.data?.message || "Delivery executive updated successfully");
+        }
+    } catch (error) {
+        console.error("Error updating delivery executive:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to update delivery executive");
+    }
+};
+
+const handleDeliveryFeeUpdate = async (newDeliveryFee) => {
+    const normalizedDeliveryFee = Number(newDeliveryFee || 0);
+    deliveryFee.value = normalizedDeliveryFee < 0 ? 0 : normalizedDeliveryFee;
+
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId) {
+        return;
+    }
+
+    try {
+        const response = await axios.post(`/api/pos/orders/${activeOrderId}/delivery-fee`, {
+            delivery_fee: deliveryFee.value,
+        });
+
+        if (response.data?.success) {
+            showPosAlert("success", response.data?.message || "Delivery fee updated successfully");
+        }
+    } catch (error) {
+        console.error("Error updating delivery fee:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to update delivery fee");
     }
 };
 
@@ -1169,16 +1355,13 @@ const loadMenuData = async () => {
             console.log("Loaded delivery platforms:", deliveryPlatforms.value);
         }
 
+        if (Array.isArray(bootstrap.delivery_executives)) {
+            deliveryExecutives.value = bootstrap.delivery_executives;
+            console.log("Loaded delivery executives:", deliveryExecutives.value.length);
+        }
+
         if (Array.isArray(bootstrap.waiters) && bootstrap.waiters.length > 0) {
             waiters.value = bootstrap.waiters;
-            if (!waiterId.value && waiters.value.length > 0) {
-                if (bootstrap.current_user?.is_waiter && bootstrap.current_user?.id) {
-                    waiterId.value = Number(bootstrap.current_user.id);
-                } else {
-                    waiterId.value = waiters.value[0].id;
-                }
-                console.log("Set default waiter to:", waiterId.value);
-            }
         }
 
         if (Array.isArray(bootstrap.taxes) && bootstrap.taxes.length > 0) {
@@ -1215,6 +1398,9 @@ const applyOrderPayload = (payload, activeOrderId) => {
     }
 
     order.value = payload.id;
+    customerId.value = payload.customer_id || payload.customer?.id || null;
+    customer.value = normalizeCustomerPayload(payload.customer);
+    orderStatus.value = payload.order_status || "";
 
     // Load order details
     waiterId.value = payload.waiter_id || "";
@@ -1233,11 +1419,25 @@ const applyOrderPayload = (payload, activeOrderId) => {
                 : selectedType.slug === "pickup"
                     ? "Pickup"
                     : "Delivery";
+    } else if (payload.order_type) {
+        const fallbackType = String(payload.order_type || "").toLowerCase();
+        orderType.value =
+            fallbackType === "dine_in"
+                ? "Dine In"
+                : fallbackType === "pickup"
+                    ? "Pickup"
+                    : fallbackType === "delivery"
+                        ? "Delivery"
+                        : orderType.value;
     }
 
     selectedDeliveryApp.value = payload.delivery_app_id
         ? String(payload.delivery_app_id)
         : "default";
+    selectedDeliveryExecutive.value = payload.delivery_executive_id
+        ? Number(payload.delivery_executive_id)
+        : "";
+    deliveryFee.value = Number(payload.delivery_fee || 0);
 
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
     const loadedItems = lines.map((line, index) => ({
@@ -1257,6 +1457,14 @@ const applyOrderPayload = (payload, activeOrderId) => {
         combo_instance_key: line.combo_instance_key || null,
         modifier_option_quantities:
             line.modifier_option_quantities || {},
+        line_key:
+            line.order_item_id !== undefined && line.order_item_id !== null
+                ? `order_item_${line.order_item_id}`
+                : createCartLineKey(
+                    line.menu_item_id,
+                    line.menu_item_variation_id || 0,
+                    0
+                ),
     }));
 
     cartItems.value = loadedItems;
@@ -1312,11 +1520,15 @@ onMounted(async () => {
         console.log("Fresh POS session - cart starts empty");
     }
 
-    // Load customer from localStorage
-    const savedCustomer = loadCustomerFromStorage();
-    if (savedCustomer) {
-        customer.value = savedCustomer;
-        console.log("Loaded customer from localStorage:", savedCustomer);
+    // Load customer from localStorage only for fresh orders.
+    // Editing an existing order should always use the order payload customer.
+    if (!orderId.value && !initialOrderData.value) {
+        const savedCustomer = loadCustomerFromStorage();
+        if (savedCustomer) {
+            customer.value = savedCustomer;
+            customerId.value = savedCustomer.id || null;
+            console.log("Loaded customer from localStorage:", savedCustomer);
+        }
     }
 
     // Load restaurant data (from API)

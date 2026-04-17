@@ -235,6 +235,14 @@ class PosController extends Controller
                     'commission_value' => (float) ($platform->commission_value ?? 0),
                 ];
             })->values(),
+            'delivery_executives' => collect($data['delivery_executives'] ?? [])->map(function ($executive) {
+                return [
+                    'id' => (int) ($executive->id ?? 0),
+                    'name' => (string) ($executive->name ?? ''),
+                    'phone' => (string) ($executive->phone ?? ''),
+                    'status' => (string) ($executive->status ?? ''),
+                ];
+            })->values(),
         ];
 
         $branch = branch();
@@ -324,6 +332,7 @@ class PosController extends Controller
 
         $order = Order::query()
             ->with([
+                'customer:id,name,email,phone,phone_code,delivery_address',
                 'items.modifierOptions',
                 'items.menuItem',
                 'items.menuItemVariation',
@@ -382,9 +391,23 @@ class PosController extends Controller
             'initial_order' => [
                 'id' => (int) $order->id,
                 'status' => (string) $order->status,
+                'order_status' => $order->order_status?->value ?? (string) ($order->order_status ?? ''),
+                'order_type' => (string) ($order->order_type ?? 'dine_in'),
                 'order_type_id' => $order->order_type_id ? (int) $order->order_type_id : null,
                 'delivery_app_id' => $order->delivery_app_id ? (int) $order->delivery_app_id : null,
+                'delivery_executive_id' => $order->delivery_executive_id ? (int) $order->delivery_executive_id : null,
+                'delivery_fee' => (float) ($order->delivery_fee ?? 0),
                 'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+                'customer_id' => $order->customer_id ? (int) $order->customer_id : null,
+                'customer' => $order->customer ? [
+                    'id' => (int) $order->customer->id,
+                    'name' => (string) ($order->customer->name ?? ''),
+                    'email' => $order->customer->email,
+                    'phone' => $order->customer->phone,
+                    'phone_code' => $order->customer->phone_code,
+                    'address' => $order->customer->delivery_address,
+                    'delivery_address' => $order->customer->delivery_address,
+                ] : null,
                 'note' => (string) ($order->note ?? ''),
                 'sub_total' => (float) ($order->sub_total ?? 0),
                 'total' => (float) ($order->total ?? 0),

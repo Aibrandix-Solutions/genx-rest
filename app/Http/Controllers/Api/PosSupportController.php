@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Country;
 use App\Models\Customer;
+use App\Models\DeliveryExecutive;
 use App\Models\DeliveryPlatform;
 use App\Models\Order;
 use App\Models\OrderType;
@@ -15,6 +17,7 @@ use App\Models\User;
 use App\Scopes\BranchScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Validation\Rule;
 
 class PosSupportController extends Controller
 {
@@ -179,6 +182,7 @@ class PosSupportController extends Controller
     public function storeCustomer(Request $request)
     {
         $validated = $request->validate([
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
             'name' => ['required', 'string', 'max:191'],
             'phone' => ['required', 'string', 'max:50'],
             'phone_code' => ['required', 'string', 'max:20'],
@@ -186,17 +190,28 @@ class PosSupportController extends Controller
             'address' => ['nullable', 'string'],
         ]);
 
-        $customer = Customer::query()->updateOrCreate(
-            [
+        if (!empty($validated['customer_id'])) {
+            $customer = Customer::query()->findOrFail((int) $validated['customer_id']);
+            $customer->update([
+                'name' => $validated['name'],
                 'phone' => $validated['phone'],
                 'phone_code' => $validated['phone_code'],
-            ],
-            [
-                'name' => $validated['name'],
                 'email' => $validated['email'] ?? null,
                 'delivery_address' => $validated['address'] ?? null,
-            ]
-        );
+            ]);
+        } else {
+            $customer = Customer::query()->updateOrCreate(
+                [
+                    'phone' => $validated['phone'],
+                    'phone_code' => $validated['phone_code'],
+                ],
+                [
+                    'name' => $validated['name'],
+                    'email' => $validated['email'] ?? null,
+                    'delivery_address' => $validated['address'] ?? null,
+                ]
+            );
+        }
 
         return response()->json([
             'success' => true,
@@ -274,6 +289,181 @@ class PosSupportController extends Controller
         return response()->json([
             'tables' => $tables,
             'is_admin' => (bool) $isAdmin,
+        ]);
+    }
+
+    public function updateOrderWaiter(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'waiter_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $order->update([
+            'waiter_id' => $validated['waiter_id'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.waiterUpdated'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+            ],
+        ]);
+    }
+
+    public function updateOrderStatus(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'order_status' => [
+                'required',
+                'string',
+                Rule::in(array_map(fn($status) => $status->value, OrderStatus::cases())),
+            ],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $allowedStatuses = match ((string) ($order->order_type ?? 'dine_in')) {
+            'delivery' => [
+                OrderStatus::PLACED->value,
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PREPARING->value,
+                OrderStatus::FOOD_READY->value,
+                OrderStatus::OUT_FOR_DELIVERY->value,
+                OrderStatus::DELIVERED->value,
+                OrderStatus::CANCELLED->value,
+            ],
+            'pickup' => [
+                OrderStatus::PLACED->value,
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PREPARING->value,
+                OrderStatus::FOOD_READY->value,
+                OrderStatus::READY_FOR_PICKUP->value,
+                OrderStatus::DELIVERED->value,
+                OrderStatus::CANCELLED->value,
+            ],
+            default => [
+                OrderStatus::PLACED->value,
+                OrderStatus::CONFIRMED->value,
+                OrderStatus::PREPARING->value,
+                OrderStatus::FOOD_READY->value,
+                OrderStatus::SERVED->value,
+                OrderStatus::CANCELLED->value,
+            ],
+        };
+
+        abort_if(!in_array($validated['order_status'], $allowedStatuses, true), 422, 'Invalid order status for this order type.');
+
+        $nextStatus = OrderStatus::from($validated['order_status']);
+
+        $order->update([
+            'order_status' => $nextStatus,
+            'status' => $nextStatus === OrderStatus::CANCELLED ? 'canceled' : $order->status,
+        ]);
+
+        if ($nextStatus === OrderStatus::CONFIRMED) {
+            $order->kot->each(function ($kot) {
+                $kot->update(['status' => 'in_kitchen']);
+            });
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.updateSuccess'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'order_status' => $order->order_status?->value ?? (string) ($order->order_status ?? ''),
+            ],
+        ]);
+    }
+
+    public function updateOrderDeliveryExecutive(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'delivery_executive_id' => ['nullable', 'integer', 'exists:delivery_executives,id'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $deliveryExecutiveId = $validated['delivery_executive_id'] ?? null;
+
+        if ($deliveryExecutiveId) {
+            $isValidExecutive = DeliveryExecutive::query()
+                ->where('id', $deliveryExecutiveId)
+                ->where('status', 'available')
+                ->exists();
+
+            abort_if(!$isValidExecutive, 422, 'Selected delivery executive is not available.');
+        }
+
+        $order->update([
+            'delivery_executive_id' => $deliveryExecutiveId,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.deliveryExecutiveAssigned'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'delivery_executive_id' => $order->delivery_executive_id ? (int) $order->delivery_executive_id : null,
+            ],
+        ]);
+    }
+
+    public function updateOrderDeliveryFee(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'delivery_fee' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $order->update([
+            'delivery_fee' => (float) ($validated['delivery_fee'] ?? 0),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.updateSuccess'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'delivery_fee' => (float) ($order->delivery_fee ?? 0),
+            ],
         ]);
     }
 

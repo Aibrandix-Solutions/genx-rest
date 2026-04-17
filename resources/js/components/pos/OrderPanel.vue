@@ -46,12 +46,62 @@
             </div>
         </div>
 
+        <div v-if="selectedOrderTypeSlug === 'delivery' && canEditWaiter"
+            class="mt-3 mb-3 flex items-center gap-2 text-gray-700 dark:text-gray-300">
+            <svg class="w-6 h-6 transition duration-75 text-gray-500 dark:text-gray-400" fill="currentColor"
+                version="1.0" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <g transform="translate(0 512) scale(.1 -.1)">
+                    <path
+                        d="m2605 4790c-66-13-155-48-213-82-71-42-178-149-220-221-145-242-112-552 79-761 59-64 61-67 38-73-13-4-60-24-104-46-151-75-295-249-381-462-20-49-38-91-39-93-2-2-19 8-40 22s-54 30-74 36c-59 16-947 12-994-4-120-43-181-143-122-201 32-33 76-33 106 0 41 44 72 55 159 55h80v-135c0-131 1-137 25-160l24-25h231 231l24 25c24 23 25 29 25 161v136l95-4c82-3 97-6 117-26l23-23v-349-349l-46-46-930-6-29 30c-17 16-30 34-30 40 0 7 34 11 95 11 88 0 98 2 120 25 16 15 25 36 25 55s-9 40-25 55c-22 23-32 25-120 25h-95v80 80h55c67 0 105 29 105 80 0 19-9 40-25 55l-24 25h-231-231l-24-25c-33-32-33-78 0-110 22-23 32-25 120-25h95v-80-80h-175c-173 0-176 0-200-25-33-32-33-78 0-110 24-25 27-25 197-25h174l12-45c23-88 85-154 171-183 22-8 112-12 253-12h220l-37-43c-103-119-197-418-211-669-7-115-7-116 19-142 26-25 29-26 164-26h138l16-69c55-226 235-407 464-466 77-20 233-20 310 0 228 59 409 240 463 464l17 71h605 606l13-62c58-281 328-498 621-498 349 0 640 291 640 640 0 237-141 465-350 569-89 43-193 71-271 71h-46l-142 331c-78 183-140 333-139 335 2 1 28-4 58-12 80-21 117-18 145 11l25 24v351 351l-26 26c-24 24-30 25-91 20-130-12-265-105-317-217l-23-49-29 30c-16 17-51 43-79 57-49 26-54 27-208 24-186-3-227 9-300 87-43 46-137 173-137 185 0 3 10 6 23 6s48 12 78 28c61 31 112 91 131 155 7 25 25 53 45 70 79 68 91 152 34 242-17 27-36 65-41 85-13 46-13 100 0 100 6 0 22 11 35 25 30 29 33 82 10 190-61 290-332 508-630 504-38-1-88-5-110-9zm230-165c87-23 168-70 230-136 55-57 108-153 121-216l6-31-153-4c-131-3-161-6-201-25-66-30-133-96-165-162-26-52-28-66-31-210l-4-153-31 6c-63 13-159 66-216 121-66 62-113 143-136 230-88 339 241 668 580 580zm293-619c7-41 28-106 48-147l36-74-24-15c-43-28-68-59-68-85 0-40-26-92-54-110-30-20-127-16-211 8l-50 14-3 175c-2 166-1 176 21 218 35 67 86 90 202 90h91l12-74zm-538-496c132-25 214-88 348-269 101-137 165-199 241-237 31-15 57-29 59-30s-6-20-17-43c-12-22-27-75-33-117-12-74-12-76-38-71-149 30-321 156-424 311-53 80-90 95-140 55-48-38-35-89 52-204l30-39-28-36c-42-54-91-145-110-208l-18-57-337-3-338-2 6 82c9 112 47 272 95 400 135 357 365 522 652 468zm1490-630c0-254 1-252-83-167-54 53-77 104-77 167s23 114 77 168c84 84 83 86 83-168zm-454 63c18-13 41-46 57-83l26-61-45-19c-75-33-165-52-244-54l-75-1-3 29c-8 72 44 166 113 201 42 22 132 16 171-12zm-2346-63v-80h-120-120v80 80h120 120v-80zm1584-184c80-52 154-84 261-111l90-23 112-483c68-295 112-506 112-540 1-68-21-134-56-171l-26-27-17 48c-29 86-99 159-177 186l-38 13-6 279c-5 297-5 297-64 414-58 113-212 233-328 254-21 4-41 14-44 21-12 32 88 201 111 186 6-4 37-24 70-46zm1099-493 185-433-348-490h-138-138l33 68c40 81 56 176 44 252-8 47-203 894-217 941-4 13 9 17 75 23 80 6 230 44 280 71 14 7 29 10 32 7 4-4 90-202 192-439zm-1323 187c118-22 229-99 275-190 37-74 45-138 45-375v-225h-160-160v115c0 179-47 289-158 369-91 67-141 76-417 76h-244l10 32c5 18 9 72 9 120v88h374c209 0 397-4 426-10zm-319-402c50-15 111-67 135-115 16-32 20-70 24-244l5-205 36-72 35-72h-759-759l7 63c17 164 95 400 165 502 47 68 129 124 215 145 52 13 853 12 896-2zm2114-323c256-67 415-329 350-580-48-184-202-326-390-358-197-34-412 76-500 257-19 39-38 86-41 104l-6 32h80 81l24-53c31-69 86-123 156-156 77-36 192-36 266-1 63 31 124 91 156 155 33 68 34 197 2 267-27 60-95 127-156 157-95 46-229 36-311-22-18-12-26-15-21-6 13 22 126 182 143 202 19 22 86 23 167 2zm-1315-243c39-21 87-99 77-125-6-15-27-17-178-17-193 0-231 7-289 58-35 29-70 78-70 97 0 3 96 5 213 5 187 0 217-2 247-18zm1288-89c51-38 67-70 67-133s-16-95-69-134c-43-33-132-29-179 7-20 15-37 32-37 38 0 5 36 9 80 9 73 0 83 3 105 25 33 32 33 78 0 110-22 22-32 25-105 25-44 0-80 4-80 8 0 12 29 37 65 57 39 21 117 15 153-12zm-397-46c-10-9-11-8-5 6 3 10 9 15 12 12s0-11-7-18zm-2460-217c45-106 169-184 289-184s244 78 289 184l22 50h81 81l-7-32c-13-65-66-159-123-219-186-195-500-195-686 0-57 60-110 154-123 219l-6 32h80 81l22-50zm419 41c0-16-51-50-91-63-30-8-48-8-78 0-40 13-91 47-91 63 0 5 57 9 130 9s130-4 130-9z" />
+                </g>
+            </svg>
+            <select :value="selectedDeliveryExecutive || ''"
+                @change="$emit('update:selectedDeliveryExecutive', $event.target.value)"
+                class="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 text-sm focus:outline-none focus:ring-1 focus:ring-gray-500 dark:focus:ring-gray-400 focus:border-transparent cursor-pointer">
+                <option value="">Select Delivery Executive</option>
+                <option v-for="executive in deliveryExecutives" :key="executive.id" :value="executive.id">
+                    {{ executive.name }}
+                </option>
+            </select>
+        </div>
+
         <!-- Order Header -->
         <div>
-            <div class="mt-2">
-                <a href="javascript:;" @click="$emit('show-add-customer')"
+            <div class="mt-2 flex items-start justify-between gap-3">
+                <div v-if="customer?.id" class="min-w-0 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                    <div class="min-w-0">
+                        <div class="font-semibold text-gray-900 dark:text-white truncate">
+                            {{ customer.name }}
+                        </div>
+                        <div v-if="customer.phone" class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                            {{ customer.phone_code ? '+' + customer.phone_code + ' ' : '' }}{{ customer.phone }}
+                        </div>
+                    </div>
+                    <button type="button" @click="$emit('show-add-customer')"
+                        class="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                        title="Change Customer">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                            class="bi bi-pencil-square" viewBox="0 0 16 16">
+                            <path
+                                d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z" />
+                            <path fill-rule="evenodd"
+                                d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5v11z" />
+                        </svg>
+                    </button>
+                    <button type="button" @click="$emit('remove-customer')"
+                        class="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 transition-colors hover:bg-red-100 hover:text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/40"
+                        title="Remove Customer">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
+                            class="bi bi-x-circle" viewBox="0 0 16 16">
+                            <path d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14m0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16" />
+                            <path
+                                d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708" />
+                        </svg>
+                    </button>
+                </div>
+                <a v-else href="javascript:;" @click="$emit('show-add-customer')"
                     class="text-sm underline underline-offset-2 dark:text-gray-300">
-                    + Add Customer Details
+                    {{ customer?.id ? 'Change Customer' : '+ Add Customer Details' }}
                 </a>
             </div>
 
@@ -174,6 +224,64 @@
             </div>
         </div>
 
+        <div v-if="showOrderStatusPanel" class="p-4 mb-3 bg-white rounded-lg shadow-sm dark:bg-gray-800">
+            <div class="flex flex-col space-y-4">
+                <div class="flex items-center justify-between text-gray-900 dark:text-white">
+                    <h3 class="text-lg font-semibold">Set Order Status</h3>
+                    <span class="px-3 py-1 text-sm font-medium rounded-full" :class="orderStatusBadgeClass">
+                        {{ currentOrderStatusLabel }}
+                    </span>
+                </div>
+
+                <div class="relative">
+                    <div class="relative flex justify-between">
+                        <div v-for="(status, index) in orderStatusFlow" :key="status" class="flex flex-col items-center">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center mb-2" :class="index <= currentOrderStatusIndex
+                                ? 'bg-skin-base text-white'
+                                : 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500'">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path v-if="status === 'placed'" stroke-linecap="round" stroke-linejoin="round"
+                                        stroke-width="2"
+                                        d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2" />
+                                    <path v-else-if="status === 'preparing'" stroke-linecap="round" stroke-linejoin="round"
+                                        stroke-width="2" d="M5 12h14M7 8h10M8 16h8" />
+                                    <path v-else-if="status === 'out_for_delivery' || status === 'ready_for_pickup'"
+                                        stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    <path v-else-if="status === 'delivered' || status === 'served'" stroke-linecap="round"
+                                        stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                    <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 12l2 2 4-4m6 2a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                                </svg>
+                            </div>
+                            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 text-center">
+                                {{ orderStatusLabel(status) }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="canMoveToNextOrderStatus || canCancelOrder" class="flex justify-end items-center mt-2 gap-2">
+                    <button v-if="canCancelOrder" type="button" @click="$emit('update:orderStatus', 'cancelled')"
+                        class="inline-flex items-center gap-2 px-3 py-2 bg-red-600 border border-red-700 rounded-lg font-semibold text-sm text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150">
+                        <span>Cancel Order</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+
+                    <button v-if="canMoveToNextOrderStatus" type="button" @click="$emit('update:orderStatus', nextOrderStatus)"
+                        class="inline-flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-500 rounded-lg font-semibold text-sm text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150">
+                        <span>Move to {{ orderStatusLabel(nextOrderStatus) }}</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div v-if="props?.order"
             class="flex justify-between p-2 text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700">
             <div>KOT #{{ props.order }}</div>
@@ -222,7 +330,8 @@
                             </div>
                         </td>
                     </tr>
-                    <tr v-for="item in cartItems" :key="item.id" class="hover:bg-gray-100 dark:hover:bg-gray-700">
+                    <tr v-for="item in cartItems" :key="item.line_key || item.id"
+                        class="hover:bg-gray-100 dark:hover:bg-gray-700">
                         <!-- Item Name, Note, and Add Note UI -->
                         <td class="flex flex-col p-2 lg:min-w-20 relative">
                             <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
@@ -401,7 +510,7 @@
                         <!-- Quantity Control -->
                         <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
                             <div class="relative flex items-center max-w-[8rem] mx-auto">
-                                <button type="button" @click="$emit('decrease-quantity', item.id)"
+                                <button type="button" @click="$emit('decrease-quantity', item.line_key || item.id)"
                                     class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
                                     <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
@@ -411,13 +520,16 @@
                                 </button>
                                 <input type="text" v-model.lazy="item.quantity" @change="
                                     $emit('update-quantity', {
+                                        line_key: item.line_key || item.id,
                                         id: item.id,
                                         quantity: item.quantity,
+                                        variant_id: item.variant_id || 0,
+                                        modifier_id: item.modifier_id || 0,
                                     })
                                     "
                                     class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                     min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
-                                <button type="button" @click="$emit('increase-quantity', item.id)"
+                                <button type="button" @click="$emit('increase-quantity', item.line_key || item.id)"
                                     class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
                                     <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
@@ -439,7 +551,7 @@
                         <td class="p-2 whitespace-nowrap text-right">
                             <button
                                 class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
-                                @click="$emit('remove-item', item.id)">
+                                @click="$emit('remove-item', item.line_key || item.id)">
                                 <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor"
                                     viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                                     <path fill-rule="evenodd"
@@ -506,7 +618,7 @@
                     </div>
                 </div>
 
-                <div v-if="orderType === 'delivery'">
+                <div v-if="selectedOrderTypeSlug === 'delivery'">
                     <div class="flex justify-between items-center text-gray-500 text-sm dark:text-neutral-400">
                         <div>
                             Delivery Fee
@@ -732,6 +844,10 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    customer: {
+        type: Object,
+        default: () => null,
+    },
     pax: {
         type: Number,
         default: 1,
@@ -739,10 +855,6 @@ const props = defineProps({
     waiterId: {
         type: [String, Number],
         default: "",
-    },
-    currentUser: {
-        type: Object,
-        default: () => null,
     },
     canEditWaiter: {
         type: Boolean,
@@ -820,12 +932,29 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    orderStatus: {
+        type: String,
+        default: "",
+    },
+    deliveryExecutives: {
+        type: Array,
+        default: () => [],
+    },
+    selectedDeliveryExecutive: {
+        type: [String, Number],
+        default: "",
+    },
+    currentUser: {
+        type: Object,
+        default: () => null,
+    },
 });
 
 const emit = defineEmits([
     "change-order-type",
     "update:orderType",
     "show-add-customer",
+    "remove-customer",
     "assign-table",
     "select-table",
     "update:pax",
@@ -843,6 +972,8 @@ const emit = defineEmits([
     "apply-discount",
     "update:selectedDeliveryApp",
     "update:setAsDefaultOrderType",
+    "update:orderStatus",
+    "update:selectedDeliveryExecutive",
 ]);
 
 const localPax = ref(props.pax);
@@ -872,17 +1003,6 @@ watch(
     (newVal) => {
         localWaiterId.value = newVal;
     }
-);
-
-watch(
-    () => props.currentUser,
-    (newUser) => {
-        if (newUser?.is_waiter && newUser?.id) {
-            localWaiterId.value = Number(newUser.id);
-            emit("update:waiterId", localWaiterId.value);
-        }
-    },
-    { immediate: true, deep: true }
 );
 
 const normalizeOrderTypeSlug = (value) => {
@@ -929,7 +1049,89 @@ const isCurrentUserWaiter = computed(() => {
 });
 
 const showWaiterSelect = computed(() => {
-    return !!props.canEditWaiter && !isCurrentUserWaiter.value;
+    return !!props.canEditWaiter;
+});
+
+const orderStatusFlow = computed(() => {
+    const slug = normalizeOrderTypeSlug(props.orderType);
+
+    if (slug === "delivery") {
+        return ["placed", "confirmed", "preparing", "food_ready", "out_for_delivery", "delivered"];
+    }
+
+    if (slug === "pickup") {
+        return ["placed", "confirmed", "preparing", "food_ready", "ready_for_pickup", "delivered"];
+    }
+
+    return ["placed", "confirmed", "preparing", "food_ready", "served"];
+});
+
+const orderStatusLabel = (status) => {
+    const labels = {
+        placed: "Order Placed",
+        confirmed: "Order Confirmed",
+        preparing: "Order Preparing",
+        food_ready: "Food is Ready",
+        ready_for_pickup: "Order is Ready for Pickup",
+        out_for_delivery: "Order is Out for Delivery",
+        served: "Order Served",
+        delivered: "Delivered",
+        cancelled: "Order Cancelled",
+    };
+
+    return labels[status] || status;
+};
+
+const currentOrderStatus = computed(() => String(props.orderStatus || "").toLowerCase());
+
+const currentOrderStatusIndex = computed(() => {
+    const index = orderStatusFlow.value.indexOf(currentOrderStatus.value);
+    return index >= 0 ? index : 0;
+});
+
+const currentOrderStatusLabel = computed(() => {
+    return orderStatusLabel(currentOrderStatus.value || orderStatusFlow.value[0]);
+});
+
+const nextOrderStatus = computed(() => {
+    const nextIndex = Math.min(currentOrderStatusIndex.value + 1, orderStatusFlow.value.length - 1);
+    return orderStatusFlow.value[nextIndex] || null;
+});
+
+const canMoveToNextOrderStatus = computed(() => {
+    if (!props.canEditWaiter || !currentOrderStatus.value) {
+        return false;
+    }
+
+    if (currentOrderStatus.value === "cancelled") {
+        return false;
+    }
+
+    return currentOrderStatusIndex.value < orderStatusFlow.value.length - 1;
+});
+
+const canCancelOrder = computed(() => {
+    return !!props.canEditWaiter && currentOrderStatus.value === "placed";
+});
+
+const showOrderStatusPanel = computed(() => {
+    return !!props.order && !!currentOrderStatus.value;
+});
+
+const orderStatusBadgeClass = computed(() => {
+    if (["delivered", "served"].includes(currentOrderStatus.value)) {
+        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300";
+    }
+
+    if (currentOrderStatus.value === "cancelled") {
+        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300";
+    }
+
+    if (currentOrderStatus.value === "placed") {
+        return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300";
+    }
+
+    return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
 });
 
 const availableWaiters = computed(() => {

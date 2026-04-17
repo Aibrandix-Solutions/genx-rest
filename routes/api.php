@@ -89,4 +89,8 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
     Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
+    Route::post('/pos/orders/{id}/waiter', [PosSupportController::class, 'updateOrderWaiter']);
+    Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
+    Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
+    Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
 });

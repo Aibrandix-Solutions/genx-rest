@@ -102,7 +102,7 @@
             wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })"
             href="javascript:;"
         @endif
-        wire:key='order-item-{{ $order->id . microtime() }}'>
+        wire:key='order-item-{{ $order->id }}'>
         <div class="flex gap-4 justify-between  w-full">
             <div class="flex gap-3 space-y-1">
 

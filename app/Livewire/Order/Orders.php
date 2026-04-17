@@ -183,7 +183,8 @@ class Orders extends Component
         $orders = Order::withCount('items')
             ->with('table', 'waiter', 'customer', 'orderType', 'deliveryApp')
             ->where('status', '<>', 'draft')
-            ->orderBy('id', 'desc')
+            ->orderBy('orders.date_time', 'desc')
+            ->orderBy('orders.id', 'desc')
             ->where('orders.date_time', '>=', $start)
             ->where('orders.date_time', '<=', $end);
 

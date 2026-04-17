@@ -101,6 +101,15 @@ export function useOfflineMode() {
         }
     };
 
+    // Clear customer from localStorage entirely
+    const clearCustomer = () => {
+        try {
+            localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+        } catch (error) {
+            console.error("Error clearing customer:", error);
+        }
+    };
+
     // Clear all offline data
     const clearOfflineData = () => {
         localStorage.removeItem(STORAGE_KEY);
@@ -346,6 +355,7 @@ export function useOfflineMode() {
         loadCart,
         saveCustomer,
         loadCustomer,
+        clearCustomer,
         clearOfflineData,
         syncPendingOperations,
         offlineApiCall,

@@ -427,6 +427,15 @@ const phoneCodeSearch = ref("");
 const allPhoneCodes = ref([]);
 const filteredPhoneCodes = ref([]);
 const phoneCodeDropdown = ref(null);
+const defaultPhoneCode = "94";
+
+const getDefaultPhoneCode = () => {
+    if (allPhoneCodes.value.some((code) => String(code) === defaultPhoneCode)) {
+        return defaultPhoneCode;
+    }
+
+    return String(allPhoneCodes.value[0] || defaultPhoneCode);
+};
 
 const customerForm = ref({
     name: "",
@@ -451,9 +460,9 @@ onMounted(async () => {
         const response = await axios.get("/api/pos/phone-codes");
         allPhoneCodes.value = response.data || [];
         filteredPhoneCodes.value = allPhoneCodes.value;
-        // Set default phone code (first one, or can be set from restaurant settings)
+        // Prefer +94 for new customer forms.
         if (customerForm.value.phone_code === "" && allPhoneCodes.value.length > 0) {
-            customerForm.value.phone_code = allPhoneCodes.value[0];
+            customerForm.value.phone_code = getDefaultPhoneCode();
         }
     } catch (error) {
         console.error("Error loading phone codes:", error);
@@ -465,11 +474,12 @@ watch(
     () => props.customer,
     (newCustomer) => {
         if (newCustomer) {
+                selectedCustomerId.value = newCustomer.id || null;
             customerForm.value = {
                 name: newCustomer.name || "",
                 email: newCustomer.email || "",
                 phone: newCustomer.phone || "",
-                phone_code: newCustomer.phone_code || allPhoneCodes.value[0] || "",
+                phone_code: newCustomer.phone_code || getDefaultPhoneCode(),
                 address: newCustomer.address || newCustomer.delivery_address || "",
             };
         }
@@ -519,12 +529,12 @@ const selectCustomer = (customer) => {
         name: customer.name || "",
         email: customer.email || "",
         phone: customer.phone || "",
-        phone_code: customer.phone_code || allPhoneCodes.value[0] || "",
+        phone_code: customer.phone_code || getDefaultPhoneCode(),
         address: customer.address || customer.delivery_address || "",
     };
     // Ensure phone_code is set even if customer doesn't have it
     if (!customerForm.value.phone_code && allPhoneCodes.value.length > 0) {
-        customerForm.value.phone_code = allPhoneCodes.value[0];
+        customerForm.value.phone_code = getDefaultPhoneCode();
     }
     searchQuery.value = "";
     searchResults.value = [];
@@ -593,7 +603,7 @@ const resetForm = () => {
         name: "",
         email: "",
         phone: "",
-        phone_code: allPhoneCodes.value[0] || "",
+        phone_code: getDefaultPhoneCode(),
         address: "",
     };
     searchQuery.value = "";
@@ -613,11 +623,13 @@ const handleClose = () => {
     emit("close");
 };
 
+const normalizeText = (value) => String(value ?? "").trim();
+
 const handleSave = async () => {
     // Validate required fields - trim and check for non-empty strings
-    const name = (customerForm.value.name || "").trim();
-    const phone = (customerForm.value.phone || "").trim();
-    const phone_code = (customerForm.value.phone_code || "").trim();
+    const name = normalizeText(customerForm.value.name);
+    const phone = normalizeText(customerForm.value.phone);
+    const phone_code = normalizeText(customerForm.value.phone_code);
 
     // Debug logging (validation status only, no PII)
     console.log("Form validation check:", { isValid: !!(name && phone && phone_code) });
@@ -633,19 +645,16 @@ const handleSave = async () => {
 
     saving.value = true;
     try {
-        const endpoint = selectedCustomerId.value
-            ? `/api/pos/orders/attach-customer`
-            : `/api/pos/customers`;
+        const endpoint = `/api/pos/customers`;
 
-        const payload = selectedCustomerId.value
-            ? { customer_id: selectedCustomerId.value }
-            : {
-                name: name,
-                phone: phone,
-                phone_code: phone_code,
-                email: (customerForm.value.email || "").trim() || null,
-                address: (customerForm.value.address || "").trim() || null,
-            };
+        const payload = {
+            customer_id: selectedCustomerId.value || null,
+            name: name,
+            phone: phone,
+            phone_code: phone_code,
+            email: normalizeText(customerForm.value.email) || null,
+            address: normalizeText(customerForm.value.address) || null,
+        };
 
         const response = await axios.post(endpoint, payload);
 

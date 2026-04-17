@@ -39,6 +39,7 @@ return array(
     'customerDeleted' => 'Customer deleted successfully!',
     'noCustomerFound' => 'No Customer Found',
     'settingsUpdated' => 'Settings updated successfully!',
+    'updateSuccess' => 'Updated successfully!',
     'orderPlacedSuccess' => 'Order placed successfully!',
     'orderCanceled' => 'Order canceled successfully!',
     'noPaymentFound' => 'No Payment Found',

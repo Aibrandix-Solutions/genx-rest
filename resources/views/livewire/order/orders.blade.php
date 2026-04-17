@@ -165,7 +165,7 @@
 
             <div class="grid sm:grid-cols-3 2xl:grid-cols-4 gap-3 sm:gap-4" wire:loading.remove>
                 @foreach ($orders as $item)
-                    <x-order.order-card :order='$item' wire:key='order-{{ $item->id . microtime() }}' />
+                    <x-order.order-card :order='$item' wire:key='order-{{ $item->id }}' />
                 @endforeach
             </div>
         </div>
