@@ -8,6 +8,8 @@ use App\Models\Country;
 use App\Models\Customer;
 use App\Models\DeliveryExecutive;
 use App\Models\DeliveryPlatform;
+use App\Models\Kot;
+use App\Models\KotCancelReason;
 use App\Models\Order;
 use App\Models\OrderType;
 use App\Models\Reservation;
@@ -43,6 +45,26 @@ class PosSupportController extends Controller
                 ->select('id', 'order_type_name', 'slug')
                 ->orderBy('order_type_name')
                 ->get()
+        );
+    }
+
+    public function cancelReasons()
+    {
+        abort_if(!in_array('Order', restaurant_modules()), 403);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        return response()->json(
+            KotCancelReason::query()
+                ->where('cancel_order', true)
+                ->orderBy('reason')
+                ->get(['id', 'reason'])
+                ->map(fn (KotCancelReason $reason) => [
+                    'id' => (int) $reason->id,
+                    'reason' => (string) $reason->reason,
+                ])
+                ->values()
         );
     }
 
@@ -324,14 +346,14 @@ class PosSupportController extends Controller
 
     public function updateOrderStatus(Request $request, int $id)
     {
-        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
-
         $validated = $request->validate([
             'order_status' => [
                 'required',
                 'string',
                 Rule::in(array_map(fn($status) => $status->value, OrderStatus::cases())),
             ],
+            'cancel_reason_id' => ['nullable', 'integer', 'exists:kot_cancel_reasons,id'],
+            'cancel_reason_text' => ['nullable', 'string', 'max:500'],
         ]);
 
         $branch = branch();
@@ -341,6 +363,9 @@ class PosSupportController extends Controller
             ->where('id', $id)
             ->where('branch_id', $branch->id)
             ->firstOrFail();
+
+        $requiredPermission = $validated['order_status'] === OrderStatus::CANCELLED->value ? 'Delete Order' : 'Update Order';
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can($requiredPermission), 403);
 
         $allowedStatuses = match ((string) ($order->order_type ?? 'dine_in')) {
             'delivery' => [
@@ -375,17 +400,26 @@ class PosSupportController extends Controller
 
         $nextStatus = OrderStatus::from($validated['order_status']);
 
+        if ($nextStatus === OrderStatus::CANCELLED && empty($validated['cancel_reason_id']) && empty($validated['cancel_reason_text'])) {
+            abort(422, __('modules.settings.cancelReasonRequired'));
+        }
+
         $order->update([
             'order_status' => $nextStatus,
             'status' => $nextStatus === OrderStatus::CANCELLED ? 'canceled' : $order->status,
+            'cancel_reason_id' => $nextStatus === OrderStatus::CANCELLED ? ($validated['cancel_reason_id'] ?? null) : $order->cancel_reason_id,
+            'cancel_reason_text' => $nextStatus === OrderStatus::CANCELLED ? ($validated['cancel_reason_text'] ?? null) : $order->cancel_reason_text,
         ]);
 
-        if ($nextStatus === OrderStatus::CONFIRMED) {
-            $order->kot->each(function ($kot) {
-                $kot->update(['status' => 'in_kitchen']);
-            });
+        if ($nextStatus === OrderStatus::CANCELLED && $order->table_id) {
+            Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
         }
 
+        if ($nextStatus === OrderStatus::CONFIRMED) {
+            $order->kot()
+                ->where('status', 'pending')
+                ->update(['status' => 'in_kitchen']);
+        }
         return response()->json([
             'success' => true,
             'message' => __('messages.updateSuccess'),
@@ -463,6 +497,338 @@ class PosSupportController extends Controller
             'data' => [
                 'order_id' => (int) $order->id,
                 'delivery_fee' => (float) ($order->delivery_fee ?? 0),
+            ],
+        ]);
+    }
+
+    /**
+     * Reduce (decrement) the quantity of a KOT item.
+     * If new_quantity <= 0, delegates to actual deletion (removeKotItem).
+     * Logs a quantity_updated entry to KotItemAdjustment.
+     */
+    public function reduceKotItem(Request $request, int $orderId, int $kotItemId)
+    {
+        abort_if(!in_array('Order', restaurant_modules()), 403);
+        abort_if(!user_can('Delete KOT Item'), 403);
+
+        $validated = $request->validate([
+            'new_quantity' => ['required', 'integer', 'min:0'],
+            'reason'       => ['required', 'string', 'min:3'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->with(['kot.items'])
+            ->where('id', $orderId)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        /** @var \App\Models\KotItem $kotItem */
+        $kotItem = \App\Models\KotItem::query()
+            ->with(['kot', 'menuItem', 'menuItemVariation.menuItem'])
+            ->whereHas('kot', fn($q) => $q->where('order_id', $order->id))
+            ->where('id', $kotItemId)
+            ->firstOrFail();
+
+        $newQuantity  = (int) $validated['new_quantity'];
+        $reason       = $validated['reason'];
+        $quantityBefore = (int) $kotItem->quantity;
+
+        // If reducing to 0 or below — treat as a full delete
+        if ($newQuantity <= 0) {
+            // Re-use removeKotItem logic inline
+            \App\Support\KotAdjustmentLogger::log($kotItem, 'deleted', $reason, $quantityBefore, 0);
+
+            $orderItemQuery = \App\Models\OrderItem::query()
+                ->where('order_id', $order->id)
+                ->where('menu_item_id', $kotItem->menu_item_id)
+                ->where('quantity', $kotItem->quantity);
+
+            if ($kotItem->menu_item_variation_id) {
+                $orderItemQuery->where('menu_item_variation_id', $kotItem->menu_item_variation_id);
+            } else {
+                $orderItemQuery->whereNull('menu_item_variation_id');
+            }
+
+            if ($kotItem->combo_pack_id) {
+                $orderItemQuery->where('is_combo_item', true)->where('combo_pack_id', $kotItem->combo_pack_id);
+            } else {
+                $orderItemQuery->where(fn($q) => $q->where('is_combo_item', false)->orWhereNull('is_combo_item'))
+                    ->whereNull('combo_pack_id');
+            }
+
+            $matched = $orderItemQuery->orderBy('id')->first();
+            if ($matched) {
+                $matched->modifierOptions()->detach();
+                $matched->delete();
+            }
+
+            $kotItem->modifierOptions()->detach();
+            $kotItem->delete();
+
+            $kot = $kotItem->kot;
+            $kot->refresh();
+            if ($kot->items()->count() === 0) {
+                $kot->delete();
+            }
+        } else {
+            // Log quantiy_updated
+            \App\Support\KotAdjustmentLogger::log($kotItem, 'quantity_updated', $reason, $quantityBefore, $newQuantity);
+
+            // Update KotItem quantity
+            $kotItem->update(['quantity' => $newQuantity]);
+
+            // Update matching OrderItem quantity + amount
+            $orderItemQuery = \App\Models\OrderItem::query()
+                ->where('order_id', $order->id)
+                ->where('menu_item_id', $kotItem->menu_item_id)
+                ->where('quantity', $quantityBefore); // match old qty
+
+            if ($kotItem->menu_item_variation_id) {
+                $orderItemQuery->where('menu_item_variation_id', $kotItem->menu_item_variation_id);
+            } else {
+                $orderItemQuery->whereNull('menu_item_variation_id');
+            }
+
+            if ($kotItem->combo_pack_id) {
+                $orderItemQuery->where('is_combo_item', true)->where('combo_pack_id', $kotItem->combo_pack_id);
+            } else {
+                $orderItemQuery->where(fn($q) => $q->where('is_combo_item', false)->orWhereNull('is_combo_item'))
+                    ->whereNull('combo_pack_id');
+            }
+
+            $matched = $orderItemQuery->orderBy('id')->first();
+            if ($matched) {
+                $unitPrice = $quantityBefore > 0
+                    ? round((float) ($matched->amount ?? 0) / $quantityBefore, 4)
+                    : (float) ($matched->price ?? 0);
+
+                $matched->update([
+                    'quantity' => $newQuantity,
+                    'amount'   => round($unitPrice * $newQuantity, 2),
+                ]);
+            }
+        }
+
+        // Recalculate order totals
+        $remainingItems = $order->items()->get();
+        $subtotal = $remainingItems->sum(fn($i) => (float) ($i->amount ?? 0));
+
+        $totalTax = 0.0;
+        if (($order->tax_mode ?? 'item') === 'order') {
+            $taxes = \App\Models\Tax::query()->select('id', 'tax_percent')->get();
+            foreach ($taxes as $tax) {
+                $totalTax += $subtotal * ((float) $tax->tax_percent / 100);
+            }
+        }
+
+        $total = round($subtotal + $totalTax - (float) ($order->discount_amount ?? 0), 2);
+        $order->update([
+            'sub_total'        => round($subtotal, 2),
+            'total'            => max(0, $total),
+            'total_tax_amount' => round($totalTax, 2),
+        ]);
+
+        // Handle fully empty order
+        $allKotsGone  = !$order->kot()->exists();
+        $noOrderItems = $order->items()->count() === 0;
+
+        if ($allKotsGone && $noOrderItems) {
+            $hasAdjustments = \App\Models\KotItemAdjustment::where('order_id', $order->id)->exists();
+            if ($hasAdjustments) {
+                $order->update([
+                    'status'       => 'canceled',
+                    'order_status' => \App\Enums\OrderStatus::CANCELLED,
+                    'sub_total'    => 0,
+                    'total'        => 0,
+                ]);
+            } else {
+                if ($order->table_id) {
+                    Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
+                }
+                $order->delete();
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'KOT item updated. Order has no remaining items.',
+                'data'    => ['order_cancelled_or_deleted' => true],
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $newQuantity <= 0 ? 'KOT item removed successfully.' : 'KOT item quantity updated.',
+            'data'    => [
+                'order_id'                => (int) $order->id,
+                'sub_total'               => (float) $order->sub_total,
+                'total'                   => (float) $order->total,
+                'order_cancelled_or_deleted' => false,
+            ],
+        ]);
+    }
+
+    public function removeKotItem(Request $request, int $orderId, int $kotItemId)
+    {
+        abort_if(!in_array('Order', restaurant_modules()), 403);
+        abort_if(!user_can('Delete KOT Item') && !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'reason' => ['required', 'string', 'min:3'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->with(['kot.items'])
+            ->where('id', $orderId)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        /** @var \App\Models\KotItem|null $kotItem */
+        $kotItem = \App\Models\KotItem::query()
+            ->with(['kot', 'menuItem', 'menuItemVariation.menuItem'])
+            ->whereHas('kot', fn($q) => $q->where('order_id', $order->id))
+            ->where('id', $kotItemId)
+            ->firstOrFail();
+
+        $kot = $kotItem->kot;
+        $quantityBefore = (int) $kotItem->quantity;
+
+        // Log the adjustment (mirrors KotAdjustmentLogger::log)
+        \App\Support\KotAdjustmentLogger::log(
+            $kotItem,
+            'deleted',
+            $validated['reason'],
+            $quantityBefore,
+            0
+        );
+
+        // Remove corresponding order_items row (mirror legacy deletePersistedOrderItemForKotLine)
+        $orderItemQuery = \App\Models\OrderItem::query()
+            ->where('order_id', $order->id)
+            ->where('menu_item_id', $kotItem->menu_item_id)
+            ->where('quantity', $kotItem->quantity);
+
+        if ($kotItem->menu_item_variation_id) {
+            $orderItemQuery->where('menu_item_variation_id', $kotItem->menu_item_variation_id);
+        } else {
+            $orderItemQuery->whereNull('menu_item_variation_id');
+        }
+
+        if ($kotItem->combo_pack_id) {
+            $orderItemQuery->where('is_combo_item', true)->where('combo_pack_id', $kotItem->combo_pack_id);
+        } else {
+            $orderItemQuery->where(fn($q) => $q->where('is_combo_item', false)->orWhereNull('is_combo_item'))
+                ->whereNull('combo_pack_id');
+        }
+
+        $matchedOrderItem = $orderItemQuery->orderBy('id')->first();
+        if ($matchedOrderItem) {
+            $matchedOrderItem->modifierOptions()->detach();
+            $matchedOrderItem->delete();
+        }
+
+        // Delete the KotItem
+        $kotItem->modifierOptions()->detach();
+        $kotItem->delete();
+
+        // Delete the KOT if it has no items left
+        $kot->refresh();
+        $kotIsEmpty = $kot->items()->count() === 0;
+        if ($kotIsEmpty) {
+            $kot->delete();
+        }
+
+        // Recalculate order totals from remaining order_items
+        $remainingItems = $order->items()->get();
+        $subtotal = $remainingItems->sum(fn($i) => (float) ($i->amount ?? 0));
+
+        // Recalculate taxes (order-level tax mode)
+        $totalTax = 0.0;
+        if (($order->tax_mode ?? 'item') === 'order') {
+            $taxes = \App\Models\Tax::query()->select('id', 'tax_percent')->get();
+            foreach ($taxes as $tax) {
+                $totalTax += $subtotal * ((float) $tax->tax_percent / 100);
+            }
+        }
+
+        $total = round($subtotal + $totalTax - (float) ($order->discount_amount ?? 0), 2);
+
+        $order->update([
+            'sub_total' => round($subtotal, 2),
+            'total' => max(0, $total),
+            'total_tax_amount' => round($totalTax, 2),
+        ]);
+
+        // If the order has no items left, cancel it (preserve audit trail) or delete it
+        $allKotsGone = !$order->kot()->exists();
+        $noOrderItems = $order->items()->count() === 0;
+
+        if ($allKotsGone && $noOrderItems) {
+            $hasAdjustments = \App\Models\KotItemAdjustment::where('order_id', $order->id)->exists();
+
+            if ($hasAdjustments) {
+                $order->update([
+                    'status' => 'canceled',
+                    'order_status' => \App\Enums\OrderStatus::CANCELLED,
+                    'sub_total' => 0,
+                    'total' => 0,
+                ]);
+            } else {
+                if ($order->table_id) {
+                    Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
+                }
+                $order->delete();
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'KOT item removed. Order has no remaining items.',
+                'data' => ['order_cancelled_or_deleted' => true],
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'KOT item removed successfully.',
+            'data' => [
+                'order_id' => (int) $order->id,
+                'sub_total' => (float) $order->sub_total,
+                'total' => (float) $order->total,
+                'order_cancelled_or_deleted' => false,
+            ],
+        ]);
+    }
+
+    public function deleteOrder(int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Delete Order'), 403);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        if ($order->table_id) {
+            Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
+        }
+
+        // Mirror legacy delete behavior by removing all KOT rows and then deleting the order.
+        Kot::query()->where('order_id', $order->id)->delete();
+        $order->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.orderDeleted'),
+            'data' => [
+                'order_id' => (int) $id,
             ],
         ]);
     }

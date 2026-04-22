@@ -12,10 +12,12 @@ use App\Models\MenuItem;
 use App\Models\MenuItemVariation;
 use App\Models\ModifierOption;
 use App\Models\Order;
+use App\Models\OrderExtra;
 use App\Models\OrderItem;
 use App\Models\OrderType;
 use App\Models\OrderTax;
 use App\Models\Tax;
+use App\Services\Pos\BillSecondaryActionResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -35,6 +37,9 @@ class PosVueOrderController extends Controller
                 'items.modifierOptions',
                 'items.menuItem',
                 'items.menuItemVariation',
+                'kot.items.modifierOptions',
+                'kot.items.menuItem',
+                'kot.items.menuItemVariation',
             ])
             ->where('id', $id)
             ->where('branch_id', $branch->id)
@@ -44,8 +49,25 @@ class PosVueOrderController extends Controller
         $currentComboPackId = null;
         $currentComboInstanceKey = null;
         $itemsInCurrentCombo = 0;
+        $resolveUnitPrice = static function ($item): float {
+            $unitPrice = (float) ($item->price ?? 0);
 
-        $lines = $order->items->map(function ($item, $index) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey, &$itemsInCurrentCombo) {
+            if ($unitPrice <= 0) {
+                $qty = (int) ($item->quantity ?? 0);
+                $amount = (float) ($item->amount ?? 0);
+                if ($qty > 0 && $amount > 0) {
+                    $unitPrice = round($amount / $qty, 2);
+                }
+            }
+
+            if ($unitPrice <= 0) {
+                $unitPrice = (float) ($item->menuItemVariation?->price ?? 0);
+            }
+
+            return $unitPrice > 0 ? $unitPrice : 0.0;
+        };
+
+        $lines = $order->items->map(function ($item) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey, &$itemsInCurrentCombo, $resolveUnitPrice) {
             $comboInstanceKey = null;
             if (!empty($item->combo_pack_id)) {
                 $packId = (int) $item->combo_pack_id;
@@ -73,15 +95,22 @@ class PosVueOrderController extends Controller
                 ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
                 ->all();
 
+            $qty = (int) ($item->quantity ?? 1);
+            $unitPrice = $resolveUnitPrice($item);
+            $amount = (float) ($item->amount ?? 0);
+            if ($amount <= 0 && $unitPrice > 0 && $qty > 0) {
+                $amount = round($unitPrice * $qty, 2);
+            }
+
             return [
                 'order_item_id' => (int) $item->id,
                 'menu_item_id' => (int) $item->menu_item_id,
                 'item_name' => (string) ($item->menuItem?->item_name ?? ''),
                 'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
                 'variation_name' => (string) ($item->menuItemVariation?->variation ?? ''),
-                'qty' => (int) ($item->quantity ?? 1),
-                'unit_price' => (float) ($item->price ?? 0),
-                'amount' => (float) ($item->amount ?? 0),
+                'qty' => $qty,
+                'unit_price' => $unitPrice,
+                'amount' => $amount,
                 'note' => $item->note,
                 'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
                 'combo_instance_key' => $comboInstanceKey,
@@ -89,11 +118,79 @@ class PosVueOrderController extends Controller
             ];
         })->values();
 
+        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice) {
+            $comboInstancesByPack = [];
+            $currentComboPackId = null;
+            $currentComboInstanceKey = null;
+
+            $kotLines = $kot->items->map(function ($item) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey, $resolveUnitPrice) {
+                $comboInstanceKey = null;
+                if (!empty($item->combo_pack_id)) {
+                    $packId = (int) $item->combo_pack_id;
+
+                    if ($packId !== $currentComboPackId) {
+                        $currentComboPackId = $packId;
+                        $comboInstancesByPack[$packId] = ($comboInstancesByPack[$packId] ?? 0) + 1;
+                        $currentComboInstanceKey = 'combo_' . $packId . '_' . $comboInstancesByPack[$packId];
+                    }
+
+                    $comboInstanceKey = $currentComboInstanceKey;
+                } else {
+                    $currentComboPackId = null;
+                    $currentComboInstanceKey = null;
+                }
+
+                $modifierQtyMap = $item->modifierOptions
+                    ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                    ->all();
+
+                $qty = (int) ($item->quantity ?? 1);
+                $unitPrice = $resolveUnitPrice($item);
+                $amount = (float) ($item->amount ?? 0);
+                if ($amount <= 0 && $unitPrice > 0 && $qty > 0) {
+                    $amount = round($unitPrice * $qty, 2);
+                }
+
+                return [
+                    'kot_item_id' => (int) $item->id,
+                    'menu_item_id' => (int) $item->menu_item_id,
+                    'item_name' => (string) ($item->menuItem?->item_name ?? ''),
+                    'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
+                    'variation_name' => (string) ($item->menuItemVariation?->variation ?? ''),
+                    'qty' => $qty,
+                    'unit_price' => $unitPrice,
+                    'amount' => $amount,
+                    'note' => (string) ($item->note ?? ''),
+                    'status' => (string) ($item->status ?? ''),
+                    'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
+                    'combo_instance_key' => $comboInstanceKey,
+                    'modifier_option_quantities' => $modifierQtyMap,
+                ];
+            })->values();
+
+            return [
+                'id' => (int) $kot->id,
+                'kot_number' => (string) ($kot->kot_number ?? ''),
+                'created_at' => $kot->created_at ? $kot->created_at->toIso8601String() : null,
+                'status' => (string) ($kot->status ?? ''),
+                'lines' => $kotLines,
+            ];
+        })->values();
+
+        $customerPhone = null;
+        if ($order->customer?->phone) {
+            $phoneCode = trim((string) ($order->customer->phone_code ?? ''));
+            $phone = trim((string) $order->customer->phone);
+            $customerPhone = $phoneCode !== '' ? $phoneCode . $phone : $phone;
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
                 'order' => [
                     'id' => (int) $order->id,
+                    'order_number' => (string) ($order->order_number ?? ''),
+                    'formatted_order_number' => (string) ($order->show_formatted_order_number ?? ''),
                     'status' => (string) $order->status,
                     'order_status' => $order->order_status?->value ?? (string) ($order->order_status ?? ''),
                     'order_type' => (string) ($order->order_type ?? 'dine_in'),
@@ -112,10 +209,32 @@ class PosVueOrderController extends Controller
                         'address' => $order->customer->delivery_address,
                         'delivery_address' => $order->customer->delivery_address,
                     ] : null,
+                    'delivery_address' => (string) ($order->delivery_address ?? $order->customer?->delivery_address ?? ''),
+                    'customer_phone' => $customerPhone,
+                    'customer_lat' => $order->customer_lat !== null ? (float) $order->customer_lat : null,
+                    'customer_lng' => $order->customer_lng !== null ? (float) $order->customer_lng : null,
                     'note' => (string) ($order->note ?? ''),
                     'sub_total' => (float) ($order->sub_total ?? 0),
                     'total' => (float) ($order->total ?? 0),
+                    // Legacy parity (Pos.php mount): custom_extras loaded from order_extras.
+                    // Only surfaced when the setting is enabled so the UI never appears
+                    // for restaurants that have it turned off.
+                    'allow_custom_order_extras' => (bool) (restaurant()->allow_custom_order_extras ?? false),
+                    'custom_extras' => (restaurant()->allow_custom_order_extras ?? false)
+                        ? $order->extras()->orderBy('id')->get(['note', 'amount'])
+                            ->map(fn ($extra) => [
+                                'note' => $extra->note,
+                                'amount' => (float) $extra->amount,
+                            ])->values()
+                        : [],
+                    'permissions' => [
+                        'can_update_order' => (bool) user_can('Update Order'),
+                        'can_delete_order' => (bool) user_can('Delete Order'),
+                        'can_edit_billed_order' => (bool) user_can('Edit Billed Order'),
+                        'can_delete_kot_item' => (bool) user_can('Delete KOT Item'),
+                    ],
                     'lines' => $lines,
+                    'kots' => $kots,
                 ],
             ],
         ]);
@@ -129,6 +248,7 @@ class PosVueOrderController extends Controller
             'order_id' => ['nullable', 'integer', 'exists:orders,id'],
             'action' => ['nullable', 'string', Rule::in(['kot', 'bill'])],
             'open_payment' => ['nullable', 'boolean'],
+            'secondary_action' => ['nullable', 'string', Rule::in(['payment', 'print'])],
             'order_type_id' => ['nullable', 'integer', 'exists:order_types,id'],
             'delivery_app_id' => ['nullable'],
             'delivery_executive_id' => ['nullable', 'integer', 'exists:delivery_executives,id'],
@@ -145,12 +265,29 @@ class PosVueOrderController extends Controller
             'lines.*.modifier_option_quantities.*' => ['nullable', 'integer', 'min:1'],
             'lines.*.combo_pack_id' => ['nullable', 'integer', 'exists:combo_packs,id'],
             'lines.*.combo_instance_key' => ['nullable', 'string'],
+            // Legacy parity (Pos.php::normalizeOrderExtras / syncOrderExtras):
+            // optional per-order custom extras, each with {amount, note}.
+            'custom_extras' => ['nullable', 'array'],
+            'custom_extras.*.amount' => ['nullable', 'numeric', 'min:0'],
+            'custom_extras.*.note' => ['nullable', 'string'],
+            // New-KOT mode flag: when the cart is an "append-only" delta for an
+            // existing order, the store path must preserve existing items/KOTs
+            // (mirrors Pos.php::$appendOnlyKotSave).
+            'append_kot' => ['nullable', 'boolean'],
         ]);
 
         $editingOrderId = isset($validated['order_id']) ? (int) $validated['order_id'] : null;
         $action = $validated['action'] ?? 'kot';
+        $secondaryAction = $validated['secondary_action'] ?? null;
         $openPayment = (bool) ($validated['open_payment'] ?? false);
         $status = $action === 'bill' ? 'billed' : 'kot';
+        $billFollowUp = app(BillSecondaryActionResolver::class)->resolve($action, $secondaryAction);
+        // Append-only KOT save is valid only for `kot` action against an existing order.
+        // Legacy parity (Pos.php::$appendOnlyKotSave): the New KOT screen posts
+        // a delta of new lines only. Regardless of action (kot or bill), the
+        // server must preserve existing items/KOTs/extras. Status transitions
+        // on bill are still applied via the update payload below.
+        $appendKot = $editingOrderId && !empty($validated['append_kot']);
 
         $branch = branch();
         $restaurant = restaurant();
@@ -193,7 +330,7 @@ class PosVueOrderController extends Controller
             $sessionDeliveryAppId = false;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -205,38 +342,59 @@ class PosVueOrderController extends Controller
 
                 $isUpdate = true;
 
-                foreach ($order->items()->with('modifierOptions')->get() as $existingOrderItem) {
-                    $existingOrderItem->modifierOptions()->detach();
-                }
-
-                $order->items()->delete();
-                $order->taxes()->delete();
-
-                foreach ($order->kot()->with('items.modifierOptions')->get() as $existingKot) {
-                    foreach ($existingKot->items as $existingKotItem) {
-                        $existingKotItem->modifierOptions()->detach();
+                // Legacy parity (Pos.php saveOrder):
+                //   - On `bill`, existing KOTs are preserved so order_detail.blade can render $kotList.
+                //   - On `kot` with a FULL cart (non-append), items/KOTs are wiped and recreated.
+                //   - On `kot` in APPEND mode (New KOT flow from /pos/kot/{id}), everything is
+                //     preserved and only the delta lines are appended + new KOT created below.
+                if (!$appendKot) {
+                    foreach ($order->items()->with('modifierOptions')->get() as $existingOrderItem) {
+                        $existingOrderItem->modifierOptions()->detach();
                     }
-                    $existingKot->items()->delete();
-                    $existingKot->delete();
+
+                    $order->items()->delete();
+                    $order->taxes()->delete();
+
+                    if ($action === 'kot') {
+                        foreach ($order->kot()->with('items.modifierOptions')->get() as $existingKot) {
+                            foreach ($existingKot->items as $existingKotItem) {
+                                $existingKotItem->modifierOptions()->detach();
+                            }
+                            $existingKot->items()->delete();
+                            $existingKot->delete();
+                        }
+                    }
                 }
 
-                $order->update([
+                // Build the update payload; preserve status when appending a New KOT to a
+                // billed/paid/payment_due order so we don't demote it back to `kot`.
+                $updatePayload = [
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
                     'customer_id' => $validated['customer_id'] ?? null,
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,
                     'delivery_fee' => ($orderTypeValue === 'delivery') ? (float) ($validated['delivery_fee'] ?? 0) : 0,
-                    'sub_total' => 0,
-                    'total' => 0,
                     'order_type' => $orderTypeValue,
                     'order_type_id' => $orderType?->id,
                     'custom_order_type_name' => $orderType?->order_type_name,
-                    'status' => $status,
                     'order_status' => 'confirmed',
                     'placed_via' => 'pos',
                     'tax_mode' => $restaurant->tax_mode ?? 'item',
-                ]);
+                ];
+
+                if (!$appendKot) {
+                    $updatePayload['sub_total'] = 0;
+                    $updatePayload['total'] = 0;
+                    $updatePayload['status'] = $status;
+                } elseif ($action === 'bill') {
+                    // Append + bill (e.g. "KOT, Bill & Payment" from New KOT screen):
+                    // promote the existing order to `billed` while keeping previously
+                    // persisted items/KOTs. Totals are recomputed below and re-saved.
+                    $updatePayload['status'] = $status;
+                }
+
+                $order->update($updatePayload);
             } else {
                 $numberData = Order::generateOrderNumber($branch);
 
@@ -394,21 +552,73 @@ class PosVueOrderController extends Controller
                 }
             }
 
+            // Legacy parity (Pos.php::syncOrderExtras): persist custom extras when the
+            // setting is enabled. On bill/kot with a full cart we delete + recreate;
+            // on append-only New KOT we keep existing rows untouched.
+            $allowExtras = (bool) ($restaurant->allow_custom_order_extras ?? false);
+            if ($allowExtras && !$appendKot) {
+                $order->extras()->delete();
+
+                foreach (($validated['custom_extras'] ?? []) as $extraRow) {
+                    if (!is_array($extraRow)) {
+                        continue;
+                    }
+
+                    $extraNote = trim((string) ($extraRow['note'] ?? ''));
+                    $extraAmount = max(0, round((float) ($extraRow['amount'] ?? 0), 2));
+
+                    if ($extraNote === '' && $extraAmount <= 0) {
+                        continue;
+                    }
+
+                    OrderExtra::create([
+                        'order_id' => $order->id,
+                        'note' => $extraNote !== '' ? $extraNote : null,
+                        'amount' => $extraAmount,
+                    ]);
+                }
+            }
+
+            // Legacy parity (Pos.php::calculateTotal): extras are added to total but
+            // excluded from the items subtotal and the discount base.
+            $extrasTotal = $allowExtras
+                ? (float) $order->extras()->sum('amount')
+                : 0.0;
+
+            // In append mode, the incoming $subtotal only reflects NEW lines — add the
+            // persisted existing items so totals match the full order.
+            if ($appendKot) {
+                $subtotal += (float) $order->items()
+                    ->whereNotIn('id', $orderItemsCreated)
+                    ->sum('amount');
+            }
+
             $taxMode = $restaurant->tax_mode ?? 'item';
             $totalTax = 0.0;
 
             if ($taxMode === 'order') {
-                $taxes = Tax::query()->select('id', 'tax_percent')->get();
-                foreach ($taxes as $tax) {
-                    OrderTax::create([
-                        'order_id' => $order->id,
-                        'tax_id' => $tax->id,
-                    ]);
-                    $totalTax += ($subtotal * ((float) $tax->tax_percent / 100));
+                if (!$appendKot) {
+                    $taxes = Tax::query()->select('id', 'tax_percent')->get();
+                    foreach ($taxes as $tax) {
+                        OrderTax::create([
+                            'order_id' => $order->id,
+                            'tax_id' => $tax->id,
+                        ]);
+                        $totalTax += (($subtotal + $extrasTotal) * ((float) $tax->tax_percent / 100));
+                    }
+                } else {
+                    // Append mode: existing OrderTax rows remain. Recompute aggregate
+                    // tax against the combined subtotal+extras base using those rows.
+                    $taxPercents = $order->taxes()
+                        ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
+                        ->pluck('taxes.tax_percent');
+                    foreach ($taxPercents as $taxPercent) {
+                        $totalTax += (($subtotal + $extrasTotal) * ((float) $taxPercent / 100));
+                    }
                 }
             }
 
-            $total = round($subtotal + $totalTax, 2);
+            $total = round($subtotal + $extrasTotal + $totalTax, 2);
 
             $order->update([
                 'sub_total' => round($subtotal, 2),
@@ -485,12 +695,23 @@ class PosVueOrderController extends Controller
                 'status' => $result['order']->status,
                 'sub_total' => (float) $result['order']->sub_total,
                 'total' => (float) $result['order']->total,
-                'should_open_payment_modal' => $action === 'bill' && $openPayment,
+                'should_open_payment_modal' => $billFollowUp['open_payment'] || ($action === 'bill' && $openPayment),
+                'next' => [
+                    'secondary_action' => $billFollowUp['secondary_action'],
+                    'open_payment' => $billFollowUp['open_payment'] || ($action === 'bill' && $openPayment),
+                    'print_receipt' => $billFollowUp['print_receipt'],
+                    'show_order_detail' => $billFollowUp['show_order_detail'],
+                ],
                 'kot_ids' => $result['kot_ids'],
                 'order_item_ids' => $result['order_item_ids'],
                 'links' => [
                     'order' => route('pos.order', ['id' => $result['order']->id]),
                     'kot' => route('pos.kot', ['id' => $result['order']->id]),
+                    'bill' => route('orders.print', ['id' => $result['order']->id]),
+                    'kot_print_urls' => array_map(
+                        fn ($kotId) => route('kot.print', ['id' => $kotId]),
+                        $result['kot_ids'] ?? []
+                    ),
                 ],
             ],
         ]);

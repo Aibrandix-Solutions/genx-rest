@@ -86,6 +86,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/reservations/today', [PosSupportController::class, 'reservationsToday']);
     Route::post('/pos/tables/{id}/unlock', [PosSupportController::class, 'unlockTable']);
     Route::get('/pos/orders/{id}', [PosVueOrderController::class, 'show']);
+    Route::get('/pos/cancel-reasons', [PosSupportController::class, 'cancelReasons']);
     Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
     Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
@@ -93,4 +94,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
     Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
     Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
+    Route::delete('/pos/orders/{id}', [PosSupportController::class, 'deleteOrder']);
+    Route::delete('/pos/orders/{orderId}/kot-items/{kotItemId}', [PosSupportController::class, 'removeKotItem']);
+    Route::patch('/pos/orders/{orderId}/kot-items/{kotItemId}/quantity', [PosSupportController::class, 'reduceKotItem']);
 });

@@ -60,6 +60,7 @@ class PosController extends Controller
     {
         $bootstrap = $bootstrapService->resolve();
         $data = $bootstrap['data'] ?? [];
+        $branch = branch();
 
         $menuList = Menu::query()
             ->select('id', 'menu_name')
@@ -227,6 +228,12 @@ class PosController extends Controller
             })->values(),
             'tax_mode' => (string) ($data['tax_mode'] ?? 'item'),
             'currency_symbol' => (string) (restaurant()->currency?->currency_symbol ?? '$'),
+            'branch' => $branch ? [
+                'id' => (int) $branch->id,
+                'name' => (string) ($branch->name ?? ''),
+                'lat' => $branch->lat !== null ? (float) $branch->lat : null,
+                'lng' => $branch->lng !== null ? (float) $branch->lng : null,
+            ] : null,
             'delivery_platforms' => collect($data['delivery_platforms'] ?? [])->map(function ($platform) {
                 return [
                     'id' => (int) ($platform->id ?? 0),
@@ -245,7 +252,13 @@ class PosController extends Controller
             })->values(),
         ];
 
-        $branch = branch();
+        $payload['modules'] = array_values(restaurant_modules() ?? []);
+        $payload['allow_custom_order_extras'] = (bool) (restaurant()->allow_custom_order_extras ?? false);
+        $payload['pos_preferences'] = [
+            'default_order_type_id' => (int) (restaurant()->default_order_type_id ?? 0),
+            'selected_delivery_app' => null,
+        ];
+
         $comboPacks = collect([]);
 
         if ($branch) {

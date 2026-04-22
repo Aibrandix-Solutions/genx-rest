@@ -1,8 +1,8 @@
 <template>
     <div
         class="w-full min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto px-3 py-4 dark:bg-gray-800 overflow-x-hidden overflow-y-auto">
-        <!-- Order Type -->
-        <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
+        <!-- Order Type (Hidden in Linked Mode) -->
+        <div v-if="!isLinkedOrderMode" class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
             <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="text-xs text-gray-500 dark:text-gray-400">Order Type:</span>
@@ -10,13 +10,14 @@
                         {{ orderType }}
                     </span>
                 </div>
-                <button type="button" @click="showOrderTypeDropdown = !showOrderTypeDropdown"
+                <button type="button" @click="canChangeOrderType && (showOrderTypeDropdown = !showOrderTypeDropdown)"
+                    :disabled="!canChangeOrderType"
                     class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
                     {{ showOrderTypeDropdown ? "Close" : "Change" }}
                 </button>
             </div>
 
-            <div v-if="showOrderTypeDropdown" class="mt-3 grid grid-cols-1 gap-2">
+            <div v-if="showOrderTypeDropdown && canChangeOrderType" class="mt-3 grid grid-cols-1 gap-2">
                 <label class="text-xs text-gray-600 dark:text-gray-400">Select Order Type</label>
                 <select v-model="localOrderTypeId" @change="handleOrderTypeChange"
                     class="text-sm w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-gray-500">
@@ -46,7 +47,7 @@
             </div>
         </div>
 
-        <div v-if="selectedOrderTypeSlug === 'delivery' && canEditWaiter"
+        <div v-if="selectedOrderTypeSlug === 'delivery' && canManageDeliveryExecutive"
             class="mt-3 mb-3 flex items-center gap-2 text-gray-700 dark:text-gray-300">
             <svg class="w-6 h-6 transition duration-75 text-gray-500 dark:text-gray-400" fill="currentColor"
                 version="1.0" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -65,6 +66,52 @@
             </select>
         </div>
 
+        <!-- Linked Order Mode Banner - Removed to match legacy design -->
+        <!-- This section has been intentionally removed as legacy orders do not display -->
+        <!-- the linked order mode banner, status, or permission information -->
+
+        <div v-if="showLinkedDeliveryInfoCard"
+            class="mt-3 rounded-lg bg-gray-50 p-3 text-gray-700 dark:bg-gray-700 dark:text-gray-200">
+            <div v-if="linkedCustomerName" class="flex items-center gap-1.5 text-gray-800 dark:text-gray-200">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M3 14s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H3Zm5-6a3 3 0 1 0 0-6 3 3 0 0 0 0 6" />
+                </svg>
+                <span>{{ linkedCustomerName }}</span>
+            </div>
+
+            <a v-if="linkedCustomerPhone" :href="linkedCustomerPhoneHref"
+                class="mt-2 flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd"
+                        d="M1.885.511a1.745 1.745 0 0 1 2.61.163L6.29 2.98c.329.423.445.974.315 1.494l-.547 2.19a.678.678 0 0 0 .178.643l2.457 2.457a.678.678 0 0 0 .644.178l2.189-.547a1.745 1.745 0 0 1 1.494.315l2.306 1.794c.829.645.905 1.87.163 2.611l-1.034 1.034c-.74.74-1.846 1.065-2.877.702a18.634 18.634 0 0 1-7.01-4.42 18.634 18.634 0 0 1-4.42-7.009c-.362-1.03-.037-2.137.703-2.877z" />
+                </svg>
+                <span>{{ linkedCustomerPhone }}</span>
+            </a>
+
+            <div class="mt-2 flex items-center justify-between">
+                <div class="flex items-center gap-1.5 text-gray-800 dark:text-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path
+                            d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6" />
+                    </svg>
+                    <span>Address</span>
+                </div>
+
+                <a v-if="hasLinkedMapDirections" :href="linkedMapDirectionsUrl" target="_blank"
+                    class="flex items-center gap-1 text-sm text-blue-500 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300">
+                    <span>View on Map</span>
+                    <svg width="24" height="24" class="h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4m-8-2 8-8m0 0v5m0-5h-5" />
+                    </svg>
+                </a>
+            </div>
+
+            <div class="mt-2 rounded border border-gray-200 bg-white p-2 text-sm text-gray-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                <span class="whitespace-pre-line">{{ linkedDeliveryAddress }}</span>
+            </div>
+        </div>
+
         <!-- Order Header -->
         <div>
             <div class="mt-2 flex items-start justify-between gap-3">
@@ -77,7 +124,7 @@
                             {{ customer.phone_code ? '+' + customer.phone_code + ' ' : '' }}{{ customer.phone }}
                         </div>
                     </div>
-                    <button type="button" @click="$emit('show-add-customer')"
+                    <button v-if="canManageCustomerDetails" type="button" @click="$emit('show-add-customer')"
                         class="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
                         title="Change Customer">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
@@ -88,7 +135,7 @@
                                 d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5v11z" />
                         </svg>
                     </button>
-                    <button type="button" @click="$emit('remove-customer')"
+                    <button v-if="canManageCustomerDetails" type="button" @click="$emit('remove-customer')"
                         class="inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md border border-red-200 bg-red-50 text-red-600 transition-colors hover:bg-red-100 hover:text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/40"
                         title="Remove Customer">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
@@ -101,7 +148,7 @@
                 </div>
                 <a v-else href="javascript:;" @click="$emit('show-add-customer')"
                     class="text-sm underline underline-offset-2 dark:text-gray-300">
-                    {{ customer?.id ? 'Change Customer' : '+ Add Customer Details' }}
+                     Add Customer Details
                 </a>
             </div>
 
@@ -120,6 +167,12 @@
                         'text-yellow-600 dark:text-yellow-400': !isOnline,
                     }">
                         {{ formattedOrderNumber }}
+                    </span>
+                    <!-- Lifecycle status badge: legacy parity with order_detail.blade.php -->
+                    <span v-if="isLinkedOrderMode && linkedStatusBadgeLabel"
+                        class="ml-2 text-xs font-medium px-2 py-1 rounded uppercase tracking-wide whitespace-nowrap border"
+                        :class="linkedStatusBadgeClass">
+                        {{ linkedStatusBadgeLabel }}
                     </span>
                     <!-- Offline Warning Tooltip -->
                     <div v-if="!isOnline"
@@ -158,7 +211,7 @@
                         </svg>
                         {{ currentTable }}
 
-                        <button type="button"
+                        <button v-if="canManageTableAssignment" type="button"
                             class="inline-flex items-center px-2 py-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-500 rounded-lg text-sm text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150"
                             @click="showTableAssignmentModal = true" title="Change Table">
                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
@@ -170,7 +223,7 @@
                             </svg>
                         </button>
                     </template>
-                    <button v-else type="button"
+                    <button v-else-if="canManageTableAssignment" type="button"
                         class="inline-flex items-center px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-500 rounded-lg font-semibold text-sm text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-25 transition ease-in-out duration-150"
                         @click="showTableAssignmentModal = true">
                         Set Table
@@ -180,14 +233,15 @@
 
             <!-- Pax and Waiter -->
             <div class="flex justify-between items-center gap-2">
-                <div class="py-2 inline-flex items-center gap-1 text-sm dark:text-gray-300">
+                <div v-if="selectedOrderTypeSlug === 'dine_in'" class="py-2 inline-flex items-center gap-1 text-sm dark:text-gray-300">
                     Pax
                     <input type="number" v-model="localPax" @input="$emit('update:pax', localPax)"
                         class="w-14 px-2 py-1 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 text-sm focus:outline-none focus:ring-1 focus:ring-gray-500 dark:focus:ring-gray-400 focus:border-transparent"
                         step="1" min="1" />
                 </div>
+                <div v-else class="py-2"></div>
                 <div class="gap-2 inline-flex items-center">
-                    <button type="button"
+                    <button v-if="canManageLineItems" type="button"
                         class="inline-flex items-center px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-500 rounded-lg font-semibold text-sm text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-25 transition ease-in-out duration-150 relative"
                         @click="$emit('add-note')" title="Add Note">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
@@ -199,6 +253,8 @@
                                 d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z">
                             </path>
                         </svg>
+                        <!-- Green dot: order note is set -->
+                        <span v-if="orderNote" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-white dark:border-gray-800"></span>
                     </button>
                     <div class="inline-flex items-center gap-2">
                         <svg class="w-5 h-5 text-gray-700 dark:text-gray-200 hidden lg:block" fill="currentColor"
@@ -221,6 +277,14 @@
                         </span>
                     </div>
                 </div>
+            </div>
+
+            <!-- Pickup Date/Time -->
+            <div v-if="selectedOrderTypeSlug === 'pickup'" class="mt-2 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <label class="flex-shrink-0 font-medium">Pickup Time:</label>
+                <input type="datetime-local" :value="pickupDateTime"
+                    @input="$emit('update:pickupDateTime', $event.target.value)"
+                    class="w-full border border-gray-300 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-500" />
             </div>
         </div>
 
@@ -262,7 +326,7 @@
                 </div>
 
                 <div v-if="canMoveToNextOrderStatus || canCancelOrder" class="flex justify-end items-center mt-2 gap-2">
-                    <button v-if="canCancelOrder" type="button" @click="$emit('update:orderStatus', 'cancelled')"
+                    <button v-if="canCancelOrder" type="button" @click="$emit('request-cancel-order')"
                         class="inline-flex items-center gap-2 px-3 py-2 bg-red-600 border border-red-700 rounded-lg font-semibold text-sm text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150">
                         <span>Cancel Order</span>
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -280,11 +344,6 @@
                     </button>
                 </div>
             </div>
-        </div>
-
-        <div v-if="props?.order"
-            class="flex justify-between p-2 text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700">
-            <div>KOT #{{ props.order }}</div>
         </div>
 
         <!-- Cart Items Table -->
@@ -314,7 +373,214 @@
                         </th>
                     </tr>
                 </thead>
-                <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+                <tbody v-if="isLinkedOrderMode" class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+                    <template v-if="linkedKotGroups.length === 0">
+                        <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <td class="p-8 text-center" colspan="5">
+                                <div class="flex flex-col items-center justify-center space-y-3">
+                                    <svg class="w-12 h-12 text-gray-500 dark:text-gray-300" fill="none"
+                                        stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z">
+                                        </path>
+                                    </svg>
+                                    <div class="text-gray-500 dark:text-gray-400 text-base">
+                                        No record found
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    </template>
+                    <template v-else>
+                        <template v-for="group in linkedKotGroups" :key="group.key">
+                            <tr class="bg-gray-50 dark:bg-gray-700/70">
+                                <td colspan="5" class="px-3 py-2">
+                                    <div class="flex items-center justify-between gap-3 text-xs text-gray-600 dark:text-gray-300">
+                                        <div class="font-semibold text-gray-900 dark:text-white">
+                                            {{ group.title }}
+                                        </div>
+                                        <div v-if="group.createdAt" class="text-gray-500 dark:text-gray-400">
+                                            {{ formatLinkedKotTimestamp(group.createdAt) }}
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr v-for="item in group.lines" :key="item._linkedKey"
+                                class="hover:bg-gray-100 dark:hover:bg-gray-700">
+                                <td class="flex flex-col p-2 lg:min-w-20 relative">
+                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
+                                        {{ item.name }}
+                                    </div>
+                                    <div class="text-xs text-gray-600 dark:text-white inline-flex items-center">
+                                    </div>
+                                    <div class="inline-flex items-center relative group" v-cloak>
+                                        <template v-if="canManageLineItems && item.note && !item._showNoteInput && !item._showNotePreview">
+                                            <div class="flex items-center gap-2 cursor-pointer text-skin-base text-xs hover:text-skin-base/80 transition-all duration-200"
+                                                @click="() => { item._showNotePreview = true; }" title="Special Instructions">
+                                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                        d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3z">
+                                                    </path>
+                                                </svg>
+                                                <span class="truncate max-w-[70px] md:max-w-64 lg:max-w-[70px]">{{ item.note }}</span>
+                                            </div>
+                                        </template>
+
+                                        <template v-else-if="canManageLineItems && !item.note && !item._showNoteInput && !item._showNotePreview">
+                                            <button @click="() => { item._showNoteInput = true; item._activeNote = item.note || ''; }"
+                                                class="inline-flex items-center gap-1 text-xs pt-1 text-gray-500 hover:text-skin-base transition-colors duration-200"
+                                                title="Add Note">
+                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-3.5 h-3.5"
+                                                    fill="none" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                        d="M12 4v16m8-8H4"></path>
+                                                </svg>
+                                                Add Note
+                                            </button>
+                                        </template>
+
+                                        <template v-else-if="!canManageLineItems && item.note && !item._showNoteInput && !item._showNotePreview">
+                                            <div class="inline-flex items-center gap-1 text-xs pt-1 text-gray-500 dark:text-gray-400">
+                                                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                        d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3z">
+                                                    </path>
+                                                </svg>
+                                                <span class="truncate max-w-[70px] md:max-w-64 lg:max-w-[70px]">{{ item.note }}</span>
+                                            </div>
+                                        </template>
+
+                                        <div v-if="item._showNotePreview" class="absolute top-0 left-0 z-10"
+                                            @click.away="item._showNotePreview = false">
+                                            <div
+                                                class="bg-white dark:bg-gray-700 rounded-md shadow-md border border-gray-300 dark:border-gray-600 p-3 w-64 md:w-96">
+                                                <div class="text-sm dark:text-white mb-2 break-all">
+                                                    {{ item.note }}
+                                                </div>
+                                                <div class="flex justify-end gap-2 dark:text-white">
+                                                    <button @click="() => { item._showNotePreview = false; item._showNoteInput = true; item._activeNote = item.note || ''; }"
+                                                        class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 rounded transition-colors duration-200">
+                                                        <span class="flex items-center gap-x-1">
+                                                            <svg class="w-3 h-3" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
+                                                                </path>
+                                                            </svg>
+                                                            Update
+                                                        </span>
+                                                    </button>
+                                                    <button @click="() => { $emit('add-note', { id: item.id, note: '' }); item._showNotePreview = false; }"
+                                                        class="text-xs px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-700 dark:hover:bg-red-600 text-red-500 dark:text-red-300 rounded transition-colors duration-200"
+                                                        title="Delete">
+                                                        <span class="flex items-center gap-x-1">
+                                                            <svg class="w-3 h-3" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                            </svg>
+                                                            Delete
+                                                        </span>
+                                                    </button>
+                                                    <button @click="item._showNotePreview = false"
+                                                        class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 rounded transition-colors duration-200">
+                                                        Close
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div v-if="item._showNoteInput" class="fixed inset-0 z-40"
+                                            @click="item._showNoteInput = false"></div>
+                                        <div v-if="item._showNoteInput" class="absolute top-0 left-full ml-2 z-50 min-w-[280px]"
+                                            @click.stop>
+                                            <div class="flex items-center bg-white dark:bg-gray-700 rounded-md shadow-2xl border-2 border-gray-300 dark:border-gray-600 overflow-hidden"
+                                                @click.stop>
+                                                <input type="text" v-model="item._activeNote"
+                                                    class="w-64 md:w-80 p-2 border-none text-base focus:outline-none focus:ring-2 focus:ring-skin-base dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-400"
+                                                    placeholder="Special Instructions? (e.g., no onions, extra spicy)"
+                                                    @keydown.enter="() => { $emit('add-note', { id: item.id, note: item._activeNote, }); item._showNoteInput = false; }"
+                                                    @keydown.escape="item._showNoteInput = false" autofocus :ref="(el) => { if (el && item._showNoteInput) el.focus(); }" />
+                                                <div class="flex items-center gap-1 pr-2">
+                                                    <button @click.stop="() => { if (item._activeNote && item._activeNote.trim()) { $emit('add-note', { id: item.id, note: item._activeNote.trim(), }); } item._showNoteInput = false; }"
+                                                        class="p-1.5 text-white rounded-md bg-skin-base hover:bg-skin-base/90 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-skin-base focus:ring-offset-2"
+                                                        title="Save" type="button">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none"
+                                                            viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                                d="m5 13 4 4L19 7"></path>
+                                                        </svg>
+                                                    </button>
+                                                    <button @click.stop="() => { item._showNoteInput = false; item._activeNote = item.note || ''; }"
+                                                        class="p-1.5 text-gray-500 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
+                                                        title="Cancel" type="button">
+                                                        <svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                            viewBox="0 0 24 24" stroke="currentColor">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                                d="M6 18 18 6M6 6l12 12"></path>
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+
+                                <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
+                                    <div class="relative flex items-center max-w-[8rem] mx-auto">
+                                        <button type="button" @click="requestDecreaseKotItem(item)"
+                                            :disabled="!canManageLineItems || !canDeleteKotItem"
+                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
+                                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                                                    stroke-width="2" d="M1 1h16"></path>
+                                            </svg>
+                                        </button>
+                                        <input type="text" v-model.lazy="item.quantity" @change="
+                                            $emit('update-quantity', {
+                                                line_key: item.line_key || item.id,
+                                                id: item.id,
+                                                quantity: item.quantity,
+                                                variant_id: item.variant_id || 0,
+                                                modifier_id: item.modifier_id || 0,
+                                            })
+                                            "
+                                            :readonly="!canManageLineItems"
+                                            class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                            min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+                                        <button type="button" @click="$emit('increase-quantity', item.line_key || item.id)"
+                                            :disabled="!canManageLineItems"
+                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                            <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
+                                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
+                                                    stroke-width="2" d="M9 1v16M1 9h16"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </td>
+
+                                <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
+                                    {{ currencySymbol }} {{ formatPrice(item.price) }}
+                                </td>
+                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                    {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
+                                </td>
+                                <td class="p-2 whitespace-nowrap text-right">
+                                    <button v-if="canManageLineItems"
+                                        class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
+                                        @click="requestRemoveKotItem(item)">
+                                        <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor"
+                                            viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                            <path fill-rule="evenodd"
+                                                d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 0 1 2 0V8a1 1 0 0 0-1-1"
+                                                clip-rule="evenodd"></path>
+                                        </svg>
+                                    </button>
+                                </td>
+                            </tr>
+                        </template>
+                    </template>
+                </tbody>
+                <tbody v-else class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
                     <tr v-if="cartItems.length === 0" class="hover:bg-gray-100 dark:hover:bg-gray-700">
                         <td class="p-8 text-center" colspan="5">
                             <div class="flex flex-col items-center justify-center space-y-3">
@@ -325,242 +591,185 @@
                                     </path>
                                 </svg>
                                 <div class="text-gray-500 dark:text-gray-400 text-base">
-                                    No record found
+                                    No items in cart
                                 </div>
                             </div>
                         </td>
                     </tr>
-                    <tr v-for="item in cartItems" :key="item.line_key || item.id"
-                        class="hover:bg-gray-100 dark:hover:bg-gray-700">
-                        <!-- Item Name, Note, and Add Note UI -->
-                        <td class="flex flex-col p-2 lg:min-w-20 relative">
-                            <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
-                                {{ item.name }}
-                            </div>
-                            <div class="text-xs text-gray-600 dark:text-white inline-flex items-center">
-                                <!-- Optionally show price/unit or item meta data here -->
-                            </div>
-                            <!-- Special Instructions (Note) UI for each cart item -->
-                            <div class="inline-flex items-center relative group" v-cloak>
-                                <template v-if="item.note &&
-                                    !item._showNoteInput &&
-                                    !item._showNotePreview
-                                    ">
-                                    <div class="flex items-center gap-2 cursor-pointer text-skin-base text-xs hover:text-skin-base/80 transition-all duration-200"
-                                        @click="() => {
-                                            item._showNotePreview = true;
-                                        }
-                                            " title="Special Instructions">
-                                        <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3z">
-                                            </path>
-                                        </svg>
-                                        <span class="truncate max-w-[70px] md:max-w-64 lg:max-w-[70px]">{{ item.note
-                                        }}</span>
-                                    </div>
-                                </template>
 
-                                <template v-else-if="!item.note &&
-                                    !item._showNoteInput &&
-                                    !item._showNotePreview
-                                    ">
-                                    <button @click="() => {
-                                        item._showNoteInput = true;
-                                        item._activeNote =
-                                            item.note || '';
-                                    }
-                                        "
-                                        class="inline-flex items-center gap-1 text-xs pt-1 text-gray-500 hover:text-skin-base transition-colors duration-200"
-                                        title="Add Note">
-                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-3.5 h-3.5"
-                                            fill="none" stroke="currentColor">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M12 4v16m8-8H4"></path>
+                    <!-- Render each group: flat item or combo pack group -->
+                    <template v-for="(group, groupIdx) in groupedCartItems" :key="groupIdx">
+
+                        <!-- Combo Pack Group Header -->
+                        <template v-if="group.type === 'combo'">
+                            <tr class="bg-blue-50 dark:bg-blue-900/30">
+                                <td colspan="4" class="px-3 py-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wide">COMBO</span>
+                                            <span class="text-xs font-semibold text-blue-900 dark:text-blue-200">{{ group.packName }}</span>
+                                        </div>
+                                        <div v-if="group.items[0]?.combo_discount" class="text-xs text-green-600 dark:text-green-400 font-medium">
+                                            Save {{ currencySymbol }}{{ formatPrice(group.items.reduce((s, i) => s + (Number(i.combo_discount || 0) * Number(i.quantity || 1)), 0)) }}
+                                        </div>
+                                    </div>
+                                </td>
+                                <!-- Remove whole combo -->
+                                <td class="px-2 py-1.5 text-right">
+                                    <button type="button"
+                                        class="rounded text-red-500 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 p-1.5 text-xs"
+                                        @click="group.items.forEach(i => requestRemoveItem(i.line_key || i.id))"
+                                        title="Remove whole combo">
+                                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd" />
                                         </svg>
-                                        Add Note
                                     </button>
-                                </template>
-
-                                <!-- Note Preview Modal -->
-                                <div v-if="item._showNotePreview" class="absolute top-0 left-0 z-10"
-                                    @click.away="item._showNotePreview = false">
-                                    <div
-                                        class="bg-white dark:bg-gray-700 rounded-md shadow-md border border-gray-300 dark:border-gray-600 p-3 w-64 md:w-96">
-                                        <div class="text-sm dark:text-white mb-2 break-all">
-                                            {{ item.note }}
+                                </td>
+                            </tr>
+                            <!-- Combo Item Rows -->
+                            <tr v-for="item in group.items" :key="item.line_key || item.id"
+                                class="hover:bg-blue-50/50 dark:hover:bg-blue-900/10 bg-blue-50/20">
+                                <td class="flex flex-col p-2 lg:min-w-20 relative">
+                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center gap-1.5">
+                                        <span class="inline-block text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-1 rounded">COMBO</span>
+                                        {{ item.name }}
+                                    </div>
+                                    <!-- Modifier pills -->
+                                    <div v-if="item.modifier_option_quantities && Object.keys(item.modifier_option_quantities).length > 0" class="mt-1 space-y-0.5">
+                                        <div v-for="(qty, modId) in item.modifier_option_quantities" :key="modId"
+                                            class="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
+                                            <span class="text-gray-600 dark:text-gray-400">{{ resolveModifierName(modId) }}</span>
+                                            <span v-if="qty > 1" class="text-gray-400">×{{ qty }}</span>
                                         </div>
-                                        <div class="flex justify-end gap-2 dark:text-white">
-                                            <button @click="() => {
-                                                item._showNotePreview = false;
-                                                item._showNoteInput = true;
-                                                item._activeNote =
-                                                    item.note || '';
-                                            }
-                                                "
-                                                class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 rounded transition-colors duration-200">
-                                                <span class="flex items-center gap-x-1">
-                                                    <svg class="w-3 h-3" viewBox="0 0 24 24" stroke="currentColor"
-                                                        fill="none">
-                                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                                            stroke-width="2"
-                                                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z">
-                                                        </path>
+                                    </div>
+                                </td>
+                                <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
+                                    <div class="text-xs text-gray-700 dark:text-gray-300">× {{ item.quantity }}</div>
+                                </td>
+                                <td class="p-2 text-xs font-medium text-gray-500 whitespace-nowrap dark:text-gray-400 text-right hidden lg:table-cell line-through">
+                                    {{ currencySymbol }} {{ formatPrice(Number(item.price) + Number(item.combo_discount || 0)) }}
+                                </td>
+                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                    {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
+                                </td>
+                                <td class="p-2 whitespace-nowrap text-right">
+                                    <button type="button"
+                                        class="rounded text-gray-400 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 p-1.5"
+                                        @click="requestRemoveItem(item.line_key || item.id)">
+                                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </td>
+                            </tr>
+                        </template>
+
+                        <!-- Flat Item Row -->
+                        <tr v-else :key="group.item.line_key || group.item.id"
+                            class="hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <!-- Item Name, Note, and Add Note UI -->
+                            <td class="flex flex-col p-2 lg:min-w-20 relative">
+                                <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
+                                    {{ group.item.name }}
+                                </div>
+                                <!-- Modifier pills -->
+                                <div v-if="group.item.modifier_option_quantities && Object.keys(group.item.modifier_option_quantities).length > 0" class="mt-1 space-y-0.5">
+                                    <div v-for="(qty, modId) in group.item.modifier_option_quantities" :key="modId"
+                                        class="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
+                                        <span class="text-gray-600 dark:text-gray-400">{{ resolveModifierName(modId) }}</span>
+                                        <span v-if="qty > 1" class="text-gray-400">×{{ qty }}</span>
+                                    </div>
+                                </div>
+                                <div class="inline-flex items-center relative group" v-cloak>
+                                    <template v-if="group.item.note && !group.item._showNoteInput && !group.item._showNotePreview">
+                                        <div class="flex items-center gap-2 cursor-pointer text-skin-base text-xs hover:text-skin-base/80"
+                                            @click="group.item._showNotePreview = true" title="Special Instructions">
+                                            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3z" />
+                                            </svg>
+                                            <span class="truncate max-w-[70px] md:max-w-64 lg:max-w-[70px]">{{ group.item.note }}</span>
+                                        </div>
+                                    </template>
+                                    <template v-else-if="!group.item.note && !group.item._showNoteInput && !group.item._showNotePreview">
+                                        <button @click="() => { group.item._showNoteInput = true; group.item._activeNote = group.item.note || ''; }"
+                                            class="inline-flex items-center gap-1 text-xs pt-1 text-gray-500 hover:text-skin-base"
+                                            title="Add Note">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="w-3.5 h-3.5" fill="none" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                            </svg>
+                                            Add Note
+                                        </button>
+                                    </template>
+                                    <!-- Note Input inline -->
+                                    <div v-if="group.item._showNoteInput" class="fixed inset-0 z-40" @click="group.item._showNoteInput = false"></div>
+                                    <div v-if="group.item._showNoteInput" class="absolute top-0 left-full ml-2 z-50 min-w-[280px]" @click.stop>
+                                        <div class="flex items-center bg-white dark:bg-gray-700 rounded-md shadow-2xl border-2 border-gray-300 dark:border-gray-600 overflow-hidden">
+                                            <input type="text" v-model="group.item._activeNote"
+                                                class="w-64 md:w-80 p-2 border-none text-base focus:outline-none focus:ring-2 focus:ring-skin-base dark:bg-gray-700 dark:text-white"
+                                                placeholder="Special Instructions?"
+                                                @keydown.enter="() => { $emit('add-note', { id: group.item.id, note: group.item._activeNote }); group.item._showNoteInput = false; }"
+                                                @keydown.escape="group.item._showNoteInput = false" autofocus />
+                                            <div class="flex items-center gap-1 pr-2">
+                                                <button @click.stop="() => { if (group.item._activeNote?.trim()) { $emit('add-note', { id: group.item.id, note: group.item._activeNote.trim() }); } group.item._showNoteInput = false; }"
+                                                    class="p-1.5 text-white rounded-md bg-skin-base hover:bg-skin-base/90" title="Save" type="button">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 13 4 4L19 7" />
                                                     </svg>
-                                                    Update
-                                                </span>
-                                            </button>
-                                            <button @click="() => {
-                                                $emit('add-note', {
-                                                    id: item.id,
-                                                    note: '',
-                                                });
-                                                item._showNotePreview = false;
-                                            }
-                                                "
-                                                class="text-xs px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-700 dark:hover:bg-red-600 text-red-500 dark:text-red-300 rounded transition-colors duration-200"
-                                                title="Delete">
-                                                <span class="flex items-center gap-x-1">
-                                                    <svg class="w-3 h-3" viewBox="0 0 24 24" stroke="currentColor"
-                                                        fill="none">
-                                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                                            stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                </button>
+                                                <button @click.stop="() => { group.item._showNoteInput = false; group.item._activeNote = group.item.note || ''; }"
+                                                    class="p-1.5 text-gray-500 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600" title="Cancel" type="button">
+                                                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18 18 6M6 6l12 12" />
                                                     </svg>
-                                                    Delete
-                                                </span>
-                                            </button>
-                                            <button @click="
-                                                item._showNotePreview = false
-                                                "
-                                                class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 rounded transition-colors duration-200">
-                                                Close
-                                            </button>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                                <!-- Note Input Modal -->
-                                <div v-if="item._showNoteInput" class="fixed inset-0 z-40"
-                                    @click="item._showNoteInput = false"></div>
-                                <div v-if="item._showNoteInput" class="absolute top-0 left-full ml-2 z-50 min-w-[280px]"
-                                    @click.stop>
-                                    <div class="flex items-center bg-white dark:bg-gray-700 rounded-md shadow-2xl border-2 border-gray-300 dark:border-gray-600 overflow-hidden"
-                                        @click.stop>
-                                        <input type="text" v-model="item._activeNote"
-                                            class="w-64 md:w-80 p-2 border-none text-base focus:outline-none focus:ring-2 focus:ring-skin-base dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-400"
-                                            placeholder="Special Instructions? (e.g., no onions, extra spicy)"
-                                            @keydown.enter="() => {
-                                                $emit('add-note', {
-                                                    id: item.id,
-                                                    note: item._activeNote,
-                                                });
-                                                item._showNoteInput = false;
-                                            }
-                                                " @keydown.escape="
-        item._showNoteInput = false
-        " autofocus :ref="(el) => {
-        if (
-            el &&
-            item._showNoteInput
-        )
-            el.focus();
-    }
-        " />
-                                        <div class="flex items-center gap-1 pr-2">
-                                            <button @click.stop="() => {
-                                                if (
-                                                    item._activeNote &&
-                                                    item._activeNote.trim()
-                                                ) {
-                                                    $emit('add-note', {
-                                                        id: item.id,
-                                                        note: item._activeNote.trim(),
-                                                    });
-                                                }
-                                                item._showNoteInput = false;
-                                            }
-                                                "
-                                                class="p-1.5 text-white rounded-md bg-skin-base hover:bg-skin-base/90 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-skin-base focus:ring-offset-2"
-                                                title="Save" type="button">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none"
-                                                    viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                        d="m5 13 4 4L19 7"></path>
-                                                </svg>
-                                            </button>
-                                            <button @click.stop="() => {
-                                                item._showNoteInput = false;
-                                                item._activeNote =
-                                                    item.note || '';
-                                            }
-                                                "
-                                                class="p-1.5 text-gray-500 rounded-md hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
-                                                title="Cancel" type="button">
-                                                <svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                    viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                        d="M6 18 18 6M6 6l12 12"></path>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
+                            </td>
+
+                            <!-- Quantity Control -->
+                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
+                                <div class="relative flex items-center max-w-[8rem] mx-auto">
+                                    <button type="button" @click="$emit('decrease-quantity', group.item.line_key || group.item.id)"
+                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                        <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
+                                        </svg>
+                                    </button>
+                                    <input type="text" v-model.lazy="group.item.quantity"
+                                        @change="$emit('update-quantity', { line_key: group.item.line_key || group.item.id, id: group.item.id, quantity: group.item.quantity, variant_id: group.item.variant_id || 0, modifier_id: group.item.modifier_id || 0 })"
+                                        class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+                                    <button type="button" @click="$emit('increase-quantity', group.item.line_key || group.item.id)"
+                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                        <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                                            <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
+                                        </svg>
+                                    </button>
                                 </div>
-                            </div>
-                        </td>
+                            </td>
 
-                        <!-- Quantity Control -->
-                        <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                            <div class="relative flex items-center max-w-[8rem] mx-auto">
-                                <button type="button" @click="$emit('decrease-quantity', item.line_key || item.id)"
-                                    class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
-                                    <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
-                                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
-                                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                                            stroke-width="2" d="M1 1h16"></path>
-                                    </svg>
+                            <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
+                                {{ currencySymbol }} {{ formatPrice(group.item.price) }}
+                            </td>
+                            <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                {{ currencySymbol }} {{ formatPrice(group.item.price * group.item.quantity) }}
+                            </td>
+                            <td class="p-2 whitespace-nowrap text-right">
+                                <button
+                                    class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
+                                    @click="requestRemoveItem(group.item.line_key || group.item.id)">
+                                    <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor"
+                                        viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                        <path fill-rule="evenodd"
+                                            d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1"
+                                            clip-rule="evenodd" /></svg>
                                 </button>
-                                <input type="text" v-model.lazy="item.quantity" @change="
-                                    $emit('update-quantity', {
-                                        line_key: item.line_key || item.id,
-                                        id: item.id,
-                                        quantity: item.quantity,
-                                        variant_id: item.variant_id || 0,
-                                        modifier_id: item.modifier_id || 0,
-                                    })
-                                    "
-                                    class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
-                                    min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
-                                <button type="button" @click="$emit('increase-quantity', item.line_key || item.id)"
-                                    class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
-                                    <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
-                                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
-                                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                                            stroke-width="2" d="M9 1v16M1 9h16"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                        </td>
-
-                        <td
-                            class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
-                            {{ currencySymbol }} {{ formatPrice(item.price) }}
-                        </td>
-                        <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
-                            {{ currencySymbol }}
-                            {{ formatPrice(item.price * item.quantity) }}
-                        </td>
-                        <td class="p-2 whitespace-nowrap text-right">
-                            <button
-                                class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
-                                @click="$emit('remove-item', item.line_key || item.id)">
-                                <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor"
-                                    viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
-                                    <path fill-rule="evenodd"
-                                        d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1"
-                                        clip-rule="evenodd"></path>
-                                </svg>
-                            </button>
-                        </td>
-                    </tr>
+                            </td>
+                        </tr>
+                    </template>
                 </tbody>
             </table>
         </div>
@@ -570,7 +779,9 @@
             <div class="h-auto p-4 mt-3 select-none text-center bg-gray-50 rounded space-y-4 dark:bg-gray-700"
                 v-if="cartItems.length > 0">
                 <div class="text-left">
+                    <!-- Add Discount: in linked mode only show after billing with edit-billed permission -->
                     <button
+                        v-if="!isLinkedOrderMode || canShowLinkedAddDiscount"
                         class="text-left inline-flex items-center px-3 py-2 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-500 rounded-lg font-semibold text-sm text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150"
                         @click="showDiscountModal = true">
                         <svg class="h-5 w-5 text-current me-1" width="24" height="24" viewBox="0 0 16 16"
@@ -593,6 +804,50 @@
                     <div>Sub Total</div>
                     <div>{{ currencySymbol }}{{ formatPrice(subTotal) }}</div>
                 </div>
+
+                <!-- Legacy parity (order_items.blade.php lines 695-728): Custom Extras
+                     section only renders when the restaurant setting is on. Row editor +
+                     per-row summary lines that feed into the Total via customExtrasTotal. -->
+                <div v-if="allowCustomOrderExtras" class="pt-2 text-left">
+                    <div class="flex items-center justify-between">
+                        <div class="text-sm font-medium text-gray-700 dark:text-gray-200">Custom Extras</div>
+                        <button type="button"
+                            class="inline-flex items-center px-3 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-500 rounded font-semibold text-xs text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700"
+                            @click="$emit('add-custom-extra')">
+                            + Add
+                        </button>
+                    </div>
+                    <div v-for="(extra, extraIndex) in customExtras" :key="`custom-extra-${extraIndex}`"
+                        class="flex gap-2 items-center mt-2">
+                        <input type="number" step="0.01" min="0"
+                            class="w-1/3 text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-gray-500 dark:focus:border-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 rounded-md shadow-sm"
+                            placeholder="Amount" :value="extra.amount"
+                            @input="$emit('update-custom-extra', { index: extraIndex, field: 'amount', value: $event.target.value })" />
+                        <input type="text"
+                            class="w-2/3 text-sm border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-gray-500 dark:focus:border-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 rounded-md shadow-sm"
+                            placeholder="Note (optional)" :value="extra.note"
+                            @input="$emit('update-custom-extra', { index: extraIndex, field: 'note', value: $event.target.value })" />
+                        <button type="button" class="text-red-500 hover:scale-110 active:scale-100"
+                            title="Remove" @click="$emit('remove-custom-extra', extraIndex)">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
+                                xmlns="http://www.w3.org/2000/svg">
+                                <path fill-rule="evenodd"
+                                    d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                                    clip-rule="evenodd" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <template v-if="allowCustomOrderExtras">
+                    <div v-for="(extra, extraIndex) in customExtras" :key="`custom-extra-sum-${extraIndex}`">
+                        <div v-if="Number(extra.amount || 0) > 0 || (extra.note || '').trim() !== ''"
+                            class="flex justify-between text-gray-500 text-sm dark:text-neutral-400">
+                            <div>{{ (extra.note || '').trim() !== '' ? extra.note : 'Extra' }}</div>
+                            <div>{{ currencySymbol }}{{ formatPrice(Number(extra.amount || 0)) }}</div>
+                        </div>
+                    </div>
+                </template>
 
                 <div v-if="discountAmount && discountAmount > 0">
                     <div class="flex justify-between text-green-500 text-sm dark:text-green-400">
@@ -706,6 +961,18 @@
                     </div>
                 </div>
 
+                <!-- Tip Amount -->
+                <div v-if="tipAmount > 0" class="flex justify-between text-gray-500 text-sm dark:text-neutral-400">
+                    <div>Tip</div>
+                    <div>{{ currencySymbol }}{{ formatPrice(tipAmount) }}</div>
+                </div>
+
+                <!-- Combo Savings -->
+                <div v-if="comboSavingsTotal > 0" class="flex justify-between text-green-500 text-sm dark:text-green-400">
+                    <div>Combo Savings</div>
+                    <div>-{{ currencySymbol }}{{ formatPrice(comboSavingsTotal) }}</div>
+                </div>
+
                 <div class="flex justify-between font-medium dark:text-neutral-300">
                     <div>Total</div>
                     <div>{{ currencySymbol }} {{ formatPrice(total) }}</div>
@@ -714,104 +981,185 @@
 
             <!-- Action Buttons -->
             <div class="h-auto pb-4 pt-3 select-none text-center w-full mb-16 md:mb-0">
-                <div class="flex gap-3">
-                    <button class="rounded bg-gray-700 text-white w-full p-2 relative" @click="handleSaveOrder('kot')"
-                        :disabled="isSavingKot" :class="{ 'opacity-50 cursor-not-allowed': isSavingKot }">
-                        <span v-if="!isSavingKot">KOT</span>
-                        <span v-else class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-1 h-4 w-4 inline-flex text-white"
-                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                </circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            KOT
-                        </span>
-                    </button>
-                    <button class="rounded bg-gray-700 text-white w-full p-2 relative"
-                        @click="handleSaveOrder('kot', 'print')" :disabled="isSavingKotPrint"
-                        :class="{ 'opacity-50 cursor-not-allowed': isSavingKotPrint }">
-                        <span v-if="!isSavingKotPrint">KOT &amp; Print</span>
-                        <span v-else class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                </circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            KOT &amp; Print
-                        </span>
-                    </button>
-                    <button class="rounded bg-gray-700 text-white w-full p-2 relative"
-                        @click="handleSaveOrder('kot', 'bill', 'payment')" :disabled="isSavingKotBillPayment"
-                        :class="{ 'opacity-50 cursor-not-allowed': isSavingKotBillPayment }">
-                        <span v-if="!isSavingKotBillPayment">KOT, Bill &amp; Payment</span>
-                        <span v-else class="inline-flex items-center">
-                            <svg class="animate-spin inline-flex -ml-1 mr-2 h-4 w-4 text-white"
-                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                </circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            KOT, Bill &amp; Payment
-                        </span>
-                    </button>
-                </div>
-                <div class="flex gap-3 mt-3">
-                    <button class="rounded bg-skin-base text-white w-full p-2 relative" @click="handleSaveOrder('bill')"
-                        :disabled="isSavingBill" :class="{ 'opacity-50 cursor-not-allowed': isSavingBill }">
-                        <span v-if="!isSavingBill">BILL</span>
-                        <span v-else class="inline-flex items-center">
-                            <svg class="animate-spin inline-flex items-center -ml-1 mr-2 h-4 w-4 text-white"
-                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                </circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            BILL
-                        </span>
-                    </button>
-                    <button class="rounded bg-green-500 text-white w-full p-2 relative"
-                        @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment"
-                        :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment }">
-                        <span v-if="!isSavingBillPayment">Bill &amp; Payment</span>
-                        <span v-else class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-flex items-center"
-                                xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                </circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
+                <template v-if="isLinkedOrderMode">
+                    <!-- KOT buttons gated by kotModuleEnabled subscription -->
+                    <div v-if="linkedLifecycleStatus === 'kot'" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <button v-if="canShowLinkedBillActions" class="rounded bg-skin-base text-white w-full p-2"
+                            @click="handleSaveOrder('bill')" :disabled="isSavingBill || anySaving"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBill || anySaving }">
+                            Bill
+                        </button>
+                        <button v-if="canShowLinkedBillActions" class="rounded bg-green-500 text-white w-full p-2"
+                            @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment || anySaving"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment || anySaving }">
                             Bill &amp; Payment
-                        </span>
-                    </button>
-                    <button class="rounded bg-blue-500 text-white w-full p-2 relative"
-                        @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint"
-                        :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint }">
-                        <span v-if="!isSavingBillPrint">Bill &amp; Print</span>
-                        <span v-else class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                </circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
+                        </button>
+                        <button v-if="canShowLinkedBillActions" class="rounded bg-blue-500 text-white w-full p-2"
+                            @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint || anySaving"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint || anySaving }">
                             Bill &amp; Print
-                        </span>
-                    </button>
-                </div>
+                        </button>
+                        <button v-if="canShowLinkedNewKot && kotModuleEnabled"
+                            class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                            @click="handleNewKot" :disabled="anySaving"
+                            :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                            New KOT
+                        </button>
+                        <button v-if="canShowLinkedDelete" class="rounded bg-red-600 text-white w-full p-2"
+                            @click="handleDeleteOrder" :disabled="anySaving"
+                            :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                            Delete Order
+                        </button>
+                    </div>
+
+                    <template v-else-if="linkedLifecycleStatus === 'billed'">
+                        <!-- Legacy parity: Add Payment opens the payment modal directly (showPayment($id)), it does NOT re-bill. -->
+                        <div v-if="canShowLinkedAddPayment" class="flex gap-2">
+                            <button class="w-full p-2 text-white rounded bg-green-600 hover:bg-green-700"
+                                @click="$emit('open-payment')" :disabled="anySaving"
+                                :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                                Add Payment
+                            </button>
+                        </div>
+
+                        <div v-if="canShowLinkedNewKot" class="flex gap-2 mt-2">
+                            <button
+                                class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                                @click="handleNewKot" :disabled="anySaving"
+                                :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                                New KOT
+                            </button>
+                        </div>
+                    </template>
+
+                    <template v-else-if="['paid', 'payment_due'].includes(linkedLifecycleStatus)">
+                        <div v-if="canShowLinkedNewKot" class="flex gap-2">
+                            <button
+                                class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"
+                                @click="handleNewKot" :disabled="anySaving"
+                                :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                                New KOT
+                            </button>
+                        </div>
+
+                        <!-- Legacy parity: paid orders expose Print Receipt (printOrder($id)). -->
+                        <div v-if="canShowLinkedPrintReceipt" class="flex gap-2 mt-2">
+                            <button
+                                class="inline-flex items-center justify-center gap-x-1 w-full p-2 text-gray-800 border border-gray-300 rounded dark:border-gray-600 dark:text-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600"
+                                @click="$emit('print-receipt')" :disabled="anySaving"
+                                :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                                <svg class="w-5 h-5 text-current" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24">
+                                    <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+                                        d="M16.444 18H19a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.556M17 11V5a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v6h10ZM7 15h10v4a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-4Z" />
+                                </svg>
+                                Print Receipt
+                            </button>
+                        </div>
+                    </template>
+                </template>
+                <template v-else>
+                    <div class="flex gap-3">
+                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled" @click="handleSaveOrder('kot')"
+                            :disabled="isSavingKot" :class="{ 'opacity-50 cursor-not-allowed': isSavingKot }">
+                            <span v-if="!isSavingKot">KOT</span>
+                            <span v-else class="inline-flex items-center">
+                                <svg class="animate-spin -ml-1 mr-1 h-4 w-4 inline-flex text-white"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                                    </circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                KOT
+                            </span>
+                        </button>
+                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled"
+                            @click="handleSaveOrder('kot', 'print')" :disabled="isSavingKotPrint"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingKotPrint }">
+                            <span v-if="!isSavingKotPrint">KOT &amp; Print</span>
+                            <span v-else class="inline-flex items-center">
+                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                                    </circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                KOT &amp; Print
+                            </span>
+                        </button>
+                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled"
+                            @click="handleSaveOrder('kot', 'bill', 'payment')" :disabled="isSavingKotBillPayment"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingKotBillPayment }">
+                            <span v-if="!isSavingKotBillPayment">KOT, Bill &amp; Payment</span>
+                            <span v-else class="inline-flex items-center">
+                                <svg class="animate-spin inline-flex -ml-1 mr-2 h-4 w-4 text-white"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                                    </circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                KOT, Bill &amp; Payment
+                            </span>
+                        </button>
+                    </div>
+                    <!-- Legacy parity (kot_items.blade.php `@if (!$orderID)`): BILL row is hidden
+                         on the New KOT screen — existing orders only expose the 3 KOT actions. -->
+                    <div v-if="!isNewKotMode" class="flex gap-3 mt-3">
+                        <button class="rounded bg-skin-base text-white w-full p-2 relative" @click="handleSaveOrder('bill')"
+                            :disabled="isSavingBill" :class="{ 'opacity-50 cursor-not-allowed': isSavingBill }">
+                            <span v-if="!isSavingBill">BILL</span>
+                            <span v-else class="inline-flex items-center">
+                                <svg class="animate-spin inline-flex items-center -ml-1 mr-2 h-4 w-4 text-white"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                                    </circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                BILL
+                            </span>
+                        </button>
+                        <button class="rounded bg-green-500 text-white w-full p-2 relative"
+                            @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment }">
+                            <span v-if="!isSavingBillPayment">Bill &amp; Payment</span>
+                            <span v-else class="inline-flex items-center">
+                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-flex items-center"
+                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                                    </circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                Bill &amp; Payment
+                            </span>
+                        </button>
+                        <button class="rounded bg-blue-500 text-white w-full p-2 relative"
+                            @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint"
+                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint }">
+                            <span v-if="!isSavingBillPrint">Bill &amp; Print</span>
+                            <span v-else class="inline-flex items-center">
+                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                                    </circle>
+                                    <path class="opacity-75" fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                    </path>
+                                </svg>
+                                Bill &amp; Print
+                            </span>
+                        </button>
+                    </div>
+                </template>
             </div>
         </div>
 
@@ -821,6 +1169,11 @@
         <!-- Table Assignment Modal -->
         <TableAssignmentModal :show="showTableAssignmentModal" @close="showTableAssignmentModal = false"
             @select="handleSelectTable" />
+
+        <!-- KOT Item Removal Reason Modal -->
+        <RemovalReasonModal :show="showRemovalReasonModal"
+            @close="showRemovalReasonModal = false"
+            @confirm="handleKotRemovalConfirm" />
     </div>
 </template>
 
@@ -829,6 +1182,7 @@ import { ref, computed, watch, onMounted } from "vue";
 import axios from "axios";
 import DiscountModal from "./DiscountModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
+import RemovalReasonModal from "./RemovalReasonModal.vue";
 import { showPosAlert } from "../../utils/posAlerts.js";
 
 const props = defineProps({
@@ -936,6 +1290,69 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    orderLifecycleStatus: {
+        type: String,
+        default: "",
+    },
+    isLinkedOrderMode: {
+        type: Boolean,
+        default: false,
+    },
+    // Legacy parity (kot_items.blade.php `@if (!$orderID)`):
+    //   /pos/kot/{id} "New KOT" screen renders the regular cart shell but hides
+    //   the BILL action row — only the 3 KOT-prefixed buttons are available.
+    isNewKotMode: {
+        type: Boolean,
+        default: false,
+    },
+    orderPermissions: {
+        type: Object,
+        default: () => ({
+            can_update_order: false,
+            can_delete_order: false,
+            can_edit_billed_order: false,
+            can_delete_kot_item: false,
+        }),
+    },
+    kotGroups: {
+        type: Array,
+        default: () => [],
+    },
+    // Legacy parity (restaurant()->allow_custom_order_extras setting):
+    // gates the whole "Custom Extras" section (+ Add button, input rows,
+    // per-row line in the totals panel, inclusion in the Total line).
+    allowCustomOrderExtras: {
+        type: Boolean,
+        default: false,
+    },
+    customExtras: {
+        type: Array,
+        default: () => [],
+    },
+    deliveryAddress: {
+        type: String,
+        default: "",
+    },
+    customerPhone: {
+        type: String,
+        default: "",
+    },
+    customerLat: {
+        type: Number,
+        default: null,
+    },
+    customerLng: {
+        type: Number,
+        default: null,
+    },
+    branchLat: {
+        type: Number,
+        default: null,
+    },
+    branchLng: {
+        type: Number,
+        default: null,
+    },
     deliveryExecutives: {
         type: Array,
         default: () => [],
@@ -947,6 +1364,26 @@ const props = defineProps({
     currentUser: {
         type: Object,
         default: () => null,
+    },
+    kotModuleEnabled: {
+        type: Boolean,
+        default: true,
+    },
+    modifierOptions: {
+        type: Object,
+        default: () => ({}),
+    },
+    tipAmount: {
+        type: Number,
+        default: 0,
+    },
+    pickupDateTime: {
+        type: String,
+        default: "",
+    },
+    orderNote: {
+        type: String,
+        default: "",
     },
 });
 
@@ -964,6 +1401,8 @@ const emit = defineEmits([
     "increase-quantity",
     "decrease-quantity",
     "remove-item",
+    "remove-kot-item",
+    "reduce-kot-item",
     "save-order",
     "remove-discount",
     "remove-extra-charge",
@@ -973,7 +1412,16 @@ const emit = defineEmits([
     "update:selectedDeliveryApp",
     "update:setAsDefaultOrderType",
     "update:orderStatus",
+    "request-cancel-order",
     "update:selectedDeliveryExecutive",
+    "open-payment",
+    "delete-order",
+    "new-kot",
+    "print-receipt",
+    "update:pickupDateTime",
+    "add-custom-extra",
+    "remove-custom-extra",
+    "update-custom-extra",
 ]);
 
 const localPax = ref(props.pax);
@@ -990,6 +1438,11 @@ const localSetAsDefaultOrderType = ref(false);
 const loadingOrderTypes = ref(false);
 const savingOrderPreferences = ref(false);
 const fallbackWaiters = ref([]);
+
+// KOT item removal reason modal state
+const showRemovalReasonModal = ref(false);
+const pendingRemovalItemId = ref(null);
+const pendingRemovalKotItem = ref(null); // { id (kot_item_id), name }
 
 watch(
     () => props.pax,
@@ -1049,7 +1502,7 @@ const isCurrentUserWaiter = computed(() => {
 });
 
 const showWaiterSelect = computed(() => {
-    return !!props.canEditWaiter;
+    return !!props.canEditWaiter && canManageWaiterAssignment.value;
 });
 
 const orderStatusFlow = computed(() => {
@@ -1099,7 +1552,11 @@ const nextOrderStatus = computed(() => {
 });
 
 const canMoveToNextOrderStatus = computed(() => {
-    if (!props.canEditWaiter || !currentOrderStatus.value) {
+    const canUpdateStatus = props.isLinkedOrderMode
+        ? canUpdateLinkedOrder.value
+        : !!props.canEditWaiter;
+
+    if (!canUpdateStatus || !currentOrderStatus.value) {
         return false;
     }
 
@@ -1111,7 +1568,7 @@ const canMoveToNextOrderStatus = computed(() => {
 });
 
 const canCancelOrder = computed(() => {
-    return !!props.canEditWaiter && currentOrderStatus.value === "placed";
+    return !!props.orderPermissions?.can_delete_order && currentOrderStatus.value === "placed";
 });
 
 const showOrderStatusPanel = computed(() => {
@@ -1132,6 +1589,324 @@ const orderStatusBadgeClass = computed(() => {
     }
 
     return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300";
+});
+
+const linkedOrderTitle = computed(() => {
+    const orderId = props.order ?? "";
+    return orderId ? `Order #${orderId}` : "Linked Order";
+});
+
+const linkedOrderStatusLabel = computed(() => {
+    return currentOrderStatus.value ? orderStatusLabel(currentOrderStatus.value) : "Linked Order";
+});
+
+const linkedOrderPermissionsLabel = computed(() => {
+    const permissions = props.orderPermissions || {};
+    const enabledPermissions = [];
+
+    if (permissions.can_update_order) enabledPermissions.push("update");
+    if (permissions.can_delete_order) enabledPermissions.push("delete");
+    if (permissions.can_edit_billed_order) enabledPermissions.push("billed-edit");
+
+    return enabledPermissions.length > 0
+        ? `Permissions: ${enabledPermissions.join(", ")}`
+        : "Permissions: view-only";
+});
+
+const linkedDeliveryAddress = computed(() => {
+    return String(
+        props.deliveryAddress
+        || props.customer?.delivery_address
+        || props.customer?.address
+        || ""
+    ).trim();
+});
+
+const linkedCustomerName = computed(() => {
+    return String(props.customer?.name || "").trim();
+});
+
+const linkedCustomerPhone = computed(() => {
+    const directPhone = String(props.customerPhone || "").trim();
+    if (directPhone) {
+        return directPhone;
+    }
+
+    const customerPhone = String(props.customer?.phone || "").trim();
+    if (!customerPhone) {
+        return "";
+    }
+
+    const phoneCode = String(props.customer?.phone_code || "").trim();
+    return phoneCode ? `+${phoneCode} ${customerPhone}` : customerPhone;
+});
+
+const linkedCustomerPhoneHref = computed(() => {
+    const sanitized = linkedCustomerPhone.value.replace(/\s+/g, "");
+    return `tel:${sanitized}`;
+});
+
+const hasLinkedMapDirections = computed(() => {
+    return props.customerLat !== null
+        && props.customerLng !== null
+        && props.branchLat !== null
+        && props.branchLng !== null;
+});
+
+const linkedMapDirectionsUrl = computed(() => {
+    if (!hasLinkedMapDirections.value) {
+        return "#";
+    }
+
+    return `https://www.google.com/maps/dir/?api=1&travelmode=two-wheeler&origin=${props.branchLat},${props.branchLng}&destination=${props.customerLat},${props.customerLng}`;
+});
+
+const showLinkedDeliveryInfoCard = computed(() => {
+    return !!props.isLinkedOrderMode
+        && selectedOrderTypeSlug.value === "delivery"
+        && !!linkedDeliveryAddress.value;
+});
+
+const linkedLifecycleStatus = computed(() => {
+    return String(props.orderLifecycleStatus || "").toLowerCase();
+});
+
+// Lifecycle status badge (legacy parity with resources/views/pos/order_detail.blade.php)
+const linkedStatusBadgeLabel = computed(() => {
+    const status = linkedLifecycleStatus.value;
+    if (!status) return "";
+    const map = {
+        draft: "Draft",
+        kot: "KOT",
+        billed: "Billed",
+        paid: "Paid",
+        payment_due: "Payment Due",
+        canceled: "Cancelled",
+        cancelled: "Cancelled",
+    };
+    return map[status] || status.toUpperCase();
+});
+
+const linkedStatusBadgeClass = computed(() => {
+    switch (linkedLifecycleStatus.value) {
+        case "draft":
+            return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300 border-gray-400";
+        case "kot":
+            return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300 border-yellow-400";
+        case "billed":
+            return "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300 border-blue-400";
+        case "paid":
+            return "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300 border-green-400";
+        case "payment_due":
+            return "bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300 border-orange-400";
+        case "canceled":
+        case "cancelled":
+            return "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300 border-red-400";
+        default:
+            return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300 border-gray-400";
+    }
+});
+
+const canChangeOrderType = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return true;
+    }
+
+    return canUpdateLinkedOrder.value;
+});
+
+const canUpdateLinkedOrder = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return false;
+    }
+
+    if (props.orderPermissions?.can_update_order !== undefined) {
+        return !!props.orderPermissions.can_update_order;
+    }
+
+    return !!props.canEditWaiter;
+});
+
+const canDeleteLinkedOrder = computed(() => {
+    return !!props.isLinkedOrderMode && !!props.orderPermissions?.can_delete_order;
+});
+
+const canEditBilledLinkedOrder = computed(() => {
+    return !!props.isLinkedOrderMode && !!props.orderPermissions?.can_edit_billed_order;
+});
+
+const canShowLinkedBillActions = computed(() => {
+    return canUpdateLinkedOrder.value && linkedLifecycleStatus.value === "kot";
+});
+
+const canShowLinkedAddPayment = computed(() => {
+    return canUpdateLinkedOrder.value && linkedLifecycleStatus.value === "billed";
+});
+
+const canShowLinkedAddDiscount = computed(() => {
+    return ["billed", "paid", "payment_due"].includes(linkedLifecycleStatus.value)
+        && !!props.orderPermissions?.can_edit_billed_order;
+});
+
+const canShowLinkedNewKot = computed(() => {
+    if (linkedLifecycleStatus.value === "kot") {
+        return canUpdateLinkedOrder.value;
+    }
+
+    return ["billed", "paid", "payment_due"].includes(linkedLifecycleStatus.value)
+        && canEditBilledLinkedOrder.value;
+});
+
+// Legacy parity (order_detail.blade.php line 582): Print Receipt is shown only on `paid` orders.
+const canShowLinkedPrintReceipt = computed(() => {
+    return linkedLifecycleStatus.value === "paid";
+});
+
+const canShowLinkedDelete = computed(() => {
+    return linkedLifecycleStatus.value === "kot" && canDeleteLinkedOrder.value;
+});
+
+const canManageLineItems = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return true;
+    }
+
+    if (["billed", "paid", "payment_due"].includes(linkedLifecycleStatus.value)) {
+        return canEditBilledLinkedOrder.value;
+    }
+
+    return canDeleteLinkedOrder.value || canUpdateLinkedOrder.value;
+});
+
+// Gates the – button and trash icon on linked KOT rows.
+// Mirrors legacy order_detail.blade.php `$canManageOrderDetailItems`:
+//   in_array($status, ['billed','paid','payment_due']) ? Edit Billed Order : Delete Order.
+// Admin bypasses via Gate::before, so this matches legacy UI visibility exactly.
+// (Server endpoints still enforce `Delete KOT Item` / `Update Order` on the action itself.)
+const canDeleteKotItem = computed(() => {
+    if (["billed", "paid", "payment_due"].includes(linkedLifecycleStatus.value)) {
+        return !!props.orderPermissions?.can_edit_billed_order;
+    }
+    return !!props.orderPermissions?.can_delete_order;
+});
+
+const canManageDeliveryExecutive = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return !!props.canEditWaiter;
+    }
+
+    return canUpdateLinkedOrder.value;
+});
+
+const canManageCustomerDetails = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return true;
+    }
+
+    return canManageLineItems.value;
+});
+
+const canManageTableAssignment = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return !!props.canEditWaiter;
+    }
+
+    return canUpdateLinkedOrder.value;
+});
+
+const canManageWaiterAssignment = computed(() => {
+    if (!props.isLinkedOrderMode) {
+        return !!props.canEditWaiter;
+    }
+
+    return canUpdateLinkedOrder.value;
+});
+
+const buildLineSignature = (line = {}) => {
+    return [
+        Number(line.menu_item_id || 0),
+        Number(line.menu_item_variation_id || 0),
+        Number(line.combo_pack_id || 0),
+        String(line.combo_instance_key || ""),
+        String(line.note || ""),
+        JSON.stringify(line.modifier_option_quantities || {}),
+    ].join("|");
+};
+
+const formatLinkedKotTimestamp = (value) => {
+    if (!value) {
+        return "";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    return date.toLocaleString();
+};
+
+const linkedKotGroups = computed(() => {
+    const cartQueues = new Map();
+    const cartSource = Array.isArray(props.cartItems) ? props.cartItems : [];
+
+    cartSource.forEach((item) => {
+        const signature = buildLineSignature(item);
+        if (!cartQueues.has(signature)) {
+            cartQueues.set(signature, []);
+        }
+
+        cartQueues.get(signature).push(item);
+    });
+
+    const sourceGroups = Array.isArray(props.kotGroups) ? props.kotGroups : [];
+
+    return sourceGroups.map((group, groupIndex) => {
+        const lines = Array.isArray(group?.lines) ? group.lines : [];
+
+        const normalizedLines = lines.map((line, lineIndex) => {
+            const signature = buildLineSignature(line);
+            const matchedQueue = cartQueues.get(signature) || [];
+            const matchedItem = matchedQueue.length > 0 ? matchedQueue.shift() : null;
+            const resolvedKey = matchedItem?.line_key || matchedItem?.id || `kot_item_${line.kot_item_id || line.order_item_id || `${groupIndex}_${lineIndex}`}`;
+            const quantity = Number(line.qty || matchedItem?.quantity || 1);
+            const matchedPrice = Number(matchedItem?.price ?? NaN);
+            const lineUnitPrice = Number(line.unit_price ?? NaN);
+            const lineAmount = Number(line.amount ?? NaN);
+            const fallbackUnitPrice = Number.isFinite(lineAmount) && lineAmount > 0 && quantity > 0
+                ? lineAmount / quantity
+                : 0;
+            const resolvedPrice = Number.isFinite(matchedPrice) && matchedPrice > 0
+                ? matchedPrice
+                : Number.isFinite(lineUnitPrice) && lineUnitPrice > 0
+                    ? lineUnitPrice
+                    : fallbackUnitPrice;
+
+            return {
+                ...line,
+                id: matchedItem?.id || line.kot_item_id || line.order_item_id || resolvedKey,
+                line_key: resolvedKey,
+                name: line.item_name || matchedItem?.name || "Unknown Item",
+                quantity,
+                price: resolvedPrice,
+                note: line.note || matchedItem?.note || "",
+                variant_id: matchedItem?.variant_id || line.menu_item_variation_id || 0,
+                modifier_id: matchedItem?.modifier_id || 0,
+                _linkedKey: resolvedKey,
+            };
+        });
+
+        const kotNumberValue = String(group?.kot_number || groupIndex + 1).trim();
+        const kotTitle = kotNumberValue.startsWith('KOT') ? kotNumberValue : `KOT #${kotNumberValue}`;
+
+        return {
+            ...group,
+            key: `kot_group_${group?.id || groupIndex}`,
+            title: kotTitle,
+            createdAt: group?.created_at || "",
+            lines: normalizedLines,
+        };
+    });
 });
 
 const availableWaiters = computed(() => {
@@ -1307,8 +2082,65 @@ const subTotal = computed(() => {
     );
 });
 
+// Total savings from combo discounts
+const comboSavingsTotal = computed(() => {
+    return props.cartItems.reduce(
+        (sum, item) => sum + (Number(item.combo_discount || 0) * Number(item.quantity || 1)),
+        0
+    );
+});
+
+// Resolve a modifier option name from the flat map
+const resolveModifierName = (optId) => {
+    return props.modifierOptions?.[optId]?.name || `Modifier #${optId}`;
+};
+
+// Group cartItems: flat items first, then combo groups
+const groupedCartItems = computed(() => {
+    const groups = [];
+    const comboMap = new Map(); // key: combo_instance_key -> group index in groups
+
+    props.cartItems.forEach((item) => {
+        if (!item.combo_pack_id || !item.combo_instance_key) {
+            groups.push({ type: 'item', item });
+        } else {
+            const instanceKey = item.combo_instance_key;
+            if (!comboMap.has(instanceKey)) {
+                const groupIdx = groups.length;
+                comboMap.set(instanceKey, groupIdx);
+                groups.push({
+                    type: 'combo',
+                    instanceKey,
+                    packName: item.combo_pack_name || 'Combo Pack',
+                    items: [],
+                });
+            }
+            groups[comboMap.get(instanceKey)].items.push(item);
+        }
+    });
+
+    return groups;
+});
+
+// Legacy parity (Pos.php::getOrderExtrasTotal):
+// Sum of custom per-order extras (note + amount). Added to Total but NOT to
+// the items subtotal, so discount percentage still operates on items only.
+const customExtrasTotal = computed(() => {
+    if (!props.allowCustomOrderExtras) {
+        return 0;
+    }
+
+    return (props.customExtras || []).reduce((sum, extra) => {
+        const amount = Number(extra?.amount || 0);
+        return sum + (Number.isFinite(amount) && amount > 0 ? amount : 0);
+    }, 0);
+});
+
 const total = computed(() => {
     let calculatedTotal = subTotal.value;
+
+    // Add custom extras (legacy: part of total, independent of discount base).
+    calculatedTotal += customExtrasTotal.value;
 
     // Subtract discount
     if (props.discountAmount && props.discountAmount > 0) {
@@ -1336,6 +2168,11 @@ const total = computed(() => {
             0
         );
         calculatedTotal += taxTotal;
+    }
+
+    // Add tip
+    if (props.tipAmount && props.tipAmount > 0) {
+        calculatedTotal += props.tipAmount;
     }
 
     return Math.max(0, calculatedTotal);
@@ -1426,8 +2263,12 @@ watch(
     () => props.orderNumber,
     (newVal) => {
         if (!newVal) {
-            // If orderNumber is empty, fetch a new one
-            fetchOrderNumber();
+            // Existing orders (including linked mode) should not fetch a new order number.
+            if (!props.order) {
+                fetchOrderNumber();
+            } else {
+                formattedOrderNumber.value = "";
+            }
         } else {
             formattedOrderNumber.value = newVal;
         }
@@ -1442,7 +2283,7 @@ onMounted(() => {
     }
     fetchWaiters();
     // Fetch order number if not provided
-    if (!props.orderNumber) {
+    if (!props.orderNumber && !props.order) {
         fetchOrderNumber();
     }
 });
@@ -1500,10 +2341,107 @@ const handleSelectTable = (table) => {
     showTableAssignmentModal.value = false;
 };
 
+const handleOpenPayment = () => {
+    emit("open-payment");
+};
+
+const handleDeleteOrder = () => {
+    emit("delete-order");
+};
+
+const handleNewKot = () => {
+    emit("new-kot");
+};
+
+// Handle item removal from the NEW cart (non-linked) — no reason needed
+const requestRemoveItem = (itemId) => {
+    emit('remove-item', itemId);
+};
+
+// --- Linked-order KOT item removal/reduction flow ---
+// State: we track the pending action so the single RemovalReasonModal can serve both delete and decrement
+const pendingKotAction = ref(null); // 'delete' | 'decrement'
+const pendingKotNewQty = ref(0);    // only used for 'decrement'
+
+/**
+ * Called when the TRASH button is clicked on a linked KOT row.
+ * Mirrors legacy deleteCartItems → requiresRemovalReason → promptRemovalReason('delete')
+ */
+const requestRemoveKotItem = (item) => {
+    if (!canDeleteKotItem.value) {
+        // Show permission denied toast
+        showPosAlert("error", "You don't have permission to delete KOT items.");
+        return;
+    }
+    pendingRemovalKotItem.value = {
+        id: item.kot_item_id ?? item.id,
+        name: item.name || item.item_name || '',
+    };
+    pendingKotAction.value = 'delete';
+    pendingKotNewQty.value = 0;
+    showRemovalReasonModal.value = true;
+};
+
+/**
+ * Called when the – button is clicked on a linked KOT row.
+ * Mirrors legacy subQty → requiresRemovalReason → promptRemovalReason('delete'|'decrement')
+ */
+const requestDecreaseKotItem = (item) => {
+    if (!canDeleteKotItem.value) {
+        showPosAlert("error", "You don't have permission to modify KOT items.");
+        return;
+    }
+    const currentQty = Number(item.quantity ?? 1);
+    const kotItemId  = item.kot_item_id ?? item.id;
+
+    pendingRemovalKotItem.value = {
+        id: kotItemId,
+        name: item.name || item.item_name || '',
+    };
+
+    if (currentQty <= 1) {
+        // qty would become 0 → full delete
+        pendingKotAction.value = 'delete';
+        pendingKotNewQty.value = 0;
+    } else {
+        // qty would become currentQty - 1
+        pendingKotAction.value = 'decrement';
+        pendingKotNewQty.value = currentQty - 1;
+    }
+    showRemovalReasonModal.value = true;
+};
+
+/**
+ * Confirm handler for the RemovalReasonModal on linked-order KOT rows.
+ * Routes to either remove-kot-item (delete) or reduce-kot-item (decrement).
+ */
+const handleKotRemovalConfirm = (reason) => {
+    showRemovalReasonModal.value = false;
+    if (!pendingRemovalKotItem.value) return;
+
+    const kotItemId = pendingRemovalKotItem.value.id;
+    const action    = pendingKotAction.value;
+
+    if (action === 'delete') {
+        emit('remove-kot-item', { kotItemId, reason });
+    } else {
+        // decrement
+        emit('reduce-kot-item', {
+            kotItemId,
+            newQuantity: pendingKotNewQty.value,
+            reason,
+        });
+    }
+
+    pendingRemovalKotItem.value = null;
+    pendingKotAction.value = null;
+    pendingKotNewQty.value = 0;
+};
+
 // Handle save order with validation
 const handleSaveOrder = (...actions) => {
-    // Validate that there are items in the cart
-    if (!props.cartItems || props.cartItems.length === 0) {
+    // In linked-order mode, existing items are on the server — skip empty-cart guard
+    if (!props.isLinkedOrderMode && (!props.cartItems || props.cartItems.length === 0)) {
         showPosAlert("error", "You need to add items to the order.");
         return;
     }

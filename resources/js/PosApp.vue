@@ -46,6 +46,18 @@
                 :selected-delivery-app="selectedDeliveryApp" :current-user="currentUser" :can-edit-waiter="canEditWaiter"
                 :set-as-default-order-type="setAsDefaultOrderType" :delivery-executives="deliveryExecutives"
                 :selected-delivery-executive="selectedDeliveryExecutive" :delivery-fee="deliveryFee"
+                :is-linked-order-mode="isLinkedOrderMode" :is-new-kot-mode="isNewKotMode"
+                :order-lifecycle-status="orderLifecycleStatus"
+                :order-permissions="orderPermissions" :kot-groups="kotGroups"
+                :allow-custom-order-extras="allowCustomOrderExtras" :custom-extras="customExtras"
+                :delivery-address="deliveryAddress" :customer-phone="customerPhone"
+                :customer-lat="customerLat" :customer-lng="customerLng"
+                :branch-lat="branchLat" :branch-lng="branchLng"
+                :kot-module-enabled="kotModuleEnabled"
+                :modifier-options="modifierOptions"
+                :tip-amount="tipAmount"
+                :pickup-date-time="pickupDateTime"
+                :order-note="orderNote"
                 @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
                 @select-table="handleSelectTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
@@ -55,8 +67,20 @@
                 @update-quantity="handleUpdateQuantity" @update:selectedDeliveryApp="selectedDeliveryApp = $event"
                 @update:setAsDefaultOrderType="setAsDefaultOrderType = $event" @increase-quantity="handleIncreaseQuantity"
                 @decrease-quantity="handleDecreaseQuantity" @remove-item="handleRemoveItem" @save-order="handleSaveOrder"
+                @open-payment="handleOpenPayment" @delete-order="handleDeleteOrder"
+                @new-kot="handleNewKot"
+                @request-cancel-order="handleRequestCancelOrder"
                 @update:extraCharges="extraCharges = $event" @apply-discount="handleApplyDiscount"
-                @remove-discount="handleRemoveDiscount" :order="order" />
+                @remove-discount="handleRemoveDiscount"
+                @remove-extra-charge="handleRemoveExtraCharge"
+                @update:pickupDateTime="handlePickupDateTimeUpdate"
+                @remove-kot-item="handleRemoveKotItem"
+                @reduce-kot-item="handleReduceKotItem"
+                @print-receipt="handlePrintReceipt"
+                @add-custom-extra="handleAddCustomExtra"
+                @remove-custom-extra="handleRemoveCustomExtra"
+                @update-custom-extra="handleUpdateCustomExtra"
+                :order="order" />
         </div>
 
         <!-- Modals -->
@@ -70,6 +94,9 @@
             @save="handleSaveCustomer" />
 
         <AddNoteModal :show="showAddNoteModal" :note="orderNote" @close="showAddNoteModal = false" @save="handleSaveNote" />
+
+        <CancelOrderModal :show="showCancelOrderModal" :reasons="cancelReasons" @close="showCancelOrderModal = false"
+            @save="handleSaveCancelOrder" />
     </div>
 </template>
 
@@ -82,6 +109,7 @@ import ReservationModal from "./components/pos/ReservationModal.vue";
 import TableChangeModal from "./components/pos/TableChangeModal.vue";
 import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
+import CancelOrderModal from "./components/pos/CancelOrderModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 
@@ -123,12 +151,16 @@ const getUrlParams = () => {
     return {
         orderId: searchParams.get("order_id") || routeOrderId,
         mode: searchParams.get("mode") || routeMode,
+        showOrderDetail:
+            searchParams.get("show-order-detail") === "true"
+            || searchParams.get("show_order_detail") === "true",
     };
 };
 
 const params = getUrlParams();
 const orderId = ref(params.orderId);
 const mode = ref(params.mode);
+const showOrderDetailMode = ref(!!params.showOrderDetail);
 
 const getBootstrapData = () => {
     const mountEl = document.getElementById("pos-app");
@@ -188,6 +220,8 @@ const orderTypes = ref([]);
 const deliveryPlatforms = ref([]);
 const restaurant = ref(null);
 const currencySymbol = ref("$");
+const kotModuleEnabled = ref(true); // Gated by KOT module subscription
+const modifierOptions = ref({}); // Flat map: { [optionId]: { name, price } }
 
 // Order data
 const orderType = ref("Dine In");
@@ -213,10 +247,57 @@ const orderStatus = ref("");
 const deliveryExecutives = ref([]);
 const selectedDeliveryExecutive = ref("");
 const deliveryFee = ref(0);
+const pickupDateTime = ref(""); // For Pickup order type
+const tipAmount = ref(0); // Loaded from saved order
+const orderLifecycleStatus = ref("");
+// Legacy parity (Pos.php::$orderExtras): per-order custom extras rows.
+// Each row is { amount: number, note: string }. Persisted via order_extras
+// when the restaurant setting allow_custom_order_extras is enabled.
+const allowCustomOrderExtras = ref(false);
+const customExtras = ref([]);
+const orderPermissions = ref({
+    can_update_order: false,
+    can_delete_order: false,
+    can_edit_billed_order: false,
+    can_delete_kot_item: false,
+});
+const kotGroups = ref([]);
+const deliveryAddress = ref("");
+const customerPhone = ref("");
+const customerLat = ref(null);
+const customerLng = ref(null);
+const branchLat = ref(null);
+const branchLng = ref(null);
+const cancelReasons = ref([]);
+// Legacy parity (Pos.php mount + pos.blade.php):
+//   /pos/kot/{id} WITHOUT ?show-order-detail=true is the "New KOT" flow — the
+//   existing order is contextually loaded (customer/waiter/type), but the cart
+//   starts empty and saves are append-only. It is NOT a linked-order view, so
+//   we render the regular cart UI and only the KOT action buttons.
+const isNewKotMode = computed(() => {
+    if (!orderId.value) {
+        return false;
+    }
+
+    return mode.value === "kot" && !showOrderDetailMode.value;
+});
+
+const isLinkedOrderMode = computed(() => {
+    if (!orderId.value) {
+        return false;
+    }
+
+    if (isNewKotMode.value) {
+        return false;
+    }
+
+    return !!showOrderDetailMode.value || mode.value === "order" || mode.value === "kot";
+});
 // Modal state
 const showReservationModal = ref(false);
 const showTableChangeConfirmationModal = ref(false);
 const showAddCustomerModal = ref(false);
+const showCancelOrderModal = ref(false);
 const reservation = ref({
     customerName: null,
     time: null,
@@ -306,6 +387,7 @@ const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
         );
         if (existingItem) {
             existingItem.quantity++;
+            syncCartLinePrice(existingItem);
             console.log("Updated existing item:", existingItem);
         } else {
             const newCartItem = {
@@ -313,6 +395,7 @@ const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
                 menu_item_id: normalizedItemId,
                 name: item.item_name || item.name || "Unknown Item",
                 price: price,
+                base_unit_price: Number(price || 0),
                 quantity: 1,
                 variant_id: normalizedVariantId,
                 modifier_id: normalizedModifierId,
@@ -356,6 +439,17 @@ const findCartLine = (itemId, variantId = 0, modifierId = 0) => {
                 Number(ci.variant_id || 0) === Number(variantId || 0) &&
                 Number(ci.modifier_id || 0) === Number(modifierId || 0))
     );
+};
+
+const syncCartLinePrice = (item) => {
+    if (!item) {
+        return;
+    }
+
+    const currentPrice = Number(item.price || 0);
+    const baseUnitPrice = Number(item.base_unit_price || currentPrice || 0);
+    item.base_unit_price = baseUnitPrice;
+    item.price = baseUnitPrice;
 };
 
 const handleReset = () => {
@@ -540,6 +634,50 @@ const handleAddNote = (noteData) => {
     }
 };
 
+const loadCancelReasons = async () => {
+    try {
+        const response = await axios.get("/api/pos/cancel-reasons");
+        cancelReasons.value = Array.isArray(response.data) ? response.data : [];
+    } catch (error) {
+        console.error("Failed to load cancel reasons:", error);
+        cancelReasons.value = [];
+    }
+};
+
+const handleRequestCancelOrder = () => {
+    showCancelOrderModal.value = true;
+};
+
+const handleSaveCancelOrder = async ({ cancelReasonId, cancelReasonText }) => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId) {
+        return;
+    }
+
+    if (!cancelReasonId && !cancelReasonText) {
+        showPosAlert("error", "Please select a cancel reason or enter cancel reason text");
+        return;
+    }
+
+    try {
+        const response = await axios.post(`/api/pos/orders/${activeOrderId}/status`, {
+            order_status: "cancelled",
+            cancel_reason_id: cancelReasonId,
+            cancel_reason_text: cancelReasonText,
+        });
+
+        if (response.data?.success) {
+            showCancelOrderModal.value = false;
+            showPosAlert("success", response.data?.message || "Order cancelled successfully");
+            clearCartAfterSave();
+            window.location.href = "/pos";
+        }
+    } catch (error) {
+        console.error("Error cancelling order:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to cancel order");
+    }
+};
+
 const handleSaveNote = (note) => {
     orderNote.value = note;
     console.log("Order note saved:", note);
@@ -549,6 +687,7 @@ const handleIncreaseQuantity = (itemId) => {
     const item = findCartLine(itemId);
     if (item) {
         item.quantity++;
+        syncCartLinePrice(item);
         // Save cart to localStorage
         saveCartToStorage(cartItems.value);
     }
@@ -558,6 +697,7 @@ const handleDecreaseQuantity = (itemId) => {
     const item = findCartLine(itemId);
     if (item && item.quantity > 1) {
         item.quantity--;
+        syncCartLinePrice(item);
     } else if (item) {
         cartItems.value = cartItems.value.filter(
             (ci) => getCartLineKey(ci) !== itemId
@@ -577,6 +717,7 @@ const handleUpdateQuantity = (quantityData) => {
         const newQty = parseInt(quantityData.quantity, 10);
         if (newQty > 0) {
             item.quantity = newQty;
+            syncCartLinePrice(item);
             // Save cart to localStorage
             saveCartToStorage(cartItems.value);
         } else {
@@ -599,6 +740,70 @@ const handleRemoveItem = (itemId) => {
     cartItems.value = cartItems.value.filter((ci) => getCartLineKey(ci) !== itemId);
     // Save cart to localStorage
     saveCartToStorage(cartItems.value);
+};
+
+/**
+ * Remove a KOT item from a linked (persisted) order.
+ * Calls DELETE /api/pos/orders/{orderId}/kot-items/{kotItemId}
+ * with a mandatory reason that gets logged to kot_item_adjustments.
+ */
+const handleRemoveKotItem = async ({ kotItemId, reason }) => {
+    const activeOrderId = order.value?.id;
+    if (!activeOrderId || !kotItemId) return;
+
+    try {
+        const response = await axios.delete(
+            `/api/pos/orders/${activeOrderId}/kot-items/${kotItemId}`,
+            { data: { reason } }
+        );
+
+        if (response.data?.data?.order_cancelled_or_deleted) {
+            showPosAlert("success", "KOT item removed. Order has been cancelled.");
+            // Redirect back to POS home
+            window.location.href = "/pos";
+            return;
+        }
+
+        showPosAlert("success", response.data?.message || "KOT item removed successfully.");
+
+        // Reload the order to reflect updated totals and KOT state
+        await loadOrderData(activeOrderId);
+    } catch (error) {
+        const msg = error.response?.data?.message || error.response?.data?.errors?.reason?.[0] || "Failed to remove KOT item.";
+        showPosAlert("error", msg);
+    }
+};
+
+/**
+ * Reduce a KOT item quantity (decrement) on a linked order.
+ * Calls PATCH /api/pos/orders/{orderId}/kot-items/{kotItemId}/quantity
+ * with new_quantity and a mandatory reason that gets logged to kot_item_adjustments.
+ */
+const handleReduceKotItem = async ({ kotItemId, newQuantity, reason }) => {
+    const activeOrderId = order.value?.id;
+    if (!activeOrderId || !kotItemId) return;
+
+    try {
+        const response = await axios.patch(
+            `/api/pos/orders/${activeOrderId}/kot-items/${kotItemId}/quantity`,
+            { new_quantity: newQuantity, reason }
+        );
+
+        if (response.data?.data?.order_cancelled_or_deleted) {
+            showPosAlert("success", "KOT item updated. Order has been cancelled.");
+            window.location.href = "/pos";
+            return;
+        }
+
+        showPosAlert("success", response.data?.message || "KOT item updated.");
+        await loadOrderData(activeOrderId);
+    } catch (error) {
+        const msg = error.response?.data?.message
+            || error.response?.data?.errors?.reason?.[0]
+            || error.response?.data?.errors?.new_quantity?.[0]
+            || "Failed to update KOT item.";
+        showPosAlert("error", msg);
+    }
 };
 
 const handleApplyDiscount = (discountData) => {
@@ -873,6 +1078,80 @@ const dispatchLivewireEvent = (eventName, payload) => {
     return true;
 };
 
+const navigateToLinkedOrderDetail = (id) => {
+    if (!id) {
+        return;
+    }
+
+    window.location.href = `/pos/kot/${id}?show-order-detail=true`;
+};
+
+const navigateToPayment = (id) => {
+    if (!id) {
+        return;
+    }
+
+    window.location.href = `/orders/${id}?payment=true`;
+};
+
+const openPaymentInPlace = (id) => {
+    if (!id) {
+        return false;
+    }
+
+    return dispatchLivewireEvent("showPaymentModal", {
+        id,
+    });
+};
+
+const openOrderDetailInPlace = (id) => {
+    if (!id) {
+        return false;
+    }
+
+    return dispatchLivewireEvent("showOrderDetail", {
+        id,
+        fromPos: true,
+    });
+};
+
+const openBillPrintWindow = (id) => {
+    if (!id) {
+        return;
+    }
+
+    const url = `/orders/print/${id}`;
+    const printWindow = window.open(url, "_blank");
+
+    if (printWindow) {
+        setTimeout(() => {
+            printWindow.print();
+        }, 1000);
+    }
+};
+
+const openKotPrintWindows = (urls = []) => {
+    const printUrls = Array.isArray(urls)
+        ? urls.filter(Boolean)
+        : [];
+
+    if (printUrls.length === 0) {
+        return;
+    }
+
+    printUrls.forEach((url, index) => {
+        setTimeout(() => {
+            const printWindow = window.open(url, "_blank");
+
+            if (printWindow) {
+                setTimeout(() => {
+                    printWindow.print();
+                }, 1000);
+            }
+        }, index * 650);
+    });
+};
+
 const clearCartAfterSave = () => {
     // Clear cart after successful order save (Speeder behavior)
     // This ensures fresh start for next order
@@ -889,11 +1168,24 @@ const clearCartAfterSave = () => {
     discountType.value = "";
     discountValue.value = 0;
     extraCharges.value = [];
+    customExtras.value = [];
     availableTaxes.value = [];
     orderId.value = null;
     orderStatus.value = "";
+    orderLifecycleStatus.value = "";
     selectedDeliveryExecutive.value = "";
     deliveryFee.value = 0;
+    orderPermissions.value = {
+        can_update_order: false,
+        can_delete_order: false,
+        can_edit_billed_order: false,
+        can_delete_kot_item: false,
+    };
+    kotGroups.value = [];
+    deliveryAddress.value = "";
+    customerPhone.value = "";
+    customerLat.value = null;
+    customerLng.value = null;
     calculateTaxes();
 };
 
@@ -903,16 +1195,39 @@ const handleSaveOrder = async (...actions) => {
     savingAction.value = actionKey;
     try {
         // Validate cart has items
-        if (!cartItems.value || cartItems.value.length === 0) {
+        // In linked-order mode, existing items are on the server — cart may be empty if no NEW items are added
+        if (!isLinkedOrderMode.value && (!cartItems.value || cartItems.value.length === 0)) {
             showPosAlert("error", "Cart is empty. Please add items before saving.");
             savingAction.value = null;
             return;
         }
 
         const actionList = Array.isArray(actions) ? actions : [];
+        const routeLinkedOrderId = params.orderId ? Number(params.orderId) : null;
+        const effectiveOrderId = orderId.value
+            ? Number(orderId.value)
+            : routeLinkedOrderId;
+        const isExistingOrder = !!effectiveOrderId;
         const action = actionList.includes("bill") ? "bill" : "kot";
-        const openPayment = actionList.includes("payment");
+        const secondaryAction = actionList.includes("payment")
+            ? "payment"
+            : actionList.includes("print")
+                ? "print"
+                : null;
+        const openPayment = secondaryAction === "payment";
         const selectedOrderType = resolveOrderType(orderType.value);
+
+        console.log("[POS DEBUG] saveOrder start", {
+            actionList,
+            isExistingOrder,
+            effectiveOrderId,
+            action,
+            secondaryAction,
+            openPayment,
+            currentOrderId: orderId.value,
+            routeLinkedOrderId,
+            isLinkedOrderMode: isLinkedOrderMode.value,
+        });
 
         // Calculate line totals with proper amount calculation
         const lines = cartItems.value.map((item) => {
@@ -937,9 +1252,10 @@ const handleSaveOrder = async (...actions) => {
         });
 
         const orderData = {
-            order_id: orderId.value ? Number(orderId.value) : null,
+            order_id: effectiveOrderId || null,
             action,
             open_payment: openPayment,
+            secondary_action: secondaryAction,
             order_type_id: selectedOrderType?.id || null,
             delivery_app_id:
                 normalizeOrderTypeSlug(selectedOrderType?.slug) === "delivery"
@@ -967,6 +1283,22 @@ const handleSaveOrder = async (...actions) => {
                     ? Number(deliveryFee.value || 0)
                     : 0,
             lines: lines,
+            // Legacy parity (Pos.php::$appendOnlyKotSave): New KOT screen posts
+            // only the new delta lines; the server must preserve existing
+            // items/KOTs/taxes instead of wiping and recreating the order.
+            // Applies to both KOT and "KOT + Bill + Payment" flows from the
+            // New KOT screen — the existing history is always preserved.
+            append_kot: isNewKotMode.value,
+            // Legacy parity (Pos.php::syncOrderExtras): send current rows as-is
+            // when enabled so the server can replace order_extras for the order.
+            // In New KOT append mode the server intentionally ignores this and
+            // keeps existing extras, matching legacy behavior.
+            custom_extras: allowCustomOrderExtras.value
+                ? customExtras.value.map((row) => ({
+                    amount: Number(row?.amount || 0),
+                    note: String(row?.note || ""),
+                }))
+                : [],
         };
 
         console.log("Order data being sent:", {
@@ -992,32 +1324,144 @@ const handleSaveOrder = async (...actions) => {
 
         if (result.offline) {
             console.log("Order queued for sync:", result.operationId);
-            // Clear draft state after queueing for sync
-            clearCartAfterSave();
 
-            // Increment order number for next offline order
-            await incrementOrderNumberOffline();
+            if (isExistingOrder) {
+                // Existing linked orders should preserve current cart/view state.
+                showPosAlert("info", "Order update queued and will sync when online.");
+            } else {
+                // Clear draft state after queueing for sync (new-order flow)
+                clearCartAfterSave();
+
+                // Increment order number for next offline order
+                await incrementOrderNumberOffline();
+            }
         } else {
             console.log("Order saved successfully:", result.data);
 
-            // Clear cart after successful save (Speeder behavior)
+            const resultPayload = result?.data?.data ?? result?.data ?? {};
+            const orderIdToOpen = resultPayload.order_id
+                ? Number(resultPayload.order_id)
+                : null;
+            const resolvedOrderId = orderIdToOpen || effectiveOrderId || null;
+            const nextAction = resultPayload.next || {};
+            const shouldOpenPayment = Boolean(
+                nextAction.open_payment ?? openPayment
+            );
+            const shouldPrintReceipt = Boolean(
+                nextAction.print_receipt ?? actionList.includes("print")
+            );
+            const shouldShowOrderDetail = Boolean(
+                nextAction.show_order_detail ?? (actionList.includes("bill") && !shouldOpenPayment && !shouldPrintReceipt)
+            );
+
+            console.log("[POS DEBUG] saveOrder decoded response", {
+                rawResult: result?.data,
+                resultPayload,
+                orderIdToOpen,
+                resolvedOrderId,
+                links: resultPayload.links || null,
+                nextAction,
+                shouldOpenPayment,
+                shouldPrintReceipt,
+                shouldShowOrderDetail,
+            });
+
+            if (isExistingOrder && resolvedOrderId) {
+                orderId.value = String(resolvedOrderId);
+
+                // Keep linked footer state in sync immediately after billing.
+                if (actionList.includes("bill")) {
+                    orderLifecycleStatus.value = "billed";
+                    showOrderDetailMode.value = true;
+                    mode.value = "kot";
+                }
+            }
+
+            if (isExistingOrder && resolvedOrderId) {
+                // Legacy parity (Pos.php line 3395): after a successful KOT save on an
+                // existing order (New KOT flow from /pos/kot/{id}), legacy navigates to
+                // the linked order detail view. Mirror that so the user lands on the
+                // freshly appended KOT instead of an empty "New KOT" screen. KOT+print
+                // fires the kitchen print windows first, then redirects.
+                if (isNewKotMode.value && action === "kot" && !shouldOpenPayment) {
+                    if (actionList.includes("print")) {
+                        const kotPrintUrls = resultPayload.links?.kot_print_urls || [];
+                        openKotPrintWindows(kotPrintUrls);
+                    }
+                    navigateToLinkedOrderDetail(resolvedOrderId);
+                    return;
+                }
+
+                if (shouldOpenPayment) {
+                    console.log("[POS DEBUG] existing order -> payment", { resolvedOrderId });
+                    const openedPayment = openPaymentInPlace(resolvedOrderId);
+
+                    if (!openedPayment) {
+                        navigateToPayment(resolvedOrderId);
+                    } else {
+                        // Keep linked cart/footer in sync with billed status after in-place modal open.
+                        await loadOrderData(resolvedOrderId);
+                    }
+                    return;
+                }
+
+                if (shouldPrintReceipt && actionList.includes("bill")) {
+                    console.log("[POS DEBUG] existing order -> bill print", { resolvedOrderId });
+                    openBillPrintWindow(resolvedOrderId);
+
+                    if (shouldShowOrderDetail) {
+                        navigateToLinkedOrderDetail(resolvedOrderId);
+                        return;
+                    }
+
+                    await loadOrderData(resolvedOrderId);
+                    return;
+                }
+
+                if (shouldShowOrderDetail) {
+                    console.log("[POS DEBUG] existing order -> bill detail", { resolvedOrderId });
+
+                    const openedOrderDetail = openOrderDetailInPlace(resolvedOrderId);
+                    if (!openedOrderDetail) {
+                        navigateToLinkedOrderDetail(resolvedOrderId);
+                    } else {
+                        // Legacy immediately reflects billed footer state; mirror that by rehydrating.
+                        await loadOrderData(resolvedOrderId);
+                    }
+                    return;
+                }
+
+                // Preserve linked order context and refresh in-place for non-navigating actions.
+                await loadOrderData(resolvedOrderId);
+                return;
+            }
+
+            if (isExistingOrder) {
+                console.warn("[POS DEBUG] existing order guard prevented clearCartAfterSave", {
+                    effectiveOrderId,
+                    orderIdToOpen,
+                    resultPayload,
+                });
+
+                if (effectiveOrderId) {
+                    await loadOrderData(effectiveOrderId);
+                }
+                return;
+            }
+
+            // Clear cart after successful save (new-order flow)
             clearCartAfterSave();
 
-            const orderIdToOpen = result.data.order_id;
-
-            if (openPayment && orderIdToOpen) {
-                const openedPayment = dispatchLivewireEvent("showPaymentModal", {
-                    id: orderIdToOpen,
-                });
+            if (shouldOpenPayment && orderIdToOpen) {
+                console.log("[POS DEBUG] new order -> bill payment", { orderIdToOpen });
+                const openedPayment = openPaymentInPlace(orderIdToOpen);
 
                 if (!openedPayment) {
                     window.location.href = `/orders/${orderIdToOpen}?payment=true`;
                 }
-            } else if (actionList.includes("bill") && orderIdToOpen) {
-                const opened = dispatchLivewireEvent("showOrderDetail", {
-                    id: orderIdToOpen,
-                    fromPos: true,
-                });
+            } else if (shouldShowOrderDetail && orderIdToOpen) {
+                console.log("[POS DEBUG] new order -> bill detail", { orderIdToOpen });
+                const opened = openOrderDetailInPlace(orderIdToOpen);
 
                 if (!opened) {
                     window.location.href = `/orders/${orderIdToOpen}`;
@@ -1025,13 +1469,39 @@ const handleSaveOrder = async (...actions) => {
             }
 
             // Handle print action
-            if (actionList.includes("print")) {
-                // Determine which document to print (bill or KOT)
+            if (shouldPrintReceipt) {
+                const kotPrintUrls = resultPayload.links?.kot_print_urls || [];
                 const printUrl = actionList.includes("bill")
-                    ? result.data.links?.bill
-                    : result.data.links?.kot;
+                    ? (resultPayload.links?.bill || `/orders/print/${orderIdToOpen}`)
+                    : kotPrintUrls[0] || resultPayload.links?.kot;
 
-                if (printUrl) {
+                console.log("[POS DEBUG] print decision", {
+                    actionList,
+                    orderIdToOpen,
+                    printUrl,
+                    kotPrintUrls,
+                });
+
+                if (actionList.includes("bill")) {
+                    if (printUrl) {
+                        setTimeout(() => {
+                            const printWindow = window.open(printUrl, '_blank');
+                            setTimeout(() => {
+                                if (printWindow) {
+                                    printWindow.print();
+                                }
+                            }, 1000);
+                        }, 500);
+                    } else {
+                        console.warn("[POS DEBUG] Print URL not available in response", {
+                            actionList,
+                            orderIdToOpen,
+                            resultPayload,
+                        });
+                    }
+                } else if (kotPrintUrls.length > 0) {
+                    openKotPrintWindows(kotPrintUrls);
+                } else if (printUrl) {
                     // Open print window
                     setTimeout(() => {
                         const printWindow = window.open(printUrl, '_blank');
@@ -1045,8 +1515,19 @@ const handleSaveOrder = async (...actions) => {
                         }, 1000);
                     }, 500);
                 } else {
-                    console.warn("Print URL not available in response");
+                    console.warn("[POS DEBUG] Print URL not available in response", {
+                        actionList,
+                        orderIdToOpen,
+                        resultPayload,
+                    });
                 }
+            }
+
+            if (!orderIdToOpen) {
+                console.warn("[POS DEBUG] Missing orderIdToOpen after save", {
+                    actionList,
+                    rawResult: result?.data,
+                });
             }
 
             // Fetch new order number when online
@@ -1121,6 +1602,16 @@ const handleRemoveCustomer = () => {
     customer.value = getEmptyCustomer();
     customerId.value = null;
     clearCustomerFromStorage();
+
+    // Sync removal to backend if editing an existing order
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (activeOrderId) {
+        axios.post(`/api/pos/orders/${activeOrderId}/customer`, {
+            customer_id: null,
+        }).catch((error) => {
+            console.error("Error removing customer from order:", error);
+        });
+    }
 };
 
 const handleWaiterUpdate = async (newWaiterId) => {
@@ -1230,6 +1721,170 @@ const handleDeliveryFeeUpdate = async (newDeliveryFee) => {
     }
 };
 
+const handleOpenPayment = () => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    console.log("[POS DEBUG] open payment clicked", {
+        activeOrderId,
+        isLinkedOrderMode: isLinkedOrderMode.value,
+    });
+
+    if (!activeOrderId) {
+        console.warn("[POS DEBUG] open payment skipped: missing order id");
+        return;
+    }
+
+    if (isLinkedOrderMode.value) {
+        const openedPayment = openPaymentInPlace(activeOrderId);
+        if (!openedPayment) {
+            navigateToPayment(activeOrderId);
+        }
+        return;
+    }
+
+    const openedPayment = openPaymentInPlace(activeOrderId);
+
+    console.log("[POS DEBUG] open payment dispatch result", {
+        activeOrderId,
+        openedPayment,
+    });
+
+    if (!openedPayment) {
+        window.location.href = `/orders/${activeOrderId}?payment=true`;
+    }
+};
+
+// Mirrors legacy order_detail.blade.php → printOrder({id}) on `paid` orders.
+const handlePrintReceipt = () => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId) {
+        console.warn("[POS DEBUG] print receipt skipped: missing order id");
+        return;
+    }
+
+    openBillPrintWindow(activeOrderId);
+};
+
+const handleNewKot = () => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    console.log("[POS DEBUG] new KOT clicked", {
+        activeOrderId,
+        isLinkedOrderMode: isLinkedOrderMode.value,
+        orderLifecycleStatus: orderLifecycleStatus.value,
+    });
+
+    if (!activeOrderId) {
+        console.warn("[POS DEBUG] new KOT skipped: missing order id");
+        return;
+    }
+
+    window.location.href = `/pos/kot/${activeOrderId}`;
+};
+
+const handleDeleteOrder = async () => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    console.log("[POS DEBUG] delete order clicked", {
+        activeOrderId,
+        isLinkedOrderMode: isLinkedOrderMode.value,
+        orderLifecycleStatus: orderLifecycleStatus.value,
+    });
+
+    if (!activeOrderId) {
+        console.warn("[POS DEBUG] delete order skipped: missing order id");
+        return;
+    }
+
+    const confirmed = await showPosConfirm(
+        "Are you sure you want to delete this order?",
+        {
+            confirmButtonText: "Yes, delete",
+            cancelButtonText: "No",
+        }
+    );
+
+    if (!confirmed) {
+        console.log("[POS DEBUG] delete order cancelled by user", {
+            activeOrderId,
+        });
+        return;
+    }
+
+    try {
+        const response = await axios.delete(`/api/pos/orders/${activeOrderId}`);
+
+        if (response.data?.success) {
+            console.log("[POS DEBUG] delete order success", {
+                activeOrderId,
+            });
+            showPosAlert("success", response.data?.message || "Order deleted successfully");
+            clearCartAfterSave();
+            window.location.href = "/pos";
+        }
+    } catch (error) {
+        console.error("[POS DEBUG] delete order failed", {
+            activeOrderId,
+            status: error?.response?.status,
+            data: error?.response?.data,
+        });
+        console.error("Error deleting order:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to delete order");
+    }
+};
+
+// Legacy parity (Pos.php::addOrderExtraRow / removeOrderExtraRow / normalizeOrderExtras):
+// add an empty row, remove by index, and keep numeric amounts coerced on blur.
+const handleAddCustomExtra = () => {
+    customExtras.value.push({ amount: "", note: "" });
+};
+
+const handleRemoveCustomExtra = (index) => {
+    if (index < 0 || index >= customExtras.value.length) {
+        return;
+    }
+    customExtras.value.splice(index, 1);
+};
+
+const handleUpdateCustomExtra = ({ index, field, value }) => {
+    const row = customExtras.value[index];
+    if (!row) {
+        return;
+    }
+
+    if (field === "amount") {
+        // Keep the raw string while the user is typing so partial decimal entries
+        // (e.g. "2." before a trailing digit) aren't stomped. Coercion to a
+        // non-negative number happens at save/compute time.
+        row.amount = value;
+        return;
+    }
+
+    if (field === "note") {
+        row.note = String(value ?? "");
+    }
+};
+
+const handleRemoveExtraCharge = async (chargeId) => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    // Optimistically remove from local state
+    extraCharges.value = extraCharges.value.filter((c) => Number(c.id) !== Number(chargeId));
+
+    if (!activeOrderId) {
+        return;
+    }
+
+    try {
+        await axios.delete(`/api/pos/orders/${activeOrderId}/extra-charges/${chargeId}`);
+    } catch (error) {
+        console.error("Error removing extra charge:", error);
+        showPosAlert("error", error.response?.data?.message || "Failed to remove extra charge");
+        // Reload order data to restore correct state
+        loadOrderData(activeOrderId);
+    }
+};
+
+const handlePickupDateTimeUpdate = (value) => {
+    pickupDateTime.value = value || "";
+};
+
 // Sync handler for pending operations
 const syncHandler = async (operation) => {
     try {
@@ -1268,7 +1923,7 @@ watch(isOnline, (online) => {
 });
 
 // Load restaurant data
-const loadRestaurantData = async () => {
+const loadRestaurantData = () => {
     const bootstrap = bootstrapData.value;
     if (bootstrap?.currency_symbol) {
         currencySymbol.value = bootstrap.currency_symbol;
@@ -1278,11 +1933,21 @@ const loadRestaurantData = async () => {
         restaurant.value = {
             tax_mode: bootstrap.tax_mode || "item",
         };
+
+        allowCustomOrderExtras.value = !!bootstrap.allow_custom_order_extras;
+
+        // KOT module gate — check if 'KOT' is in the restaurant's active modules
+        if (Array.isArray(bootstrap.modules)) {
+            kotModuleEnabled.value = bootstrap.modules.includes('KOT');
+        } else {
+            kotModuleEnabled.value = true; // Default to enabled if modules not provided
+        }
     }
 };
 
 // Load menu data from cache or API
-const loadMenuData = async () => {
+// Load menu data from bootstrap snapshot (no API call, just reads from bootstrap)
+const loadMenuData = () => {
     // Load from server-provided bootstrap snapshot
     const bootstrap = bootstrapData.value;
     console.log("=== Loading Menu Data ===");
@@ -1310,6 +1975,20 @@ const loadMenuData = async () => {
                 console.log("First item:", menuItems.value[0]);
                 console.log("Sample prices:", menuItems.value.slice(0, 3).map(i => ({ id: i.id, name: i.item_name, price: i.price, variations_count: i.variations_count })));
             }
+
+            // Build flat modifier options map: { [optionId]: { name, price } }
+            // Used by OrderPanel to render modifier pill labels in the cart
+            const optionsMap = {};
+            menuItems.value.forEach((item) => {
+                const groups = Array.isArray(item.modifier_groups) ? item.modifier_groups : [];
+                groups.forEach((group) => {
+                    const options = Array.isArray(group.options) ? group.options : [];
+                    options.forEach((opt) => {
+                        optionsMap[opt.id] = { name: opt.name, price: opt.price ?? 0 };
+                    });
+                });
+            });
+            modifierOptions.value = optionsMap;
         }
 
         if (
@@ -1360,6 +2039,15 @@ const loadMenuData = async () => {
             console.log("Loaded delivery executives:", deliveryExecutives.value.length);
         }
 
+        if (bootstrap.branch) {
+            branchLat.value = bootstrap.branch.lat !== undefined && bootstrap.branch.lat !== null
+                ? Number(bootstrap.branch.lat)
+                : null;
+            branchLng.value = bootstrap.branch.lng !== undefined && bootstrap.branch.lng !== null
+                ? Number(bootstrap.branch.lng)
+                : null;
+        }
+
         if (Array.isArray(bootstrap.waiters) && bootstrap.waiters.length > 0) {
             waiters.value = bootstrap.waiters;
         }
@@ -1398,13 +2086,45 @@ const applyOrderPayload = (payload, activeOrderId) => {
     }
 
     order.value = payload.id;
+    orderNumber.value = payload.formatted_order_number || payload.order_number || orderNumber.value;
+    orderLifecycleStatus.value = payload.status || "";
     customerId.value = payload.customer_id || payload.customer?.id || null;
     customer.value = normalizeCustomerPayload(payload.customer);
     orderStatus.value = payload.order_status || "";
+    orderPermissions.value = {
+        can_update_order: !!payload.permissions?.can_update_order,
+        can_delete_order: !!payload.permissions?.can_delete_order,
+        can_edit_billed_order: !!payload.permissions?.can_edit_billed_order,
+        can_delete_kot_item: !!payload.permissions?.can_delete_kot_item,
+    };
+    kotGroups.value = Array.isArray(payload.kots) ? payload.kots : [];
+    deliveryAddress.value = payload.delivery_address || payload.customer?.delivery_address || payload.customer?.address || "";
+    customerPhone.value = payload.customer_phone || "";
+    customerLat.value = payload.customer_lat !== undefined && payload.customer_lat !== null
+        ? Number(payload.customer_lat)
+        : null;
+    customerLng.value = payload.customer_lng !== undefined && payload.customer_lng !== null
+        ? Number(payload.customer_lng)
+        : null;
 
     // Load order details
     waiterId.value = payload.waiter_id || "";
     orderNote.value = payload.note || "";
+    tipAmount.value = Number(payload.tip_amount || 0);
+    extraCharges.value = Array.isArray(payload.extra_charges) ? payload.extra_charges : [];
+    pickupDateTime.value = payload.pickup_datetime || "";
+
+    // Legacy parity (Pos.php mount): hydrate per-order custom extras when the
+    // server includes them (only sent if allow_custom_order_extras is on).
+    if (payload.allow_custom_order_extras !== undefined) {
+        allowCustomOrderExtras.value = !!payload.allow_custom_order_extras;
+    }
+    customExtras.value = Array.isArray(payload.custom_extras)
+        ? payload.custom_extras.map((row) => ({
+            amount: Number(row?.amount || 0),
+            note: String(row?.note || ""),
+        }))
+        : [];
 
     const selectedType =
         (bootstrapData.value?.order_types || []).find(
@@ -1440,35 +2160,55 @@ const applyOrderPayload = (payload, activeOrderId) => {
     deliveryFee.value = Number(payload.delivery_fee || 0);
 
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
-    const loadedItems = lines.map((line, index) => ({
-        id:
-            line.order_item_id !== undefined &&
-                line.order_item_id !== null
-                ? `order_item_${line.order_item_id}`
-                : `loaded_${line.menu_item_id}_${index}`,
-        menu_item_id: Number(line.menu_item_id),
-        name: line.item_name || "Unknown Item",
-        price: Number(line.unit_price || 0),
-        quantity: Number(line.qty || 1),
-        variant_id: line.menu_item_variation_id || 0,
-        modifier_id: 0,
-        note: line.note || "",
-        combo_pack_id: line.combo_pack_id || null,
-        combo_instance_key: line.combo_instance_key || null,
-        modifier_option_quantities:
-            line.modifier_option_quantities || {},
-        line_key:
-            line.order_item_id !== undefined && line.order_item_id !== null
-                ? `order_item_${line.order_item_id}`
-                : createCartLineKey(
-                    line.menu_item_id,
-                    line.menu_item_variation_id || 0,
-                    0
-                ),
-    }));
+    const loadedItems = lines.map((line, index) => {
+        const quantity = Number(line.qty || 1);
+        const lineUnitPrice = Number(line.unit_price || 0);
+        const lineAmount = Number(line.amount || 0);
+        const fallbackUnitPrice = quantity > 0 && lineAmount > 0
+            ? lineAmount / quantity
+            : 0;
+        const resolvedUnitPrice = lineUnitPrice > 0 ? lineUnitPrice : fallbackUnitPrice;
 
-    cartItems.value = loadedItems;
-    saveCartToStorage(cartItems.value);
+        return {
+            id:
+                line.order_item_id !== undefined &&
+                    line.order_item_id !== null
+                    ? `order_item_${line.order_item_id}`
+                    : `loaded_${line.menu_item_id}_${index}`,
+            menu_item_id: Number(line.menu_item_id),
+            name: line.item_name || "Unknown Item",
+            price: resolvedUnitPrice,
+            base_unit_price: resolvedUnitPrice,
+            quantity,
+            variant_id: line.menu_item_variation_id || 0,
+            modifier_id: 0,
+            note: line.note || "",
+            combo_pack_id: line.combo_pack_id || null,
+            combo_instance_key: line.combo_instance_key || null,
+            modifier_option_quantities:
+                line.modifier_option_quantities || {},
+            line_key:
+                line.order_item_id !== undefined && line.order_item_id !== null
+                    ? `order_item_${line.order_item_id}`
+                    : createCartLineKey(
+                        line.menu_item_id,
+                        line.menu_item_variation_id || 0,
+                        0
+                    ),
+        };
+    });
+
+    // Legacy parity (Pos.php mount): on the /pos/kot/{id} "New KOT" route
+    // (no ?show-order-detail=true) we keep order context — customer, waiter,
+    // order type, note, lifecycle status — but must NOT populate the cart from
+    // existing items. The user adds new lines and the server appends them.
+    if (isNewKotMode.value) {
+        cartItems.value = [];
+        saveCartToStorage([]);
+    } else {
+        cartItems.value = loadedItems;
+        saveCartToStorage(cartItems.value);
+    }
     calculateTaxes();
     orderId.value = String(activeOrderId);
 
@@ -1502,6 +2242,14 @@ onMounted(async () => {
     // Load order data if present in bootstrap or URL
     if (initialOrderData.value) {
         applyOrderPayload(initialOrderData.value, initialOrderData.value.id);
+
+        const missingExtendedContract =
+            !Array.isArray(initialOrderData.value.kots) ||
+            !initialOrderData.value.permissions;
+
+        if (missingExtendedContract) {
+            await loadOrderData(initialOrderData.value.id);
+        }
     } else if (orderId.value) {
         await loadOrderData();
     }
@@ -1531,26 +2279,33 @@ onMounted(async () => {
         }
     }
 
-    // Load restaurant data (from API)
-    await loadRestaurantData();
+    // Load restaurant and menu data (synchronous, reads from bootstrap only)
+    loadRestaurantData();
+    loadMenuData();
 
-    // Load menu data (from cache first, then API if online)
-    await loadMenuData();
+    // Parallelize independent async API calls to avoid sequential delays
+    const asyncTasks = [];
 
-    // Fetch initial order number
+    // Queue cancel reasons API call
+    asyncTasks.push(loadCancelReasons());
+
+    // Queue order number API call (conditional on online/offline state)
     if (isOnline.value && !orderNumber.value) {
-        await fetchNewOrderNumber();
+        asyncTasks.push(fetchNewOrderNumber());
     } else if (!isOnline.value && !orderNumber.value) {
         // If offline and no order number, try to load last one or increment
         const lastOrderNumber = loadOrderNumberFromStorage();
         if (lastOrderNumber) {
-            await incrementOrderNumberOffline();
+            asyncTasks.push(incrementOrderNumberOffline());
         } else {
             // Start with a default offline order number
             orderNumber.value = "Order #001";
             saveOrderNumberToStorage(orderNumber.value);
         }
     }
+
+    // Wait for all async tasks to complete in parallel
+    await Promise.all(asyncTasks);
 
     // Sync pending operations if online
     if (isOnline.value && pendingOperations.value.length > 0) {

@@ -40,6 +40,7 @@ use App\Models\Customer;
 use App\Models\Menu;
 use App\Models\DeliveryPlatform;
 use App\Support\KotAdjustmentLogger;
+use App\Services\Pos\BillSecondaryActionResolver;
 use App\Services\PosBootstrapService;
 use App\Services\PosBatchSyncService;
 
@@ -3400,20 +3401,20 @@ class Pos extends Component
         }
 
         if ($status == 'billed') {
-            // return $this->redirect(route('orders.index'), navigate: true);
-            switch ($secondAction) {
+            $billFollowUp = app(BillSecondaryActionResolver::class)->resolve('bill', $secondAction);
 
-                case 'payment':
-                    $this->dispatch('showPaymentModal', id: $order->id);
-                    break;
-                case 'print':
+            if ($billFollowUp['open_payment']) {
+                $this->dispatch('showPaymentModal', id: $order->id);
+            }
 
-                    $orderPlaces = \App\Models\MultipleOrder::with('printerSetting')->get();
+            if ($billFollowUp['print_receipt']) {
+                $orderPlaces = \App\Models\MultipleOrder::with('printerSetting')->get();
 
-                    foreach ($orderPlaces as $orderPlace) {
-                        $printerSetting = $orderPlace->printerSetting;
-                    }
+                foreach ($orderPlaces as $orderPlace) {
+                    $printerSetting = $orderPlace->printerSetting;
+                }
 
+                try {
                     switch ($printerSetting?->printing_choice) {
                         case 'directPrint':
                             $this->handleOrderPrint($order->id);
@@ -3423,33 +3424,18 @@ class Pos extends Component
                             $this->dispatch('print_location', $url);
                             break;
                     }
-
-                    $this->dispatch('resetPos');
-
-                    try {
-
-                        // switch ($printerSetting?->printing_choice) {
-                        //     case 'directPrint':
-                        //         $this->handleOrderPrint($order->id);
-                        //         break;
-                        //     default:
-                        //         $url = route('orders.print', $order->id);
-                        //         $this->dispatch('print_location', $url);
-                        //         break;
-                        // }
-                    } catch (\Throwable $e) {
-                        Log::info($e->getMessage());
-                        $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
-                            'toast' => true,
-                            'position' => 'top-end',
-                            'showCancelButton' => false,
-                            'cancelButtonText' => __('app.close')
-                        ]);
-                    }
+                } catch (\Throwable $e) {
+                    Log::info($e->getMessage());
+                    $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                        'showCancelButton' => false,
+                        'cancelButtonText' => __('app.close')
+                    ]);
+                }
             }
 
-            // change
-            if (!in_array($secondAction, ['payment', 'print'])) {
+            if ($billFollowUp['show_order_detail']) {
                 $this->dispatch('showOrderDetail', id: $order->id, fromPos: true);
             }
 
