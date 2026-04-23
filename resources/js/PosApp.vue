@@ -179,6 +179,7 @@ const getBootstrapData = () => {
 
 const bootstrapData = ref(getBootstrapData());
 const initialOrderData = computed(() => bootstrapData.value?.initial_order || null);
+const initialTableData = computed(() => bootstrapData.value?.initial_table || null);
 
 // Diagnostics - If bootstrap data is available inline, we're not loading
 const isLoading = ref(!bootstrapData.value);
@@ -1186,6 +1187,8 @@ const clearCartAfterSave = () => {
     customerPhone.value = "";
     customerLat.value = null;
     customerLng.value = null;
+    currentTable.value = "";
+    currentTableId.value = null;
     calculateTaxes();
 };
 
@@ -1261,6 +1264,12 @@ const handleSaveOrder = async (...actions) => {
                 normalizeOrderTypeSlug(selectedOrderType?.slug) === "delivery"
                     ? selectedDeliveryApp.value || "default"
                     : null,
+            // Legacy parity (Pos.php::saveOrder line 2863/2913): persist table_id when
+            // a table is assigned in dine_in mode so POS orders can be linked to tables
+            // and table status is managed correctly. For delivery/pickup, table_id is null.
+            table_id: normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value) === "dine_in"
+                ? currentTableId.value || null
+                : null,
             waiter_id: waiterId.value,
             note: orderNote.value,
             customer_id: customerId.value || customer.value?.id || null,
@@ -1578,8 +1587,6 @@ const handleConfirmDifferentCustomer = () => {
 };
 
 const handleConfirmTableChange = async () => {
-    // TODO: Implement API call to confirm table change
-    console.log("confirmTableChange");
     await applySelectedTable(
         newTable.value,
         newTableId.value,
@@ -2159,6 +2166,12 @@ const applyOrderPayload = (payload, activeOrderId) => {
         : "";
     deliveryFee.value = Number(payload.delivery_fee || 0);
 
+    // Legacy parity (Pos.php mount): hydrate table_id and table_code so the
+    // "Table X" badge displays correctly in the OrderPanel for linked orders.
+    // This ensures table assignment survives order reloads via /pos/kot/{id}.
+    currentTableId.value = payload.table_id ? Number(payload.table_id) : null;
+    currentTable.value = payload.table_code ? String(payload.table_code) : "";
+
     const lines = Array.isArray(payload.lines) ? payload.lines : [];
     const loadedItems = lines.map((line, index) => {
         const quantity = Number(line.qty || 1);
@@ -2215,12 +2228,38 @@ const applyOrderPayload = (payload, activeOrderId) => {
     console.log("Order data loaded successfully:", payload);
 };
 
-const applySelectedTable = async (tableCode, tableId, activeOrderId = null) => {
-    currentTable.value = tableCode;
-    currentTableId.value = tableId;
+const applySelectedTable = async (tableCode, tableId, targetActiveOrderId = null) => {
+    const previousTableCode = currentTable.value;
+    const previousTableId = currentTableId.value;
 
+    currentTable.value = tableCode;
+    currentTableId.value = tableId ? Number(tableId) : null;
+
+    if (targetActiveOrderId) {
+        await loadOrderData(targetActiveOrderId);
+        return;
+    }
+
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
     if (activeOrderId) {
-        await loadOrderData(activeOrderId);
+        try {
+            await axios.post(`/api/pos/orders/${activeOrderId}/table`, {
+                table_id: currentTableId.value || null,
+            });
+
+            await loadOrderData(activeOrderId);
+        } catch (error) {
+            currentTable.value = previousTableCode;
+            currentTableId.value = previousTableId;
+
+            const errorMessage =
+                error?.response?.data?.message ||
+                error?.message ||
+                "Failed to update table";
+
+            showPosAlert("error", errorMessage);
+        }
+
         return;
     }
 
@@ -2252,6 +2291,11 @@ onMounted(async () => {
         }
     } else if (orderId.value) {
         await loadOrderData();
+    }
+
+    if (!orderId.value && initialTableData.value?.id) {
+        currentTableId.value = Number(initialTableData.value.id);
+        currentTable.value = String(initialTableData.value.table_code || "");
     }
 
     // FIX: Cart persistence (only restore if editing existing order)

@@ -332,22 +332,52 @@ const handleUnlockTable = async (tableId, isLockedByCurrentUser) => {
 };
 
 // Handle table selection
+// Mirrors legacy Pos::setTable(): acquire a user-lock on the table BEFORE
+// committing the selection. Without this, two cashiers could both hold the
+// same table because the UI only showed cached lock state. Lock API also
+// honours the restaurant table_lock_timeout_minutes setting.
 const handleSelectTable = async (table) => {
-    // Check if table is locked by another user
     if (table.is_locked_by_other_user) {
         showPosAlert(
             "warning",
-            `This table is locked by ${table.locked_by_user_name || "another user"}. Please unlock it first or choose another table.`
+            `Table ${table.table_code} is currently being handled by ${table.locked_by_user_name || "another user"}. Please select a different table.`
         );
         return;
     }
 
+    if (selectingTableId.value === table.id) return;
     selectingTableId.value = table.id;
+
     try {
+        const response = await axios.post(`/api/pos/tables/${table.id}/lock`);
+        const result = response.data || {};
+
+        if (!result.success) {
+            const lockedBy = result.locked_by || table.locked_by_user_name || "another user";
+            showPosAlert(
+                "error",
+                result.message || `Table ${table.table_code} is currently being handled by ${lockedBy}. Please select a different table.`
+            );
+            await fetchTables();
+            return;
+        }
+
+        showPosAlert(
+            "success",
+            `Table ${table.table_code} is currently being handled by you.`
+        );
+
         emit("select", table);
         handleClose();
     } catch (error) {
-        console.error("Error selecting table:", error);
+        console.error("Error locking table:", error);
+        const data = error.response?.data || {};
+        const lockedBy = data.locked_by || table.locked_by_user_name;
+        const fallback = lockedBy
+            ? `Table ${table.table_code} is currently being handled by ${lockedBy}. Please select a different table.`
+            : "Could not lock table. Try again or choose another table.";
+        showPosAlert("error", data.message || fallback);
+        await fetchTables();
     } finally {
         selectingTableId.value = null;
     }

@@ -1822,6 +1822,23 @@ const canManageWaiterAssignment = computed(() => {
     return canUpdateLinkedOrder.value;
 });
 
+const stableSerializeForSignature = (value) => {
+    if (Array.isArray(value)) {
+        return value.map((item) => stableSerializeForSignature(item));
+    }
+
+    if (value && typeof value === "object") {
+        return Object.keys(value)
+            .sort((left, right) => left.localeCompare(right))
+            .reduce((accumulator, key) => {
+                accumulator[key] = stableSerializeForSignature(value[key]);
+                return accumulator;
+            }, {});
+    }
+
+    return value;
+};
+
 const buildLineSignature = (line = {}) => {
     return [
         Number(line.menu_item_id || 0),
@@ -1829,7 +1846,7 @@ const buildLineSignature = (line = {}) => {
         Number(line.combo_pack_id || 0),
         String(line.combo_instance_key || ""),
         String(line.note || ""),
-        JSON.stringify(line.modifier_option_quantities || {}),
+        JSON.stringify(stableSerializeForSignature(line.modifier_option_quantities || {})),
     ].join("|");
 };
 

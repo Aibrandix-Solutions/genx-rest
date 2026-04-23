@@ -16,6 +16,8 @@ use App\Models\OrderExtra;
 use App\Models\OrderItem;
 use App\Models\OrderType;
 use App\Models\OrderTax;
+use App\Models\Table;
+use App\Models\TableSession;
 use App\Models\Tax;
 use App\Services\Pos\BillSecondaryActionResolver;
 use Illuminate\Http\Request;
@@ -40,10 +42,29 @@ class PosVueOrderController extends Controller
                 'kot.items.modifierOptions',
                 'kot.items.menuItem',
                 'kot.items.menuItemVariation',
+                'table:id,table_code',
             ])
             ->where('id', $id)
             ->where('branch_id', $branch->id)
             ->firstOrFail();
+
+        // Backfill safety net: older Vue KOT orders could keep an order-lock on
+        // table_sessions.order_id while orders.table_id stayed null. Recover the
+        // missing link so table badge + orders list are consistent before billing.
+        if (empty($order->table_id) && in_array((string) $order->status, ['kot', 'billed'], true)) {
+            $lockedTableId = TableSession::query()
+                ->where('order_id', $order->id)
+                ->where('locked_by_order', true)
+                ->whereHas('table', function ($query) use ($branch) {
+                    $query->where('branch_id', $branch->id);
+                })
+                ->value('table_id');
+
+            if ($lockedTableId) {
+                $order->update(['table_id' => (int) $lockedTableId]);
+                $order->loadMissing('table:id,table_code');
+            }
+        }
 
         $comboInstancesByPack = [];
         $currentComboPackId = null;
@@ -211,6 +232,11 @@ class PosVueOrderController extends Controller
                     ] : null,
                     'delivery_address' => (string) ($order->delivery_address ?? $order->customer?->delivery_address ?? ''),
                     'customer_phone' => $customerPhone,
+                    // Legacy parity (Pos.php mount): the linked-order view hydrates
+                    // $this->tableId/$this->tableNo from $order->table_id so the
+                    // "Table X" badge survives a reload of /pos/kot/{id}.
+                    'table_id' => $order->table_id ? (int) $order->table_id : null,
+                    'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
                     'customer_lat' => $order->customer_lat !== null ? (float) $order->customer_lat : null,
                     'customer_lng' => $order->customer_lng !== null ? (float) $order->customer_lng : null,
                     'note' => (string) ($order->note ?? ''),
@@ -255,6 +281,13 @@ class PosVueOrderController extends Controller
             'delivery_fee' => ['nullable', 'numeric', 'min:0'],
             'waiter_id' => ['nullable', 'integer', 'exists:users,id'],
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+            // Legacy parity (Pos.php::saveOrder): table_id is persisted on both
+            // create and update paths (`'table_id' => $this->tableId` and
+            // `'table_id' => $this->tableId ?? $order->table_id`). Without this
+            // the Vue POS created orders with no DB-level table linkage, which
+            // broke `Table::activeOrder`, the "running" tables grid, and the
+            // OrderObserver auto-lock. Constrain to the current branch.
+            'table_id' => ['nullable', 'integer'],
             'note' => ['nullable', 'string'],
             'lines' => ['required', 'array', 'min:1'],
             'lines.*.menu_item_id' => ['required', 'integer', 'exists:menu_items,id'],
@@ -330,7 +363,21 @@ class PosVueOrderController extends Controller
             $sessionDeliveryAppId = false;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot) {
+        // Resolve the selected table (branch-scoped) so we only ever persist
+        // valid table_ids on POS orders. Mirrors legacy Pos::setTable() which
+        // drives Pos::saveOrder's `'table_id' => $this->tableId` write.
+        $resolvedTableId = null;
+        if (array_key_exists('table_id', $validated) && $validated['table_id']) {
+            $table = Table::query()
+                ->where('id', (int) $validated['table_id'])
+                ->where('branch_id', $branch->id)
+                ->first();
+
+            abort_if(!$table, 422, 'Selected table is not available in this branch.');
+            $resolvedTableId = (int) $table->id;
+        }
+
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -375,6 +422,10 @@ class PosVueOrderController extends Controller
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,
                     'delivery_fee' => ($orderTypeValue === 'delivery') ? (float) ($validated['delivery_fee'] ?? 0) : 0,
+                    // Legacy parity (Pos.php::saveOrder line 2913):
+                    //   'table_id' => $this->tableId ?? $order->table_id
+                    // — preserve the existing link if the UI didn't send a new one.
+                    'table_id' => $resolvedTableId ?? $order->table_id,
                     'order_type' => $orderTypeValue,
                     'order_type_id' => $orderType?->id,
                     'custom_order_type_name' => $orderType?->order_type_name,
@@ -407,6 +458,11 @@ class PosVueOrderController extends Controller
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,
                     'delivery_fee' => ($orderTypeValue === 'delivery') ? (float) ($validated['delivery_fee'] ?? 0) : 0,
+                    // Legacy parity (Pos.php::saveOrder line 2863):
+                    //   'table_id' => $this->tableId
+                    // OrderObserver::created auto-locks the table via lockForOrder
+                    // once this is set, matching legacy table-lock-on-order flow.
+                    'table_id' => $resolvedTableId,
                     'sub_total' => 0,
                     'total' => 0,
                     'order_type' => $orderTypeValue,
@@ -618,7 +674,14 @@ class PosVueOrderController extends Controller
                 }
             }
 
-            $total = round($subtotal + $extrasTotal + $totalTax, 2);
+            // Legacy parity (Pos.php::calculateTotal line 2265): delivery fee is
+            // added to total for delivery orders. Use the persisted delivery_fee
+            // written to the order above so we stay in sync with the stored field.
+            $deliveryFee = ($orderTypeValue === 'delivery')
+                ? (float) ($validated['delivery_fee'] ?? 0)
+                : 0.0;
+
+            $total = round($subtotal + $extrasTotal + $totalTax + $deliveryFee, 2);
 
             $order->update([
                 'sub_total' => round($subtotal, 2),
@@ -682,6 +745,24 @@ class PosVueOrderController extends Controller
                 session()->forget('pos.delivery_app_id');
             } else {
                 session()->put('pos.delivery_app_id', $sessionDeliveryAppId);
+            }
+        }
+
+        // Legacy parity (Pos.php::saveOrder line 3375):
+        //   Table::where('id', $this->tableId)->update(['available_status' => $tableStatus]);
+        // Keep the `tables.available_status` column in sync with the effective business state.
+        // IMPORTANT: Billed orders are still "active" per Table::activeOrder(), so only update
+        // to 'available' when the order is truly freed (paid/cancelled). On KOT, set to 'running'.
+        $persistedTableId = (int) ($result['order']->table_id ?? 0);
+        if ($persistedTableId > 0) {
+            // Only update table status on KOT; billing does NOT free the table (it remains active).
+            // Table freedom is handled separately via deleteOrder (order cancelled/completed).
+            $tableStatus = $action === 'bill' ? null : 'running';
+            if ($tableStatus !== null) {
+                Table::query()
+                    ->where('id', $persistedTableId)
+                    ->where('branch_id', $branch->id)
+                    ->update(['available_status' => $tableStatus]);
             }
         }
 

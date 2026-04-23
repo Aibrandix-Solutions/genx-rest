@@ -186,6 +186,7 @@ return [
         'availableTables' => 'Available Tables',
         'deleteTable' => 'Delete Table?',
         'deleteTableMessage' => 'Are you sure you want to delete the table?',
+        'cannotDeleteRunningTable' => 'This table has an active order and cannot be deleted.',
         'selectTable' => 'Select Table',
         'tableAvailability' => 'Table Availability',
         'generateQrCode' => 'Generate QR Code',

@@ -609,7 +609,7 @@ class OrderDetail extends Component
                 break;
 
         case 'kot':
-                return $this->redirect(route('pos.show', $this->order->table_id), navigate: true);
+            return $this->redirect(route('pos.kot', $this->order->id), navigate: true);
         }
 
         $taxes = Tax::all();

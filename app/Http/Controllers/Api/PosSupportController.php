@@ -57,6 +57,7 @@ class PosSupportController extends Controller
 
         return response()->json(
             KotCancelReason::query()
+                ->where('restaurant_id', $branch->restaurant_id)
                 ->where('cancel_order', true)
                 ->orderBy('reason')
                 ->get(['id', 'reason'])
@@ -291,12 +292,27 @@ class PosSupportController extends Controller
                 $lockedByCurrentUser = $isLocked && (int) ($session->locked_by_user_id ?? 0) === $currentUserId;
                 $isRunning = (bool) $table->activeOrder;
 
+                // Derive the effective available_status robustly so the grid colour
+                // always matches reality:
+                //   - If an active order exists → 'running' (authoritative).
+                //   - Else if the stored column says 'reserved' → keep 'reserved'.
+                //   - Otherwise → 'available' (never trust a stale 'running' on a table
+                //     whose order has already been billed/canceled/deleted).
+                $storedStatus = (string) ($table->available_status ?? 'available');
+                if ($isRunning) {
+                    $effectiveStatus = 'running';
+                } elseif ($storedStatus === 'reserved') {
+                    $effectiveStatus = 'reserved';
+                } else {
+                    $effectiveStatus = 'available';
+                }
+
                 return [
                     'id' => (int) $table->id,
                     'table_code' => (string) $table->table_code,
                     'status' => (string) ($table->status ?? 'active'),
                     'active_order_id' => $table->activeOrder ? (int) $table->activeOrder->id : null,
-                    'available_status' => $isRunning ? 'running' : (string) ($table->available_status ?? 'available'),
+                    'available_status' => $effectiveStatus,
                     'area_id' => (int) ($table->area_id ?? 0),
                     'area_name' => (string) ($table->area?->area_name ?? 'Unknown Area'),
                     'seating_capacity' => (int) ($table->seating_capacity ?? 0),
@@ -325,6 +341,24 @@ class PosSupportController extends Controller
         $branch = branch();
         abort_if(!$branch, 422, 'Branch context is required');
 
+        $restaurant = restaurant();
+        abort_if(!$restaurant, 422, 'Restaurant context is required');
+
+        // Constrain assignment to branch-scoped waiters of this restaurant
+        // (mirrors PosBootstrapService::freshDeliveryExecutives/waiters loader).
+        if (!empty($validated['waiter_id'])) {
+            $isValidWaiter = User::query()
+                ->where('id', (int) $validated['waiter_id'])
+                ->where('restaurant_id', $restaurant->id)
+                ->where(function ($q) use ($branch) {
+                    $q->where('branch_id', $branch->id)->orWhereNull('branch_id');
+                })
+                ->role('waiter_' . $restaurant->id)
+                ->exists();
+
+            abort_if(!$isValidWaiter, 422, 'Selected waiter is not assignable to this branch.');
+        }
+
         $order = Order::query()
             ->where('id', $id)
             ->where('branch_id', $branch->id)
@@ -340,6 +374,170 @@ class PosSupportController extends Controller
             'data' => [
                 'order_id' => (int) $order->id,
                 'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Attach / detach / swap the customer on an existing POS order.
+     *
+     * Legacy parity (pos/order_detail.blade.php + pos/kot_items.blade.php):
+     * the "Update Customer Details" / "Remove Customer" affordances on a
+     * linked order persist to the Order immediately. The Vue POS calls this
+     * endpoint from `handleRemoveCustomer` / `handleSaveCustomer`.
+     */
+    public function updateOrderCustomer(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        // Do not allow removing the customer from an order that still carries
+        // an outstanding "due" balance — only registered customers may have
+        // dues (mirrors Order::canRecordDueBalance()).
+        $customerId = $validated['customer_id'] ?? null;
+        if ($customerId === null && $order->status === 'payment_due') {
+            return response()->json([
+                'success' => false,
+                'message' => __('modules.order.customerRequiredForDuePayment'),
+            ], 422);
+        }
+
+        $order->update([
+            'customer_id' => $customerId,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_id' => (int) $order->id,
+                'customer_id' => $order->customer_id ? (int) $order->customer_id : null,
+            ],
+        ]);
+    }
+
+    /**
+     * Attach / move / detach a table on an existing POS order.
+     *
+     * Legacy parity (Pos.php::setTable): once an order has been created, picking
+     * a different table updates `orders.table_id` immediately and releases the
+     * previous table's `available_status` ("available"), marking the new one
+     * "running" when the order is same-day. The Vue POS calls this from
+     * `applySelectedTable`/`handleConfirmTableChange` so the order-table link
+     * persists without waiting for the next KOT save.
+     */
+    public function updateOrderTable(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'table_id' => ['nullable', 'integer'],
+        ]);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $newTableId = null;
+        $newTable = null;
+        if (!empty($validated['table_id'])) {
+            $newTable = Table::query()
+                ->where('id', (int) $validated['table_id'])
+                ->where('branch_id', $branch->id)
+                ->first();
+
+            abort_if(!$newTable, 422, 'Selected table is not available in this branch.');
+
+            // Another order already occupies the target table — legacy Pos.php
+            // never lets two orders share a running table, so mirror that guard.
+            $conflict = Order::query()
+                ->where('branch_id', $branch->id)
+                ->where('table_id', $newTable->id)
+                ->whereIn('status', ['kot', 'billed'])
+                ->where('id', '!=', $order->id)
+                ->exists();
+
+            if ($conflict) {
+                return response()->json([
+                    'success' => false,
+                    'message' => __('messages.tableAlreadyRunning', ['table' => $newTable->table_code])
+                        ?: 'This table already has an active order.',
+                ], 422);
+            }
+
+            $newTableId = (int) $newTable->id;
+        }
+
+        $previousTableId = $order->table_id ? (int) $order->table_id : null;
+
+        $order->update(['table_id' => $newTableId]);
+
+        // Mirror legacy tables.available_status transitions on switch:
+        //   - previous table → 'available' (if it was held by this order)
+        //   - new table → 'running' when the order is still active (kot/billed)
+        if ($previousTableId && $previousTableId !== $newTableId) {
+            Table::query()
+                ->where('id', $previousTableId)
+                ->where('branch_id', $branch->id)
+                ->update(['available_status' => 'available']);
+
+            // Also release any session lock the previous table was holding for this
+            // order / cashier so the freed table becomes immediately selectable again
+            // (OrderObserver::updated only fires on status changes, not on table_id
+            // changes, so we have to do this manually here).
+            $previousTable = Table::with('tableSession')->find($previousTableId);
+            if ($previousTable && $previousTable->tableSession) {
+                $session = $previousTable->tableSession;
+                if ($session->isOrderLock() && (int) ($session->order_id ?? 0) === (int) $order->id) {
+                    $previousTable->unlockFromOrder($order->id);
+                } elseif ((int) ($session->locked_by_user_id ?? 0) === (int) auth()->id()) {
+                    $session->releaseLock();
+                }
+            }
+        }
+
+        // Re-lock the new table for this order when appropriate — the current
+        // user already holds a user-lock (TableAssignmentModal called /lock before
+        // reaching here), but for kot/billed orders we also want the order-lock so
+        // the observer-based unlock-on-bill/cancel path keeps working.
+        if ($newTableId) {
+            if (in_array($order->status, ['kot', 'billed'], true)) {
+                Table::query()
+                    ->where('id', $newTableId)
+                    ->where('branch_id', $branch->id)
+                    ->update(['available_status' => 'running']);
+
+                $restaurant = restaurant();
+                if ($restaurant && ($restaurant->enable_table_lock_on_order ?? false)) {
+                    $newTableModel = Table::find($newTableId);
+                    if ($newTableModel) {
+                        $lockUserId = (int) ($order->waiter_id ?? auth()->id());
+                        $newTableModel->lockForOrder($lockUserId, (int) $order->id);
+                    }
+                }
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_id' => (int) $order->id,
+                'table_id' => $newTableId,
+                'table_code' => $newTable?->table_code ? (string) $newTable->table_code : null,
             ],
         ]);
     }
@@ -612,19 +810,26 @@ class PosSupportController extends Controller
             }
         }
 
-        // Recalculate order totals
+        // Recalculate order totals using the order's persisted extras and order_taxes
+        // (mirrors PosVueOrderController::store append-mode recompute — the global Tax
+        // list can change between KOT and recompute, so we must use what's on the order).
         $remainingItems = $order->items()->get();
         $subtotal = $remainingItems->sum(fn($i) => (float) ($i->amount ?? 0));
 
+        $extrasTotal = (float) $order->extras()->sum('amount');
+
         $totalTax = 0.0;
         if (($order->tax_mode ?? 'item') === 'order') {
-            $taxes = \App\Models\Tax::query()->select('id', 'tax_percent')->get();
-            foreach ($taxes as $tax) {
-                $totalTax += $subtotal * ((float) $tax->tax_percent / 100);
+            $taxPercents = $order->taxes()
+                ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
+                ->pluck('taxes.tax_percent');
+            foreach ($taxPercents as $taxPercent) {
+                $totalTax += (($subtotal + $extrasTotal) * ((float) $taxPercent / 100));
             }
         }
 
-        $total = round($subtotal + $totalTax - (float) ($order->discount_amount ?? 0), 2);
+        $total = round($subtotal + $extrasTotal + $totalTax - (float) ($order->discount_amount ?? 0)
+            + (($order->order_type ?? null) === 'delivery' ? (float) ($order->delivery_fee ?? 0) : 0), 2);
         $order->update([
             'sub_total'        => round($subtotal, 2),
             'total'            => max(0, $total),
@@ -636,20 +841,18 @@ class PosSupportController extends Controller
         $noOrderItems = $order->items()->count() === 0;
 
         if ($allKotsGone && $noOrderItems) {
-            $hasAdjustments = \App\Models\KotItemAdjustment::where('order_id', $order->id)->exists();
-            if ($hasAdjustments) {
-                $order->update([
-                    'status'       => 'canceled',
-                    'order_status' => \App\Enums\OrderStatus::CANCELLED,
-                    'sub_total'    => 0,
-                    'total'        => 0,
-                ]);
-            } else {
-                if ($order->table_id) {
-                    Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
-                }
-                $order->delete();
+            // Every reduce/remove above logs a KotItemAdjustment, so the order must
+            // be preserved as `canceled` for audit; release the table regardless.
+            if ($order->table_id) {
+                Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
             }
+
+            $order->update([
+                'status'       => 'canceled',
+                'order_status' => \App\Enums\OrderStatus::CANCELLED,
+                'sub_total'    => 0,
+                'total'        => 0,
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -743,20 +946,26 @@ class PosSupportController extends Controller
             $kot->delete();
         }
 
-        // Recalculate order totals from remaining order_items
+        // Recalculate order totals from remaining order_items using the order's
+        // persisted extras and order_taxes (see reduceKotItem above for rationale).
         $remainingItems = $order->items()->get();
         $subtotal = $remainingItems->sum(fn($i) => (float) ($i->amount ?? 0));
 
-        // Recalculate taxes (order-level tax mode)
+        $extrasTotal = (float) $order->extras()->sum('amount');
+
+        // Recalculate taxes (order-level tax mode) from the order's persisted taxes
         $totalTax = 0.0;
         if (($order->tax_mode ?? 'item') === 'order') {
-            $taxes = \App\Models\Tax::query()->select('id', 'tax_percent')->get();
-            foreach ($taxes as $tax) {
-                $totalTax += $subtotal * ((float) $tax->tax_percent / 100);
+            $taxPercents = $order->taxes()
+                ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
+                ->pluck('taxes.tax_percent');
+            foreach ($taxPercents as $taxPercent) {
+                $totalTax += (($subtotal + $extrasTotal) * ((float) $taxPercent / 100));
             }
         }
 
-        $total = round($subtotal + $totalTax - (float) ($order->discount_amount ?? 0), 2);
+        $total = round($subtotal + $extrasTotal + $totalTax - (float) ($order->discount_amount ?? 0)
+            + (($order->order_type ?? null) === 'delivery' ? (float) ($order->delivery_fee ?? 0) : 0), 2);
 
         $order->update([
             'sub_total' => round($subtotal, 2),
@@ -769,21 +978,18 @@ class PosSupportController extends Controller
         $noOrderItems = $order->items()->count() === 0;
 
         if ($allKotsGone && $noOrderItems) {
-            $hasAdjustments = \App\Models\KotItemAdjustment::where('order_id', $order->id)->exists();
-
-            if ($hasAdjustments) {
-                $order->update([
-                    'status' => 'canceled',
-                    'order_status' => \App\Enums\OrderStatus::CANCELLED,
-                    'sub_total' => 0,
-                    'total' => 0,
-                ]);
-            } else {
-                if ($order->table_id) {
-                    Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
-                }
-                $order->delete();
+            // Every removeKotItem call logs a KotItemAdjustment above, so the order
+            // must be preserved as `canceled` for audit; release the table regardless.
+            if ($order->table_id) {
+                Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
             }
+
+            $order->update([
+                'status' => 'canceled',
+                'order_status' => \App\Enums\OrderStatus::CANCELLED,
+                'sub_total' => 0,
+                'total' => 0,
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -821,6 +1027,9 @@ class PosSupportController extends Controller
         }
 
         // Mirror legacy delete behavior by removing all KOT rows and then deleting the order.
+        foreach (Kot::query()->where('order_id', $order->id)->get() as $kot) {
+            $kot->modifierOptions()->detach();
+        }
         Kot::query()->where('order_id', $order->id)->delete();
         $order->delete();
 
@@ -864,6 +1073,39 @@ class PosSupportController extends Controller
         $forceUnlock = (bool) (user_can('Manage Settings') || user_can('Manage Order') || user_can('Manage Table'));
 
         $result = $table->unlock($userId, $forceUnlock);
+
+        // After a successful unlock, make sure the stored available_status is correct.
+        // Legacy left this column alone on unlock, which produced "stuck running" tiles
+        // whenever an order had been deleted/billed without triggering the observer
+        // path (e.g. admin cleanup, stale rows migrated from older installs). Reconcile
+        // it here: if the table has no active order, it should be 'available' (unless
+        // explicitly reserved).
+        if (($result['success'] ?? false)) {
+            $table->loadMissing('activeOrder:id,table_id');
+            if (!$table->activeOrder) {
+                $storedStatus = (string) ($table->available_status ?? 'available');
+                if ($storedStatus !== 'reserved') {
+                    $table->forceFill(['available_status' => 'available'])->saveQuietly();
+                }
+            }
+        }
+
+        return response()->json($result, ($result['success'] ?? false) ? 200 : 422);
+    }
+
+    /**
+     * Acquire a user (non-order) lock on a table, matching legacy Pos::setTable().
+     * Mirrors Table::lockForUser() which:
+     *  - honours restaurant->table_lock_timeout_minutes (and disable_table_lock_timeout)
+     *  - returns 422 with locked_by/locked_at when another user is holding the table
+     * Order locks (created by OrderObserver) are still respected via canBeAccessedByUser().
+     */
+    public function lockTable(int $id)
+    {
+        $table = Table::query()->where('branch_id', branch()->id)->findOrFail($id);
+
+        $userId = (int) auth()->id();
+        $result = $table->lockForUser($userId);
 
         return response()->json($result, ($result['success'] ?? false) ? 200 : 422);
     }

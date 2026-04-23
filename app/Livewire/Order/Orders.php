@@ -8,6 +8,7 @@ use App\Models\ReceiptSetting;
 use App\Models\KotCancelReason;
 use App\Models\PusherSetting;
 use App\Models\DeliveryPlatform;
+use App\Models\TableSession;
 use Carbon\Carbon;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\On;
@@ -170,6 +171,8 @@ class Orders extends Component
     public function render()
     {
 
+        $this->syncMissingTableLinksFromOrderLocks();
+
         $tz = timezone();
 
         $start = Carbon::createFromFormat('m/d/Y', $this->startDate, $tz)
@@ -307,5 +310,35 @@ class Orders extends Component
             'orderID' => $this->orderID,
             'playFoodReadySound' => $playFoodReadySound,
         ]);
+    }
+
+    /**
+     * Recover missing orders.table_id links for active orders using order-lock
+     * records in table_sessions.
+     */
+    private function syncMissingTableLinksFromOrderLocks(): void
+    {
+        $branch = branch();
+        if (!$branch) {
+            return;
+        }
+
+        $lockedPairs = TableSession::query()
+            ->join('tables', 'table_sessions.table_id', '=', 'tables.id')
+            ->where('tables.branch_id', $branch->id)
+            ->whereNotNull('table_sessions.order_id')
+            ->where('table_sessions.locked_by_order', true)
+            ->select('table_sessions.order_id', 'table_sessions.table_id')
+            ->distinct()
+            ->get();
+
+        foreach ($lockedPairs as $pair) {
+            Order::query()
+                ->where('id', (int) $pair->order_id)
+                ->where('branch_id', $branch->id)
+                ->whereNull('table_id')
+                ->whereIn('status', ['kot', 'billed'])
+                ->update(['table_id' => (int) $pair->table_id]);
+        }
     }
 }

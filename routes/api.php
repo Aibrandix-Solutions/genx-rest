@@ -85,12 +85,15 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/tables', [PosSupportController::class, 'tables']);
     Route::get('/pos/reservations/today', [PosSupportController::class, 'reservationsToday']);
     Route::post('/pos/tables/{id}/unlock', [PosSupportController::class, 'unlockTable']);
+    Route::post('/pos/tables/{id}/lock', [PosSupportController::class, 'lockTable']);
     Route::get('/pos/orders/{id}', [PosVueOrderController::class, 'show']);
     Route::get('/pos/cancel-reasons', [PosSupportController::class, 'cancelReasons']);
     Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
     Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
     Route::post('/pos/orders/{id}/waiter', [PosSupportController::class, 'updateOrderWaiter']);
+    Route::post('/pos/orders/{id}/customer', [PosSupportController::class, 'updateOrderCustomer']);
+    Route::post('/pos/orders/{id}/table', [PosSupportController::class, 'updateOrderTable']);
     Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
     Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
     Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);

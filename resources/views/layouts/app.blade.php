@@ -153,8 +153,13 @@
 
         @if (request()->routeIs('pos.*'))
             {{-- Vue POS routes use the existing order detail and payment side drawers. --}}
+            {{-- customer.addCustomer must stay mounted on pos.* so the legacy
+                 due-payment guard (AddPayment::setPaymentMethod('due') →
+                 $dispatch('showAddCustomerModal', … forDuePayment: true)) can
+                 surface the "register customer first" flow inside the Vue POS. --}}
             @livewire('order.OrderDetail')
             @livewire('order.addPayment')
+            @livewire('customer.addCustomer')
         @else
             @livewire('order.OrderDetail')
 

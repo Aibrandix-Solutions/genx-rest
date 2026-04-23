@@ -8,6 +8,7 @@ use App\Models\ItemModifier;
 use App\Models\ModifierGroup;
 use App\Models\ComboPack;
 use App\Models\Order;
+use App\Models\Table;
 use App\Services\PosBatchSyncService;
 use App\Services\PosBootstrapService;
 use Illuminate\Http\JsonResponse;
@@ -16,18 +17,24 @@ use Illuminate\Http\Request;
 class PosController extends Controller
 {
 
-    public function index(PosBootstrapService $bootstrapService)
+    public function index(PosBootstrapService $bootstrapService, Request $request)
     {
         abort_if((!in_array('Order', restaurant_modules()) || !user_can('Create Order')), 403);
 
-        return $this->renderVuePos($bootstrapService);
+        return $this->renderVuePos(
+            $bootstrapService,
+            $this->buildInitialTableBootstrapPayload((int) $request->query('table_id', 0))
+        );
     }
 
-    public function vue(PosBootstrapService $bootstrapService)
+    public function vue(PosBootstrapService $bootstrapService, Request $request)
     {
         abort_if((!in_array('Order', restaurant_modules()) || !user_can('Create Order')), 403);
 
-        return $this->renderVuePos($bootstrapService);
+        return $this->renderVuePos(
+            $bootstrapService,
+            $this->buildInitialTableBootstrapPayload((int) $request->query('table_id', 0))
+        );
     }
 
     public function bootstrap(PosBootstrapService $bootstrapService): JsonResponse
@@ -322,6 +329,35 @@ class PosController extends Controller
         return $this->renderVuePos($bootstrapService, $this->buildInitialOrderBootstrapPayload((int) $id, $request->boolean('show-order-detail')));
     }
 
+    private function buildInitialTableBootstrapPayload(int $tableId): array
+    {
+        if ($tableId <= 0) {
+            return [];
+        }
+
+        $branch = branch();
+        if (!$branch) {
+            return [];
+        }
+
+        $table = Table::query()
+            ->select('id', 'table_code')
+            ->where('id', $tableId)
+            ->where('branch_id', $branch->id)
+            ->first();
+
+        if (!$table) {
+            return [];
+        }
+
+        return [
+            'initial_table' => [
+                'id' => (int) $table->id,
+                'table_code' => (string) $table->table_code,
+            ],
+        ];
+    }
+
     private function renderVuePos(PosBootstrapService $bootstrapService, array $extraBootstrapData = [])
     {
         return view('pos.posvue', [
@@ -349,6 +385,7 @@ class PosController extends Controller
                 'items.modifierOptions',
                 'items.menuItem',
                 'items.menuItemVariation',
+                'table:id,table_code',
             ])
             ->where('id', $orderId)
             ->where('branch_id', $branch->id)
@@ -424,6 +461,8 @@ class PosController extends Controller
                 'note' => (string) ($order->note ?? ''),
                 'sub_total' => (float) ($order->sub_total ?? 0),
                 'total' => (float) ($order->total ?? 0),
+                'table_id' => $order->table_id ? (int) $order->table_id : null,
+                'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
                 'lines' => $lines,
             ],
             'initial_order_id' => (int) $order->id,
