@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
+use App\Models\ComboPack;
 use App\Models\Country;
 use App\Models\Customer;
 use App\Models\DeliveryExecutive;
@@ -46,6 +47,97 @@ class PosSupportController extends Controller
                 ->orderBy('order_type_name')
                 ->get()
         );
+    }
+
+    /**
+     * Priced combo lines for Vue POS (order type + optional delivery app), mirroring
+     * Livewire Pos::addComboToCart price context before items are added to the cart.
+     */
+    public function previewComboPack(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Create Order'), 403);
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $validated = $request->validate([
+            'order_type_id' => ['nullable', 'integer', 'exists:order_types,id'],
+            'delivery_app_id' => ['nullable'],
+        ]);
+
+        $combo = ComboPack::query()
+            ->where('branch_id', $branch->id)
+            ->with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])
+            ->find($id);
+
+        abort_if(!$combo, 404, 'Combo pack not found');
+
+        if (!$combo->isAvailable()) {
+            return response()->json([
+                'success' => false,
+                'message' => __('modules.combo.comboNotAvailable'),
+            ], 422);
+        }
+
+        $orderTypeId = isset($validated['order_type_id']) ? (int) $validated['order_type_id'] : null;
+        $deliveryAppId = null;
+
+        if ($orderTypeId > 0) {
+            $orderType = OrderType::query()->find($orderTypeId);
+            $slug = strtolower((string) ($orderType?->slug ?? ''));
+
+            if ($slug === 'delivery') {
+                $raw = $validated['delivery_app_id'] ?? null;
+                if ($raw !== null && $raw !== '' && $raw !== 'default') {
+                    $candidate = (int) $raw;
+                    $platform = DeliveryPlatform::query()
+                        ->where('id', $candidate)
+                        ->where('is_active', true)
+                        ->first();
+
+                    if ($platform) {
+                        $deliveryAppId = (int) $platform->id;
+                    }
+                }
+            }
+        }
+
+        foreach ($combo->comboPackItems as $comboItem) {
+            $comboItem->menuItem?->setPriceContext($orderTypeId, $deliveryAppId);
+            if ($comboItem->menuItemVariation) {
+                $comboItem->menuItemVariation->setPriceContext($orderTypeId, $deliveryAppId);
+            }
+        }
+
+        $priced = $combo->calculateComboItemPrices($orderTypeId, $deliveryAppId);
+
+        $lines = collect($priced)->map(function (array $row) {
+            $ci = $row['combo_item'];
+            $mid = (int) $ci->menu_item_id;
+            $vid = $ci->menu_item_variation_id ? (int) $ci->menu_item_variation_id : null;
+            $qty = (int) $ci->quantity;
+            $unitPrice = (float) ($row['price'] ?? 0);
+            $origUnit = (float) ($row['original_price'] ?? $unitPrice);
+
+            return [
+                'menu_item_id' => $mid,
+                'menu_item_variation_id' => $vid,
+                'qty' => $qty,
+                'unit_price' => round($unitPrice, 2),
+                'original_unit_price' => round($origUnit, 2),
+                'combo_original_unit_price' => round($origUnit, 2),
+                'combo_discount_per_unit' => round(max(0, $origUnit - $unitPrice), 2),
+                'item_name' => (string) ($ci->menuItem?->item_name ?? ''),
+                'variation_name' => (string) ($ci->menuItemVariation?->variation ?? ''),
+            ];
+        })->values();
+
+        return response()->json([
+            'success' => true,
+            'combo_pack_id' => (int) $combo->id,
+            'name' => (string) $combo->getTranslation('name', app()->getLocale()),
+            'lines' => $lines,
+        ]);
     }
 
     public function cancelReasons()

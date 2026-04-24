@@ -260,6 +260,7 @@ class PosController extends Controller
         ];
 
         $payload['modules'] = array_values(restaurant_modules() ?? []);
+        $payload['hide_menu_item_image_on_pos'] = (bool) (restaurant()->hide_menu_item_image_on_pos ?? false);
         $payload['allow_custom_order_extras'] = (bool) (restaurant()->allow_custom_order_extras ?? false);
         $payload['pos_preferences'] = [
             'default_order_type_id' => (int) (restaurant()->default_order_type_id ?? 0),
@@ -284,6 +285,8 @@ class PosController extends Controller
                         'name' => (string) $combo->getTranslation('name', app()->getLocale()),
                         'regular_price' => (float) $combo->regular_price,
                         'discounted_price' => (float) $combo->discounted_price,
+                        'discount_type' => (string) ($combo->discount_type ?? 'fixed'),
+                        'discount_amount' => (float) ($combo->discount_amount ?? 0),
                         'discount_percent' => (float) $combo->discount_percent,
                         'combo_image_url' => (string) ($combo->combo_image_url ?? ''),
                         'items' => collect($calculated)->map(function ($line) {

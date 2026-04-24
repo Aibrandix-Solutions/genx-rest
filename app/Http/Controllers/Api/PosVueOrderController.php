@@ -66,10 +66,6 @@ class PosVueOrderController extends Controller
             }
         }
 
-        $comboInstancesByPack = [];
-        $currentComboPackId = null;
-        $currentComboInstanceKey = null;
-        $itemsInCurrentCombo = 0;
         $resolveUnitPrice = static function ($item): float {
             $unitPrice = (float) ($item->price ?? 0);
 
@@ -88,29 +84,16 @@ class PosVueOrderController extends Controller
             return $unitPrice > 0 ? $unitPrice : 0.0;
         };
 
-        $lines = $order->items->map(function ($item) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey, &$itemsInCurrentCombo, $resolveUnitPrice) {
-            $comboInstanceKey = null;
-            if (!empty($item->combo_pack_id)) {
-                $packId = (int) $item->combo_pack_id;
-                
-                // Start a new combo instance if this is a different pack or we've completed the current one
-                if ($packId !== $currentComboPackId) {
-                    $currentComboPackId = $packId;
-                    $itemsInCurrentCombo = 1;
-                    $comboInstancesByPack[$packId] = ($comboInstancesByPack[$packId] ?? 0) + 1;
-                    $currentComboInstanceKey = 'combo_' . $packId . '_' . $comboInstancesByPack[$packId];
-                } else {
-                    // Same pack, increment item count in current combo
-                    $itemsInCurrentCombo++;
-                }
-                
-                $comboInstanceKey = $currentComboInstanceKey;
-            } else {
-                // Reset combo tracking when we hit a non-combo item
-                $currentComboPackId = null;
-                $currentComboInstanceKey = null;
-                $itemsInCurrentCombo = 0;
-            }
+        $orderItemsSorted = $order->items->sortBy('id')->values();
+        $packIdsForSlots = $orderItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+        $slotCountByPackId = self::comboPackSlotCounts($packIdsForSlots);
+        $comboInstanceByOrderItemId = self::comboInstanceKeyMapForRows($orderItemsSorted, $slotCountByPackId);
+        $comboNamesByPackId = self::comboPackNamesById($packIdsForSlots);
+
+        $lines = $orderItemsSorted->map(function ($item) use ($resolveUnitPrice, $comboInstanceByOrderItemId, $comboNamesByPackId) {
+            $comboInstanceKey = $item->combo_pack_id
+                ? ($comboInstanceByOrderItemId[(int) $item->id] ?? null)
+                : null;
 
             $modifierQtyMap = $item->modifierOptions
                 ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
@@ -123,6 +106,23 @@ class PosVueOrderController extends Controller
                 $amount = round($unitPrice * $qty, 2);
             }
 
+            $packId = $item->combo_pack_id ? (int) $item->combo_pack_id : null;
+            $comboPackName = $packId ? (string) ($comboNamesByPackId[$packId] ?? '') : '';
+            $comboDiscountPerUnit = 0.0;
+            if ($packId && $qty > 0 && (float) ($item->combo_discount_amount ?? 0) > 0) {
+                $comboDiscountPerUnit = round((float) $item->combo_discount_amount / $qty, 2);
+            }
+
+            $comboOriginalUnit = null;
+            if ($packId && $qty > 0) {
+                if ((float) ($item->original_price ?? 0) > 0) {
+                    // Persisted line total (combo): exact pre-discount unit from DB (fixed or % packs).
+                    $comboOriginalUnit = round((float) $item->original_price / $qty, 2);
+                } else {
+                    $comboOriginalUnit = round($unitPrice + $comboDiscountPerUnit, 2);
+                }
+            }
+
             return [
                 'order_item_id' => (int) $item->id,
                 'menu_item_id' => (int) $item->menu_item_id,
@@ -133,43 +133,98 @@ class PosVueOrderController extends Controller
                 'unit_price' => $unitPrice,
                 'amount' => $amount,
                 'note' => $item->note,
-                'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
+                'combo_pack_id' => $packId,
+                'combo_pack_name' => $comboPackName !== '' ? $comboPackName : null,
+                'combo_discount' => $comboDiscountPerUnit > 0 ? $comboDiscountPerUnit : null,
+                'combo_original_unit_price' => $comboOriginalUnit,
                 'combo_instance_key' => $comboInstanceKey,
                 'modifier_option_quantities' => $modifierQtyMap,
             ];
         })->values();
 
-        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice) {
-            $comboInstancesByPack = [];
-            $currentComboPackId = null;
-            $currentComboInstanceKey = null;
+        // kot_items has no price / original_price / combo_discount_amount columns
+        // (see create_orders_table migration + add_combo_pack_id_to_kot_items_table).
+        // For combo KOT lines we must resolve the DISCOUNTED unit price and the
+        // pre-discount unit price by matching the corresponding OrderItem row,
+        // which does persist those fields. Without this, combo KOT lines fall
+        // through to menuItemVariation->price (full, non-discounted) in the UI.
+        $orderItemComboIndex = [];
+        foreach ($orderItemsSorted as $oi) {
+            if (!$oi->combo_pack_id) {
+                continue;
+            }
+            $key = (int) $oi->combo_pack_id
+                . ':' . (int) $oi->menu_item_id
+                . ':' . (int) ($oi->menu_item_variation_id ?? 0);
+            $orderItemComboIndex[$key] = $oi;
+        }
 
-            $kotLines = $kot->items->map(function ($item) use (&$comboInstancesByPack, &$currentComboPackId, &$currentComboInstanceKey, $resolveUnitPrice) {
-                $comboInstanceKey = null;
-                if (!empty($item->combo_pack_id)) {
-                    $packId = (int) $item->combo_pack_id;
+        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice, $orderItemComboIndex) {
+            $kotItemsSorted = $kot->items->sortBy('id')->values();
+            $kotPackIds = $kotItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+            $kotSlotCounts = self::comboPackSlotCounts($kotPackIds);
+            $kotComboInstanceByItemId = self::comboInstanceKeyMapForRows($kotItemsSorted, $kotSlotCounts);
+            $kotComboNames = self::comboPackNamesById($kotPackIds);
 
-                    if ($packId !== $currentComboPackId) {
-                        $currentComboPackId = $packId;
-                        $comboInstancesByPack[$packId] = ($comboInstancesByPack[$packId] ?? 0) + 1;
-                        $currentComboInstanceKey = 'combo_' . $packId . '_' . $comboInstancesByPack[$packId];
-                    }
-
-                    $comboInstanceKey = $currentComboInstanceKey;
-                } else {
-                    $currentComboPackId = null;
-                    $currentComboInstanceKey = null;
-                }
+            $kotLines = $kotItemsSorted->map(function ($item) use ($resolveUnitPrice, $kotComboInstanceByItemId, $kotComboNames, $orderItemComboIndex) {
+                $comboInstanceKey = $item->combo_pack_id
+                    ? ($kotComboInstanceByItemId[(int) $item->id] ?? null)
+                    : null;
 
                 $modifierQtyMap = $item->modifierOptions
                     ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
                     ->all();
 
                 $qty = (int) ($item->quantity ?? 1);
-                $unitPrice = $resolveUnitPrice($item);
+                $packId = $item->combo_pack_id ? (int) $item->combo_pack_id : null;
+
+                // Resolve combo pricing from the matching OrderItem (kot_items
+                // does not store price/original_price/combo_discount_amount).
+                $matchedOrderItem = null;
+                if ($packId) {
+                    $matchKey = $packId
+                        . ':' . (int) $item->menu_item_id
+                        . ':' . (int) ($item->menu_item_variation_id ?? 0);
+                    $matchedOrderItem = $orderItemComboIndex[$matchKey] ?? null;
+                }
+
+                if ($matchedOrderItem) {
+                    $matchedQty = (int) ($matchedOrderItem->quantity ?? 0);
+                    $matchedPrice = (float) ($matchedOrderItem->price ?? 0);
+                    $unitPrice = $matchedPrice > 0
+                        ? round($matchedPrice, 2)
+                        : $resolveUnitPrice($item);
+                } else {
+                    $unitPrice = $resolveUnitPrice($item);
+                }
+
                 $amount = (float) ($item->amount ?? 0);
                 if ($amount <= 0 && $unitPrice > 0 && $qty > 0) {
                     $amount = round($unitPrice * $qty, 2);
+                }
+
+                $comboPackName = $packId ? (string) ($kotComboNames[$packId] ?? '') : '';
+                $comboDiscountPerUnit = 0.0;
+                if ($packId && $matchedOrderItem) {
+                    $matchedQty = (int) ($matchedOrderItem->quantity ?? 0);
+                    $matchedDiscount = (float) ($matchedOrderItem->combo_discount_amount ?? 0);
+                    if ($matchedQty > 0 && $matchedDiscount > 0) {
+                        $comboDiscountPerUnit = round($matchedDiscount / $matchedQty, 2);
+                    }
+                }
+
+                $comboOriginalUnit = null;
+                if ($packId) {
+                    if ($matchedOrderItem) {
+                        $matchedQty = (int) ($matchedOrderItem->quantity ?? 0);
+                        $matchedOriginal = (float) ($matchedOrderItem->original_price ?? 0);
+                        if ($matchedQty > 0 && $matchedOriginal > 0) {
+                            $comboOriginalUnit = round($matchedOriginal / $matchedQty, 2);
+                        }
+                    }
+                    if ($comboOriginalUnit === null && $unitPrice > 0) {
+                        $comboOriginalUnit = round($unitPrice + $comboDiscountPerUnit, 2);
+                    }
                 }
 
                 return [
@@ -183,7 +238,10 @@ class PosVueOrderController extends Controller
                     'amount' => $amount,
                     'note' => (string) ($item->note ?? ''),
                     'status' => (string) ($item->status ?? ''),
-                    'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
+                    'combo_pack_id' => $packId,
+                    'combo_pack_name' => $comboPackName !== '' ? $comboPackName : null,
+                    'combo_discount' => $comboDiscountPerUnit > 0 ? $comboDiscountPerUnit : null,
+                    'combo_original_unit_price' => $comboOriginalUnit,
                     'combo_instance_key' => $comboInstanceKey,
                     'modifier_option_quantities' => $modifierQtyMap,
                 ];
@@ -479,6 +537,20 @@ class PosVueOrderController extends Controller
             $orderItemsCreated = [];
             $kotLineSeed = [];
 
+            $comboPackIdsInRequest = collect($validated['lines'] ?? [])
+                ->pluck('combo_pack_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->unique();
+
+            foreach ($comboPackIdsInRequest as $comboPackId) {
+                $cp = ComboPack::with(['comboPackItems.menuItem.recipes.inventoryItem'])->find($comboPackId);
+                abort_if(!$cp || (int) $cp->branch_id !== (int) $branch->id, 422, 'Invalid combo pack.');
+                abort_if(!$cp->isAvailable(), 422, __('modules.combo.comboNotAvailable'));
+                $stockResult = $cp->validateStock();
+                abort_if(!$stockResult['valid'], 422, (string) ($stockResult['message'] ?? 'Combo stock validation failed.'));
+            }
+
             foreach ($validated['lines'] as $line) {
                 $menuItem = MenuItem::query()->findOrFail((int) $line['menu_item_id']);
                 $variation = null;
@@ -522,7 +594,7 @@ class PosVueOrderController extends Controller
                         ->with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])
                         ->findOrFail($comboPackId);
 
-                    $comboPricing = collect($combo->calculateComboItemPrices($orderType?->id, null));
+                    $comboPricing = collect($combo->calculateComboItemPrices($orderType?->id, $deliveryAppId));
                     $comboMatch = $comboPricing->first(function ($entry) use ($menuItem, $variation) {
                         $comboItem = $entry['combo_item'];
                         $comboVariationId = $comboItem->menu_item_variation_id ? (int) $comboItem->menu_item_variation_id : null;
@@ -604,6 +676,7 @@ class PosVueOrderController extends Controller
                         'qty' => $qty,
                         'note' => $line['note'] ?? null,
                         'modifier_option_quantities' => $modifierQtyMap,
+                        'is_multi_kitchen' => count($kitchenIds) > 1,
                     ];
                 }
             }
@@ -719,6 +792,7 @@ class PosVueOrderController extends Controller
                             'note' => $item['note'],
                             'order_type_id' => $order->order_type_id,
                             'order_type' => $order->order_type,
+                            'is_multi_kitchen' => (bool) ($item['is_multi_kitchen'] ?? false),
                         ]);
 
                         $modifierQtyMap = $item['modifier_option_quantities'] ?? [];
@@ -796,5 +870,98 @@ class PosVueOrderController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * @param  array<int>  $packIds
+     * @return array<int, int> pack id => number of combo component rows per instance
+     */
+    private static function comboPackSlotCounts(array $packIds): array
+    {
+        if ($packIds === []) {
+            return [];
+        }
+
+        return ComboPack::query()
+            ->whereIn('id', $packIds)
+            ->withCount('comboPackItems')
+            ->get()
+            ->mapWithKeys(fn (ComboPack $p) => [(int) $p->id => max(1, (int) $p->combo_pack_items_count)])
+            ->all();
+    }
+
+    /**
+     * Assign combo_instance_key to each row id by chunking consecutive same-pack lines
+     * into groups of the pack's slot count (supports multiple instances of the same pack).
+     *
+     * @param  \Illuminate\Support\Collection<int, \Illuminate\Database\Eloquent\Model>  $rows
+     * @param  array<int, int>  $slotCountByPackId
+     * @return array<int, string> row id => instance key
+     */
+    private static function comboInstanceKeyMapForRows(\Illuminate\Support\Collection $rows, array $slotCountByPackId): array
+    {
+        $map = [];
+        $counters = [];
+        $n = $rows->count();
+        $i = 0;
+
+        while ($i < $n) {
+            $row = $rows[$i];
+            if (empty($row->combo_pack_id)) {
+                $i++;
+
+                continue;
+            }
+
+            $packId = (int) $row->combo_pack_id;
+            $slots = (int) ($slotCountByPackId[$packId] ?? 1);
+            $slots = max(1, $slots);
+            $taken = 0;
+
+            while ($taken < $slots && ($i + $taken) < $n) {
+                $r = $rows[$i + $taken];
+                if ((int) ($r->combo_pack_id ?? 0) !== $packId) {
+                    break;
+                }
+                $taken++;
+            }
+
+            if ($taken === 0) {
+                $i++;
+
+                continue;
+            }
+
+            $counters[$packId] = ($counters[$packId] ?? 0) + 1;
+            $key = 'combo_'.$packId.'_'.$counters[$packId];
+
+            for ($k = 0; $k < $taken; $k++) {
+                $r = $rows[$i + $k];
+                $map[(int) $r->id] = $key;
+            }
+
+            $i += $taken;
+        }
+
+        return $map;
+    }
+
+    /**
+     * @param  array<int>  $packIds
+     * @return array<int, string>
+     */
+    private static function comboPackNamesById(array $packIds): array
+    {
+        if ($packIds === []) {
+            return [];
+        }
+
+        return ComboPack::query()
+            ->whereIn('id', $packIds)
+            ->get()
+            ->mapWithKeys(fn (ComboPack $p) => [
+                (int) $p->id => (string) $p->getTranslation('name', app()->getLocale()),
+            ])
+            ->all();
     }
 }

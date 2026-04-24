@@ -405,11 +405,50 @@
                                     </div>
                                 </td>
                             </tr>
-                            <tr v-for="item in group.lines" :key="item._linkedKey"
-                                class="hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <template v-for="item in group.lines" :key="item._linkedKey">
+                            <!-- Combo group header (legacy kot_items.blade parity) -->
+                            <tr v-if="item._comboHeader"
+                                class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                <td colspan="5" class="px-2 py-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                            </svg>
+                                            {{ item._comboHeader.packName }}
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            <span v-if="item._comboHeader.saveTotal > 0"
+                                                class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                Save {{ currencySymbol }} {{ formatPrice(item._comboHeader.saveTotal) }}
+                                            </span>
+                                            <button v-if="canManageLineItems && canDeleteKotItem"
+                                                type="button"
+                                                @click="requestRemoveKotComboGroup(item._comboHeader)"
+                                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                title="Remove whole combo">
+                                                <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"/>
+                                                </svg>
+                                                Remove
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            <tr :class="['hover:bg-gray-100 dark:hover:bg-gray-700', item._isCombo ? 'border-l-2 border-blue-200 dark:border-blue-800' : '']">
                                 <td class="flex flex-col p-2 lg:min-w-20 relative">
-                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
+                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center gap-2 lg:table-cell">
                                         {{ item.name }}
+                                        <span v-if="item._isCombo"
+                                            class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                            COMBO
+                                        </span>
+                                    </div>
+                                    <div v-if="item._isCombo && comboLineOriginalUnit(item) > 0 && comboLineOriginalUnit(item) > Number(item.price || 0)"
+                                        class="text-xs text-gray-500 dark:text-gray-400">
+                                        <span class="line-through">{{ currencySymbol }} {{ formatPrice(comboLineOriginalUnit(item)) }}</span>
+                                        <span class="text-green-600 dark:text-green-400 ml-1">{{ currencySymbol }} {{ formatPrice(Number(item.price || 0)) }}</span>
                                     </div>
                                     <div class="text-xs text-gray-600 dark:text-white inline-flex items-center">
                                     </div>
@@ -526,7 +565,7 @@
                                 <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
                                     <div class="relative flex items-center max-w-[8rem] mx-auto">
                                         <button type="button" @click="requestDecreaseKotItem(item)"
-                                            :disabled="!canManageLineItems || !canDeleteKotItem"
+                                            :disabled="!canManageLineItems || !canDeleteKotItem || item._isCombo"
                                             class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
@@ -543,12 +582,12 @@
                                                 modifier_id: item.modifier_id || 0,
                                             })
                                             "
-                                            :readonly="!canManageLineItems"
+                                            :readonly="!canManageLineItems || item._isCombo"
                                             class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                             min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                         <button type="button" @click="$emit('increase-quantity', item.line_key || item.id)"
-                                            :disabled="!canManageLineItems"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                            :disabled="!canManageLineItems || item._isCombo"
+                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -565,7 +604,9 @@
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right">
-                                    <button v-if="canManageLineItems"
+                                    <!-- Legacy parity: combo lines cannot be individually removed;
+                                         use the combo group header "Remove" button instead. -->
+                                    <button v-if="canManageLineItems && !item._isCombo"
                                         class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
                                         @click="requestRemoveKotItem(item)">
                                         <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor"
@@ -577,6 +618,7 @@
                                     </button>
                                 </td>
                             </tr>
+                            </template>
                         </template>
                     </template>
                 </tbody>
@@ -609,8 +651,8 @@
                                             <span class="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wide">COMBO</span>
                                             <span class="text-xs font-semibold text-blue-900 dark:text-blue-200">{{ group.packName }}</span>
                                         </div>
-                                        <div v-if="group.items[0]?.combo_discount" class="text-xs text-green-600 dark:text-green-400 font-medium">
-                                            Save {{ currencySymbol }}{{ formatPrice(group.items.reduce((s, i) => s + (Number(i.combo_discount || 0) * Number(i.quantity || 1)), 0)) }}
+                                        <div v-if="comboGroupSaveTotal(group) > 0" class="text-xs text-green-600 dark:text-green-400 font-medium">
+                                            Save {{ currencySymbol }}{{ formatPrice(comboGroupSaveTotal(group)) }}
                                         </div>
                                     </div>
                                 </td>
@@ -647,19 +689,13 @@
                                     <div class="text-xs text-gray-700 dark:text-gray-300">× {{ item.quantity }}</div>
                                 </td>
                                 <td class="p-2 text-xs font-medium text-gray-500 whitespace-nowrap dark:text-gray-400 text-right hidden lg:table-cell line-through">
-                                    {{ currencySymbol }} {{ formatPrice(Number(item.price) + Number(item.combo_discount || 0)) }}
+                                    {{ currencySymbol }} {{ formatPrice(comboLineOriginalUnit(item)) }}
                                 </td>
                                 <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
-                                <td class="p-2 whitespace-nowrap text-right">
-                                    <button type="button"
-                                        class="rounded text-gray-400 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 p-1.5"
-                                        @click="requestRemoveItem(item.line_key || item.id)">
-                                        <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd" />
-                                        </svg>
-                                    </button>
+                                <td class="p-2 whitespace-nowrap text-right text-gray-400 text-xs">
+                                    <!-- Combo lines: remove whole pack from header only (legacy parity). -->
                                 </td>
                             </tr>
                         </template>
@@ -1402,6 +1438,7 @@ const emit = defineEmits([
     "decrease-quantity",
     "remove-item",
     "remove-kot-item",
+    "remove-kot-combo-group",
     "reduce-kot-item",
     "save-order",
     "remove-discount",
@@ -1899,6 +1936,14 @@ const linkedKotGroups = computed(() => {
                     ? lineUnitPrice
                     : fallbackUnitPrice;
 
+            const packId = line.combo_pack_id ? Number(line.combo_pack_id) : null;
+            // Legacy parity (kot_items.blade.php): combo lines are grouped by the
+            // combo_instance_key coming from the API; fall back to a synthetic key
+            // scoped to this KOT so older rows without instance keys still group.
+            const comboGroupKey = packId
+                ? String(line.combo_instance_key || `kot_${group?.id || groupIndex}_combo_${packId}`)
+                : null;
+
             return {
                 ...line,
                 id: matchedItem?.id || line.kot_item_id || line.order_item_id || resolvedKey,
@@ -1909,7 +1954,47 @@ const linkedKotGroups = computed(() => {
                 note: line.note || matchedItem?.note || "",
                 variant_id: matchedItem?.variant_id || line.menu_item_variation_id || 0,
                 modifier_id: matchedItem?.modifier_id || 0,
+                combo_pack_id: packId,
+                combo_pack_name: line.combo_pack_name || null,
+                combo_instance_key: line.combo_instance_key || null,
+                combo_discount: line.combo_discount !== undefined && line.combo_discount !== null
+                    ? Number(line.combo_discount)
+                    : null,
+                combo_original_unit_price: line.combo_original_unit_price !== undefined && line.combo_original_unit_price !== null
+                    ? Number(line.combo_original_unit_price)
+                    : null,
                 _linkedKey: resolvedKey,
+                _isCombo: !!packId,
+                _comboGroupKey: comboGroupKey,
+            };
+        });
+
+        // Legacy parity: emit a combo group header just before the first combo
+        // item of each instance. Carry the list of kot_item_ids and the total
+        // savings for "Remove whole combo" + the "Save X" label.
+        const seenComboGroups = new Set();
+        normalizedLines.forEach((item) => {
+            if (!item._isCombo || !item._comboGroupKey) {
+                item._comboHeader = null;
+                return;
+            }
+            if (seenComboGroups.has(item._comboGroupKey)) {
+                item._comboHeader = null;
+                return;
+            }
+            seenComboGroups.add(item._comboGroupKey);
+            const siblings = normalizedLines.filter((l) => l._comboGroupKey === item._comboGroupKey);
+            const kotItemIds = siblings
+                .map((l) => Number(l.kot_item_id ?? (typeof l.id === 'number' ? l.id : NaN)))
+                .filter((n) => Number.isFinite(n) && n > 0);
+            const saveTotal = siblings.reduce((sum, l) => sum + comboLineSaveAmount(l), 0);
+            item._comboHeader = {
+                groupKey: item._comboGroupKey,
+                packId: item.combo_pack_id,
+                packName: item.combo_pack_name || 'Combo Pack',
+                instanceKey: item.combo_instance_key || null,
+                kotItemIds,
+                saveTotal,
             };
         });
 
@@ -2099,12 +2184,37 @@ const subTotal = computed(() => {
     );
 });
 
-// Total savings from combo discounts
+/** Pre-discount unit for combo lines (from API / preview); fallback matches legacy price + combo_discount. */
+const comboLineOriginalUnit = (item) => {
+    if (!item) {
+        return 0;
+    }
+    const v = item.combo_original_unit_price;
+    if (v !== undefined && v !== null && !Number.isNaN(Number(v)) && Number(v) > 0) {
+        return Number(v);
+    }
+    return Number(item.price || 0) + Number(item.combo_discount || 0);
+};
+
+const comboLineSaveAmount = (item) => {
+    if (!item?.combo_pack_id) {
+        return 0;
+    }
+    const orig = comboLineOriginalUnit(item);
+    const price = Number(item.price || 0);
+    return Math.max(0, orig - price) * Number(item.quantity || 1);
+};
+
+const comboGroupSaveTotal = (group) => {
+    if (group?.type !== "combo" || !Array.isArray(group.items)) {
+        return 0;
+    }
+    return group.items.reduce((s, i) => s + comboLineSaveAmount(i), 0);
+};
+
+// Total savings from combo discounts (uses explicit original unit when present — fixed % parity)
 const comboSavingsTotal = computed(() => {
-    return props.cartItems.reduce(
-        (sum, item) => sum + (Number(item.combo_discount || 0) * Number(item.quantity || 1)),
-        0
-    );
+    return props.cartItems.reduce((sum, item) => sum + comboLineSaveAmount(item), 0);
 });
 
 // Resolve a modifier option name from the flat map
@@ -2112,27 +2222,30 @@ const resolveModifierName = (optId) => {
     return props.modifierOptions?.[optId]?.name || `Modifier #${optId}`;
 };
 
-// Group cartItems: flat items first, then combo groups
+// Group cartItems: flat items first, then combo groups.
+// Legacy parity: persisted orders/KOT can have combo_pack_id without combo_instance_key.
 const groupedCartItems = computed(() => {
     const groups = [];
-    const comboMap = new Map(); // key: combo_instance_key -> group index in groups
+    const comboMap = new Map(); // key: instance or legacy pack group -> group index
 
     props.cartItems.forEach((item) => {
-        if (!item.combo_pack_id || !item.combo_instance_key) {
+        if (!item.combo_pack_id) {
             groups.push({ type: 'item', item });
         } else {
-            const instanceKey = item.combo_instance_key;
-            if (!comboMap.has(instanceKey)) {
+            const groupKey = item.combo_instance_key
+                ? String(item.combo_instance_key)
+                : `legacy_pack_${Number(item.combo_pack_id)}`;
+            if (!comboMap.has(groupKey)) {
                 const groupIdx = groups.length;
-                comboMap.set(instanceKey, groupIdx);
+                comboMap.set(groupKey, groupIdx);
                 groups.push({
                     type: 'combo',
-                    instanceKey,
+                    instanceKey: item.combo_instance_key || null,
                     packName: item.combo_pack_name || 'Combo Pack',
                     items: [],
                 });
             }
-            groups[comboMap.get(instanceKey)].items.push(item);
+            groups[comboMap.get(groupKey)].items.push(item);
         }
     });
 
@@ -2376,9 +2489,12 @@ const requestRemoveItem = (itemId) => {
 };
 
 // --- Linked-order KOT item removal/reduction flow ---
-// State: we track the pending action so the single RemovalReasonModal can serve both delete and decrement
-const pendingKotAction = ref(null); // 'delete' | 'decrement'
+// State: we track the pending action so the single RemovalReasonModal can serve
+// individual delete/decrement AND whole-combo-group delete (legacy parity:
+// Pos::removeComboGroup prompts the same removal reason modal for persisted KOTs).
+const pendingKotAction = ref(null); // 'delete' | 'decrement' | 'delete_combo'
 const pendingKotNewQty = ref(0);    // only used for 'decrement'
+const pendingComboKotItemIds = ref([]); // only used for 'delete_combo'
 
 /**
  * Called when the TRASH button is clicked on a linked KOT row.
@@ -2429,30 +2545,62 @@ const requestDecreaseKotItem = (item) => {
 };
 
 /**
+ * Called when the "Remove" button is clicked on a linked KOT combo group header.
+ * Mirrors legacy Pos::removeComboGroup: collect kot_item_ids of all combo members,
+ * prompt the same removal reason modal, and on confirm delete each with the reason.
+ */
+const requestRemoveKotComboGroup = (header) => {
+    if (!canDeleteKotItem.value) {
+        showPosAlert("error", "You don't have permission to delete KOT items.");
+        return;
+    }
+    const ids = Array.isArray(header?.kotItemIds)
+        ? header.kotItemIds.map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : [];
+    if (ids.length === 0) return;
+
+    pendingRemovalKotItem.value = {
+        id: null,
+        name: header.packName || 'Combo Pack',
+    };
+    pendingComboKotItemIds.value = ids;
+    pendingKotAction.value = 'delete_combo';
+    pendingKotNewQty.value = 0;
+    showRemovalReasonModal.value = true;
+};
+
+/**
  * Confirm handler for the RemovalReasonModal on linked-order KOT rows.
- * Routes to either remove-kot-item (delete) or reduce-kot-item (decrement).
+ * Routes to remove-kot-item (delete), reduce-kot-item (decrement), or
+ * remove-kot-combo-group (delete whole combo pack; legacy removeComboGroup parity).
  */
 const handleKotRemovalConfirm = (reason) => {
     showRemovalReasonModal.value = false;
-    if (!pendingRemovalKotItem.value) return;
+    const action = pendingKotAction.value;
 
-    const kotItemId = pendingRemovalKotItem.value.id;
-    const action    = pendingKotAction.value;
+    if (action === 'delete_combo') {
+        const ids = pendingComboKotItemIds.value || [];
+        if (ids.length > 0) {
+            emit('remove-kot-combo-group', { kotItemIds: ids, reason });
+        }
+    } else if (pendingRemovalKotItem.value) {
+        const kotItemId = pendingRemovalKotItem.value.id;
 
-    if (action === 'delete') {
-        emit('remove-kot-item', { kotItemId, reason });
-    } else {
-        // decrement
-        emit('reduce-kot-item', {
-            kotItemId,
-            newQuantity: pendingKotNewQty.value,
-            reason,
-        });
+        if (action === 'delete') {
+            emit('remove-kot-item', { kotItemId, reason });
+        } else {
+            emit('reduce-kot-item', {
+                kotItemId,
+                newQuantity: pendingKotNewQty.value,
+                reason,
+            });
+        }
     }
 
     pendingRemovalKotItem.value = null;
     pendingKotAction.value = null;
     pendingKotNewQty.value = 0;
+    pendingComboKotItemIds.value = [];
 };
 
 // Handle save order with validation

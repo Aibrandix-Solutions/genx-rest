@@ -75,6 +75,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/bootstrap', [PosBootstrapController::class, 'bootstrap']);
     Route::get('/pos/get-order-number', [PosSupportController::class, 'getOrderNumber']);
     Route::get('/pos/order-types', [PosSupportController::class, 'orderTypes']);
+    Route::get('/pos/combo-packs/{id}/preview', [PosSupportController::class, 'previewComboPack']);
     Route::get('/pos/delivery-platforms', [PosSupportController::class, 'deliveryPlatforms']);
     Route::get('/pos/waiters', [PosSupportController::class, 'waiters']);
     Route::post('/pos/order-preferences', [PosSupportController::class, 'saveOrderPreferences']);

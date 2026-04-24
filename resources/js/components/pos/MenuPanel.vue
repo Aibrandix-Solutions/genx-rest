@@ -117,6 +117,54 @@
                     </div>
                 </div>
 
+                <!-- Combo packs (parity with legacy pos/menu.blade.php) -->
+                <div v-if="filteredComboPacks.length > 0" class="mt-8">
+                    <h3 class="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
+                        Combo packs
+                    </h3>
+                    <ul class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                        <li v-for="combo in filteredComboPacks" :key="'combo-' + combo.id">
+                            <button type="button"
+                                class="flex flex-col w-full text-left rounded-xl overflow-hidden shadow-sm border border-blue-200 dark:border-blue-700 bg-white dark:bg-gray-800 hover:shadow-md active:scale-[0.98] transition min-h-[11rem]"
+                                @click="handleAddCombo(combo.id)">
+                                <!-- Image (legacy: hidden when restaurant hides menu images on POS) -->
+                                <div v-if="comboImageVisible(combo)" class="relative h-24 w-full shrink-0 bg-gray-100 dark:bg-gray-700">
+                                    <img :src="combo.combo_image_url" :alt="combo.name || 'Combo'"
+                                        class="h-full w-full object-cover" loading="lazy" />
+                                    <span
+                                        class="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide text-white bg-blue-500 rounded-md px-2 py-0.5 shadow-sm">Combo</span>
+                                </div>
+                                <div v-else
+                                    class="relative h-16 w-full shrink-0 bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-blue-900/40 dark:to-indigo-900/30 flex items-center justify-center">
+                                    <span
+                                        class="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide text-white bg-blue-500 rounded-md px-2 py-0.5 shadow-sm">Combo</span>
+                                </div>
+                                <div class="p-3 flex flex-col flex-1 min-h-0 bg-gradient-to-b from-blue-50/80 to-white dark:from-blue-900/10 dark:to-gray-800">
+                                    <h4 class="text-sm font-semibold text-gray-900 dark:text-white line-clamp-2">{{ combo.name }}</h4>
+                                    <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 line-through">
+                                        {{ currencySymbol }}{{ formatComboPrice(combo.regular_price) }}
+                                    </div>
+                                    <div class="text-sm font-semibold text-green-600 dark:text-green-400">
+                                        {{ currencySymbol }}{{ formatComboPrice(combo.discounted_price) }}
+                                    </div>
+                                    <div v-if="comboPackDiscountCaption(combo)" class="text-xs text-blue-600 dark:text-blue-400 font-medium mt-0.5">
+                                        {{ comboPackDiscountCaption(combo) }}
+                                    </div>
+                                    <div v-if="comboPreviewShown(combo).length" class="mt-2 pt-2 border-t border-blue-100 dark:border-blue-800 space-y-0.5">
+                                        <div v-for="(row, idx) in comboPreviewShown(combo)" :key="idx"
+                                            class="text-[10px] text-gray-500 dark:text-gray-400 line-clamp-1">
+                                            {{ Number(row.quantity || row.qty || 1) }} × {{ comboItemLineLabel(row) }}
+                                        </div>
+                                        <div v-if="comboPreviewMore(combo) > 0" class="text-[10px] text-gray-500 dark:text-gray-400">
+                                            + {{ comboPreviewMore(combo) }} more
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+
             </div>
         </div>
 
@@ -164,6 +212,14 @@ const props = defineProps({
         type: String,
         default: "$",
     },
+    comboPacks: {
+        type: Array,
+        default: () => [],
+    },
+    hideMenuItemImageOnPos: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits([
@@ -171,6 +227,7 @@ const emit = defineEmits([
     "update:menuId",
     "update:filterCategories",
     "add-to-cart",
+    "add-combo-to-cart",
     "reset",
 ]);
 
@@ -237,6 +294,62 @@ const filteredItems = computed(() => {
 
     return filtered;
 });
+
+const filteredComboPacks = computed(() => {
+    const packs = Array.isArray(props.comboPacks) ? props.comboPacks : [];
+    if (!localSearch.value) {
+        return packs;
+    }
+    const q = localSearch.value.toLowerCase();
+    return packs.filter((p) => (p.name || "").toLowerCase().includes(q));
+});
+
+const formatComboPrice = (value) => {
+    const n = Number(value || 0);
+    return n.toFixed(2);
+};
+
+const comboImageVisible = (combo) => {
+    const url = combo?.combo_image_url;
+    return !props.hideMenuItemImageOnPos && typeof url === "string" && url.trim().length > 0;
+};
+
+const comboPreviewRows = (combo) => {
+    return Array.isArray(combo?.items) ? combo.items : [];
+};
+
+const comboPreviewShown = (combo) => {
+    return comboPreviewRows(combo).slice(0, 3);
+};
+
+const comboPreviewMore = (combo) => {
+    return Math.max(0, comboPreviewRows(combo).length - 3);
+};
+
+const comboItemLineLabel = (row) => {
+    const name = row?.item_name || "";
+    const v = row?.variation_name || "";
+    const s = v ? `${name} — ${v}` : name;
+    return s || "Item";
+};
+
+/** Percent packs: show "% off". Fixed packs: show money saved on the pack (avoid implying %-only discount). */
+const comboPackDiscountCaption = (combo) => {
+    const type = String(combo?.discount_type || "").toLowerCase();
+    if (type === "percent" && Number(combo?.discount_percent || 0) > 0) {
+        return `${Math.round(Number(combo.discount_percent))}% off`;
+    }
+    const save = Number(combo?.regular_price || 0) - Number(combo?.discounted_price || 0);
+    if (save > 0.005) {
+        return `Save ${props.currencySymbol}${formatComboPrice(save)}`;
+    }
+    return "";
+};
+
+const handleAddCombo = (comboId) => {
+    emit("add-combo-to-cart", comboId);
+    showMenu.value = false;
+};
 
 const handleSearch = () => {
     emit("update:search", localSearch.value);

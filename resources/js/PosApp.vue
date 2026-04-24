@@ -33,8 +33,11 @@
         <div v-else class="flex flex-col lg:flex-row lg:flex-nowrap flex-grow h-auto pt-6 min-w-0 overflow-x-hidden">
             <MenuPanel class="w-full lg:basis-[70%] lg:max-w-[70%] min-w-0" :search="search" :menu-id="menuId"
                 :filter-categories="filterCategories" :menus="menus" :categories="categories" :items="contextualMenuItems"
-                :currency-symbol="currencySymbol" @update:search="search = $event" @update:menuId="menuId = $event"
-                @update:filterCategories="filterCategories = $event" @add-to-cart="handleAddToCart" @reset="handleReset" />
+                :combo-packs="comboPacks" :hide-menu-item-image-on-pos="hideMenuItemImageOnPos"
+                :currency-symbol="currencySymbol" @update:search="search = $event"
+                @update:menuId="menuId = $event"
+                @update:filterCategories="filterCategories = $event" @add-to-cart="handleAddToCart"
+                @add-combo-to-cart="handleAddComboToCart" @reset="handleReset" />
 
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
@@ -75,6 +78,7 @@
                 @remove-extra-charge="handleRemoveExtraCharge"
                 @update:pickupDateTime="handlePickupDateTimeUpdate"
                 @remove-kot-item="handleRemoveKotItem"
+                @remove-kot-combo-group="handleRemoveKotComboGroup"
                 @reduce-kot-item="handleReduceKotItem"
                 @print-receipt="handlePrintReceipt"
                 @add-custom-extra="handleAddCustomExtra"
@@ -216,6 +220,8 @@ const menus = ref([]);
 const categories = ref([]);
 const menuItems = ref([]);
 const comboPacks = ref([]);
+/** Mirrors legacy `restaurant()->hide_menu_item_image_on_pos` (pos/menu.blade.php). */
+const hideMenuItemImageOnPos = ref(false);
 const availableTaxes = ref([]);
 const orderTypes = ref([]);
 const deliveryPlatforms = ref([]);
@@ -356,6 +362,124 @@ const playBeepSound = () => {
 };
 
 // Methods
+const nextComboInstanceIndex = (packId) => {
+    const pid = Number(packId);
+    let max = 0;
+    const prefix = `combo_${pid}_`;
+    for (const ci of cartItems.value) {
+        const k = ci.combo_instance_key;
+        if (!k || typeof k !== "string" || !k.startsWith(prefix)) {
+            continue;
+        }
+        const suffix = k.slice(prefix.length);
+        const n = parseInt(suffix, 10);
+        if (!Number.isNaN(n) && n > max) {
+            max = n;
+        }
+    }
+    return max + 1;
+};
+
+const handleAddComboToCart = async (comboPackId) => {
+    const pid = Number(comboPackId);
+    if (!pid) {
+        return;
+    }
+
+    try {
+        const selectedType = resolveOrderType(orderType.value);
+        const orderTypeId = selectedType?.id || null;
+        const slug = normalizeOrderTypeSlug(selectedType?.slug || orderType.value);
+        const params = new URLSearchParams();
+        if (orderTypeId) {
+            params.set("order_type_id", String(orderTypeId));
+        }
+        if (slug === "delivery" && selectedDeliveryApp.value && selectedDeliveryApp.value !== "default") {
+            params.set("delivery_app_id", String(selectedDeliveryApp.value));
+        }
+
+        const qs = params.toString();
+        const url = `/api/pos/combo-packs/${pid}/preview${qs ? `?${qs}` : ""}`;
+        const res = await axios.get(url);
+
+        if (!res.data?.success) {
+            showPosAlert("error", res.data?.message || "Unable to add combo pack.");
+            return;
+        }
+
+        const packName = res.data.name || "Combo Pack";
+        const previewLines = Array.isArray(res.data.lines) ? res.data.lines : [];
+        if (previewLines.length === 0) {
+            showPosAlert("error", "This combo pack has no items.");
+            return;
+        }
+
+        const conflictNames = [];
+        for (const line of previewLines) {
+            const mid = Number(line.menu_item_id);
+            const vid = Number(line.menu_item_variation_id || 0);
+            const regKey = createCartLineKey(mid, vid, 0);
+            const existing = cartItems.value.find((ci) => getCartLineKey(ci) === regKey);
+            if (existing && !existing.combo_pack_id) {
+                const nm = existing.name || line.item_name || "Item";
+                if (!conflictNames.includes(nm)) {
+                    conflictNames.push(nm);
+                }
+            }
+        }
+        if (conflictNames.length > 0) {
+            showPosAlert(
+                "info",
+                `${conflictNames.join(", ")} ${conflictNames.length === 1 ? "is" : "are"} already in the cart as regular items; still adding as combo.`,
+            );
+        }
+
+        const instanceNum = nextComboInstanceIndex(pid);
+        const instanceKey = `combo_${pid}_${instanceNum}`;
+
+        for (const line of previewLines) {
+            const mid = Number(line.menu_item_id);
+            const vid = Number(line.menu_item_variation_id || 0);
+            const qty = Math.max(1, parseInt(line.qty, 10) || 1);
+            const unitPrice = Number(line.unit_price || 0);
+            const comboDiscount = Number(line.combo_discount_per_unit || 0);
+            const originalUnit = Number(
+                line.combo_original_unit_price ??
+                    line.original_unit_price ??
+                    unitPrice + comboDiscount
+            );
+            const lineKey = `combo_${pid}_${instanceNum}_${mid}_${vid}_0`;
+            const displayName = [line.item_name, line.variation_name].filter(Boolean).join(" — ") || "Item";
+
+            cartItems.value.push({
+                id: mid,
+                menu_item_id: mid,
+                name: displayName,
+                price: unitPrice,
+                base_unit_price: unitPrice,
+                quantity: qty,
+                variant_id: vid,
+                modifier_id: 0,
+                line_key: lineKey,
+                note: "",
+                combo_pack_id: pid,
+                combo_instance_key: instanceKey,
+                combo_pack_name: packName,
+                combo_discount: comboDiscount,
+                combo_original_unit_price: originalUnit,
+                modifier_option_quantities: {},
+            });
+        }
+
+        saveCartToStorage(cartItems.value);
+        playBeepSound();
+        showPosAlert("success", "Combo added to cart.");
+    } catch (error) {
+        const msg = error.response?.data?.message || error.message || "Failed to add combo pack.";
+        showPosAlert("error", msg);
+    }
+};
+
 const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
     console.log("addCartItems:", itemId, variantId, modifierId);
     const normalizedItemId = Number(itemId);
@@ -432,6 +556,14 @@ const getCartLineKey = (item) => {
     );
 };
 
+const parseComboPackIdFromInstanceKey = (instanceKey) => {
+    if (!instanceKey || typeof instanceKey !== "string") {
+        return null;
+    }
+    const m = instanceKey.match(/^combo_(\d+)_/);
+    return m ? Number(m[1]) : null;
+};
+
 const findCartLine = (itemId, variantId = 0, modifierId = 0) => {
     return cartItems.value.find(
         (ci) =>
@@ -444,6 +576,10 @@ const findCartLine = (itemId, variantId = 0, modifierId = 0) => {
 
 const syncCartLinePrice = (item) => {
     if (!item) {
+        return;
+    }
+
+    if (item.combo_pack_id) {
         return;
     }
 
@@ -686,6 +822,9 @@ const handleSaveNote = (note) => {
 
 const handleIncreaseQuantity = (itemId) => {
     const item = findCartLine(itemId);
+    if (item && item.combo_pack_id) {
+        return;
+    }
     if (item) {
         item.quantity++;
         syncCartLinePrice(item);
@@ -696,6 +835,10 @@ const handleIncreaseQuantity = (itemId) => {
 
 const handleDecreaseQuantity = (itemId) => {
     const item = findCartLine(itemId);
+    if (item && item.combo_pack_id) {
+        handleRemoveItem(itemId);
+        return;
+    }
     if (item && item.quantity > 1) {
         item.quantity--;
         syncCartLinePrice(item);
@@ -714,6 +857,9 @@ const handleUpdateQuantity = (quantityData) => {
         quantityData.variant_id,
         quantityData.modifier_id
     );
+    if (item && item.combo_pack_id) {
+        return;
+    }
     if (item) {
         const newQty = parseInt(quantityData.quantity, 10);
         if (newQty > 0) {
@@ -738,8 +884,19 @@ const handleUpdateQuantity = (quantityData) => {
 };
 
 const handleRemoveItem = (itemId) => {
-    cartItems.value = cartItems.value.filter((ci) => getCartLineKey(ci) !== itemId);
-    // Save cart to localStorage
+    const target = cartItems.value.find((ci) => getCartLineKey(ci) === itemId);
+    const instanceKey = target?.combo_instance_key;
+
+    if (instanceKey) {
+        cartItems.value = cartItems.value.filter((ci) => ci.combo_instance_key !== instanceKey);
+    } else if (target?.combo_pack_id) {
+        // Legacy parity: persisted combos may not have combo_instance_key,
+        // so remove the whole combo pack group by pack id.
+        const packId = Number(target.combo_pack_id);
+        cartItems.value = cartItems.value.filter((ci) => Number(ci.combo_pack_id || 0) !== packId);
+    } else {
+        cartItems.value = cartItems.value.filter((ci) => getCartLineKey(ci) !== itemId);
+    }
     saveCartToStorage(cartItems.value);
 };
 
@@ -749,7 +906,7 @@ const handleRemoveItem = (itemId) => {
  * with a mandatory reason that gets logged to kot_item_adjustments.
  */
 const handleRemoveKotItem = async ({ kotItemId, reason }) => {
-    const activeOrderId = order.value?.id;
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
     if (!activeOrderId || !kotItemId) return;
 
     try {
@@ -776,12 +933,50 @@ const handleRemoveKotItem = async ({ kotItemId, reason }) => {
 };
 
 /**
+ * Remove an entire combo group from a linked KOT (legacy Pos::removeComboGroup
+ * parity). Deletes each member kot_item sequentially with the SAME reason, then
+ * reloads the order once at the end to reflect recomputed totals. If any
+ * intermediate delete cancels the order (no items remain), we redirect home.
+ */
+const handleRemoveKotComboGroup = async ({ kotItemIds, reason }) => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId || !Array.isArray(kotItemIds) || kotItemIds.length === 0) {
+        return;
+    }
+
+    try {
+        for (const kotItemId of kotItemIds) {
+            const response = await axios.delete(
+                `/api/pos/orders/${activeOrderId}/kot-items/${kotItemId}`,
+                { data: { reason } }
+            );
+
+            if (response.data?.data?.order_cancelled_or_deleted) {
+                showPosAlert("success", "Combo removed. Order has been cancelled.");
+                window.location.href = "/pos";
+                return;
+            }
+        }
+
+        showPosAlert("success", "Combo pack removed successfully.");
+        await loadOrderData(activeOrderId);
+    } catch (error) {
+        const msg = error.response?.data?.message
+            || error.response?.data?.errors?.reason?.[0]
+            || "Failed to remove combo pack.";
+        showPosAlert("error", msg);
+        // Reflect whatever partial state the server applied before the failure.
+        await loadOrderData(activeOrderId);
+    }
+};
+
+/**
  * Reduce a KOT item quantity (decrement) on a linked order.
  * Calls PATCH /api/pos/orders/{orderId}/kot-items/{kotItemId}/quantity
  * with new_quantity and a mandatory reason that gets logged to kot_item_adjustments.
  */
 const handleReduceKotItem = async ({ kotItemId, newQuantity, reason }) => {
-    const activeOrderId = order.value?.id;
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
     if (!activeOrderId || !kotItemId) return;
 
     try {
@@ -2005,6 +2200,8 @@ const loadMenuData = () => {
             comboPacks.value = bootstrap.combo_packs;
         }
 
+        hideMenuItemImageOnPos.value = !!bootstrap.hide_menu_item_image_on_pos;
+
         if (Array.isArray(bootstrap.order_types) && bootstrap.order_types.length > 0) {
             orderTypes.value = bootstrap.order_types;
             console.log("Loaded order types:", orderTypes.value);
@@ -2181,6 +2378,19 @@ const applyOrderPayload = (payload, activeOrderId) => {
             ? lineAmount / quantity
             : 0;
         const resolvedUnitPrice = lineUnitPrice > 0 ? lineUnitPrice : fallbackUnitPrice;
+        const parsedPackId = parseComboPackIdFromInstanceKey(line.combo_instance_key);
+        const normalizedComboPackId =
+            line.combo_pack_id !== undefined && line.combo_pack_id !== null
+                ? Number(line.combo_pack_id)
+                : parsedPackId;
+        const normalizedComboInstanceKey =
+            line.combo_instance_key ||
+            (normalizedComboPackId ? `legacy_pack_${normalizedComboPackId}` : null);
+        const normalizedComboPackName =
+            line.combo_pack_name ||
+            (normalizedComboPackId
+                ? (comboPacks.value.find((p) => Number(p.id) === normalizedComboPackId)?.name || "Combo Pack")
+                : null);
 
         return {
             id:
@@ -2196,8 +2406,18 @@ const applyOrderPayload = (payload, activeOrderId) => {
             variant_id: line.menu_item_variation_id || 0,
             modifier_id: 0,
             note: line.note || "",
-            combo_pack_id: line.combo_pack_id || null,
-            combo_instance_key: line.combo_instance_key || null,
+            combo_pack_id: normalizedComboPackId || null,
+            combo_instance_key: normalizedComboInstanceKey,
+            combo_pack_name: normalizedComboPackName,
+            combo_discount:
+                line.combo_discount !== undefined && line.combo_discount !== null
+                    ? Number(line.combo_discount)
+                    : null,
+            combo_original_unit_price:
+                line.combo_original_unit_price !== undefined &&
+                    line.combo_original_unit_price !== null
+                    ? Number(line.combo_original_unit_price)
+                    : null,
             modifier_option_quantities:
                 line.modifier_option_quantities || {},
             line_key:
