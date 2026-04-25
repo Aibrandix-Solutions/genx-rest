@@ -622,6 +622,7 @@ class UpdateModifierGroup extends Component
                             'menu_item_id' => $menuItemId,
                             'menu_item_variation_id' => null,
                             'modifier_group_id' => $modifierGroup->id,
+                            'allow_multiple_selection' => true,
                         ];
                     } else {
                         $hasSelectedVariations = false;
@@ -632,6 +633,7 @@ class UpdateModifierGroup extends Component
                                     'menu_item_id' => $menuItemId,
                                     'menu_item_variation_id' => $variationId,
                                     'modifier_group_id' => $modifierGroup->id,
+                                    'allow_multiple_selection' => true,
                                 ];
                             }
                         }
@@ -641,6 +643,7 @@ class UpdateModifierGroup extends Component
                                 'menu_item_id' => $menuItemId,
                                 'menu_item_variation_id' => null,
                                 'modifier_group_id' => $modifierGroup->id,
+                                'allow_multiple_selection' => true,
                             ];
                         }
                     }
@@ -649,6 +652,7 @@ class UpdateModifierGroup extends Component
                         'menu_item_id' => $menuItemId,
                         'menu_item_variation_id' => null,
                         'modifier_group_id' => $modifierGroup->id,
+                        'allow_multiple_selection' => true,
                     ];
                 }
             }

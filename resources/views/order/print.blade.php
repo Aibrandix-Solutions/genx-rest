@@ -180,6 +180,12 @@
             font-size: 8pt;
             color: #555;
         }
+        .combo-component {
+            font-size: 8pt;
+            color: #444;
+            margin-top: 1px;
+            padding-left: 6px;
+        }
 
         @media print {
             @page {
@@ -322,32 +328,103 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach ($order->items as $item)
-                    <tr>
-                        <td class="qty">{{ $item->quantity }}</td>
-                        <td class="description">
-                            {{ $item->menuItem->item_name }}
+                @php
+                    $comboGroups = [];
+                    $renderRows = [];
 
-                            @if (isset($item->menuItemVariation))
-                                <br><small>({{ $item->menuItemVariation->variation }})</small>
-                            @endif
-                            @foreach ($item->modifierOptions as $modifier)
-                            @php
-                                $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
-                                $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty);
-                            @endphp
-                            <div class="modifiers">• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
-                                @if($modifierLinePrice > 0)
-                                    (+{{ currency_format_for_receipt_item($modifierLinePrice, restaurant()->currency_id) }})
+                    foreach ($order->items as $lineItem) {
+                        $isComboLine = (bool) ($lineItem->is_combo_item ?? false) && !empty($lineItem->combo_pack_id);
+                        if (!$isComboLine) {
+                            $renderRows[] = ['type' => 'item', 'item' => $lineItem];
+                            continue;
+                        }
+
+                        $groupKey = 'combo_' . (int) $lineItem->combo_pack_id;
+                        if (!isset($comboGroups[$groupKey])) {
+                            $packName = $lineItem->comboPack?->name ?: 'Combo Pack';
+                            $comboGroups[$groupKey] = [
+                                'pack_name' => $packName,
+                                'total_amount' => 0.0,
+                                'line_total_quantity' => 0,
+                                'expected_quantity_per_pack' => max(1, (int) ($lineItem->comboPack?->comboPackItems?->sum('quantity') ?? 0)),
+                                'has_real_instance_keys' => false,
+                                'instance_keys' => [],
+                                'components' => [],
+                            ];
+                            $renderRows[] = ['type' => 'combo', 'key' => $groupKey];
+                        }
+
+                        if (!empty($lineItem->combo_instance_key)) {
+                            $comboGroups[$groupKey]['instance_keys'][(string) $lineItem->combo_instance_key] = true;
+                            $comboGroups[$groupKey]['has_real_instance_keys'] = true;
+                        }
+                        $comboGroups[$groupKey]['total_amount'] += (float) ($lineItem->amount ?? 0);
+                        $comboGroups[$groupKey]['line_total_quantity'] += (int) ($lineItem->quantity ?? 1);
+
+                        $componentName = (string) ($lineItem->menuItem?->item_name ?? __('modules.order.item'));
+                        if (!empty($lineItem->menuItemVariation?->variation)) {
+                            $componentName .= ' ' . $lineItem->menuItemVariation->variation;
+                        }
+                        $componentKey = trim($componentName);
+                        if ($componentKey === '') {
+                            $componentKey = __('modules.order.item');
+                        }
+                        $comboGroups[$groupKey]['components'][$componentKey] = ($comboGroups[$groupKey]['components'][$componentKey] ?? 0) + (int) ($lineItem->quantity ?? 1);
+                    }
+                @endphp
+
+                @foreach ($renderRows as $row)
+                    @if ($row['type'] === 'item')
+                        @php $item = $row['item']; @endphp
+                        <tr>
+                            <td class="qty">{{ $item->quantity }}</td>
+                            <td class="description">
+                                {{ $item->menuItem->item_name }}
+
+                                @if (isset($item->menuItemVariation))
+                                    <br><small>({{ $item->menuItemVariation->variation }})</small>
                                 @endif
-                            </div>
-                        @endforeach
-                    </td>
-                    <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
-                    <td class="amount">
-                        {{ currency_format_for_receipt_item($item->amount, restaurant()->currency_id) }}
-                    </td>
-                    </tr>
+                                @foreach ($item->modifierOptions as $modifier)
+                                    @php
+                                        $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                        $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty);
+                                    @endphp
+                                    <div class="modifiers">• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                        @if($modifierLinePrice > 0)
+                                            (+{{ currency_format_for_receipt_item($modifierLinePrice, restaurant()->currency_id) }})
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </td>
+                            <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
+                            <td class="amount">
+                                {{ currency_format_for_receipt_item($item->amount, restaurant()->currency_id) }}
+                            </td>
+                        </tr>
+                    @else
+                        @php
+                            $group = $comboGroups[$row['key']] ?? null;
+                            if (!$group) {
+                                continue;
+                            }
+                            $packQty = $group['has_real_instance_keys']
+                                ? max(1, count($group['instance_keys']))
+                                : max(1, (int) round(($group['line_total_quantity'] ?? 0) / max(1, (int) ($group['expected_quantity_per_pack'] ?? 1))));
+                            $packAmount = (float) ($group['total_amount'] ?? 0);
+                            $packUnitPrice = $packQty > 0 ? $packAmount / $packQty : $packAmount;
+                        @endphp
+                        <tr>
+                            <td class="qty">{{ $packQty }}</td>
+                            <td class="description">
+                                {{ $group['pack_name'] }}
+                                @foreach ($group['components'] as $componentLabel => $componentQty)
+                                    <div class="combo-component">- {{ $componentQty }} {{ $componentLabel }}</div>
+                                @endforeach
+                            </td>
+                            <td class="price">{{ currency_format_for_receipt_item($packUnitPrice, restaurant()->currency_id) }}</td>
+                            <td class="amount">{{ currency_format_for_receipt_item($packAmount, restaurant()->currency_id) }}</td>
+                        </tr>
+                    @endif
                 @endforeach
             </tbody>
         </table>

@@ -16,7 +16,7 @@ class AddItemModifier extends Component
     public $modifierGroupId;
     public $variationId = null;
     public $isRequired = false;
-    public $allowMultipleSelection = false;
+    public $allowMultipleSelection = true;
     public $showAddModifierGroupModal = false;
     public $variations = [];
 
@@ -75,6 +75,7 @@ class AddItemModifier extends Component
             'allowMultipleSelection',
             'showAddModifierGroupModal',
         ]);
+        $this->allowMultipleSelection = true;
     }
 
     public function updatedMenuItemId($value)

@@ -200,11 +200,6 @@ const decrementOption = (group, option) => {
     setOptionQty(group, option.id, Math.max(0, current - 1));
 };
 
-/**
- * Mirrors legacy ItemModifiers::setOptionQty: when the group is single-select
- * (allow_multiple_selection=false) and we are setting a positive qty, zero out
- * sibling options in the same group so the UI behaves like a radio.
- */
 const setOptionQty = (group, optionId, qty) => {
     const allowMultiple = !!group.allow_multiple_selection;
     if (!allowMultiple && qty > 0) {

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\BranchPaymentAccountSetting;
 use App\Models\Kot;
 use App\Models\KotItem;
 use App\Models\KotPlace;
@@ -68,13 +69,17 @@ class PosVueOrderController extends Controller
 
         $resolveUnitPrice = static function ($item): float {
             $unitPrice = (float) ($item->price ?? 0);
+            $qty = (int) ($item->quantity ?? 0);
+            $amount = (float) ($item->amount ?? 0);
 
-            if ($unitPrice <= 0) {
-                $qty = (int) ($item->quantity ?? 0);
-                $amount = (float) ($item->amount ?? 0);
-                if ($qty > 0 && $amount > 0) {
-                    $unitPrice = round($amount / $qty, 2);
-                }
+            // Legacy-created rows may store base price in `price` while `amount`
+            // includes modifier add-ons. Prefer amount/qty when modifiers exist.
+            if (($item->modifierOptions?->count() ?? 0) > 0 && $qty > 0 && $amount > 0) {
+                $unitPrice = round($amount / $qty, 2);
+            }
+
+            if ($unitPrice <= 0 && $qty > 0 && $amount > 0) {
+                $unitPrice = round($amount / $qty, 2);
             }
 
             if ($unitPrice <= 0) {
@@ -85,6 +90,21 @@ class PosVueOrderController extends Controller
         };
 
         $orderItemsSorted = $order->items->sortBy('id')->values();
+        $modifierSignatureForRow = static function ($row): string {
+            return $row->modifierOptions
+                ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                ->filter(fn ($qty) => (int) $qty > 0)
+                ->sortKeys()
+                ->map(fn ($qty, $id) => ((int) $id) . 'x' . ((int) $qty))
+                ->values()
+                ->implode('|');
+        };
+        $lineMatchKeyForRow = static function ($row) use ($modifierSignatureForRow): string {
+            return (int) ($row->combo_pack_id ?? 0)
+                . ':' . (int) $row->menu_item_id
+                . ':' . (int) ($row->menu_item_variation_id ?? 0)
+                . ':' . $modifierSignatureForRow($row);
+        };
         $packIdsForSlots = $orderItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
         $slotCountByPackId = self::comboPackSlotCounts($packIdsForSlots);
         $comboInstanceByOrderItemId = self::comboInstanceKeyMapForRows($orderItemsSorted, $slotCountByPackId);
@@ -142,31 +162,24 @@ class PosVueOrderController extends Controller
             ];
         })->values();
 
-        // kot_items has no price / original_price / combo_discount_amount columns
-        // (see create_orders_table migration + add_combo_pack_id_to_kot_items_table).
-        // For combo KOT lines we must resolve the DISCOUNTED unit price and the
-        // pre-discount unit price by matching the corresponding OrderItem row,
-        // which does persist those fields. Without this, combo KOT lines fall
-        // through to menuItemVariation->price (full, non-discounted) in the UI.
-        $orderItemComboIndex = [];
+        // kot_items has no price / amount / original_price columns. Resolve linked
+        // KOT row pricing from matching order_items. This is required for combo
+        // discounts AND regular item modifiers, because the modifier-inclusive
+        // unit price is persisted on order_items.
+        $orderItemLineQueues = [];
         foreach ($orderItemsSorted as $oi) {
-            if (!$oi->combo_pack_id) {
-                continue;
-            }
-            $key = (int) $oi->combo_pack_id
-                . ':' . (int) $oi->menu_item_id
-                . ':' . (int) ($oi->menu_item_variation_id ?? 0);
-            $orderItemComboIndex[$key] = $oi;
+            $orderItemLineQueues[$lineMatchKeyForRow($oi)][] = $oi;
         }
 
-        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice, $orderItemComboIndex) {
+        $lineQueues = $orderItemLineQueues;
+        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice, &$lineQueues, $lineMatchKeyForRow) {
             $kotItemsSorted = $kot->items->sortBy('id')->values();
             $kotPackIds = $kotItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
             $kotSlotCounts = self::comboPackSlotCounts($kotPackIds);
             $kotComboInstanceByItemId = self::comboInstanceKeyMapForRows($kotItemsSorted, $kotSlotCounts);
             $kotComboNames = self::comboPackNamesById($kotPackIds);
 
-            $kotLines = $kotItemsSorted->map(function ($item) use ($resolveUnitPrice, $kotComboInstanceByItemId, $kotComboNames, $orderItemComboIndex) {
+            $kotLines = $kotItemsSorted->map(function ($item) use ($resolveUnitPrice, $kotComboInstanceByItemId, $kotComboNames, &$lineQueues, $lineMatchKeyForRow) {
                 $comboInstanceKey = $item->combo_pack_id
                     ? ($kotComboInstanceByItemId[(int) $item->id] ?? null)
                     : null;
@@ -178,18 +191,15 @@ class PosVueOrderController extends Controller
                 $qty = (int) ($item->quantity ?? 1);
                 $packId = $item->combo_pack_id ? (int) $item->combo_pack_id : null;
 
-                // Resolve combo pricing from the matching OrderItem (kot_items
-                // does not store price/original_price/combo_discount_amount).
+                // Resolve modifier-inclusive / combo-discounted price from the
+                // matching order item. Use queues so identical lines map in order.
                 $matchedOrderItem = null;
-                if ($packId) {
-                    $matchKey = $packId
-                        . ':' . (int) $item->menu_item_id
-                        . ':' . (int) ($item->menu_item_variation_id ?? 0);
-                    $matchedOrderItem = $orderItemComboIndex[$matchKey] ?? null;
+                $matchKey = $lineMatchKeyForRow($item);
+                if (!empty($lineQueues[$matchKey])) {
+                    $matchedOrderItem = array_shift($lineQueues[$matchKey]);
                 }
 
                 if ($matchedOrderItem) {
-                    $matchedQty = (int) ($matchedOrderItem->quantity ?? 0);
                     $matchedPrice = (float) ($matchedOrderItem->price ?? 0);
                     $unitPrice = $matchedPrice > 0
                         ? round($matchedPrice, 2)
@@ -198,7 +208,9 @@ class PosVueOrderController extends Controller
                     $unitPrice = $resolveUnitPrice($item);
                 }
 
-                $amount = (float) ($item->amount ?? 0);
+                $amount = $matchedOrderItem
+                    ? (float) ($matchedOrderItem->amount ?? 0)
+                    : (float) ($item->amount ?? 0);
                 if ($amount <= 0 && $unitPrice > 0 && $qty > 0) {
                     $amount = round($unitPrice * $qty, 2);
                 }
@@ -326,7 +338,7 @@ class PosVueOrderController extends Controller
 
     public function store(Request $request)
     {
-        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Create Order'), 403);
+        abort_if(!in_array('Order', restaurant_modules()), 403);
 
         $validated = $request->validate([
             'order_id' => ['nullable', 'integer', 'exists:orders,id'],
@@ -373,6 +385,8 @@ class PosVueOrderController extends Controller
         $openPayment = (bool) ($validated['open_payment'] ?? false);
         $status = $action === 'bill' ? 'billed' : 'kot';
         $billFollowUp = app(BillSecondaryActionResolver::class)->resolve($action, $secondaryAction);
+        $opensImmediatePayment = ($action === 'bill')
+            && ($openPayment || $secondaryAction === 'payment' || ($billFollowUp['open_payment'] ?? false));
         // Append-only KOT save is valid only for `kot` action against an existing order.
         // Legacy parity (Pos.php::$appendOnlyKotSave): the New KOT screen posts
         // a delta of new lines only. Regardless of action (kot or bill), the
@@ -383,6 +397,21 @@ class PosVueOrderController extends Controller
         $branch = branch();
         $restaurant = restaurant();
         abort_if(!$branch || !$restaurant, 422, 'Branch/restaurant context is required');
+
+        if ($editingOrderId) {
+            $orderForPermission = Order::query()
+                ->where('id', $editingOrderId)
+                ->where('branch_id', $branch->id)
+                ->firstOrFail();
+
+            $kotAfterBilled = ($action === 'kot' || $appendKot)
+                && in_array((string) $orderForPermission->status, ['billed', 'paid', 'payment_due'], true);
+
+            abort_if($kotAfterBilled && !user_can('Edit Billed Order'), 403);
+            abort_if(!$kotAfterBilled && !user_can('Update Order'), 403);
+        } else {
+            abort_if(!user_can('Create Order'), 403);
+        }
 
         $orderType = null;
         if (!empty($validated['order_type_id'])) {
@@ -435,7 +464,7 @@ class PosVueOrderController extends Controller
             $resolvedTableId = (int) $table->id;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -446,6 +475,7 @@ class PosVueOrderController extends Controller
                     ->firstOrFail();
 
                 $isUpdate = true;
+                $statusBeforeSave = (string) $order->status;
 
                 // Legacy parity (Pos.php saveOrder):
                 //   - On `bill`, existing KOTs are preserved so order_detail.blade can render $kotList.
@@ -505,6 +535,7 @@ class PosVueOrderController extends Controller
 
                 $order->update($updatePayload);
             } else {
+                $statusBeforeSave = null;
                 $numberData = Order::generateOrderNumber($branch);
 
                 $order = Order::create([
@@ -762,8 +793,12 @@ class PosVueOrderController extends Controller
                 'total_tax_amount' => round($totalTax, 2),
             ]);
 
+            if (in_array($statusBeforeSave, ['paid', 'payment_due'], true)) {
+                self::syncPostPaymentBalance($order->fresh('payments'), $total, $opensImmediatePayment);
+            }
+
             $kotIds = [];
-            if ($action === 'kot') {
+            if ($action === 'kot' || ($appendKot && $action === 'bill')) {
                 $groupedByKitchen = [];
                 foreach ($kotLineSeed as $line) {
                     $groupedByKitchen[$line['kitchen_place_id']][] = $line;
@@ -869,6 +904,59 @@ class PosVueOrderController extends Controller
                     ),
                 ],
             ],
+        ]);
+    }
+
+    /**
+     * Paid/payment_due orders can be edited by adding a New KOT. Existing real
+     * payments become the prepayment against the new total; any shortfall is
+     * tracked as a single `due` payment, matching the legacy POS due model.
+     */
+    private static function syncPostPaymentBalance(Order $order, float $newTotal, bool $allowImmediatePaymentWithoutCustomer = false): void
+    {
+        $amountPaid = $order->split_type === 'items'
+            ? (float) $order->splitOrders()->where('status', 'paid')->sum('amount')
+            : (float) $order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount');
+
+        $shortfall = round(max(0, $newTotal - $amountPaid), 2);
+
+        $order->payments()
+            ->where('payment_method', 'due')
+            ->delete();
+
+        if ($shortfall > 0) {
+            if (!$order->canRecordDueBalance()) {
+                abort_if(
+                    !$allowImmediatePaymentWithoutCustomer,
+                    422,
+                    'Walk-in paid orders require immediate payment for additional KOT items.'
+                );
+
+                $order->update([
+                    'amount_paid' => round($amountPaid, 2),
+                    'status' => 'billed',
+                ]);
+
+                return;
+            }
+
+            $dueAccount = $order->branch_id
+                ? BranchPaymentAccountSetting::getDefaultAccount((int) $order->branch_id, 'due')
+                : null;
+
+            $order->payments()->create([
+                'payment_method' => 'due',
+                'amount' => $shortfall,
+                'order_id' => $order->id,
+                'payment_account_id' => $dueAccount?->id,
+            ]);
+        }
+
+        $order->update([
+            'amount_paid' => round($amountPaid, 2),
+            'status' => $shortfall > 0 ? 'payment_due' : 'paid',
         ]);
     }
 

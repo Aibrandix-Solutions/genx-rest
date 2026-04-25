@@ -328,6 +328,7 @@ class EditModifierGroup extends Component
                 return [
                     'menu_item_id' => $menuItemId,
                     'modifier_group_id' => $modifierGroup->id,
+                    'allow_multiple_selection' => true,
                 ];
             })->all();
 

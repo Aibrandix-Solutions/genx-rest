@@ -418,6 +418,13 @@
                                             {{ item._comboHeader.packName }}
                                         </span>
                                         <div class="flex items-center gap-2">
+                                            <span v-if="item._comboHeader.originalTotal > item._comboHeader.total"
+                                                class="text-xs text-gray-500 dark:text-gray-400 line-through">
+                                                {{ currencySymbol }} {{ formatPrice(item._comboHeader.originalTotal) }}
+                                            </span>
+                                            <span class="text-xs font-semibold text-blue-800 dark:text-blue-300">
+                                                {{ currencySymbol }} {{ formatPrice(item._comboHeader.total) }}
+                                            </span>
                                             <span v-if="item._comboHeader.saveTotal > 0"
                                                 class="text-xs font-medium text-green-600 dark:text-green-400">
                                                 Save {{ currencySymbol }} {{ formatPrice(item._comboHeader.saveTotal) }}
@@ -664,8 +671,17 @@
                                             <span class="text-xs font-bold text-blue-700 dark:text-blue-300 uppercase tracking-wide">COMBO</span>
                                             <span class="text-xs font-semibold text-blue-900 dark:text-blue-200">{{ group.packName }}</span>
                                         </div>
-                                        <div v-if="comboGroupSaveTotal(group) > 0" class="text-xs text-green-600 dark:text-green-400 font-medium">
-                                            Save {{ currencySymbol }}{{ formatPrice(comboGroupSaveTotal(group)) }}
+                                        <div class="flex items-center gap-2">
+                                            <span v-if="comboGroupOriginalTotal(group) > comboGroupTotal(group)"
+                                                class="text-xs text-gray-500 dark:text-gray-400 line-through">
+                                                {{ currencySymbol }}{{ formatPrice(comboGroupOriginalTotal(group)) }}
+                                            </span>
+                                            <span class="text-xs font-semibold text-blue-800 dark:text-blue-300">
+                                                {{ currencySymbol }}{{ formatPrice(comboGroupTotal(group)) }}
+                                            </span>
+                                            <span v-if="comboGroupSaveTotal(group) > 0" class="text-xs text-green-600 dark:text-green-400 font-medium">
+                                                Save {{ currencySymbol }}{{ formatPrice(comboGroupSaveTotal(group)) }}
+                                            </span>
                                         </div>
                                     </div>
                                 </td>
@@ -1972,11 +1988,16 @@ const linkedKotGroups = computed(() => {
                 ? String(line.combo_instance_key || `kot_${group?.id || groupIndex}_combo_${packId}`)
                 : null;
 
+            const displayName = [
+                line.item_name || matchedItem?.name || "Unknown Item",
+                line.variation_name || "",
+            ].filter(Boolean).join(" — ");
+
             return {
                 ...line,
                 id: matchedItem?.id || line.kot_item_id || line.order_item_id || resolvedKey,
                 line_key: resolvedKey,
-                name: line.item_name || matchedItem?.name || "Unknown Item",
+                name: displayName,
                 quantity,
                 price: resolvedPrice,
                 note: line.note || matchedItem?.note || "",
@@ -2016,6 +2037,8 @@ const linkedKotGroups = computed(() => {
                 .map((l) => Number(l.kot_item_id ?? (typeof l.id === 'number' ? l.id : NaN)))
                 .filter((n) => Number.isFinite(n) && n > 0);
             const saveTotal = siblings.reduce((sum, l) => sum + comboLineSaveAmount(l), 0);
+            const total = siblings.reduce((sum, l) => sum + (Number(l.price || 0) * Number(l.quantity || 1)), 0);
+            const originalTotal = siblings.reduce((sum, l) => sum + (comboLineOriginalUnit(l) * Number(l.quantity || 1)), 0);
             item._comboHeader = {
                 groupKey: item._comboGroupKey,
                 packId: item.combo_pack_id,
@@ -2023,6 +2046,8 @@ const linkedKotGroups = computed(() => {
                 instanceKey: item.combo_instance_key || null,
                 kotItemIds,
                 saveTotal,
+                total,
+                originalTotal,
             };
         });
 
@@ -2238,6 +2263,20 @@ const comboGroupSaveTotal = (group) => {
         return 0;
     }
     return group.items.reduce((s, i) => s + comboLineSaveAmount(i), 0);
+};
+
+const comboGroupTotal = (group) => {
+    if (group?.type !== "combo" || !Array.isArray(group.items)) {
+        return 0;
+    }
+    return group.items.reduce((s, i) => s + (Number(i.price || 0) * Number(i.quantity || 1)), 0);
+};
+
+const comboGroupOriginalTotal = (group) => {
+    if (group?.type !== "combo" || !Array.isArray(group.items)) {
+        return 0;
+    }
+    return group.items.reduce((s, i) => s + (comboLineOriginalUnit(i) * Number(i.quantity || 1)), 0);
 };
 
 // Total savings from combo discounts (uses explicit original unit when present — fixed % parity)

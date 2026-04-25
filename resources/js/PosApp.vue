@@ -507,14 +507,14 @@ const handleAddToCart = async (
         return;
     }
 
+    const selectedVariation =
+        normalizedVariantId && Array.isArray(item.variations)
+            ? item.variations.find((v) => Number(v.id) === normalizedVariantId) || null
+            : null;
+
     let basePrice = resolveContextualPrice(item);
-    if (normalizedVariantId && item.variations && item.variations.length > 0) {
-        const variation = item.variations.find(
-            (v) => Number(v.id) === normalizedVariantId
-        );
-        if (variation) {
-            basePrice = resolveContextualPrice(item, variation.id);
-        }
+    if (selectedVariation) {
+        basePrice = resolveContextualPrice(item, selectedVariation.id);
     }
     const modifierUnitTotal = computeModifierUnitTotal(
         item,
@@ -536,7 +536,9 @@ const handleAddToCart = async (
         const newCartItem = {
             id: normalizedItemId,
             menu_item_id: normalizedItemId,
-            name: item.item_name || item.name || "Unknown Item",
+            name: [item.item_name || item.name || "Unknown Item", selectedVariation?.variation]
+                .filter(Boolean)
+                .join(" — "),
             price: unitPrice,
             base_unit_price: unitPrice,
             quantity: 1,
