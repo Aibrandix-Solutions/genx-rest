@@ -450,6 +450,19 @@
                                         <span class="line-through">{{ currencySymbol }} {{ formatPrice(comboLineOriginalUnit(item)) }}</span>
                                         <span class="text-green-600 dark:text-green-400 ml-1">{{ currencySymbol }} {{ formatPrice(Number(item.price || 0)) }}</span>
                                     </div>
+                                    <!-- Modifier pills (linked KOT parity with cart + legacy kot_items.blade) -->
+                                    <div v-if="item.modifier_option_quantities && Object.keys(item.modifier_option_quantities).length > 0" class="mt-1 space-y-0.5">
+                                        <div v-for="(qty, modId) in item.modifier_option_quantities" :key="modId"
+                                            class="flex items-center justify-between gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
+                                            <span class="text-gray-600 dark:text-gray-400">
+                                                {{ resolveModifierName(modId) }}<span v-if="qty > 1" class="text-gray-400 ml-0.5">×{{ qty }}</span>
+                                            </span>
+                                            <span v-if="modifierPillAmount(modId, qty) > 0"
+                                                class="text-gray-500 dark:text-gray-300">
+                                                +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
+                                            </span>
+                                        </div>
+                                    </div>
                                     <div class="text-xs text-gray-600 dark:text-white inline-flex items-center">
                                     </div>
                                     <div class="inline-flex items-center relative group" v-cloak>
@@ -676,20 +689,30 @@
                                         <span class="inline-block text-[10px] font-bold text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-900/40 px-1 rounded">COMBO</span>
                                         {{ item.name }}
                                     </div>
+                                    <div v-if="comboLineOriginalUnit(item) > 0 && comboLineOriginalUnit(item) > Number(item.price || 0)"
+                                        class="text-xs text-gray-500 dark:text-gray-400">
+                                        <span class="line-through">{{ currencySymbol }} {{ formatPrice(comboLineOriginalUnit(item)) }}</span>
+                                        <span class="text-green-600 dark:text-green-400 ml-1">{{ currencySymbol }} {{ formatPrice(Number(item.price || 0)) }}</span>
+                                    </div>
                                     <!-- Modifier pills -->
                                     <div v-if="item.modifier_option_quantities && Object.keys(item.modifier_option_quantities).length > 0" class="mt-1 space-y-0.5">
                                         <div v-for="(qty, modId) in item.modifier_option_quantities" :key="modId"
-                                            class="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
-                                            <span class="text-gray-600 dark:text-gray-400">{{ resolveModifierName(modId) }}</span>
-                                            <span v-if="qty > 1" class="text-gray-400">×{{ qty }}</span>
+                                            class="flex items-center justify-between gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
+                                            <span class="text-gray-600 dark:text-gray-400">
+                                                {{ resolveModifierName(modId) }}<span v-if="qty > 1" class="text-gray-400 ml-0.5">×{{ qty }}</span>
+                                            </span>
+                                            <span v-if="modifierPillAmount(modId, qty) > 0"
+                                                class="text-gray-500 dark:text-gray-300">
+                                                +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
+                                            </span>
                                         </div>
                                     </div>
                                 </td>
                                 <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
                                     <div class="text-xs text-gray-700 dark:text-gray-300">× {{ item.quantity }}</div>
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-500 whitespace-nowrap dark:text-gray-400 text-right hidden lg:table-cell line-through">
-                                    {{ currencySymbol }} {{ formatPrice(comboLineOriginalUnit(item)) }}
+                                <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
+                                    {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
                                 <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
@@ -711,9 +734,14 @@
                                 <!-- Modifier pills -->
                                 <div v-if="group.item.modifier_option_quantities && Object.keys(group.item.modifier_option_quantities).length > 0" class="mt-1 space-y-0.5">
                                     <div v-for="(qty, modId) in group.item.modifier_option_quantities" :key="modId"
-                                        class="flex items-center gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
-                                        <span class="text-gray-600 dark:text-gray-400">{{ resolveModifierName(modId) }}</span>
-                                        <span v-if="qty > 1" class="text-gray-400">×{{ qty }}</span>
+                                        class="flex items-center justify-between gap-1 text-[10px] px-1.5 py-0.5 border-l-2 border-blue-400 bg-gray-100 dark:bg-gray-900/40 rounded-r">
+                                        <span class="text-gray-600 dark:text-gray-400">
+                                            {{ resolveModifierName(modId) }}<span v-if="qty > 1" class="text-gray-400 ml-0.5">×{{ qty }}</span>
+                                        </span>
+                                        <span v-if="modifierPillAmount(modId, qty) > 0"
+                                            class="text-gray-500 dark:text-gray-300">
+                                            +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
+                                        </span>
                                     </div>
                                 </div>
                                 <div class="inline-flex items-center relative group" v-cloak>
@@ -2220,6 +2248,21 @@ const comboSavingsTotal = computed(() => {
 // Resolve a modifier option name from the flat map
 const resolveModifierName = (optId) => {
     return props.modifierOptions?.[optId]?.name || `Modifier #${optId}`;
+};
+
+// Resolve the per-unit price for a modifier option (0 when free / unknown)
+const resolveModifierPrice = (optId) => {
+    return Number(props.modifierOptions?.[optId]?.price || 0);
+};
+
+/**
+ * Per-modifier-pill amount = unitPrice * qty. Renders next to the option
+ * name as "+ {currency}X.XX" when > 0 (legacy kot_items.blade parity).
+ */
+const modifierPillAmount = (optId, qty) => {
+    const q = Number(qty || 0);
+    if (q <= 0) return 0;
+    return Number((resolveModifierPrice(optId) * q).toFixed(2));
 };
 
 // Group cartItems: flat items first, then combo groups.

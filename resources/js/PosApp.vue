@@ -34,7 +34,8 @@
             <MenuPanel class="w-full lg:basis-[70%] lg:max-w-[70%] min-w-0" :search="search" :menu-id="menuId"
                 :filter-categories="filterCategories" :menus="menus" :categories="categories" :items="contextualMenuItems"
                 :combo-packs="comboPacks" :hide-menu-item-image-on-pos="hideMenuItemImageOnPos"
-                :currency-symbol="currencySymbol" @update:search="search = $event"
+                :currency-symbol="currencySymbol" :contextual-price-resolver="resolveContextualPrice"
+                @update:search="search = $event"
                 @update:menuId="menuId = $event"
                 @update:filterCategories="filterCategories = $event" @add-to-cart="handleAddToCart"
                 @add-combo-to-cart="handleAddComboToCart" @reset="handleReset" />
@@ -480,69 +481,162 @@ const handleAddComboToCart = async (comboPackId) => {
     }
 };
 
-const handleAddToCart = async (itemId, variantId = 0, modifierId = 0) => {
-    console.log("addCartItems:", itemId, variantId, modifierId);
+const handleAddToCart = async (
+    itemId,
+    variantId = 0,
+    modifierId = 0,
+    modifierOptionQuantities = {}
+) => {
     const normalizedItemId = Number(itemId);
     const normalizedVariantId = Number(variantId || 0);
     const normalizedModifierId = Number(modifierId || 0);
+    const modifierMap = normalizeModifierQuantities(modifierOptionQuantities);
+    const modifierSignature = buildModifierSignature(modifierMap);
     const lineKey = createCartLineKey(
         normalizedItemId,
         normalizedVariantId,
-        normalizedModifierId
+        normalizedModifierId,
+        modifierSignature
     );
 
-    // Find item and determine the correct price
     const item = menuItems.value.find((i) => Number(i.id) === normalizedItemId);
-    console.log("Found item:", item);
+    console.log("addCartItems:", itemId, variantId, modifierId, modifierMap);
 
-    if (item) {
-        // Resolve the correct price based on variation
-        let price = resolveContextualPrice(item);
-
-        if (normalizedVariantId && item.variations && item.variations.length > 0) {
-            const variation = item.variations.find((v) => Number(v.id) === normalizedVariantId);
-            if (variation) {
-                price = resolveContextualPrice(item, variation.id);
-                console.log("Using variation price:", price);
-            }
-        }
-
-        const existingItem = cartItems.value.find(
-            (ci) => getCartLineKey(ci) === lineKey
-        );
-        if (existingItem) {
-            existingItem.quantity++;
-            syncCartLinePrice(existingItem);
-            console.log("Updated existing item:", existingItem);
-        } else {
-            const newCartItem = {
-                id: normalizedItemId,
-                menu_item_id: normalizedItemId,
-                name: item.item_name || item.name || "Unknown Item",
-                price: price,
-                base_unit_price: Number(price || 0),
-                quantity: 1,
-                variant_id: normalizedVariantId,
-                modifier_id: normalizedModifierId,
-                line_key: lineKey,
-            };
-            cartItems.value.push(newCartItem);
-            console.log("Added new cart item:", newCartItem);
-            console.log("All cart items:", cartItems.value);
-        }
-        // Save cart to localStorage
-        saveCartToStorage(cartItems.value);
-
-        // Play beep sound when item is added to cart
-        playBeepSound();
-    } else {
+    if (!item) {
         console.error("Item not found with id:", itemId);
-        console.log("Available menu items:", menuItems.value);
+        return;
     }
+
+    let basePrice = resolveContextualPrice(item);
+    if (normalizedVariantId && item.variations && item.variations.length > 0) {
+        const variation = item.variations.find(
+            (v) => Number(v.id) === normalizedVariantId
+        );
+        if (variation) {
+            basePrice = resolveContextualPrice(item, variation.id);
+        }
+    }
+    const modifierUnitTotal = computeModifierUnitTotal(
+        item,
+        normalizedVariantId,
+        modifierMap
+    );
+    const unitPrice = Number((Number(basePrice || 0) + modifierUnitTotal).toFixed(2));
+
+    const existingItem = cartItems.value.find(
+        (ci) => getCartLineKey(ci) === lineKey
+    );
+    if (existingItem) {
+        existingItem.quantity++;
+        // Keep base/unit pricing consistent when nudging qty up.
+        existingItem.base_unit_price = unitPrice;
+        existingItem.price = unitPrice;
+        existingItem.modifier_option_quantities = modifierMap;
+    } else {
+        const newCartItem = {
+            id: normalizedItemId,
+            menu_item_id: normalizedItemId,
+            name: item.item_name || item.name || "Unknown Item",
+            price: unitPrice,
+            base_unit_price: unitPrice,
+            quantity: 1,
+            variant_id: normalizedVariantId,
+            modifier_id: normalizedModifierId,
+            line_key: lineKey,
+            modifier_option_quantities: modifierMap,
+        };
+        cartItems.value.push(newCartItem);
+    }
+    saveCartToStorage(cartItems.value);
+    playBeepSound();
 };
 
-const createCartLineKey = (itemId, variantId = 0, modifierId = 0) => {
-    return `${itemId}:${Number(variantId || 0)}:${Number(modifierId || 0)}`;
+const createCartLineKey = (
+    itemId,
+    variantId = 0,
+    modifierId = 0,
+    modifierSignature = ""
+) => {
+    const sigPart = modifierSignature ? `:${modifierSignature}` : "";
+    return `${itemId}:${Number(variantId || 0)}:${Number(modifierId || 0)}${sigPart}`;
+};
+
+/**
+ * Coerce a raw `modifier_option_quantities` payload (from the modal or an
+ * existing cart line) into a clean `{ [optionId:number]: qty:number }` map
+ * with positive integer quantities only. Mirrors legacy
+ * Pos::normalizeModifierQuantities so the line key stays stable across paths.
+ */
+const normalizeModifierQuantities = (raw) => {
+    const out = {};
+    if (!raw) return out;
+    if (Array.isArray(raw)) {
+        raw.forEach((id) => {
+            const k = Number(id);
+            if (k > 0) out[k] = 1;
+        });
+        return out;
+    }
+    if (typeof raw === "object") {
+        Object.keys(raw).forEach((k) => {
+            const optionId = Number(k);
+            const qty = Number(raw[k] || 0);
+            if (optionId > 0 && qty > 0) out[optionId] = qty;
+        });
+    }
+    return out;
+};
+
+/**
+ * Build a deterministic signature for a modifier selection so two cart lines
+ * with the same item+variation but different modifier sets stay separate
+ * (legacy Pos.php uses md5 of the same shape; we keep it readable here).
+ */
+const buildModifierSignature = (map) => {
+    const ids = Object.keys(map || {})
+        .map((k) => Number(k))
+        .filter((n) => n > 0)
+        .sort((a, b) => a - b);
+    if (!ids.length) return "";
+    return ids.map((id) => `${id}x${Number(map[id] || 0)}`).join("|");
+};
+
+/**
+ * Sum of (modifier option price × qty) across the selected map. Looks up
+ * prices from the menu item's `modifier_groups` first, then
+ * `variation_modifier_groups[variantId]`, falling back to the global
+ * `modifierOptions` flat map for compatibility.
+ */
+const computeModifierUnitTotal = (item, variantId, map) => {
+    if (!map || !Object.keys(map).length) return 0;
+    const priceById = {};
+
+    const harvest = (groups) => {
+        if (!Array.isArray(groups)) return;
+        groups.forEach((g) => {
+            (g.options || []).forEach((opt) => {
+                priceById[Number(opt.id)] = Number(opt.price || 0);
+            });
+        });
+    };
+
+    if (item) {
+        harvest(item.modifier_groups);
+        if (variantId) {
+            const map2 = item.variation_modifier_groups || {};
+            harvest(map2[String(variantId)]);
+        }
+    }
+
+    let total = 0;
+    Object.keys(map).forEach((k) => {
+        const id = Number(k);
+        const qty = Number(map[k] || 0);
+        if (qty <= 0) return;
+        const price = priceById[id] ?? Number(modifierOptions.value?.[id]?.price || 0);
+        total += price * qty;
+    });
+    return Number(total.toFixed(2));
 };
 
 const getCartLineKey = (item) => {
@@ -2179,15 +2273,25 @@ const loadMenuData = () => {
             }
 
             // Build flat modifier options map: { [optionId]: { name, price } }
-            // Used by OrderPanel to render modifier pill labels in the cart
+            // Used by OrderPanel to render modifier pill labels in the cart.
+            // Includes options from both base modifier_groups AND
+            // variation-specific groups so variation-only modifiers don't
+            // fall through to "Modifier #id" labels.
             const optionsMap = {};
-            menuItems.value.forEach((item) => {
-                const groups = Array.isArray(item.modifier_groups) ? item.modifier_groups : [];
+            const harvestGroups = (groups) => {
+                if (!Array.isArray(groups)) return;
                 groups.forEach((group) => {
                     const options = Array.isArray(group.options) ? group.options : [];
                     options.forEach((opt) => {
                         optionsMap[opt.id] = { name: opt.name, price: opt.price ?? 0 };
                     });
+                });
+            };
+            menuItems.value.forEach((item) => {
+                harvestGroups(item.modifier_groups);
+                const vmap = item.variation_modifier_groups || {};
+                Object.keys(vmap).forEach((variationId) => {
+                    harvestGroups(vmap[variationId]);
                 });
             });
             modifierOptions.value = optionsMap;

@@ -171,6 +171,12 @@
         <!-- Item Variations Modal -->
         <ItemVariationsModal :show="showVariationsModal" :item="selectedItem" :currency-symbol="currencySymbol"
             @close="showVariationsModal = false" @select-variation="handleSelectVariationWithCallback" />
+
+        <!-- Item Modifiers Modal (legacy ItemModifiers.php parity) -->
+        <ItemModifiersModal :show="showModifiersModal" :item="modifierItem" :variation-id="modifierVariationId"
+            :variation-name="modifierVariationName" :base-price="modifierBasePrice"
+            :currency-symbol="currencySymbol" @close="handleModifiersClose"
+            @save="handleModifiersSave" />
     </div>
 </template>
 
@@ -178,6 +184,7 @@
 import { ref, computed, watch } from "vue";
 import MenuItem from "./MenuItem.vue";
 import ItemVariationsModal from "./ItemVariationsModal.vue";
+import ItemModifiersModal from "./ItemModifiersModal.vue";
 
 const props = defineProps({
     search: {
@@ -220,6 +227,16 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    /**
+     * Optional resolver that returns the contextual unit price for a given
+     * menu item (and optional variation id). Used to seed the modifier
+     * modal's "Unit total" preview so it matches what the cart will record.
+     * Falls back to item.contextual_price / item.price / variation.price.
+     */
+    contextualPriceResolver: {
+        type: Function,
+        default: null,
+    },
 });
 
 const emit = defineEmits([
@@ -241,6 +258,17 @@ const showMenu = ref(false);
 // Variations modal state
 const showVariationsModal = ref(false);
 const selectedItem = ref(null);
+
+// Modifiers modal state (legacy ItemModifiers.php parity)
+const showModifiersModal = ref(false);
+const modifierItem = ref(null);
+const modifierVariationId = ref(null);
+const modifierVariationName = ref("");
+const modifierBasePrice = ref(0);
+// Done-callback from MenuItem / ItemVariationsModal: keep it so we can clear
+// the source's loading state once the modifier modal is closed (with or
+// without a save).
+const pendingMenuItemDone = ref(null);
 
 // Watch for prop changes
 watch(
@@ -366,12 +394,60 @@ const handleCategoryFilter = (categoryId) => {
     emit("update:filterCategories", categoryId);
 };
 
+/**
+ * True when the given item has any modifier group that applies to the chosen
+ * variation (or to the base item, when no variation is chosen yet). Mirrors
+ * legacy ItemModifiers::mount() merge of base + variation-specific groups.
+ */
+const itemHasApplicableModifierGroups = (item, variationId = null) => {
+    if (!item) return false;
+    const base = Array.isArray(item.modifier_groups) ? item.modifier_groups : [];
+    if (base.length > 0) return true;
+    if (variationId) {
+        const map = item.variation_modifier_groups || {};
+        const list = Array.isArray(map[String(variationId)]) ? map[String(variationId)] : [];
+        if (list.length > 0) return true;
+    }
+    return false;
+};
+
+const resolveBasePriceFor = (item, variationId = null) => {
+    if (typeof props.contextualPriceResolver === "function") {
+        return Number(props.contextualPriceResolver(item, variationId) || 0);
+    }
+    if (variationId) {
+        const v = (item?.variations || []).find((x) => Number(x.id) === Number(variationId));
+        if (v) return Number(v.contextual_price ?? v.price ?? 0);
+    }
+    return Number(item?.contextual_price ?? item?.price ?? 0);
+};
+
+const openModifierModal = (item, variationId, variationName, done) => {
+    pendingMenuItemDone.value = typeof done === "function" ? done : null;
+    modifierItem.value = item;
+    modifierVariationId.value = variationId || null;
+    modifierVariationName.value = variationName || "";
+    modifierBasePrice.value = resolveBasePriceFor(item, variationId || null);
+    showModifiersModal.value = true;
+};
+
 const handleAddToCart = (itemId, variantId, modifierId, done) => {
-    console.log("itemId", itemId);
-    console.log("variantId", variantId);
-    console.log("modifierId", modifierId);
-    emit("add-to-cart", itemId, variantId, modifierId);
-    // Close menu on mobile after adding to cart
+    // MenuItem may pass `{}` for the 3rd arg when there are no configurable
+    // options. Coerce to a numeric so older callers stay compatible.
+    const numericVariantId = Number(variantId || 0);
+    const numericModifierId =
+        typeof modifierId === "number" ? modifierId : 0;
+
+    const item = props.items.find((i) => Number(i.id) === Number(itemId));
+
+    // Open the modifier modal when the item has any base modifier group
+    // (no-variation items only enter this branch).
+    if (item && !numericVariantId && itemHasApplicableModifierGroups(item, null)) {
+        openModifierModal(item, null, "", done);
+        return;
+    }
+
+    emit("add-to-cart", itemId, numericVariantId, numericModifierId, {});
     showMenu.value = false;
     if (typeof done === "function") {
         done();
@@ -384,33 +460,65 @@ const handleShowVariations = (item) => {
 };
 
 const handleSelectVariation = (variation) => {
-    if (selectedItem.value) {
-        console.log("itemId", selectedItem.value.id);
-        console.log("variantId", variation.id);
-        console.log("modifierId", 0);
-        emit("add-to-cart", selectedItem.value.id, variation.id, 0);
-    }
-    // Close both the variations modal and menu after selection
-    showVariationsModal.value = false;
-    showMenu.value = false;
-    // Done callback from ItemVariationsModal - call it to clear loading state
-    // Note: the third parameter is the done callback passed by ItemVariationsModal
+    handleSelectVariationWithCallback(variation, null);
 };
 
 // Update the event handler signature to handle the done callback
 const handleSelectVariationWithCallback = (variation, done) => {
-    if (selectedItem.value) {
-        console.log("itemId", selectedItem.value.id);
-        console.log("variantId", variation.id);
-        console.log("modifierId", 0);
-        emit("add-to-cart", selectedItem.value.id, variation.id, 0);
+    const item = selectedItem.value;
+    if (!item) {
+        showVariationsModal.value = false;
+        if (typeof done === "function") done();
+        return;
     }
-    // Close both the variations modal and menu after selection
+
+    // Close the variation modal first so the modifier modal can stack on top
+    // without backdrop interference.
     showVariationsModal.value = false;
+
+    if (itemHasApplicableModifierGroups(item, variation.id)) {
+        openModifierModal(item, variation.id, variation.variation || "", done);
+        return;
+    }
+
+    emit("add-to-cart", item.id, variation.id, 0, {});
     showMenu.value = false;
-    // Call done callback to clear loading state in modal
-    if (typeof done === 'function') {
+    if (typeof done === "function") {
         done();
+    }
+};
+
+const handleModifiersSave = (payload, done) => {
+    const item = modifierItem.value;
+    if (!item) {
+        showModifiersModal.value = false;
+        if (typeof done === "function") done();
+        return;
+    }
+
+    const vid = modifierVariationId.value ? Number(modifierVariationId.value) : 0;
+    emit(
+        "add-to-cart",
+        item.id,
+        vid,
+        0,
+        payload?.modifierOptionQuantities || {}
+    );
+
+    showModifiersModal.value = false;
+    showMenu.value = false;
+    if (typeof done === "function") done();
+    if (typeof pendingMenuItemDone.value === "function") {
+        pendingMenuItemDone.value();
+        pendingMenuItemDone.value = null;
+    }
+};
+
+const handleModifiersClose = () => {
+    showModifiersModal.value = false;
+    if (typeof pendingMenuItemDone.value === "function") {
+        pendingMenuItemDone.value();
+        pendingMenuItemDone.value = null;
     }
 };
 

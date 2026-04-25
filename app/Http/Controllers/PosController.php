@@ -97,15 +97,17 @@ class PosController extends Controller
 
         $itemIds = $menuItems->pluck('id')->all();
 
+        // Pull per-item rules (is_required / allow_multiple_selection) from item_modifiers
+        // so the Vue ItemModifiersModal can mirror legacy ItemModifiers.php validation.
         $itemModifierRows = ItemModifier::query()
             ->whereIn('menu_item_id', $itemIds)
-            ->select('menu_item_id', 'menu_item_variation_id', 'modifier_group_id')
+            ->select('menu_item_id', 'menu_item_variation_id', 'modifier_group_id', 'is_required', 'allow_multiple_selection')
             ->get();
 
         $modifierGroupIds = $itemModifierRows->pluck('modifier_group_id')->unique()->values()->all();
 
         $modifierGroupsById = ModifierGroup::query()
-            ->with(['options:id,modifier_group_id,name,price'])
+            ->with(['options:id,modifier_group_id,name,price,is_available,is_preselected,sort_order'])
             ->whereIn('id', $modifierGroupIds)
             ->get()
             ->mapWithKeys(function ($group) {
@@ -113,13 +115,19 @@ class PosController extends Controller
                     $group->id => [
                         'id' => (int) $group->id,
                         'name' => (string) $group->name,
-                        'options' => $group->options->map(function ($opt) {
-                            return [
-                                'id' => (int) $opt->id,
-                                'name' => (string) $opt->name,
-                                'price' => (float) ($opt->price ?? 0),
-                            ];
-                        })->values()->all(),
+                        'options' => $group->options
+                            ->sortBy([['sort_order', 'asc'], ['id', 'asc']])
+                            ->values()
+                            ->map(function ($opt) {
+                                return [
+                                    'id' => (int) $opt->id,
+                                    'name' => (string) $opt->name,
+                                    'price' => (float) ($opt->price ?? 0),
+                                    'is_available' => (bool) ($opt->is_available ?? true),
+                                    'is_preselected' => (bool) ($opt->is_preselected ?? false),
+                                    'sort_order' => (int) ($opt->sort_order ?? 0),
+                                ];
+                            })->values()->all(),
                     ],
                 ];
             });
@@ -134,16 +142,22 @@ class PosController extends Controller
                 continue;
             }
 
+            // Per-assignment rules live on item_modifiers, not modifier_groups
+            // (legacy: ItemModifiers->itemModifiers->first()->is_required etc.).
+            $groupForItem = $modifierGroupsById[$groupId];
+            $groupForItem['is_required'] = (bool) ($row->is_required ?? false);
+            $groupForItem['allow_multiple_selection'] = (bool) ($row->allow_multiple_selection ?? false);
+
             if ($row->menu_item_variation_id) {
                 $variationId = (int) $row->menu_item_variation_id;
                 $variationGroupsByItem[$itemId] ??= [];
                 $variationGroupsByItem[$itemId][$variationId] ??= [];
-                $variationGroupsByItem[$itemId][$variationId][] = $modifierGroupsById[$groupId];
+                $variationGroupsByItem[$itemId][$variationId][] = $groupForItem;
                 continue;
             }
 
             $baseGroupsByItem[$itemId] ??= [];
-            $baseGroupsByItem[$itemId][] = $modifierGroupsById[$groupId];
+            $baseGroupsByItem[$itemId][] = $groupForItem;
         }
 
         $menuItems = $menuItems->map(function ($item) use ($baseGroupsByItem, $variationGroupsByItem) {
