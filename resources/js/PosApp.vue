@@ -128,8 +128,6 @@ const {
     queueOperation,
     saveCart: saveCartToStorage,
     loadCart: loadCartFromStorage,
-    saveCustomer: saveCustomerToStorage,
-    loadCustomer: loadCustomerFromStorage,
     clearCustomer: clearCustomerFromStorage,
     syncPendingOperations,
     offlineApiCall,
@@ -1887,28 +1885,83 @@ const handleConfirmTableChange = async () => {
     showTableChangeConfirmationModal.value = false;
 };
 
-const handleSaveCustomer = async (customerData) => {
-    // Customer is already created/updated in AddCustomerModal.
-    // Here we only bind it to current POS state (legacy behavior).
-    customer.value = { ...customerData };
-    customerId.value = customerData?.id || null;
-    saveCustomerToStorage(customer.value);
-    showAddCustomerModal.value = false;
+const resolveActiveOrderId = () => {
+    const rawId = orderId.value || params.orderId || order.value || null;
+    const numericId = Number(rawId);
+    return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
 };
 
-const handleRemoveCustomer = () => {
+const applyCustomerState = (customerData) => {
+    const nextCustomer = normalizeCustomerPayload(customerData);
+    customer.value = nextCustomer;
+    customerId.value = nextCustomer?.id || null;
+    customerPhone.value = nextCustomer?.phone
+        ? `${nextCustomer.phone_code ? `+${nextCustomer.phone_code} ` : ""}${nextCustomer.phone}`
+        : "";
+    deliveryAddress.value = nextCustomer?.delivery_address || nextCustomer?.address || "";
+};
+
+const handleSaveCustomer = async (customerData) => {
+    // Customer is already created/updated in AddCustomerModal; for linked
+    // orders, immediately attach it to the order so no KOT/Bill click is needed.
+    const activeOrderId = resolveActiveOrderId();
+    const previousCustomer = { ...customer.value };
+    const previousCustomerId = customerId.value;
+    const previousPhone = customerPhone.value;
+    const previousAddress = deliveryAddress.value;
+
+    applyCustomerState(customerData);
+
+    try {
+        if (activeOrderId) {
+            await axios.post(`/api/pos/orders/${activeOrderId}/customer`, {
+                customer_id: customerData?.id || null,
+            });
+        }
+
+        clearCustomerFromStorage();
+        showAddCustomerModal.value = false;
+    } catch (error) {
+        customer.value = previousCustomer;
+        customerId.value = previousCustomerId;
+        customerPhone.value = previousPhone;
+        deliveryAddress.value = previousAddress;
+
+        const message = error?.response?.data?.message || "Failed to update customer on order.";
+        console.error("Error updating customer on order:", error);
+        showPosAlert("error", message);
+    }
+};
+
+const handleRemoveCustomer = async () => {
+    const previousCustomer = { ...customer.value };
+    const previousCustomerId = customerId.value;
+    const previousPhone = customerPhone.value;
+    const previousAddress = deliveryAddress.value;
+
     customer.value = getEmptyCustomer();
     customerId.value = null;
+    customerPhone.value = "";
+    deliveryAddress.value = "";
     clearCustomerFromStorage();
 
     // Sync removal to backend if editing an existing order
-    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    const activeOrderId = resolveActiveOrderId();
     if (activeOrderId) {
-        axios.post(`/api/pos/orders/${activeOrderId}/customer`, {
-            customer_id: null,
-        }).catch((error) => {
+        try {
+            await axios.post(`/api/pos/orders/${activeOrderId}/customer`, {
+                customer_id: null,
+            });
+        } catch (error) {
+            customer.value = previousCustomer;
+            customerId.value = previousCustomerId;
+            customerPhone.value = previousPhone;
+            deliveryAddress.value = previousAddress;
+
+            const message = error?.response?.data?.message || "Failed to remove customer from order.";
             console.error("Error removing customer from order:", error);
-        });
+            showPosAlert("error", message);
+        }
     }
 };
 
@@ -2638,15 +2691,10 @@ onMounted(async () => {
         console.log("Fresh POS session - cart starts empty");
     }
 
-    // Load customer from localStorage only for fresh orders.
-    // Editing an existing order should always use the order payload customer.
+    // Customer assignment is order-scoped. Fresh POS sessions always start with
+    // no customer so a linked-order assignment never leaks into the next order.
     if (!orderId.value && !initialOrderData.value) {
-        const savedCustomer = loadCustomerFromStorage();
-        if (savedCustomer) {
-            customer.value = savedCustomer;
-            customerId.value = savedCustomer.id || null;
-            console.log("Loaded customer from localStorage:", savedCustomer);
-        }
+        clearCustomerFromStorage();
     }
 
     // Load restaurant and menu data (synchronous, reads from bootstrap only)

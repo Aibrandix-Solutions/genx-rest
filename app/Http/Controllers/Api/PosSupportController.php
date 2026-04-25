@@ -480,7 +480,7 @@ class PosSupportController extends Controller
      */
     public function updateOrderCustomer(Request $request, int $id)
     {
-        abort_if(!in_array('Order', restaurant_modules()) || !user_can('Update Order'), 403);
+        abort_if(!in_array('Order', restaurant_modules()), 403);
 
         $validated = $request->validate([
             'customer_id' => ['nullable', 'integer', 'exists:customers,id'],
@@ -493,6 +493,10 @@ class PosSupportController extends Controller
             ->where('id', $id)
             ->where('branch_id', $branch->id)
             ->firstOrFail();
+
+        $isBilledOrPaid = in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true);
+        abort_if($isBilledOrPaid && !user_can('Edit Billed Order'), 403);
+        abort_if(!$isBilledOrPaid && !user_can('Update Order'), 403);
 
         // Do not allow removing the customer from an order that still carries
         // an outstanding "due" balance — only registered customers may have
