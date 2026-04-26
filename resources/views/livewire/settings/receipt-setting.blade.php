@@ -153,6 +153,19 @@
                                     <span class="font-medium text-gray-900 dark:text-white">@lang('modules.settings.showCurrencyPrefix')</span>
                                 </label>
                             </div>
+
+                            <div class="flex flex-col gap-1 p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div class="flex items-center">
+                                    <x-checkbox name="directPrintAfterPayment" id="directPrintAfterPayment" wire:model="directPrintAfterPayment" />
+                                    <label for="directPrintAfterPayment" class="ms-3 flex items-center">
+                                        <svg class="w-5 h-5 text-gray-500 dark:text-gray-400 me-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H8a2 2 0 00-2 2v4a2 2 0 002 2z" />
+                                        </svg>
+                                        <span class="font-medium text-gray-900 dark:text-white">@lang('modules.settings.directPrintAfterPayment')</span>
+                                    </label>
+                                </div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 ltr:pl-9 rtl:pr-9">@lang('modules.settings.directPrintAfterPaymentHelp')</p>
+                            </div>
                         </div>
                     </div>
 

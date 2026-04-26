@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\OrderStatus;
+use App\Events\KotUpdated;
 use App\Http\Controllers\Controller;
 use App\Models\ComboPack;
 use App\Models\Country;
@@ -11,7 +12,9 @@ use App\Models\DeliveryExecutive;
 use App\Models\DeliveryPlatform;
 use App\Models\Kot;
 use App\Models\KotCancelReason;
+use App\Models\KotItem;
 use App\Models\Order;
+use App\Models\OrderItem;
 use App\Models\OrderType;
 use App\Models\Reservation;
 use App\Models\RestaurantCharge;
@@ -248,6 +251,7 @@ class PosSupportController extends Controller
             'data' => [
                 'order_type_id' => (int) $orderType->id,
                 'set_as_default_order_type' => $setAsDefault,
+                'default_order_type_id' => (int) ($user?->default_order_type_id ?? restaurant()->default_order_type_id ?? 0),
                 'selected_delivery_app' => session()->get('pos.delivery_app_id'),
             ],
         ]);
@@ -518,6 +522,62 @@ class PosSupportController extends Controller
             'data' => [
                 'order_id' => (int) $order->id,
                 'customer_id' => $order->customer_id ? (int) $order->customer_id : null,
+            ],
+        ]);
+    }
+
+    public function updateOrderItemNote(Request $request, int $id)
+    {
+        abort_if(!in_array('Order', restaurant_modules()), 403);
+
+        $validated = $request->validate([
+            'note' => ['nullable', 'string'],
+            'kot_item_id' => ['nullable', 'integer'],
+            'order_item_id' => ['nullable', 'integer'],
+        ]);
+
+        abort_if(empty($validated['kot_item_id']) && empty($validated['order_item_id']), 422, 'Order item reference is required.');
+
+        $branch = branch();
+        abort_if(!$branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $isBilledOrPaid = in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true);
+        abort_if($isBilledOrPaid && !user_can('Edit Billed Order'), 403);
+        abort_if(!$isBilledOrPaid && !user_can('Update Order'), 403);
+
+        $note = trim((string) ($validated['note'] ?? ''));
+        $note = $note !== '' ? $note : null;
+
+        $kotItem = null;
+        if (!empty($validated['kot_item_id'])) {
+            $kotItem = KotItem::query()
+                ->where('id', (int) $validated['kot_item_id'])
+                ->whereHas('kot', fn ($query) => $query->where('order_id', $order->id))
+                ->firstOrFail();
+
+            $kotItem->update(['note' => $note]);
+            event(new KotUpdated($kotItem->kot));
+        }
+
+        if (!empty($validated['order_item_id'])) {
+            OrderItem::query()
+                ->where('id', (int) $validated['order_item_id'])
+                ->where('order_id', $order->id)
+                ->update(['note' => $note]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_id' => (int) $order->id,
+                'kot_item_id' => $kotItem ? (int) $kotItem->id : null,
+                'order_item_id' => !empty($validated['order_item_id']) ? (int) $validated['order_item_id'] : null,
+                'note' => $note,
             ],
         ]);
     }

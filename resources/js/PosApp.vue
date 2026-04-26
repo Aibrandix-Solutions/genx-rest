@@ -48,7 +48,8 @@
                 :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
                 :order-status="orderStatus" :delivery-platforms="deliveryPlatforms"
                 :selected-delivery-app="selectedDeliveryApp" :current-user="currentUser" :can-edit-waiter="canEditWaiter"
-                :set-as-default-order-type="setAsDefaultOrderType" :delivery-executives="deliveryExecutives"
+                :set-as-default-order-type="setAsDefaultOrderType" :default-order-type-id="defaultOrderTypeId"
+                :delivery-executives="deliveryExecutives"
                 :selected-delivery-executive="selectedDeliveryExecutive" :delivery-fee="deliveryFee"
                 :is-linked-order-mode="isLinkedOrderMode" :is-new-kot-mode="isNewKotMode"
                 :order-lifecycle-status="orderLifecycleStatus"
@@ -70,6 +71,7 @@
                 @update:deliveryFee="handleDeliveryFeeUpdate"
                 @update-quantity="handleUpdateQuantity" @update:selectedDeliveryApp="selectedDeliveryApp = $event"
                 @update:setAsDefaultOrderType="setAsDefaultOrderType = $event" @increase-quantity="handleIncreaseQuantity"
+                @update:defaultOrderTypeId="defaultOrderTypeId = $event"
                 @decrease-quantity="handleDecreaseQuantity" @remove-item="handleRemoveItem" @save-order="handleSaveOrder"
                 @open-payment="handleOpenPayment" @delete-order="handleDeleteOrder"
                 @new-kot="handleNewKot"
@@ -207,6 +209,7 @@ const debugInfo = computed(() => {
 const retryLoadBootstrap = () => {
     bootstrapData.value = getBootstrapData();
     if (bootstrapData.value) {
+        loadRestaurantData();
         loadMenuData();
     }
 };
@@ -225,7 +228,17 @@ const availableTaxes = ref([]);
 const orderTypes = ref([]);
 const deliveryPlatforms = ref([]);
 const restaurant = ref(null);
-const currencySymbol = ref("$");
+// Use bootstrap currency on first render — default `ref("$")` caused Subtotal/Total
+// to flash "$" for linked orders until `loadRestaurantData()` ran after `await loadOrderData()`.
+const currencySymbol = ref(
+    (() => {
+        const s = bootstrapData.value?.currency_symbol;
+        if (s != null && String(s).trim() !== "") {
+            return String(s);
+        }
+        return "$";
+    })()
+);
 const kotModuleEnabled = ref(true); // Gated by KOT module subscription
 const modifierOptions = ref({}); // Flat map: { [optionId]: { name, price } }
 
@@ -248,6 +261,7 @@ const order = ref(null);
 const orderTypeId = ref(null);
 const selectedDeliveryApp = ref("default");
 const setAsDefaultOrderType = ref(false);
+const defaultOrderTypeId = ref(null);
 const customerId = ref(null);
 const orderStatus = ref("");
 const deliveryExecutives = ref([]);
@@ -846,12 +860,39 @@ const handleSelectTable = (table) => {
     }
 };
 
-const handleAddNote = (noteData) => {
+const handleAddNote = async (noteData) => {
     // If noteData is an object with id and note, it's for a cart item
     if (noteData && typeof noteData === "object" && noteData.id) {
+        const activeOrderId = resolveActiveOrderId();
+        if (activeOrderId && (noteData.kot_item_id || noteData.order_item_id)) {
+            try {
+                await axios.post(`/api/pos/orders/${activeOrderId}/items/note`, {
+                    kot_item_id: noteData.kot_item_id || null,
+                    order_item_id: noteData.order_item_id || null,
+                    note: noteData.note || "",
+                });
+            } catch (error) {
+                const message = error?.response?.data?.message || "Failed to update item note.";
+                console.error("Error updating linked order item note:", error);
+                showPosAlert("error", message);
+                return;
+            }
+
+            try {
+                await loadOrderData(activeOrderId);
+            } catch (error) {
+                console.error("Note saved but failed to refresh order:", error);
+                showPosAlert(
+                    "warning",
+                    "Note saved but failed to refresh order. Try reopening the order if the screen looks stale."
+                );
+            }
+            return;
+        }
+
         // Find the cart item and update its note
         const cartItem = cartItems.value.find(
-            (item) => item.id === noteData.id
+            (item) => (item.line_key || item.id) === (noteData.line_key || noteData.id)
         );
         if (cartItem) {
             cartItem.note = noteData.note || "";
@@ -2375,10 +2416,11 @@ const loadMenuData = () => {
             const selectedApp = bootstrap.pos_preferences.selected_delivery_app;
             selectedDeliveryApp.value = selectedApp ? String(selectedApp) : "default";
 
-            const defaultOrderTypeId = Number(bootstrap.pos_preferences.default_order_type_id || 0);
-            if (!orderId.value && mode.value === "new" && defaultOrderTypeId > 0) {
+            const preferredOrderTypeId = Number(bootstrap.pos_preferences.default_order_type_id || 0);
+            defaultOrderTypeId.value = preferredOrderTypeId > 0 ? preferredOrderTypeId : null;
+            if (!orderId.value && mode.value === "new" && defaultOrderTypeId.value) {
                 const preferredType = orderTypes.value.find(
-                    (type) => Number(type.id) === defaultOrderTypeId
+                    (type) => Number(type.id) === defaultOrderTypeId.value
                 );
 
                 if (preferredType) {
@@ -2390,6 +2432,12 @@ const loadMenuData = () => {
                                 : "Delivery";
                 }
             }
+            const activeOrderType = orderTypes.value.find(
+                (type) => normalizeOrderTypeSlug(type.slug) === normalizeOrderTypeSlug(orderType.value)
+            );
+            setAsDefaultOrderType.value =
+                !!defaultOrderTypeId.value &&
+                Number(activeOrderType?.id || 0) === Number(defaultOrderTypeId.value);
         }
 
         if (Array.isArray(bootstrap.delivery_platforms) && bootstrap.delivery_platforms.length > 0) {
@@ -2517,6 +2565,9 @@ const applyOrderPayload = (payload, activeOrderId) => {
     selectedDeliveryApp.value = payload.delivery_app_id
         ? String(payload.delivery_app_id)
         : "default";
+    setAsDefaultOrderType.value =
+        !!defaultOrderTypeId.value &&
+        Number(payload.order_type_id || 0) === Number(defaultOrderTypeId.value);
     selectedDeliveryExecutive.value = payload.delivery_executive_id
         ? Number(payload.delivery_executive_id)
         : "";
@@ -2557,6 +2608,8 @@ const applyOrderPayload = (payload, activeOrderId) => {
                     line.order_item_id !== null
                     ? `order_item_${line.order_item_id}`
                     : `loaded_${line.menu_item_id}_${index}`,
+            order_item_id: line.order_item_id || null,
+            kot_item_id: line.kot_item_id || null,
             menu_item_id: Number(line.menu_item_id),
             name: line.item_name || "Unknown Item",
             price: resolvedUnitPrice,

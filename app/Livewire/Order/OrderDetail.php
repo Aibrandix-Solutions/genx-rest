@@ -147,6 +147,21 @@ class OrderDetail extends Component
         $this->showOrderDetail = true;
     }
 
+    /**
+     * Triggered from AddPayment when "direct print after payment" is enabled,
+     * reuses the same print path as the order detail Print button.
+     */
+    #[On('receiptPrintFromPayment')]
+    public function onReceiptPrintFromPayment(mixed $id = null): void
+    {
+        if (is_array($id)) {
+            $id = $id['id'] ?? $id['orderId'] ?? null;
+        }
+        if ($id) {
+            $this->printOrder((int) $id);
+        }
+    }
+
     #[On('setTable')]
     public function setTable(Table $table)
     {

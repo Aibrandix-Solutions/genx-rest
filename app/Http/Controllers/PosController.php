@@ -167,6 +167,9 @@ class PosController extends Controller
                     'menu_id' => (int) ($item->menu_id ?? 0),
                     'item_category_id' => (int) ($item->item_category_id ?? 0),
                     'item_name' => (string) $item->item_name,
+                    'item_code' => $item->item_code !== null && $item->item_code !== ''
+                        ? (string) $item->item_code
+                        : null,
                     'type' => (string) ($item->type ?? 'veg'),
                     'price' => (float) ($item->price ?? 0),
                     'item_photo_url' => (string) ($item->item_photo_url ?? ''),
@@ -277,7 +280,7 @@ class PosController extends Controller
         $payload['hide_menu_item_image_on_pos'] = (bool) (restaurant()->hide_menu_item_image_on_pos ?? false);
         $payload['allow_custom_order_extras'] = (bool) (restaurant()->allow_custom_order_extras ?? false);
         $payload['pos_preferences'] = [
-            'default_order_type_id' => (int) (restaurant()->default_order_type_id ?? 0),
+            'default_order_type_id' => (int) (auth()->user()?->default_order_type_id ?? restaurant()->default_order_type_id ?? 0),
             'selected_delivery_app' => null,
         ];
 

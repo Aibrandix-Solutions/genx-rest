@@ -139,7 +139,7 @@
         }
         .summary-row.secondary {
             font-size: 8pt;
-            color: #555;
+            color: #000;
             margin-bottom: 0.5mm;
         }
 
@@ -178,13 +178,19 @@
 
         .modifiers {
             font-size: 8pt;
-            color: #555;
+            color: #000;
         }
         .combo-component {
             font-size: 8pt;
-            color: #444;
+            color: #000;
             margin-top: 1px;
             padding-left: 6px;
+        }
+
+        /* Thermal printers: keep all receipt text black for contrast */
+        .receipt,
+        .receipt *:not(img):not(svg) {
+            color: #000 !important;
         }
 
         @media print {

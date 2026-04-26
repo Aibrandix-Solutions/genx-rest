@@ -24,7 +24,7 @@
         body {
             font-size: 12px;
             line-height: 1.4;
-            color: #333;
+            color: #000;
         }
 
         .receipt {
@@ -56,7 +56,7 @@
         .restaurant-info {
             font-size: 12px;
             margin-bottom: 3px;
-            color: #666;
+            color: #000;
         }
 
         .order-info {
@@ -68,7 +68,7 @@
 
         .order-info h3 {
             margin-bottom: 10px;
-            color: #333;
+            color: #000;
             border-bottom: 1px solid #ddd;
             padding-bottom: 5px;
         }
@@ -86,7 +86,7 @@
 
         .info-label {
             font-weight: bold;
-            color: #555;
+            color: #000;
         }
 
         .items-table {
@@ -131,12 +131,12 @@
 
         .modifiers {
             font-size: 10px;
-            color: #666;
+            color: #000;
             margin-top: 3px;
         }
         .combo-component {
             font-size: 10px;
-            color: #555;
+            color: #000;
             margin-top: 2px;
             padding-left: 8px;
         }
@@ -157,7 +157,7 @@
 
         .summary-row.secondary {
             font-size: 10px;
-            color: #666;
+            color: #000;
             margin-bottom: 3px;
             padding-left: 20px;
         }
@@ -176,7 +176,7 @@
             padding-top: 15px;
             border-top: 1px solid #ddd;
             font-size: 11px;
-            color: #666;
+            color: #000;
         }
 
         .qr_code {
@@ -197,7 +197,12 @@
 
         .payment-details h4 {
             margin-bottom: 10px;
-            color: #333;
+            color: #000;
+        }
+
+        .receipt,
+        .receipt *:not(img):not(svg) {
+            color: #000 !important;
         }
 
         @media print {

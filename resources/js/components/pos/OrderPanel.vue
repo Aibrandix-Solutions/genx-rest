@@ -9,6 +9,10 @@
                     <span class="text-sm font-semibold text-gray-900 dark:text-white">
                         {{ orderType }}
                     </span>
+                    <span v-if="selectedOrderTypeIsDefault"
+                        class="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                        Default
+                    </span>
                 </div>
                 <button type="button" @click="canChangeOrderType && (showOrderTypeDropdown = !showOrderTypeDropdown)"
                     :disabled="!canChangeOrderType"
@@ -264,8 +268,9 @@
                             </path>
                         </svg>
                         <span class="text-sm text-gray-600 dark:text-gray-300">Waiter:</span>
-                        <select v-if="showWaiterSelect" v-model="localWaiterId"
-                            @change="$emit('update:waiterId', localWaiterId)"
+                        <select v-if="showWaiterSelect"
+                            :value="localWaiterId === null || localWaiterId === undefined ? '' : localWaiterId"
+                            @change="(e) => { localWaiterId = e.target.value; $emit('update:waiterId', localWaiterId); }"
                             class="w-36 px-2 py-1 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 text-sm focus:outline-none focus:ring-1 focus:ring-gray-500 dark:focus:ring-gray-400 focus:border-transparent cursor-pointer">
                             <option value="">Select Waiter</option>
                             <option v-for="waiter in availableWaiters" :key="waiter.id" :value="waiter.id">
@@ -528,7 +533,7 @@
                                                             Update
                                                         </span>
                                                     </button>
-                                                    <button @click="() => { $emit('add-note', { id: item.id, note: '' }); item._showNotePreview = false; }"
+                                                    <button @click="() => { $emit('add-note', notePayloadFor(item, '')); item._showNotePreview = false; }"
                                                         class="text-xs px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-700 dark:hover:bg-red-600 text-red-500 dark:text-red-300 rounded transition-colors duration-200"
                                                         title="Delete">
                                                         <span class="flex items-center gap-x-1">
@@ -555,10 +560,10 @@
                                                 <input type="text" v-model="item._activeNote"
                                                     class="w-64 md:w-80 p-2 border-none text-base focus:outline-none focus:ring-2 focus:ring-skin-base dark:bg-gray-700 dark:text-white dark:placeholder:text-gray-400"
                                                     placeholder="Special Instructions? (e.g., no onions, extra spicy)"
-                                                    @keydown.enter="() => { $emit('add-note', { id: item.id, note: item._activeNote, }); item._showNoteInput = false; }"
+                                                    @keydown.enter="() => { const t = String(item._activeNote || '').trim(); if (t) { $emit('add-note', notePayloadFor(item, t)); } item._showNoteInput = false; }"
                                                     @keydown.escape="item._showNoteInput = false" autofocus :ref="(el) => { if (el && item._showNoteInput) el.focus(); }" />
                                                 <div class="flex items-center gap-1 pr-2">
-                                                    <button @click.stop="() => { if (item._activeNote && item._activeNote.trim()) { $emit('add-note', { id: item.id, note: item._activeNote.trim(), }); } item._showNoteInput = false; }"
+                                                    <button @click.stop="() => { if (item._activeNote && item._activeNote.trim()) { $emit('add-note', notePayloadFor(item, item._activeNote.trim())); } item._showNoteInput = false; }"
                                                         class="p-1.5 text-white rounded-md bg-skin-base hover:bg-skin-base/90 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-skin-base focus:ring-offset-2"
                                                         title="Save" type="button">
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none"
@@ -788,10 +793,10 @@
                                             <input type="text" v-model="group.item._activeNote"
                                                 class="w-64 md:w-80 p-2 border-none text-base focus:outline-none focus:ring-2 focus:ring-skin-base dark:bg-gray-700 dark:text-white"
                                                 placeholder="Special Instructions?"
-                                                @keydown.enter="() => { $emit('add-note', { id: group.item.id, note: group.item._activeNote }); group.item._showNoteInput = false; }"
+                                                @keydown.enter="() => { const t = String(group.item._activeNote || '').trim(); if (t) { $emit('add-note', notePayloadFor(group.item, t)); } group.item._showNoteInput = false; }"
                                                 @keydown.escape="group.item._showNoteInput = false" autofocus />
                                             <div class="flex items-center gap-1 pr-2">
-                                                <button @click.stop="() => { if (group.item._activeNote?.trim()) { $emit('add-note', { id: group.item.id, note: group.item._activeNote.trim() }); } group.item._showNoteInput = false; }"
+                                                <button @click.stop="() => { if (group.item._activeNote?.trim()) { $emit('add-note', notePayloadFor(group.item, group.item._activeNote.trim())); } group.item._showNoteInput = false; }"
                                                     class="p-1.5 text-white rounded-md bg-skin-base hover:bg-skin-base/90" title="Save" type="button">
                                                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 13 4 4L19 7" />
@@ -1258,7 +1263,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted, reactive } from "vue";
 import axios from "axios";
 import DiscountModal from "./DiscountModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
@@ -1365,6 +1370,10 @@ const props = defineProps({
     setAsDefaultOrderType: {
         type: Boolean,
         default: false,
+    },
+    defaultOrderTypeId: {
+        type: [Number, String],
+        default: null,
     },
     orderStatus: {
         type: String,
@@ -1492,6 +1501,7 @@ const emit = defineEmits([
     "apply-discount",
     "update:selectedDeliveryApp",
     "update:setAsDefaultOrderType",
+    "update:defaultOrderTypeId",
     "update:orderStatus",
     "request-cancel-order",
     "update:selectedDeliveryExecutive",
@@ -1576,6 +1586,20 @@ const selectedOrderTypeSlug = computed(() => {
     return selectedType
         ? normalizeOrderTypeSlug(selectedType.slug)
         : normalizeOrderTypeSlug(props.orderType);
+});
+
+const selectedOrderTypeIsDefault = computed(() => {
+    const selectedId = Number(localOrderTypeId.value || 0);
+    const defaultId = Number(props.defaultOrderTypeId || 0);
+    return selectedId > 0 && defaultId > 0 && selectedId === defaultId;
+});
+
+const notePayloadFor = (item, note) => ({
+    id: item?.id,
+    line_key: item?.line_key || item?.id,
+    kot_item_id: item?.kot_item_id || null,
+    order_item_id: item?.order_item_id || null,
+    note: String(note || ""),
 });
 
 const isCurrentUserWaiter = computed(() => {
@@ -1944,6 +1968,14 @@ const formatLinkedKotTimestamp = (value) => {
     return date.toLocaleString();
 };
 
+// Persistent reactive cache for linked-KOT line UI state (e.g. _showNoteInput,
+// _activeNote, _showNotePreview). Without this, `linkedKotGroups` would return
+// fresh plain objects on every recompute and per-row mutations like
+// `item._showNoteInput = true` would not be reactive (the inline note input
+// would never appear), since plain objects returned from a computed are not
+// auto-reactified by Vue. Keyed by the stable per-row `_linkedKey`.
+const linkedLineReactiveCache = new Map();
+
 const linkedKotGroups = computed(() => {
     const cartQueues = new Map();
     const cartSource = Array.isArray(props.cartItems) ? props.cartItems : [];
@@ -1958,6 +1990,7 @@ const linkedKotGroups = computed(() => {
     });
 
     const sourceGroups = Array.isArray(props.kotGroups) ? props.kotGroups : [];
+    const seenLinkedKeys = new Set();
 
     return sourceGroups.map((group, groupIndex) => {
         const lines = Array.isArray(group?.lines) ? group.lines : [];
@@ -1993,7 +2026,7 @@ const linkedKotGroups = computed(() => {
                 line.variation_name || "",
             ].filter(Boolean).join(" — ");
 
-            return {
+            const nextData = {
                 ...line,
                 id: matchedItem?.id || line.kot_item_id || line.order_item_id || resolvedKey,
                 line_key: resolvedKey,
@@ -2016,6 +2049,25 @@ const linkedKotGroups = computed(() => {
                 _isCombo: !!packId,
                 _comboGroupKey: comboGroupKey,
             };
+
+            seenLinkedKeys.add(resolvedKey);
+            const cached = linkedLineReactiveCache.get(resolvedKey);
+            if (cached) {
+                // Merge fresh server data into the existing reactive object so
+                // ephemeral UI flags (_showNoteInput, _activeNote, _showNotePreview)
+                // survive recomputes when cartItems / kotGroups update.
+                Object.assign(cached, nextData);
+                return cached;
+            }
+
+            const r = reactive({
+                ...nextData,
+                _showNoteInput: false,
+                _activeNote: "",
+                _showNotePreview: false,
+            });
+            linkedLineReactiveCache.set(resolvedKey, r);
+            return r;
         });
 
         // Legacy parity: emit a combo group header just before the first combo
@@ -2063,6 +2115,18 @@ const linkedKotGroups = computed(() => {
         };
     });
 });
+
+// Drop reactive line entries whose backing KOT row no longer exists, so the
+// cache does not grow unbounded when KOT items are deleted server-side.
+watch(linkedKotGroups, (groups) => {
+    const liveKeys = new Set();
+    (groups || []).forEach((g) => (g.lines || []).forEach((l) => liveKeys.add(l._linkedKey)));
+    for (const key of linkedLineReactiveCache.keys()) {
+        if (!liveKeys.has(key)) {
+            linkedLineReactiveCache.delete(key);
+        }
+    }
+}, { flush: "post" });
 
 const availableWaiters = computed(() => {
     const source = Array.isArray(props.waiters) && props.waiters.length > 0
@@ -2157,7 +2221,7 @@ const persistOrderPreferences = async () => {
 
     savingOrderPreferences.value = true;
     try {
-        await axios.post("/api/pos/order-preferences", {
+        const response = await axios.post("/api/pos/order-preferences", {
             order_type_id: selectedId,
             set_as_default_order_type: !!localSetAsDefaultOrderType.value,
             selected_delivery_app:
@@ -2165,6 +2229,7 @@ const persistOrderPreferences = async () => {
                     ? localSelectedDeliveryApp.value || "default"
                     : null,
         });
+        emit("update:defaultOrderTypeId", Number(response.data?.data?.default_order_type_id || 0) || null);
     } catch (error) {
         console.error("Error saving POS order preferences:", error);
     } finally {
@@ -2529,6 +2594,9 @@ const handleOrderTypeChange = () => {
     if (normalizeOrderTypeSlug(selectedType.slug) !== "delivery") {
         localSelectedDeliveryApp.value = "default";
     }
+
+    localSetAsDefaultOrderType.value =
+        Number(props.defaultOrderTypeId || 0) === selectedId;
 
     emit("update:orderType", slugToDisplayType(selectedType.slug));
     emit("update:selectedDeliveryApp", localSelectedDeliveryApp.value);

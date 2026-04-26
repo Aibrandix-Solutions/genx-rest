@@ -36,6 +36,7 @@
                                     </svg>
                                 </div>
                                 <input type="text" id="products-search" v-model="localSearch" @input="handleSearch"
+                                    @keydown.enter.prevent="handleSearchEnter"
                                     class="border-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300 focus:border-gray-500 dark:focus:border-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 rounded-md shadow-sm block w-full pl-10 pr-3 py-2 border-gray-200 rounded-lg text-sm"
                                     placeholder="Search your menu item here" />
                             </div>
@@ -61,16 +62,25 @@
                     class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap">
                     <button @click="handleMenuFilter(null)" :class="[
                         'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
-                        localMenuId === null
+                        localMenuId === null && !localComboOnly
                             ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
                             : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
                     ]">
                         Show All
                     </button>
 
+                    <button v-if="comboPacks.length > 0" @click="handleComboFilter" :class="[
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
+                        localComboOnly
+                            ? 'bg-blue-600 text-white dark:bg-blue-500 dark:text-white'
+                            : 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/50',
+                    ]">
+                        Combo Packs
+                    </button>
+
                     <button v-for="menu in menus" :key="menu.id" @click="handleMenuFilter(menu.id)" :class="[
                         'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
-                        localMenuId === menu.id
+                        localMenuId === menu.id && !localComboOnly
                             ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
                             : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
                     ]">
@@ -83,7 +93,7 @@
                     class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap">
                     <button @click="handleCategoryFilter(null)" :class="[
                         'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
-                        localCategoryId === null
+                        localCategoryId === null && !localComboOnly
                             ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
                             : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
                     ]">
@@ -93,7 +103,7 @@
                     <button v-for="category in categories" :key="category.id" @click="handleCategoryFilter(category.id)"
                         :class="[
                             'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
-                            localCategoryId === category.id
+                            localCategoryId === category.id && !localComboOnly
                                 ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
                                 : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
                         ]">
@@ -106,7 +116,7 @@
                 </div>
 
                 <!-- Menu Items Grid -->
-                <div class="mt-4">
+                <div v-if="!localComboOnly" class="mt-4">
                     <ul class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-8 gap-3">
                         <MenuItem v-for="item in filteredItems" :key="item.id" :item="item"
                             :currency-symbol="currencySymbol" @add-to-cart="handleAddToCart"
@@ -118,7 +128,7 @@
                 </div>
 
                 <!-- Combo packs (parity with legacy pos/menu.blade.php) -->
-                <div v-if="filteredComboPacks.length > 0" class="mt-8">
+                <div v-if="filteredComboPacks.length > 0" :class="localComboOnly ? 'mt-4' : 'mt-8'">
                     <h3 class="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
                         Combo packs
                     </h3>
@@ -251,6 +261,7 @@ const emit = defineEmits([
 const localSearch = ref(props.search);
 const localMenuId = ref(props.menuId);
 const localCategoryId = ref(props.filterCategories);
+const localComboOnly = ref(false);
 
 // Mobile menu state
 const showMenu = ref(false);
@@ -296,14 +307,17 @@ watch(
 const filteredItems = computed(() => {
     let filtered = [...props.items];
 
-    // Filter by search
+    // Filter by search (matches name and item_code; legacy parity)
     if (localSearch.value) {
         const searchLower = localSearch.value.toLowerCase();
-        filtered = filtered.filter((item) =>
-            (item.name || item.item_name || "")
-                .toLowerCase()
-                .includes(searchLower)
-        );
+        filtered = filtered.filter((item) => {
+            const name = (item.name || item.item_name || "").toLowerCase();
+            const code = (item.item_code || "").toLowerCase();
+            return (
+                name.includes(searchLower) ||
+                (code.length > 0 && code.includes(searchLower))
+            );
+        });
     }
 
     // Filter by menu
@@ -376,22 +390,93 @@ const comboPackDiscountCaption = (combo) => {
 
 const handleAddCombo = (comboId) => {
     emit("add-combo-to-cart", comboId);
-    showMenu.value = false;
+    closeMenuAfterAdd();
+};
+
+// Find a menu item whose item_code exactly matches the given query (trimmed,
+// case-insensitive). Returns null when there is no exact match.
+const findItemByExactCode = (rawQuery) => {
+    const q = String(rawQuery || "").trim().toLowerCase();
+    if (!q) return null;
+    const items = Array.isArray(props.items) ? props.items : [];
+    for (const it of items) {
+        const code = String(it?.item_code || "").trim().toLowerCase();
+        if (code && code === q) {
+            return it;
+        }
+    }
+    return null;
+};
+
+let itemCodeAutoAddTimer = null;
+
+const triggerItemCodeAutoAdd = (item) => {
+    if (!item) return false;
+    handleAddToCart(item.id, 0, 0, null);
+    localSearch.value = "";
+    emit("update:search", "");
+    return true;
 };
 
 const handleSearch = () => {
     emit("update:search", localSearch.value);
+
+    if (itemCodeAutoAddTimer) {
+        clearTimeout(itemCodeAutoAddTimer);
+        itemCodeAutoAddTimer = null;
+    }
+
+    // Debounced auto-add for barcode scanners / quick code entry. We only
+    // fire when the trimmed query exactly matches a menu item's item_code so
+    // partial typing of common substrings never adds items by accident.
+    const queued = localSearch.value;
+    itemCodeAutoAddTimer = setTimeout(() => {
+        itemCodeAutoAddTimer = null;
+        if (queued !== localSearch.value) return;
+        const match = findItemByExactCode(queued);
+        if (match) {
+            triggerItemCodeAutoAdd(match);
+        }
+    }, 300);
+};
+
+const handleSearchEnter = () => {
+    if (itemCodeAutoAddTimer) {
+        clearTimeout(itemCodeAutoAddTimer);
+        itemCodeAutoAddTimer = null;
+    }
+    const match = findItemByExactCode(localSearch.value);
+    if (match) {
+        triggerItemCodeAutoAdd(match);
+    }
 };
 
 const handleMenuFilter = (menuId) => {
+    localComboOnly.value = false;
     localMenuId.value = menuId;
     emit("update:menuId", menuId);
 };
 
 const handleCategoryFilter = (categoryId) => {
+    localComboOnly.value = false;
     localCategoryId.value = categoryId;
 
     emit("update:filterCategories", categoryId);
+};
+
+const handleComboFilter = () => {
+    localComboOnly.value = true;
+    localMenuId.value = null;
+    localCategoryId.value = null;
+    emit("update:menuId", null);
+    emit("update:filterCategories", null);
+};
+
+const closeMenuAfterAdd = () => {
+    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
+    if (!isMobile) {
+        showMenu.value = false;
+    }
 };
 
 /**
@@ -448,7 +533,7 @@ const handleAddToCart = (itemId, variantId, modifierId, done) => {
     }
 
     emit("add-to-cart", itemId, numericVariantId, numericModifierId, {});
-    showMenu.value = false;
+    closeMenuAfterAdd();
     if (typeof done === "function") {
         done();
     }
@@ -482,7 +567,7 @@ const handleSelectVariationWithCallback = (variation, done) => {
     }
 
     emit("add-to-cart", item.id, variation.id, 0, {});
-    showMenu.value = false;
+    closeMenuAfterAdd();
     if (typeof done === "function") {
         done();
     }
@@ -506,7 +591,7 @@ const handleModifiersSave = (payload, done) => {
     );
 
     showModifiersModal.value = false;
-    showMenu.value = false;
+    closeMenuAfterAdd();
     if (typeof done === "function") done();
     if (typeof pendingMenuItemDone.value === "function") {
         pendingMenuItemDone.value();
@@ -526,6 +611,7 @@ const handleReset = () => {
     localSearch.value = "";
     localMenuId.value = null;
     localCategoryId.value = null;
+    localComboOnly.value = false;
     emit("reset");
     emit("update:search", "");
     emit("update:menuId", null);

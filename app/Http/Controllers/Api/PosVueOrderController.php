@@ -100,10 +100,15 @@ class PosVueOrderController extends Controller
                 ->implode('|');
         };
         $lineMatchKeyForRow = static function ($row) use ($modifierSignatureForRow): string {
+            $qty = (int) ($row->quantity ?? $row->qty ?? 0);
+            $notePart = preg_replace('/\s+/', ' ', trim((string) ($row->note ?? '')));
+
             return (int) ($row->combo_pack_id ?? 0)
                 . ':' . (int) $row->menu_item_id
                 . ':' . (int) ($row->menu_item_variation_id ?? 0)
-                . ':' . $modifierSignatureForRow($row);
+                . ':' . $modifierSignatureForRow($row)
+                . ':' . $qty
+                . ':' . $notePart;
         };
         $packIdsForSlots = $orderItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
         $slotCountByPackId = self::comboPackSlotCounts($packIdsForSlots);
@@ -241,6 +246,7 @@ class PosVueOrderController extends Controller
 
                 return [
                     'kot_item_id' => (int) $item->id,
+                    'order_item_id' => $matchedOrderItem ? (int) $matchedOrderItem->id : null,
                     'menu_item_id' => (int) $item->menu_item_id,
                     'item_name' => (string) ($item->menuItem?->item_name ?? ''),
                     'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
@@ -404,15 +410,29 @@ class PosVueOrderController extends Controller
                 ->where('branch_id', $branch->id)
                 ->firstOrFail();
 
-            $kotAfterBilled = ($action === 'kot' || $appendKot)
-                && in_array((string) $orderForPermission->status, ['billed', 'paid', 'payment_due'], true);
+            $billedLifecycle = ['billed', 'paid', 'payment_due'];
+            $currentStatus = (string) $orderForPermission->status;
 
-            abort_if($kotAfterBilled && !user_can('Edit Billed Order'), 403);
-            abort_if(!$kotAfterBilled && !user_can('Update Order'), 403);
+            // Resulting `status` after this request must mirror the update payload in the
+            // transaction (see ~530–539): full replace always applies $status; append mode
+            // only changes status on `bill:`, otherwise the row keeps its current status.
+            if ($appendKot) {
+                $targetStatus = $action === 'bill'
+                    ? 'billed'
+                    : $currentStatus;
+            } else {
+                $targetStatus = $status;
+            }
+
+            $isTransitioningOnBilled = in_array($currentStatus, $billedLifecycle, true)
+                && in_array($targetStatus, $billedLifecycle, true);
+
+            abort_if($isTransitioningOnBilled && !user_can('Edit Billed Order'), 403);
+            abort_if(!$isTransitioningOnBilled && !user_can('Update Order'), 403);
         } else {
             abort_if(!user_can('Create Order'), 403);
         }
-
+        
         $orderType = null;
         if (!empty($validated['order_type_id'])) {
             $orderType = OrderType::query()->find($validated['order_type_id']);

@@ -796,6 +796,8 @@ return [
         'restaurantLogo' => 'Show Restaurant Logo',
         'restaurantTax' => 'Show Restaurant Tax',
         'showCurrencyPrefix' => 'Show Currency Prefix (Rs, $, etc.)',
+        'directPrintAfterPayment' => 'Print receipt immediately after full payment',
+        'directPrintAfterPaymentHelp' => 'When enabled, completing payment opens the bill print (same as the Print button) instead of opening the order side panel. Only applies when the order is fully paid.',
         'noTaxFound' => 'No Tax Found',
         'selectEnvironment' => 'Select Environment',
         'enablePushNotification' => 'Enable Push Notifications',
