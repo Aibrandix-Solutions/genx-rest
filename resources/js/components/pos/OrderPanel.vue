@@ -352,9 +352,9 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div class="flex flex-col rounded overflow-visible">
+        <div class="flex flex-col rounded overflow-visible max-h-[calc(2*4.5rem+3rem)] overflow-y-auto" style="max-height: 180px;">
             <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
-                <thead class="bg-gray-100 dark:bg-gray-700">
+                <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
                     <tr>
                         <th scope="col"
                             class="p-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 rtl:text-right ltr:text-left">

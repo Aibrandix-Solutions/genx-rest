@@ -393,28 +393,99 @@ const handleAddCombo = (comboId) => {
     closeMenuAfterAdd();
 };
 
-// Find a menu item whose item_code exactly matches the given query (trimmed,
-// case-insensitive). Returns null when there is no exact match.
-const findItemByExactCode = (rawQuery) => {
+/**
+ * Find a unique menu item matching the query by code or name.
+ *
+ * Match priority (first hit wins):
+ *   1. Exact item_code match           (e.g. "IT00142" === "IT00142")
+ *   2. Numeric-suffix code match       (e.g. "142" matches "IT00142")
+ *   3. Partial code contains           (e.g. "001" matches "IT00142")
+ *   4. Exact name match                (e.g. "chicken burger" === "chicken burger")
+ *   5. Unique partial name match       (only if exactly one item's name contains the query)
+ *
+ * Returns null when there is no unique match (0 matches, or >1 ambiguous matches).
+ */
+const findUniqueMatch = (rawQuery) => {
     const q = String(rawQuery || "").trim().toLowerCase();
     if (!q) return null;
     const items = Array.isArray(props.items) ? props.items : [];
+
+    // 1. Exact item_code match (highest priority — instant, unambiguous)
     for (const it of items) {
         const code = String(it?.item_code || "").trim().toLowerCase();
-        if (code && code === q) {
-            return it;
-        }
+        if (code && code === q) return it;
     }
+
+    // 2. Numeric-suffix code match: strip leading non-digit prefix from the
+    //    item_code and compare with the query when the query is purely digits.
+    //    E.g. query "142" matches code "IT00142" because the numeric tail "00142"
+    //    ends with "142".
+    const isNumericQuery = /^\d+$/.test(q);
+    if (isNumericQuery) {
+        const suffixMatches = [];
+        for (const it of items) {
+            const code = String(it?.item_code || "").trim().toLowerCase();
+            if (!code) continue;
+            // Extract trailing digits from the code
+            const numericTail = code.replace(/^[^0-9]*/, ""); // e.g. "IT00142" → "00142"
+            if (numericTail && (numericTail === q || numericTail.endsWith(q))) {
+                suffixMatches.push(it);
+            }
+        }
+        if (suffixMatches.length === 1) return suffixMatches[0];
+    }
+
+    // 3. Partial code contains (for non-numeric or when suffix gave >1 results)
+    const codeContains = [];
+    for (const it of items) {
+        const code = String(it?.item_code || "").trim().toLowerCase();
+        if (code && code.includes(q)) codeContains.push(it);
+    }
+    if (codeContains.length === 1) return codeContains[0];
+
+    // 4. Exact name match
+    for (const it of items) {
+        const name = (it.name || it.item_name || "").toLowerCase();
+        if (name && name === q) return it;
+    }
+
+    // 5. Unique partial name match (only when exactly one item matches)
+    const nameContains = [];
+    for (const it of items) {
+        const name = (it.name || it.item_name || "").toLowerCase();
+        if (name && name.includes(q)) nameContains.push(it);
+    }
+    if (nameContains.length === 1) return nameContains[0];
+
     return null;
 };
 
 let itemCodeAutoAddTimer = null;
 
-const triggerItemCodeAutoAdd = (item) => {
+/**
+ * Auto-add a matched item to the cart, properly routing through the
+ * variation and modifier flows when applicable.
+ */
+const triggerItemAutoAdd = (item) => {
     if (!item) return false;
-    handleAddToCart(item.id, 0, 0, null);
+
+    // Clear search immediately so the UI resets
     localSearch.value = "";
     emit("update:search", "");
+
+    const hasVariations = (item.variations_count || 0) > 0;
+
+    if (hasVariations) {
+        // Item has variations — open the variation picker modal instead of
+        // adding directly (the user must choose a variant first).
+        handleShowVariations(item);
+        return true;
+    }
+
+    // Route through handleAddToCart which already gates on modifiers:
+    // if the item has modifier groups it will open the modifier modal,
+    // otherwise it emits add-to-cart directly.
+    handleAddToCart(item.id, 0, 0, null);
     return true;
 };
 
@@ -426,18 +497,19 @@ const handleSearch = () => {
         itemCodeAutoAddTimer = null;
     }
 
-    // Debounced auto-add for barcode scanners / quick code entry. We only
-    // fire when the trimmed query exactly matches a menu item's item_code so
-    // partial typing of common substrings never adds items by accident.
+    // Debounced auto-add: fires when the trimmed query uniquely matches a
+    // single menu item by code (exact or partial) or by name. The match must
+    // be unambiguous (exactly one result) to avoid accidental additions while
+    // the user is still typing.
     const queued = localSearch.value;
     itemCodeAutoAddTimer = setTimeout(() => {
         itemCodeAutoAddTimer = null;
         if (queued !== localSearch.value) return;
-        const match = findItemByExactCode(queued);
+        const match = findUniqueMatch(queued);
         if (match) {
-            triggerItemCodeAutoAdd(match);
+            triggerItemAutoAdd(match);
         }
-    }, 300);
+    }, 400);
 };
 
 const handleSearchEnter = () => {
@@ -445,9 +517,9 @@ const handleSearchEnter = () => {
         clearTimeout(itemCodeAutoAddTimer);
         itemCodeAutoAddTimer = null;
     }
-    const match = findItemByExactCode(localSearch.value);
+    const match = findUniqueMatch(localSearch.value);
     if (match) {
-        triggerItemCodeAutoAdd(match);
+        triggerItemAutoAdd(match);
     }
 };
 
