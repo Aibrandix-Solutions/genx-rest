@@ -168,18 +168,42 @@ const mode = ref(params.mode);
 const showOrderDetailMode = ref(!!params.showOrderDetail);
 
 const getBootstrapData = () => {
+    const scriptEl = document.getElementById("pos-app-bootstrap");
+    if (scriptEl?.textContent) {
+        const raw = String(scriptEl.textContent).trim();
+        if (raw) {
+            try {
+                return JSON.parse(raw);
+            } catch (error) {
+                console.error("Failed to parse #pos-app-bootstrap JSON:", error);
+            }
+        }
+    }
     const mountEl = document.getElementById("pos-app");
     if (!mountEl) {
         return null;
     }
-
     try {
-        const raw = mountEl.getAttribute("data-bootstrap");
-        return raw ? JSON.parse(raw) : null;
+        const attr = mountEl.getAttribute("data-bootstrap");
+        return attr ? JSON.parse(attr) : null;
     } catch (error) {
-        console.error("Failed to parse POS bootstrap payload:", error);
+        console.error("Failed to parse POS data-bootstrap attribute:", error);
         return null;
     }
+};
+
+const loadBootstrapFromAjax = async () => {
+    try {
+        const { data } = await axios.get("/ajax/pos/bootstrap", {
+            headers: { Accept: "application/json" },
+        });
+        if (data && typeof data === "object" && !Array.isArray(data)) {
+            return data;
+        }
+    } catch (error) {
+        console.error("Failed to load POS bootstrap from /ajax/pos/bootstrap:", error);
+    }
+    return null;
 };
 
 const bootstrapData = ref(getBootstrapData());
@@ -206,8 +230,11 @@ const debugInfo = computed(() => {
     }, null, 2);
 });
 
-const retryLoadBootstrap = () => {
+const retryLoadBootstrap = async () => {
     bootstrapData.value = getBootstrapData();
+    if (!bootstrapData.value) {
+        bootstrapData.value = await loadBootstrapFromAjax();
+    }
     if (bootstrapData.value) {
         loadRestaurantData();
         loadMenuData();
@@ -2702,6 +2729,13 @@ const applySelectedTable = async (tableCode, tableId, targetActiveOrderId = null
 
 // Load initial data
 onMounted(async () => {
+    if (!bootstrapData.value) {
+        const remote = await loadBootstrapFromAjax();
+        if (remote) {
+            bootstrapData.value = remote;
+        }
+    }
+
     const defaultOrderType =
         mode.value === "delivery"
             ? "Delivery"
