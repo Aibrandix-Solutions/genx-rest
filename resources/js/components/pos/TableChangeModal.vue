@@ -6,7 +6,7 @@
 
         <!-- Modal Content -->
         <div
-            class="mb-6 bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-xl transform transition-all sm:w-full sm:max-w-md sm:max-h-2xl sm:mx-auto overflow-y-auto">
+            class="mb-6 bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-xl transform transition-all sm:w-full sm:max-w-md sm:max-h-screen sm:mx-auto overflow-y-auto">
             <div class="px-6 py-4">
                 <div class="text-lg font-medium text-gray-900 dark:text-gray-100">
                     <div class="flex items-center gap-2">

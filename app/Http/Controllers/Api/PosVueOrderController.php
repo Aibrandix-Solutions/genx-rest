@@ -4,35 +4,36 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\BranchPaymentAccountSetting;
+use App\Models\ComboPack;
+use App\Models\DeliveryPlatform;
 use App\Models\Kot;
 use App\Models\KotItem;
 use App\Models\KotPlace;
-use App\Models\ComboPack;
-use App\Models\DeliveryPlatform;
 use App\Models\MenuItem;
 use App\Models\MenuItemVariation;
 use App\Models\ModifierOption;
 use App\Models\Order;
 use App\Models\OrderExtra;
 use App\Models\OrderItem;
-use App\Models\OrderType;
 use App\Models\OrderTax;
+use App\Models\OrderType;
 use App\Models\Table;
 use App\Models\TableSession;
 use App\Models\Tax;
 use App\Services\Pos\BillSecondaryActionResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
 class PosVueOrderController extends Controller
 {
     public function show(int $id)
     {
-        abort_if(!in_array('Order', restaurant_modules()) || !user_can('View Order'), 403);
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('View Order'), 403);
 
         $branch = branch();
-        abort_if(!$branch, 422, 'Branch context is required');
+        abort_if(! $branch, 422, 'Branch context is required');
 
         $order = Order::query()
             ->with([
@@ -95,7 +96,7 @@ class PosVueOrderController extends Controller
                 ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
                 ->filter(fn ($qty) => (int) $qty > 0)
                 ->sortKeys()
-                ->map(fn ($qty, $id) => ((int) $id) . 'x' . ((int) $qty))
+                ->map(fn ($qty, $id) => ((int) $id).'x'.((int) $qty))
                 ->values()
                 ->implode('|');
         };
@@ -104,11 +105,11 @@ class PosVueOrderController extends Controller
             $notePart = preg_replace('/\s+/', ' ', trim((string) ($row->note ?? '')));
 
             return (int) ($row->combo_pack_id ?? 0)
-                . ':' . (int) $row->menu_item_id
-                . ':' . (int) ($row->menu_item_variation_id ?? 0)
-                . ':' . $modifierSignatureForRow($row)
-                . ':' . $qty
-                . ':' . $notePart;
+                .':'.(int) $row->menu_item_id
+                .':'.(int) ($row->menu_item_variation_id ?? 0)
+                .':'.$modifierSignatureForRow($row)
+                .':'.$qty
+                .':'.$notePart;
         };
         $packIdsForSlots = $orderItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
         $slotCountByPackId = self::comboPackSlotCounts($packIdsForSlots);
@@ -121,7 +122,7 @@ class PosVueOrderController extends Controller
                 : null;
 
             $modifierQtyMap = $item->modifierOptions
-                ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
                 ->all();
 
             $qty = (int) ($item->quantity ?? 1);
@@ -190,7 +191,7 @@ class PosVueOrderController extends Controller
                     : null;
 
                 $modifierQtyMap = $item->modifierOptions
-                    ->mapWithKeys(fn($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                    ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
                     ->all();
 
                 $qty = (int) ($item->quantity ?? 1);
@@ -200,7 +201,7 @@ class PosVueOrderController extends Controller
                 // matching order item. Use queues so identical lines map in order.
                 $matchedOrderItem = null;
                 $matchKey = $lineMatchKeyForRow($item);
-                if (!empty($lineQueues[$matchKey])) {
+                if (! empty($lineQueues[$matchKey])) {
                     $matchedOrderItem = array_shift($lineQueues[$matchKey]);
                 }
 
@@ -278,7 +279,7 @@ class PosVueOrderController extends Controller
         if ($order->customer?->phone) {
             $phoneCode = trim((string) ($order->customer->phone_code ?? ''));
             $phone = trim((string) $order->customer->phone);
-            $customerPhone = $phoneCode !== '' ? $phoneCode . $phone : $phone;
+            $customerPhone = $phoneCode !== '' ? $phoneCode.$phone : $phone;
         }
 
         return response()->json([
@@ -344,7 +345,7 @@ class PosVueOrderController extends Controller
 
     public function store(Request $request)
     {
-        abort_if(!in_array('Order', restaurant_modules()), 403);
+        abort_if(! in_array('Order', restaurant_modules()), 403);
 
         $validated = $request->validate([
             'order_id' => ['nullable', 'integer', 'exists:orders,id'],
@@ -398,11 +399,11 @@ class PosVueOrderController extends Controller
         // a delta of new lines only. Regardless of action (kot or bill), the
         // server must preserve existing items/KOTs/extras. Status transitions
         // on bill are still applied via the update payload below.
-        $appendKot = $editingOrderId && !empty($validated['append_kot']);
+        $appendKot = $editingOrderId && ! empty($validated['append_kot']);
 
         $branch = branch();
         $restaurant = restaurant();
-        abort_if(!$branch || !$restaurant, 422, 'Branch/restaurant context is required');
+        abort_if(! $branch || ! $restaurant, 422, 'Branch/restaurant context is required');
 
         if ($editingOrderId) {
             $orderForPermission = Order::query()
@@ -427,21 +428,21 @@ class PosVueOrderController extends Controller
             $isTransitioningOnBilled = in_array($currentStatus, $billedLifecycle, true)
                 && in_array($targetStatus, $billedLifecycle, true);
 
-            abort_if($isTransitioningOnBilled && !user_can('Edit Billed Order'), 403);
-            abort_if(!$isTransitioningOnBilled && !user_can('Update Order'), 403);
+            abort_if($isTransitioningOnBilled && ! user_can('Edit Billed Order'), 403);
+            abort_if(! $isTransitioningOnBilled && ! user_can('Update Order'), 403);
         } else {
-            abort_if(!user_can('Create Order'), 403);
+            abort_if(! user_can('Create Order'), 403);
         }
-        
+
         $orderType = null;
-        if (!empty($validated['order_type_id'])) {
+        if (! empty($validated['order_type_id'])) {
             $orderType = OrderType::query()->find($validated['order_type_id']);
         }
 
         $orderTypeValue = $orderType?->slug
             ?: ($orderType?->type ? strtolower((string) $orderType->type) : 'dine_in');
 
-        if (!in_array($orderTypeValue, ['dine_in', 'delivery', 'pickup'], true)) {
+        if (! in_array($orderTypeValue, ['dine_in', 'delivery', 'pickup'], true)) {
             $orderTypeValue = 'dine_in';
         }
 
@@ -480,7 +481,7 @@ class PosVueOrderController extends Controller
                 ->where('branch_id', $branch->id)
                 ->first();
 
-            abort_if(!$table, 422, 'Selected table is not available in this branch.');
+            abort_if(! $table, 422, 'Selected table is not available in this branch.');
             $resolvedTableId = (int) $table->id;
         }
 
@@ -502,7 +503,7 @@ class PosVueOrderController extends Controller
                 //   - On `kot` with a FULL cart (non-append), items/KOTs are wiped and recreated.
                 //   - On `kot` in APPEND mode (New KOT flow from /pos/kot/{id}), everything is
                 //     preserved and only the delta lines are appended + new KOT created below.
-                if (!$appendKot) {
+                if (! $appendKot) {
                     foreach ($order->items()->with('modifierOptions')->get() as $existingOrderItem) {
                         $existingOrderItem->modifierOptions()->detach();
                     }
@@ -542,7 +543,7 @@ class PosVueOrderController extends Controller
                     'tax_mode' => $restaurant->tax_mode ?? 'item',
                 ];
 
-                if (!$appendKot) {
+                if (! $appendKot) {
                     $updatePayload['sub_total'] = 0;
                     $updatePayload['total'] = 0;
                     $updatePayload['status'] = $status;
@@ -596,14 +597,14 @@ class PosVueOrderController extends Controller
 
             foreach ($comboPackIdsInRequest as $comboPackId) {
                 $cp = ComboPack::with(['comboPackItems.menuItem.recipes.inventoryItem'])->find($comboPackId);
-                abort_if(!$cp || (int) $cp->branch_id !== (int) $branch->id, 422, 'Invalid combo pack.');
-                abort_if(!$cp->isAvailable(), 422, __('modules.combo.comboNotAvailable'));
+                abort_if(! $cp || (int) $cp->branch_id !== (int) $branch->id, 422, 'Invalid combo pack.');
+                abort_if(! $cp->isAvailable(), 422, __('modules.combo.comboNotAvailable'));
                 $stockResult = $cp->validateStock();
-                abort_if(!$stockResult['valid'], 422, (string) ($stockResult['message'] ?? 'Combo stock validation failed.'));
+                abort_if(! $stockResult['valid'], 422, (string) ($stockResult['message'] ?? 'Combo stock validation failed.'));
             }
 
             foreach ($validated['lines'] as $line) {
-                $menuItem = MenuItem::query()->findOrFail((int) $line['menu_item_id']);
+                $menuItem = MenuItem::query()->with('taxes')->findOrFail((int) $line['menu_item_id']);
                 $variation = null;
                 $variationId = isset($line['menu_item_variation_id']) ? (int) $line['menu_item_variation_id'] : null;
 
@@ -616,7 +617,10 @@ class PosVueOrderController extends Controller
 
                 $qty = (int) $line['qty'];
                 $comboPackId = isset($line['combo_pack_id']) ? (int) $line['combo_pack_id'] : null;
-                $isComboItem = $comboPackId && !empty($line['combo_instance_key']);
+                $isComboItem = $comboPackId && ! empty($line['combo_instance_key']);
+                $comboInstanceKeyVal = ! empty($line['combo_instance_key'])
+                    ? (string) $line['combo_instance_key']
+                    : null;
 
                 $modifierQtyMap = collect($line['modifier_option_quantities'] ?? [])
                     ->mapWithKeys(function ($qtyValue, $optionId) {
@@ -625,11 +629,12 @@ class PosVueOrderController extends Controller
                         if ($id <= 0 || $qty <= 0) {
                             return [];
                         }
+
                         return [$id => $qty];
                     })
                     ->all();
 
-                $modifierOptions = !empty($modifierQtyMap)
+                $modifierOptions = ! empty($modifierQtyMap)
                     ? ModifierOption::query()->whereIn('id', array_keys($modifierQtyMap))->get()->keyBy('id')
                     : collect();
 
@@ -655,7 +660,7 @@ class PosVueOrderController extends Controller
                             && $comboVariationId === $lineVariationId;
                     });
 
-                    abort_if(!$comboMatch, 422, 'Invalid combo line payload');
+                    abort_if(! $comboMatch, 422, 'Invalid combo line payload');
 
                     $basePrice = (float) ($comboMatch['price'] ?? $basePrice);
                     $comboOriginalUnitPrice = (float) ($comboMatch['original_price'] ?? $basePrice);
@@ -672,7 +677,20 @@ class PosVueOrderController extends Controller
                 $amount = round($qty * $unitPrice, 2);
                 $subtotal += $amount;
 
-                $orderItem = OrderItem::create([
+                $taxModeStore = (string) ($restaurant->tax_mode ?? 'item');
+                $taxAmountVal = null;
+                $taxPercentageVal = null;
+                $taxBreakupVal = null;
+                if ($taxModeStore === 'item' && $menuItem->taxes->isNotEmpty()) {
+                    $isInclusive = (bool) (restaurant()->tax_inclusive ?? false);
+                    $taxResult = MenuItem::calculateItemTaxes($unitPrice, $menuItem->taxes, $isInclusive);
+                    $lineTaxTotal = round((float) ($taxResult['tax_amount'] ?? 0) * $qty, 2);
+                    $taxAmountVal = $lineTaxTotal;
+                    $taxPercentageVal = $taxResult['tax_percentage'] ?? null;
+                    $taxBreakupVal = json_encode($taxResult['tax_breakdown'] ?? []);
+                }
+
+                $orderItemData = [
                     'branch_id' => $order->branch_id,
                     'order_type' => $orderTypeValue,
                     'order_type_id' => $orderType?->id,
@@ -687,11 +705,18 @@ class PosVueOrderController extends Controller
                     'is_combo_item' => (bool) $isComboItem,
                     'amount' => $amount,
                     'note' => $line['note'] ?? null,
-                ]);
+                    'tax_amount' => $taxAmountVal,
+                    'tax_percentage' => $taxPercentageVal,
+                    'tax_breakup' => $taxBreakupVal,
+                ];
+                if (Schema::hasColumn('order_items', 'combo_instance_key')) {
+                    $orderItemData['combo_instance_key'] = $isComboItem ? $comboInstanceKeyVal : null;
+                }
+                $orderItem = OrderItem::create($orderItemData);
 
-                if (!empty($modifierQtyMap)) {
+                if (! empty($modifierQtyMap)) {
                     $orderItem->modifierOptions()->sync(
-                        collect($modifierQtyMap)->mapWithKeys(fn($optionQty, $optionId) => [(int) $optionId => ['quantity' => (int) $optionQty]])->all()
+                        collect($modifierQtyMap)->mapWithKeys(fn ($optionQty, $optionId) => [(int) $optionId => ['quantity' => (int) $optionQty]])->all()
                     );
                 }
 
@@ -707,7 +732,7 @@ class PosVueOrderController extends Controller
                         ->where('is_default', true)
                         ->value('id');
 
-                    if (!$defaultKotPlace) {
+                    if (! $defaultKotPlace) {
                         $defaultKotPlace = KotPlace::query()
                             ->where('branch_id', $order->branch_id)
                             ->value('id');
@@ -718,8 +743,8 @@ class PosVueOrderController extends Controller
                     }
                 }
 
-                if (!empty($kitchenIds)) {
-                    $kotLineSeed[] = [
+                if (! empty($kitchenIds)) {
+                    $seedLine = [
                         'kitchen_place_id' => (int) $kitchenIds[0],
                         'menu_item_id' => $menuItem->id,
                         'menu_item_variation_id' => $variation?->id,
@@ -729,6 +754,10 @@ class PosVueOrderController extends Controller
                         'modifier_option_quantities' => $modifierQtyMap,
                         'is_multi_kitchen' => count($kitchenIds) > 1,
                     ];
+                    if (Schema::hasColumn('kot_items', 'combo_instance_key')) {
+                        $seedLine['combo_instance_key'] = $isComboItem ? $comboInstanceKeyVal : null;
+                    }
+                    $kotLineSeed[] = $seedLine;
                 }
             }
 
@@ -736,11 +765,11 @@ class PosVueOrderController extends Controller
             // setting is enabled. On bill/kot with a full cart we delete + recreate;
             // on append-only New KOT we keep existing rows untouched.
             $allowExtras = (bool) ($restaurant->allow_custom_order_extras ?? false);
-            if ($allowExtras && !$appendKot) {
+            if ($allowExtras && ! $appendKot) {
                 $order->extras()->delete();
 
                 foreach (($validated['custom_extras'] ?? []) as $extraRow) {
-                    if (!is_array($extraRow)) {
+                    if (! is_array($extraRow)) {
                         continue;
                     }
 
@@ -777,7 +806,7 @@ class PosVueOrderController extends Controller
             $totalTax = 0.0;
 
             if ($taxMode === 'order') {
-                if (!$appendKot) {
+                if (! $appendKot) {
                     $taxes = Tax::query()->select('id', 'tax_percent')->get();
                     foreach ($taxes as $tax) {
                         OrderTax::create([
@@ -796,6 +825,9 @@ class PosVueOrderController extends Controller
                         $totalTax += (($subtotal + $extrasTotal) * ((float) $taxPercent / 100));
                     }
                 }
+            } else {
+                // Item-level tax: sum persisted line tax rows (new + any untouched existing in append).
+                $totalTax = (float) $order->items()->sum('tax_amount');
             }
 
             // Legacy parity (Pos.php::calculateTotal line 2265): delivery fee is
@@ -805,7 +837,10 @@ class PosVueOrderController extends Controller
                 ? (float) ($validated['delivery_fee'] ?? 0)
                 : 0.0;
 
-            $total = round($subtotal + $extrasTotal + $totalTax + $deliveryFee, 2);
+            $order->refresh();
+            $discountAmount = (float) ($order->discount_amount ?? 0);
+
+            $total = round($subtotal + $extrasTotal + $totalTax + $deliveryFee - $discountAmount, 2);
 
             $order->update([
                 'sub_total' => round($subtotal, 2),
@@ -838,7 +873,7 @@ class PosVueOrderController extends Controller
                     $kotIds[] = $kot->id;
 
                     foreach ($groupedItems as $item) {
-                        $kotItem = KotItem::create([
+                        $kotRow = [
                             'kot_id' => $kot->id,
                             'menu_item_id' => $item['menu_item_id'],
                             'menu_item_variation_id' => $item['menu_item_variation_id'] ?? null,
@@ -848,12 +883,16 @@ class PosVueOrderController extends Controller
                             'order_type_id' => $order->order_type_id,
                             'order_type' => $order->order_type,
                             'is_multi_kitchen' => (bool) ($item['is_multi_kitchen'] ?? false),
-                        ]);
+                        ];
+                        if (Schema::hasColumn('kot_items', 'combo_instance_key')) {
+                            $kotRow['combo_instance_key'] = $item['combo_instance_key'] ?? null;
+                        }
+                        $kotItem = KotItem::create($kotRow);
 
                         $modifierQtyMap = $item['modifier_option_quantities'] ?? [];
-                        if (!empty($modifierQtyMap)) {
+                        if (! empty($modifierQtyMap)) {
                             $kotItem->modifierOptions()->sync(
-                                collect($modifierQtyMap)->mapWithKeys(fn($optionQty, $optionId) => [(int) $optionId => ['quantity' => (int) $optionQty]])->all()
+                                collect($modifierQtyMap)->mapWithKeys(fn ($optionQty, $optionId) => [(int) $optionId => ['quantity' => (int) $optionQty]])->all()
                             );
                         }
                     }
@@ -947,9 +986,9 @@ class PosVueOrderController extends Controller
             ->delete();
 
         if ($shortfall > 0) {
-            if (!$order->canRecordDueBalance()) {
+            if (! $order->canRecordDueBalance()) {
                 abort_if(
-                    !$allowImmediatePaymentWithoutCustomer,
+                    ! $allowImmediatePaymentWithoutCustomer,
                     422,
                     'Walk-in paid orders require immediate payment for additional KOT items.'
                 );

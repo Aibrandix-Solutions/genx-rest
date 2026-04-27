@@ -40,7 +40,9 @@ export function useOfflineMode() {
     // Add operation to queue
     const queueOperation = (operation) => {
         const operationWithId = {
-            id: Date.now() + Math.random(),
+            id: typeof crypto !== 'undefined' && crypto.randomUUID
+                ? crypto.randomUUID()
+                : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
             timestamp: new Date().toISOString(),
             ...operation,
         };
@@ -112,10 +114,15 @@ export function useOfflineMode() {
 
     // Clear all offline data
     const clearOfflineData = () => {
-        localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(CART_STORAGE_KEY);
-        localStorage.removeItem(CUSTOMER_STORAGE_KEY);
-        pendingOperations.value = [];
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(CART_STORAGE_KEY);
+            localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+            pendingOperations.value = [];
+        } catch (error) {
+            console.error("Error clearing offline data:", error);
+            pendingOperations.value = [];
+        }
     };
 
     // Sync pending operations when online

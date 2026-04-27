@@ -404,10 +404,15 @@ const resolveCurrencyCode = (orderData) => {
 };
 
 const formatCurrency = (amount, currencyCode = "USD") => {
-    return new Intl.NumberFormat("en-US", {
-        style: "currency",
-        currency: currencyCode || "USD",
-    }).format(amount || 0);
+    try {
+        return new Intl.NumberFormat("en-US", {
+            style: "currency",
+            currency: currencyCode || "USD",
+        }).format(amount || 0);
+    } catch (error) {
+        // Fallback for invalid currency codes
+        return `${currencyCode || "USD"} ${(amount || 0).toFixed(2)}`;
+    }
 };
 
 // Calculate subtotal
@@ -432,8 +437,6 @@ const calculateOrderTotal = (orderData) => {
     const taxAmount = Number(orderData.tax_amount || orderData.total_tax_amount || 0);
     const tipAmount = Number(orderData.tip_amount || 0);
     const serviceCharge = Number(orderData.service_charge || 0);
-    const chargesTotal = Number(orderData.extra_charges_total || orderData.charges_total || 0);
-
     const extraChargesArrayTotal = Array.isArray(orderData.extra_charges)
         ? orderData.extra_charges.reduce((sum, charge) => {
             if (charge?.amount !== undefined && charge?.amount !== null) {
@@ -448,6 +451,18 @@ const calculateOrderTotal = (orderData) => {
         }, 0)
         : 0;
 
+    const hasExplicitServerExtraTotal =
+        (orderData.extra_charges_total != null && orderData.extra_charges_total !== "") ||
+        (orderData.charges_total != null && orderData.charges_total !== "");
+    const serverExtraChargesTotal = hasExplicitServerExtraTotal
+        ? Number(orderData.extra_charges_total ?? orderData.charges_total ?? 0)
+        : null;
+
+    const extraChargesComponent =
+        serverExtraChargesTotal !== null && !Number.isNaN(serverExtraChargesTotal)
+            ? serverExtraChargesTotal
+            : extraChargesArrayTotal;
+
     const computed =
         subtotal -
         discount +
@@ -455,8 +470,7 @@ const calculateOrderTotal = (orderData) => {
         taxAmount +
         tipAmount +
         serviceCharge +
-        chargesTotal +
-        extraChargesArrayTotal;
+        extraChargesComponent;
 
     return Math.max(0, computed);
 };
