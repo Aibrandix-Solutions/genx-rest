@@ -112,7 +112,7 @@ class PosBootstrapService
 
         $settings = \App\Models\RewardSetting::getForRestaurant($restaurant->id);
 
-        if (! $settings || ! $settings->enable_reward_point) {
+        if (!in_array('Reward Point', restaurant_modules()) || !$settings || !$settings->enable_reward_point) {
             return null;
         }
 

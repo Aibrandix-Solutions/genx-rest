@@ -135,11 +135,14 @@ class CustomerTable extends Component
         }
 
         $perPage = in_array((int)$this->perPage, [10, 20, 50, 100, 200]) ? (int)$this->perPage : 10;
-        $customers = $query->with(['rewardBalance' => function ($q) {
+        
+        if (in_array('Reward Point', restaurant_modules())) {
+            $query->with(['rewardBalance' => function ($q) {
                 $q->where('restaurant_id', restaurant()->id);
-            }])
-            ->orderBy('id', 'desc')
-            ->paginate($perPage);
+            }]);
+        }
+
+        $customers = $query->orderBy('id', 'desc')->paginate($perPage);
 
         $rewardSettings = \App\Models\RewardSetting::getForRestaurant(restaurant()->id);
 

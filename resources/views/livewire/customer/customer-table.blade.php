@@ -43,7 +43,7 @@
                                     class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                                     @lang('modules.customer.total_sales')
                                 </th>
-                                @if($rewardSettings->enable_reward_point)
+                                @if(in_array('Reward Point', restaurant_modules()) && $rewardSettings->enable_reward_point)
                                 <th scope="col"
                                     class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                                     {{ $rewardSettings->reward_point_display_name }}
@@ -94,7 +94,7 @@
                                 <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ currency_format($item->total_sales, restaurant()->currency_id) }}
                                 </td>
-                                @if($rewardSettings->enable_reward_point)
+                                @if(in_array('Reward Point', restaurant_modules()) && $rewardSettings->enable_reward_point)
                                 <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
                                     @php
                                         $balance = $item->rewardBalance->first();

@@ -199,6 +199,8 @@ return [
 
         // Payment Accounts
         'Payment Accounts' => 'Payment Accounts',
+
+        'Reward Point' => 'Loyalty Program',
     ],
 
 
