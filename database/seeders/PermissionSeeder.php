@@ -106,6 +106,7 @@ class PermissionSeeder extends Seeder
             $permissions[] = ['guard_name' => 'web', 'name' => 'Update Order', 'module_id' => $orderModule->id];
             $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Order', 'module_id' => $orderModule->id];
             $permissions[] = ['guard_name' => 'web', 'name' => 'Edit Billed Order', 'module_id' => $orderModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Redeem Reward Points', 'module_id' => $orderModule->id];
         }
 
         if ($customerModule) {

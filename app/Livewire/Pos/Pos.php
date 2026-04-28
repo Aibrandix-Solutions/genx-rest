@@ -30,6 +30,7 @@ use App\Scopes\BranchScope;
 use App\Services\Pos\BillSecondaryActionResolver;
 use App\Services\PosBatchSyncService;
 use App\Services\PosBootstrapService;
+use App\Services\RewardPointsService;
 use App\Support\KotAdjustmentLogger;
 use App\Traits\PrinterSetting;
 use Illuminate\Support\Facades\Cache;
@@ -259,10 +260,152 @@ class Pos extends Component
 
     public $isQtyOptimisticMode = true;  // Enable optimistic qty updates
 
+    // Reward Points Redemption
+    public $rewardPointDiscount = 0;
+    public $rewardPointsRedeemed = 0;
+    public $rewardPointsAvailable = 0;
+    public $rewardSettings = null;
+    public $rewardDisplayName = 'Reward';
+
     public function setCustomer($customerId = null)
     {
         $this->customerId = $customerId;
         $this->customer = Customer::find($customerId);
+        $this->loadCustomerRewardBalance();
+    }
+
+    /**
+     * Load the customer's reward balance and settings for display in POS
+     */
+    protected function loadCustomerRewardBalance(): void
+    {
+        $this->rewardPointsAvailable = 0;
+        $this->rewardSettings = null;
+        $this->rewardDisplayName = 'Reward';
+
+        if (!$this->customerId) {
+            return;
+        }
+
+        try {
+            $settings = \App\Models\RewardSetting::getForRestaurant(restaurant()->id);
+            if (!$settings->enable_reward_point) {
+                return;
+            }
+
+            $this->rewardSettings = $settings;
+            $this->rewardDisplayName = $settings->reward_point_display_name ?: 'Reward';
+
+            $balance = \App\Models\RewardBalance::getForCustomer($this->customerId, restaurant()->id);
+            $this->rewardPointsAvailable = $balance->available_points;
+        } catch (\Exception $e) {
+            \Log::warning('Failed to load reward balance for POS', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Apply reward points redemption to the current order
+     */
+    public function applyRewardRedemption(int $points): void
+    {
+        if (!user_can('Redeem Reward Points')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if (!$this->customerId || !$this->rewardSettings || !$this->rewardSettings->enable_reward_point) {
+            $this->alert('error', 'Reward points are not available.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if ($points <= 0) {
+            $this->alert('error', 'Please enter valid points to redeem.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Validate minimum redeem points
+        if ($this->rewardSettings->minimum_redeem_point && $points < $this->rewardSettings->minimum_redeem_point) {
+            $this->alert('error', "Minimum {$this->rewardSettings->minimum_redeem_point} points required to redeem.", ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Validate max per order
+        if ($this->rewardSettings->maximum_redeem_point_per_order && $points > $this->rewardSettings->maximum_redeem_point_per_order) {
+            $points = $this->rewardSettings->maximum_redeem_point_per_order;
+        }
+
+        // Validate available balance
+        if ($points > $this->rewardPointsAvailable) {
+            $this->alert('error', "Insufficient points. Available: {$this->rewardPointsAvailable}", ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Validate minimum order total for redemption
+        if ($this->total < $this->rewardSettings->minimum_order_total_to_redeem) {
+            $this->alert('error', "Minimum order total of {$this->rewardSettings->minimum_order_total_to_redeem} required to redeem points.", ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Calculate discount amount
+        $discountAmount = $points * $this->rewardSettings->redeem_amount_per_unit_point;
+
+        // Can't redeem more than order value (after other discounts)
+        $maxDiscount = $this->total;
+        if ($discountAmount > $maxDiscount) {
+            $discountAmount = $maxDiscount;
+            $points = (int) floor($discountAmount / $this->rewardSettings->redeem_amount_per_unit_point);
+        }
+
+        $this->rewardPointDiscount = round($discountAmount, 2);
+        $this->rewardPointsRedeemed = $points;
+        $this->calculateTotal();
+
+        $this->alert('success', "Applied {$points} {$this->rewardDisplayName} points (" . number_format($this->rewardPointDiscount, 2) . ' discount)', [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 3000,
+        ]);
+    }
+
+    /**
+     * Remove reward points redemption from the current order
+     */
+    public function removeRewardRedemption(): void
+    {
+        $this->rewardPointDiscount = 0;
+        $this->rewardPointsRedeemed = 0;
+        $this->calculateTotal();
+
+        $this->alert('info', 'Reward points discount removed.', [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 2000,
+        ]);
+    }
+
+    /**
+     * Get the maximum redeemable points for the current order context
+     */
+    public function getMaxRedeemablePointsProperty(): int
+    {
+        if (!$this->rewardSettings || !$this->rewardSettings->enable_reward_point || !$this->customerId) {
+            return 0;
+        }
+
+        if ($this->total < $this->rewardSettings->minimum_order_total_to_redeem) {
+            return 0;
+        }
+
+        $available = $this->rewardPointsAvailable;
+
+        // Apply max per order limit
+        if ($this->rewardSettings->maximum_redeem_point_per_order) {
+            $available = min($available, $this->rewardSettings->maximum_redeem_point_per_order);
+        }
+
+        // Can't redeem more than order total
+        $maxPointsByOrderTotal = (int) floor($this->total / $this->rewardSettings->redeem_amount_per_unit_point);
+        return min($available, $maxPointsByOrderTotal);
     }
 
     protected function applyBootstrapContext(array $bootstrap): void
@@ -448,6 +591,15 @@ class Pos extends Component
             $this->orderStatus = $order->order_status;
             $this->orderTypeId = $order->order_type_id;
             $this->orderType = $order->order_type;
+
+            // Restore reward points state from existing order
+            $this->rewardPointDiscount = (float) ($order->reward_point_discount ?? 0);
+            $this->rewardPointsRedeemed = (int) ($order->reward_points_redeemed ?? 0);
+            if ($order->customer_id) {
+                $this->customerId = $order->customer_id;
+                $this->customer = Customer::find($order->customer_id);
+                $this->loadCustomerRewardBalance();
+            }
 
             // Ensure existing orders always resolve to a concrete order type ID
             if (! $this->orderTypeId && $this->orderType) {
@@ -2412,6 +2564,11 @@ class Pos extends Component
             $this->total += $this->deliveryFee;
         }
 
+        // Apply reward points discount (after all other calculations)
+        if ($this->rewardPointDiscount > 0) {
+            $this->total = max(0, $this->total - $this->rewardPointDiscount);
+        }
+
         if (! $skipRealtimeSideEffects) {
             // Calculate tax and charge amounts for display
             $taxesForDisplay = collect($this->taxes ?? [])->map(function ($tax) {
@@ -2442,6 +2599,7 @@ class Pos extends Component
                 'custom_extras' => $displayCustomExtras,
                 'sub_total' => $this->subTotal,
                 'discount' => $this->discountAmount ?? 0,
+                'reward_point_discount' => $this->rewardPointDiscount ?? 0,
                 'total' => $this->total,
                 'taxes' => $taxesForDisplay,
                 'extra_charges' => $chargesForDisplay,
@@ -2481,6 +2639,7 @@ class Pos extends Component
                 'custom_extras' => $displayCustomExtras,
                 'sub_total' => $this->subTotal,
                 'discount' => $this->discountAmount ?? 0,
+                'reward_point_discount' => $this->rewardPointDiscount ?? 0,
                 'total' => $this->total,
             ]);
         }
@@ -3023,6 +3182,8 @@ class Pos extends Component
                 'discount_type' => $this->discountType,
                 'discount_value' => $this->discountValue,
                 'discount_amount' => $this->discountAmount,
+                'reward_point_discount' => $this->rewardPointDiscount > 0 ? $this->rewardPointDiscount : null,
+                'reward_points_redeemed' => $this->rewardPointsRedeemed > 0 ? $this->rewardPointsRedeemed : null,
                 'waiter_id' => $this->selectWaiter,
                 'sub_total' => $this->subTotal,
                 'total' => $this->total,
@@ -3511,13 +3672,34 @@ class Pos extends Component
                 $this->total += $this->deliveryFee;
             }
 
+            // Apply reward points discount to billed total
+            if ($this->rewardPointDiscount > 0) {
+                $this->total = max(0, $this->total - $this->rewardPointDiscount);
+            }
+
             Order::where('id', $order->id)->update([
                 'sub_total' => $this->subTotal,
                 'total' => $this->total,
                 'discount_amount' => $this->discountAmount,
+                'reward_point_discount' => $this->rewardPointDiscount > 0 ? $this->rewardPointDiscount : null,
+                'reward_points_redeemed' => $this->rewardPointsRedeemed > 0 ? $this->rewardPointsRedeemed : null,
                 'total_tax_amount' => $this->totalTaxAmount,
                 'tax_mode' => $this->taxMode,
             ]);
+
+            // Execute reward points redemption via the service (creates transaction, deducts balance)
+            if ($this->rewardPointsRedeemed > 0 && $this->customerId) {
+                try {
+                    $customer = Customer::find($this->customerId);
+                    $freshOrder = Order::find($order->id);
+                    if ($customer && $freshOrder) {
+                        $rewardService = app(RewardPointsService::class);
+                        $rewardService->redeemPoints($freshOrder, $customer, $this->rewardPointsRedeemed);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Error redeeming reward points at billing: ' . $e->getMessage());
+                }
+            }
 
             if ($order->placed_via == null || $order->placed_via == 'pos') {
                 NewOrderCreated::dispatch($order);
@@ -3762,6 +3944,13 @@ class Pos extends Component
         $this->selectedDeliveryApp = null;
         $this->selectedDeliveryPlatformName = null;
         $this->orderTypeName = null;
+
+        // Reset reward points state
+        $this->rewardPointDiscount = 0;
+        $this->rewardPointsRedeemed = 0;
+        $this->rewardPointsAvailable = 0;
+        $this->rewardSettings = null;
+        $this->rewardDisplayName = 'Reward';
 
         $sessionOrderTypeId = session()->get('pos.order_type_id');
         $sessionDeliveryAppId = session()->get('pos.delivery_app_id');

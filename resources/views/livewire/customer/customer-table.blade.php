@@ -43,6 +43,12 @@
                                     class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                                     @lang('modules.customer.total_sales')
                                 </th>
+                                @if($rewardSettings->enable_reward_point)
+                                <th scope="col"
+                                    class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                    {{ $rewardSettings->reward_point_display_name }}
+                                </th>
+                                @endif
                                 <th scope="col"
                                     class="py-2.5 px-4 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-right">
                                     @lang('app.action')
@@ -88,6 +94,19 @@
                                 <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ currency_format($item->total_sales, restaurant()->currency_id) }}
                                 </td>
+                                @if($rewardSettings->enable_reward_point)
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    @php
+                                        $balance = $item->rewardBalance->first();
+                                    @endphp
+                                    <span class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-500">
+                                        <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                        </svg>
+                                        {{ $balance ? $balance->available_points : 0 }}
+                                    </span>
+                                </td>
+                                @endif
 
                                 <td class="py-2.5 px-4 space-x-2 whitespace-nowrap text-right rtl:space-x-reverse">
                                     @if(user_can('Create Payment') || user_can('Update Order'))

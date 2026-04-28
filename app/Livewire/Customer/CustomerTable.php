@@ -135,11 +135,17 @@ class CustomerTable extends Component
         }
 
         $perPage = in_array((int)$this->perPage, [10, 20, 50, 100, 200]) ? (int)$this->perPage : 10;
-        $customers = $query->orderBy('id', 'desc')
+        $customers = $query->with(['rewardBalance' => function ($q) {
+                $q->where('restaurant_id', restaurant()->id);
+            }])
+            ->orderBy('id', 'desc')
             ->paginate($perPage);
 
+        $rewardSettings = \App\Models\RewardSetting::getForRestaurant(restaurant()->id);
+
         return view('livewire.customer.customer-table', [
-            'customers' => $customers
+            'customers' => $customers,
+            'rewardSettings' => $rewardSettings
         ]);
     }
 }

@@ -36,13 +36,18 @@ class RewardPointsService
             return 0;
         }
 
-        // Check minimum order total
-        if ($order->total < $settings->minimum_order_total_to_earn) {
+        // Net paid = order total minus any reward-point discount already applied
+        $rewardDiscount = (float) ($order->reward_point_discount ?? 0);
+        $netPaid = max(0, $order->total - $rewardDiscount);
+
+        // Check minimum order total against net paid amount
+        if ($netPaid < $settings->minimum_order_total_to_earn) {
             return 0;
         }
 
-        // Calculate points: order total / amount_spend_for_unit_point
-        $points = floor($order->total / $settings->amount_spend_for_unit_point);
+        // Calculate points: net paid / amount_spend_for_unit_point
+        // Earn only on what the customer actually pays after ALL discounts
+        $points = floor($netPaid / $settings->amount_spend_for_unit_point);
 
         // Apply maximum points per order limit
         if ($settings->maximum_points_per_order && $points > $settings->maximum_points_per_order) {
@@ -109,19 +114,26 @@ class RewardPointsService
                 }
 
                 // Create transaction
+                // Net paid amount (after all discounts including reward point discount)
+                $rewardDiscount = (float) ($order->reward_point_discount ?? 0);
+                $netPaid = max(0, $order->total - $rewardDiscount);
+
                 $transaction = RewardTransaction::create([
                     'customer_id' => $order->customer_id,
                     'restaurant_id' => $restaurantId,
                     'order_id' => $order->id,
                     'type' => 'earn',
                     'points' => $points,
-                    'amount_value' => $order->total,
+                    'amount_value' => $netPaid,
                     'description' => "Earned {$points} {$settings->reward_point_display_name} points from order #{$order->order_number}",
                     'expires_at' => $expiresAt,
                 ]);
 
                 // Update balance
                 $balance->addPoints($points);
+
+                // Store earned points on the order for display
+                Order::where('id', $order->id)->update(['reward_points_earned' => $points]);
 
                 return $transaction;
             });
@@ -136,39 +148,77 @@ class RewardPointsService
     }
 
     /**
-     * Calculate maximum redeemable points for an order
+     * Calculate maximum redeemable points for POS (before order is persisted).
+     * Used by the reward balance API endpoint.
      */
-    public function calculateMaxRedeemablePoints(Order $order, Customer $customer): int
-    {
-        $settings = RewardSetting::getForRestaurant($order->restaurant_id);
+    public function calculateMaxRedeemablePoints(
+        $customerOrOrder,
+        $customerOrRestaurantId = null,
+        ?float $orderSubtotal = null
+    ): int {
+        // Overloaded: supports (Customer, restaurantId, subtotal) OR (Order, Customer)
+        if ($customerOrOrder instanceof Order) {
+            // Original signature: (Order, Customer)
+            $order = $customerOrOrder;
+            $customer = $customerOrRestaurantId;
+            $settings = RewardSetting::getForRestaurant($order->restaurant_id);
+
+            if (!$settings->enable_reward_point) {
+                return 0;
+            }
+
+            if ($order->total < $settings->minimum_order_total_to_redeem) {
+                return 0;
+            }
+
+            $balance = $customer->getRewardBalance($order->restaurant_id);
+            if (!$balance) {
+                return 0;
+            }
+
+            $availablePoints = $balance->available_points;
+
+            if ($settings->maximum_redeem_point_per_order) {
+                $availablePoints = min($availablePoints, $settings->maximum_redeem_point_per_order);
+            }
+
+            $maxPointsByOrderTotal = floor($order->total / $settings->redeem_amount_per_unit_point);
+
+            return (int) min($availablePoints, $maxPointsByOrderTotal);
+        }
+
+        // POS signature: (Customer, restaurantId, subtotal)
+        $customer = $customerOrOrder;
+        $restaurantId = (int) $customerOrRestaurantId;
+        $subtotal = $orderSubtotal ?? 0;
+
+        $settings = RewardSetting::getForRestaurant($restaurantId);
 
         if (!$settings->enable_reward_point) {
             return 0;
         }
 
-        // Check minimum order total to redeem
-        if ($order->total < $settings->minimum_order_total_to_redeem) {
+        if ($subtotal < $settings->minimum_order_total_to_redeem) {
             return 0;
         }
 
-        // Get available balance
-        $balance = $customer->getRewardBalance($order->restaurant_id);
+        $balance = $customer->getRewardBalance($restaurantId);
         if (!$balance) {
             return 0;
         }
 
         $availablePoints = $balance->available_points;
 
-        // Apply maximum redeem limit
         if ($settings->maximum_redeem_point_per_order) {
             $availablePoints = min($availablePoints, $settings->maximum_redeem_point_per_order);
         }
 
-        // Calculate max based on order total (can't redeem more than order value)
-        $maxDiscountFromPoints = $availablePoints * $settings->redeem_amount_per_unit_point;
-        $maxPointsByOrderTotal = floor($order->total / $settings->redeem_amount_per_unit_point);
+        if ($settings->redeem_amount_per_unit_point > 0) {
+            $maxPointsBySubtotal = (int) floor($subtotal / $settings->redeem_amount_per_unit_point);
+            $availablePoints = min($availablePoints, $maxPointsBySubtotal);
+        }
 
-        return min($availablePoints, $maxPointsByOrderTotal);
+        return max(0, $availablePoints);
     }
 
     /**
@@ -214,6 +264,16 @@ class RewardPointsService
         try {
             DB::transaction(function () use ($order, $customer, $points, $discountAmount, $settings, $balance) {
                 // Create redemption transaction
+                // Resolve currency safely (restaurant() helper may be null in API/queue context)
+                $currencyId = null;
+                try {
+                    $currencyId = restaurant()?->currency_id;
+                } catch (\Throwable $e) {
+                    // Fallback: load from order's branch
+                    $currencyId = $order->branch?->restaurant?->currency_id;
+                }
+                $formattedAmount = $currencyId ? currency_format($discountAmount, $currencyId) : number_format($discountAmount, 2);
+
                 $transaction = RewardTransaction::create([
                     'customer_id' => $customer->id,
                     'restaurant_id' => $order->restaurant_id,
@@ -221,11 +281,17 @@ class RewardPointsService
                     'type' => 'redeem',
                     'points' => -$points, // Negative for redemption
                     'amount_value' => $discountAmount,
-                    'description' => "Redeemed {$points} {$settings->reward_point_display_name} points for discount of " . currency_format($discountAmount, restaurant()->currency_id),
+                    'description' => "Redeemed {$points} {$settings->reward_point_display_name} points for discount of {$formattedAmount}",
                 ]);
 
                 // Deduct from balance
                 $balance->deductPoints($points);
+
+                // Store redemption info on the order
+                Order::where('id', $order->id)->update([
+                    'reward_point_discount' => $discountAmount,
+                    'reward_points_redeemed' => $points,
+                ]);
 
                 return $transaction;
             });

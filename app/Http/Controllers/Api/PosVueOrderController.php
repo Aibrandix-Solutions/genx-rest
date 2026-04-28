@@ -319,6 +319,9 @@ class PosVueOrderController extends Controller
                     'note' => (string) ($order->note ?? ''),
                     'sub_total' => (float) ($order->sub_total ?? 0),
                     'total' => (float) ($order->total ?? 0),
+                    'reward_point_discount' => (float) ($order->reward_point_discount ?? 0),
+                    'reward_points_redeemed' => (int) ($order->reward_points_redeemed ?? 0),
+                    'reward_points_earned' => (int) ($order->reward_points_earned ?? 0),
                     // Legacy parity (Pos.php mount): custom_extras loaded from order_extras.
                     // Only surfaced when the setting is enabled so the UI never appears
                     // for restaurants that have it turned off.
@@ -335,6 +338,7 @@ class PosVueOrderController extends Controller
                         'can_delete_order' => (bool) user_can('Delete Order'),
                         'can_edit_billed_order' => (bool) user_can('Edit Billed Order'),
                         'can_delete_kot_item' => (bool) user_can('Delete KOT Item'),
+                        'can_redeem_reward_points' => (bool) user_can('Redeem Reward Points'),
                     ],
                     'lines' => $lines,
                     'kots' => $kots,
@@ -380,6 +384,9 @@ class PosVueOrderController extends Controller
             'custom_extras' => ['nullable', 'array'],
             'custom_extras.*.amount' => ['nullable', 'numeric', 'min:0'],
             'custom_extras.*.note' => ['nullable', 'string'],
+            // Reward points redemption fields
+            'reward_points_redeemed' => ['nullable', 'integer', 'min:0'],
+            'reward_point_discount' => ['nullable', 'numeric', 'min:0'],
             // New-KOT mode flag: when the cart is an "append-only" delta for an
             // existing order, the store path must preserve existing items/KOTs
             // (mirrors Pos.php::$appendOnlyKotSave).
@@ -575,6 +582,8 @@ class PosVueOrderController extends Controller
                     'table_id' => $resolvedTableId,
                     'sub_total' => 0,
                     'total' => 0,
+                    'reward_point_discount' => ! empty($validated['reward_point_discount']) ? (float) $validated['reward_point_discount'] : null,
+                    'reward_points_redeemed' => ! empty($validated['reward_points_redeemed']) ? (int) $validated['reward_points_redeemed'] : null,
                     'order_type' => $orderTypeValue,
                     'order_type_id' => $orderType?->id,
                     'custom_order_type_name' => $orderType?->order_type_name,
@@ -839,14 +848,33 @@ class PosVueOrderController extends Controller
 
             $order->refresh();
             $discountAmount = (float) ($order->discount_amount ?? 0);
+            $rewardPointDiscount = (float) ($validated['reward_point_discount'] ?? $order->reward_point_discount ?? 0);
+            $rewardPointsRedeemed = (int) ($validated['reward_points_redeemed'] ?? $order->reward_points_redeemed ?? 0);
 
-            $total = round($subtotal + $extrasTotal + $totalTax + $deliveryFee - $discountAmount, 2);
+            $total = round($subtotal + $extrasTotal + $totalTax + $deliveryFee - $discountAmount - $rewardPointDiscount, 2);
+            $total = max(0, $total);
 
             $order->update([
                 'sub_total' => round($subtotal, 2),
                 'total' => $total,
                 'total_tax_amount' => round($totalTax, 2),
+                'reward_point_discount' => $rewardPointDiscount > 0 ? $rewardPointDiscount : null,
+                'reward_points_redeemed' => $rewardPointsRedeemed > 0 ? $rewardPointsRedeemed : null,
             ]);
+
+            // Execute reward points redemption at billing time
+            if ($action === 'bill' && $rewardPointsRedeemed > 0 && ($validated['customer_id'] ?? null)) {
+                try {
+                    $rewardCustomer = Customer::find((int) $validated['customer_id']);
+                    $freshOrder = $order->fresh();
+                    if ($rewardCustomer && $freshOrder) {
+                        $rewardService = app(\App\Services\RewardPointsService::class);
+                        $rewardService->redeemPoints($freshOrder, $rewardCustomer, $rewardPointsRedeemed);
+                    }
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error('Error redeeming reward points at billing: ' . $e->getMessage());
+                }
+            }
 
             if (in_array($statusBeforeSave, ['paid', 'payment_due'], true)) {
                 self::syncPostPaymentBalance($order->fresh('payments'), $total, $opensImmediatePayment);

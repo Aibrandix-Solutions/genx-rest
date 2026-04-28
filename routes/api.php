@@ -91,6 +91,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/cancel-reasons', [PosSupportController::class, 'cancelReasons']);
     Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
+    Route::get('/pos/customer-reward-balance', [PosSupportController::class, 'customerRewardBalance']);
     Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
     Route::post('/pos/orders/{id}/waiter', [PosSupportController::class, 'updateOrderWaiter']);
     Route::post('/pos/orders/{id}/customer', [PosSupportController::class, 'updateOrderCustomer']);
