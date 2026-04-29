@@ -2,7 +2,7 @@ name: Deploy Genx Restaurant (demo.digipartner.lk via SFTP)
 
 on:
   push:
-    branches: [] # Manual merge to this branch triggers deploy
+    branches: [speed] # Manual merge to this branch triggers deploy
   workflow_dispatch:
 
 jobs:
@@ -31,6 +31,11 @@ jobs:
               -o IdentitiesOnly=yes \
               "${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}" \
               "echo SSH OK: \$(whoami) on \$(hostname)"
+
+      - name: Add SSH key to agent
+        run: |
+          eval "$(ssh-agent -s)"
+          ssh-add /tmp/genx_key
 
       # --- Build assets (NPM) ---
       - name: Install Node.js
@@ -108,30 +113,18 @@ jobs:
           $kernel->terminate($request, $response);
           PHP
 
-      # --- SFTP uploads ---
-      - name: Upload app via SFTP (to /demo/laravel)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_app/*"
-          remote_path: "domains/digipartner.lk/public_html/demo/laravel/"
-          delete_remote_files: false
-          sftp_only: true
+      # --- Rsync uploads (incremental - only changed files) ---
+      - name: Upload app via rsync (to /demo/laravel)
+        run: |
+          rsync -avz --delete \
+            -e "ssh -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no" \
+            deploy_app/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/demo/laravel/
 
-      - name: Upload public via SFTP (to /demo)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_public/*"
-          remote_path: "domains/digipartner.lk/public_html/demo/"
-          delete_remote_files: false
-          sftp_only: true
+      - name: Upload public via rsync (to /demo)
+        run: |
+          rsync -avz --delete \
+            -e "ssh -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no" \
+            deploy_public/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/demo/
 
       # --- SSH: composer install & caches on the server ---
       - name: SSH - composer install & caches
