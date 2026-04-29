@@ -88,6 +88,7 @@ return [
         'inStock' => 'In Stock',
         'typeHalal' => 'Halal',
         'bulkUpload' => 'Bulk Upload',
+        'bulkImportItemCodeHint' => 'leave blank for auto-generated IT#### code, or enter your own (unique per branch)',
         'bulkUploadMenuItems' => 'Bulk Upload Menu Items',
         'uploadFile' => 'Upload File',
         'dragDropFile' => 'Drag and drop your CSV or Excel file here, or click to browse',

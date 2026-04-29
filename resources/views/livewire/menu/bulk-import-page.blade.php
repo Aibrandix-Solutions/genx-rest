@@ -75,6 +75,10 @@
                                 <span class="text-xs text-gray-600 dark:text-gray-400">{{ __('modules.menu.itemDescription') }}</span>
                             </div>
                             <div class="flex items-center space-x-2 p-1.5 bg-gray-50 dark:bg-gray-700 rounded">
+                                <code class="bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded text-xs font-mono">item_code</code>
+                                <span class="text-xs text-gray-600 dark:text-gray-400">{{ __('modules.menu.itemCode') }} ({{ __('app.optional') }}; {{ __('modules.menu.bulkImportItemCodeHint') }})</span>
+                            </div>
+                            <div class="flex items-center space-x-2 p-1.5 bg-gray-50 dark:bg-gray-700 rounded">
                                 <code class="bg-gray-200 dark:bg-gray-600 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 rounded text-xs font-mono">type</code>
                                 <span class="text-xs text-gray-600 dark:text-gray-400">{{ __('modules.menu.veg') }}/{{ __('modules.menu.non-veg') }}/{{ __('modules.menu.egg') }}</span>
                             </div>
@@ -358,6 +362,7 @@
                             <select wire:model.live="columnMapping.{{ $header }}" class="block w-full text-xs border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded shadow-sm focus:ring-blue-500 focus:border-blue-500">
                                 <option value="">{{ __('app.ignore') }}</option>
                                 <option value="item_name" {{ $columnMapping[$header] === 'item_name' ? 'selected' : '' }}>{{ __('modules.menu.itemName') }}</option>
+                                <option value="item_code" {{ $columnMapping[$header] === 'item_code' ? 'selected' : '' }}>{{ __('modules.menu.itemCode') }}</option>
                                 <option value="category_name" {{ $columnMapping[$header] === 'category_name' ? 'selected' : '' }}>{{ __('modules.menu.itemCategory') }}</option>
                                 <option value="menu_name" {{ $columnMapping[$header] === 'menu_name' ? 'selected' : '' }}>{{ __('modules.menu.menuName') }}</option>
                                 <option value="price" {{ $columnMapping[$header] === 'price' ? 'selected' : '' }}>{{ __('modules.menu.setPrice') }}</option>

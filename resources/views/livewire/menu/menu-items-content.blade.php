@@ -7,11 +7,17 @@
             </div>
             <div class="items-center justify-between block sm:flex ">
                 <div class="flex items-center mb-4 sm:mb-0">
-                    <form class="ltr:pr-3 rtl:pl-3 " action="#" method="GET">
+                    <form class="ltr:pr-3 rtl:pl-3 flex flex-wrap items-end gap-2 sm:gap-3" action="#" method="GET">
                         <label for="products-search" class="sr-only">Search</label>
                         <div class="relative w-48 mt-1 sm:w-64 xl:w-96">
                             <x-input id="menu_name" class="block mt-1 w-full" type="text" placeholder="{{ __('placeholders.searchMenuItems') }}" wire:model.live.debounce.500ms="search"  />
                         </div>
+                        <label for="menu_items_per_page" class="sr-only">@lang('app.perPage')</label>
+                        <select id="menu_items_per_page" wire:model.live="perPage" class="mt-1 ms-0 sm:ms-3 block w-28 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm">
+                            @foreach ([10, 20, 30, 50,100,200] as $n)
+                                <option value="{{ $n }}">{{ $n }} @lang('app.items')</option>
+                            @endforeach
+                        </select>
                     </form>
 
                     <x-secondary-button wire:click="$dispatch('showMenuItemFilters')">
@@ -49,7 +55,7 @@
         </div>
     </div>
 
-    <livewire:menu.menu-items :search='$search' key='menu-item-{{ microtime() }}' />
+    <livewire:menu.menu-items :search="$search" :per-page="$perPage" key='menu-item-{{ microtime() }}' />
 
 
 </div>

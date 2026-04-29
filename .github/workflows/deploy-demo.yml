@@ -171,6 +171,13 @@ jobs:
             # Install composer if missing
             if ! command -v composer >/dev/null 2>&1; then
               php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+              EXPECTED_SIG="$(curl -s https://composer.github.io/installer.sig)"
+              ACTUAL_SIG="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
+              if [ "$EXPECTED_SIG" != "$ACTUAL_SIG" ]; then
+                echo 'ERROR: Invalid Composer installer signature' >&2
+                rm composer-setup.php
+                exit 1
+              fi
               php composer-setup.php --install-dir=$HOME/bin --filename=composer
               rm composer-setup.php
               export PATH="$HOME/bin:$PATH"
