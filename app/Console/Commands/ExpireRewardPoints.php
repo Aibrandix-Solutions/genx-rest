@@ -20,7 +20,16 @@ class ExpireRewardPoints extends Command
             ->whereNotNull('expires_at')
             ->where('expires_at', '<=', now())
             ->where('points', '>', 0)
-            ->get();
+            ->get()
+            ->filter(function (RewardTransaction $earn) {
+                $alreadyExpired = (int) RewardTransaction::query()
+                    ->where('type', 'expire')
+                    ->where('meta->source_reward_transaction_id', $earn->id)
+                    ->get()
+                    ->sum(fn (RewardTransaction $t) => abs((int) $t->points));
+
+                return $earn->points > $alreadyExpired;
+            });
 
         if ($expiredTransactions->isEmpty()) {
             $this->info('No expired reward points found.');
@@ -33,35 +42,44 @@ class ExpireRewardPoints extends Command
         foreach ($expiredTransactions as $transaction) {
             try {
                 DB::transaction(function () use ($transaction, &$totalExpired, &$customersAffected) {
+                    $alreadyExpired = (int) RewardTransaction::query()
+                        ->where('type', 'expire')
+                        ->where('meta->source_reward_transaction_id', $transaction->id)
+                        ->get()
+                        ->sum(fn (RewardTransaction $t) => abs((int) $t->points));
+
+                    $remainingEarnPoints = max(0, (int) $transaction->points - $alreadyExpired);
+                    if ($remainingEarnPoints <= 0) {
+                        return;
+                    }
+
                     $balance = RewardBalance::getForCustomer(
                         $transaction->customer_id,
                         $transaction->restaurant_id
                     );
 
-                    if ($balance && $balance->points_balance > 0) {
-                        $pointsToExpire = min($transaction->points, $balance->points_balance);
+                    if ($balance && $balance->available_points > 0) {
+                        $pointsToExpire = min($remainingEarnPoints, $balance->available_points);
 
                         if ($pointsToExpire > 0) {
-                            // Create expire transaction
+                            $orderRef = $transaction->order_id ?: '—';
                             RewardTransaction::create([
                                 'customer_id' => $transaction->customer_id,
                                 'restaurant_id' => $transaction->restaurant_id,
                                 'order_id' => $transaction->order_id,
                                 'type' => 'expire',
                                 'points' => -$pointsToExpire,
-                                'description' => "Expired {$pointsToExpire} points from order #{$transaction->order_id}",
+                                'description' => "Expired {$pointsToExpire} points (earn txn #{$transaction->id}, order #{$orderRef})",
+                                'meta' => [
+                                    'source_reward_transaction_id' => $transaction->id,
+                                ],
                             ]);
 
-                            // Deduct from balance
                             $balance->deductPoints($pointsToExpire);
                             $totalExpired += $pointsToExpire;
                             $customersAffected++;
                         }
                     }
-
-                    // Mark the original earn transaction as expired by zeroing its points
-                    // (keeps the historical record but prevents double-expiry)
-                    $transaction->update(['points' => 0]);
                 });
             } catch (\Exception $e) {
                 Log::error('Error expiring reward points for transaction ' . $transaction->id . ': ' . $e->getMessage());

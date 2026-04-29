@@ -201,6 +201,7 @@ return [
         'Payment Accounts' => 'Payment Accounts',
 
         'Reward Point' => 'Loyalty Program',
+        'Redeem Reward Points' => 'Redeem reward points (POS)',
     ],
 
 

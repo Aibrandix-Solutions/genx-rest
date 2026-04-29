@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BranchPaymentAccountSetting;
 use App\Models\ComboPack;
+use App\Models\Customer;
 use App\Models\DeliveryPlatform;
 use App\Models\Kot;
 use App\Models\KotItem;
@@ -17,10 +18,13 @@ use App\Models\OrderExtra;
 use App\Models\OrderItem;
 use App\Models\OrderTax;
 use App\Models\OrderType;
+use App\Models\RewardSetting;
+use App\Models\RewardTransaction;
 use App\Models\Table;
 use App\Models\TableSession;
 use App\Models\Tax;
 use App\Services\Pos\BillSecondaryActionResolver;
+use App\Services\RewardPointsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -582,8 +586,8 @@ class PosVueOrderController extends Controller
                     'table_id' => $resolvedTableId,
                     'sub_total' => 0,
                     'total' => 0,
-                    'reward_point_discount' => ! empty($validated['reward_point_discount']) ? (float) $validated['reward_point_discount'] : null,
-                    'reward_points_redeemed' => ! empty($validated['reward_points_redeemed']) ? (int) $validated['reward_points_redeemed'] : null,
+                    'reward_point_discount' => null,
+                    'reward_points_redeemed' => null,
                     'order_type' => $orderTypeValue,
                     'order_type_id' => $orderType?->id,
                     'custom_order_type_name' => $orderType?->order_type_name,
@@ -848,8 +852,47 @@ class PosVueOrderController extends Controller
 
             $order->refresh();
             $discountAmount = (float) ($order->discount_amount ?? 0);
-            $rewardPointDiscount = (float) ($validated['reward_point_discount'] ?? $order->reward_point_discount ?? 0);
-            $rewardPointsRedeemed = (int) ($validated['reward_points_redeemed'] ?? $order->reward_points_redeemed ?? 0);
+
+            $rewardPointDiscount = 0.0;
+            $rewardPointsRedeemed = 0;
+            $customerIdForReward = isset($validated['customer_id']) ? (int) $validated['customer_id'] : null;
+
+            if ($action === 'bill' && $customerIdForReward) {
+                $existingRedeem = RewardTransaction::query()
+                    ->where('order_id', $order->id)
+                    ->where('type', 'redeem')
+                    ->first();
+
+                if ($existingRedeem) {
+                    $rewardPointsRedeemed = abs((int) $existingRedeem->points);
+                    $rewardPointDiscount = (float) ($existingRedeem->amount_value ?? 0);
+                } elseif (
+                    in_array('Reward Point', restaurant_modules())
+                    && RewardSetting::getForRestaurant($restaurant->id)->enable_reward_point
+                    && user_can('Redeem Reward Points')
+                ) {
+                    $requestedPoints = (int) ($validated['reward_points_redeemed'] ?? 0);
+                    if ($requestedPoints > 0) {
+                        $rewardCustomer = Customer::find($customerIdForReward);
+                        if ($rewardCustomer) {
+                            $rewardService = app(RewardPointsService::class);
+                            $subtotalForRedeem = round($subtotal, 2);
+                            $maxAllowed = $rewardService->calculateMaxRedeemablePoints(
+                                $rewardCustomer,
+                                (int) $restaurant->id,
+                                $subtotalForRedeem
+                            );
+                            $rewardPointsRedeemed = min($requestedPoints, $maxAllowed);
+                            if ($rewardPointsRedeemed > 0) {
+                                $rewardPointDiscount = $rewardService->calculateDiscountFromPoints(
+                                    $rewardPointsRedeemed,
+                                    (int) $restaurant->id
+                                );
+                            }
+                        }
+                    }
+                }
+            }
 
             $total = round($subtotal + $extrasTotal + $totalTax + $deliveryFee - $discountAmount - $rewardPointDiscount, 2);
             $total = max(0, $total);
@@ -862,17 +905,19 @@ class PosVueOrderController extends Controller
                 'reward_points_redeemed' => $rewardPointsRedeemed > 0 ? $rewardPointsRedeemed : null,
             ]);
 
-            // Execute reward points redemption at billing time
-            if ($action === 'bill' && $rewardPointsRedeemed > 0 && ($validated['customer_id'] ?? null)) {
-                try {
-                    $rewardCustomer = Customer::find((int) $validated['customer_id']);
-                    $freshOrder = $order->fresh();
-                    if ($rewardCustomer && $freshOrder) {
-                        $rewardService = app(\App\Services\RewardPointsService::class);
-                        $rewardService->redeemPoints($freshOrder, $rewardCustomer, $rewardPointsRedeemed);
+            if ($action === 'bill' && $rewardPointsRedeemed > 0 && $customerIdForReward) {
+                $hasRedeem = RewardTransaction::query()
+                    ->where('order_id', $order->id)
+                    ->where('type', 'redeem')
+                    ->exists();
+
+                if (! $hasRedeem) {
+                    $rewardCustomer = Customer::find($customerIdForReward);
+                    if (! $rewardCustomer) {
+                        throw new \RuntimeException(__('Customer not found for reward redemption.'));
                     }
-                } catch (\Exception $e) {
-                    \Illuminate\Support\Facades\Log::error('Error redeeming reward points at billing: ' . $e->getMessage());
+                    $rewardService = app(RewardPointsService::class);
+                    $rewardService->redeemPoints($order->fresh(), $rewardCustomer, $rewardPointsRedeemed);
                 }
             }
 

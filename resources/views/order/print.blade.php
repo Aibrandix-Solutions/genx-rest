@@ -466,6 +466,13 @@
                 </div>
             @endif
 
+            @if ($order->reward_point_discount > 0 && in_array('Reward Point', restaurant_modules()))
+                <div class="summary-row">
+                    <span>@lang('modules.reward.discountFromPoints') ({{ $order->reward_points_redeemed }} pts):</span>
+                    <span>-{{ currency_format($order->reward_point_discount, restaurant()->currency_id) }}</span>
+                </div>
+            @endif
+
             @foreach ($order->charges as $item)
             <div class="summary-row">
                 <span>{{ $item->charge->charge_name }}
@@ -553,6 +560,13 @@
                 <span>@lang('modules.order.total'):</span>
                 <span>{{ currency_format($order->total, restaurant()->currency_id) }}</span>
             </div>
+
+            @if ($order->reward_points_earned > 0 && in_array('Reward Point', restaurant_modules()))
+                <div class="summary-row">
+                    <span>@lang('modules.reward.pointsAwarded'):</span>
+                    <span>+{{ $order->reward_points_earned }} pts</span>
+                </div>
+            @endif
 
         </div>
 

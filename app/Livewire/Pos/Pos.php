@@ -3698,6 +3698,15 @@ class Pos extends Component
                     }
                 } catch (\Exception $e) {
                     Log::error('Error redeeming reward points at billing: ' . $e->getMessage());
+                    // Revert reward fields on failure to maintain consistency
+                    Order::where('id', $order->id)->update([
+                        'reward_point_discount' => null,
+                        'reward_points_redeemed' => null,
+                    ]);
+                    $this->rewardPointDiscount = 0;
+                    $this->rewardPointsRedeemed = 0;
+                    // Recalculate total without reward discount
+                    $this->calculateTotal();
                 }
             }
 

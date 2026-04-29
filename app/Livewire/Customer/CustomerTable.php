@@ -25,7 +25,7 @@ class CustomerTable extends Component
     public $showPaymentModal = false;
     public $showLedgerModal = false;
     public $showSalesModal = false;
-
+    public $showRewardPointsModal = false;
     protected $listeners = ['refreshCustomers' => '$refresh', 'reloadPage' => '$refresh'];
 
     #[On('refreshCustomers')]
@@ -58,6 +58,12 @@ class CustomerTable extends Component
     {
         $this->customer = Customer::findOrFail($id);
         $this->showPaymentModal = true;
+    }
+
+    public function showCustomerRewardPoints($id)
+    {
+        $this->customer = Customer::findOrFail($id);
+        $this->showRewardPointsModal = true;
     }
 
     public function showCustomerLedger($id)
@@ -135,16 +141,20 @@ class CustomerTable extends Component
         }
 
         $perPage = in_array((int)$this->perPage, [10, 20, 50, 100, 200]) ? (int)$this->perPage : 10;
-        
-        if (in_array('Reward Point', restaurant_modules())) {
-            $query->with(['rewardBalance' => function ($q) {
-                $q->where('restaurant_id', restaurant()->id);
+
+        $restaurant = restaurant();
+
+        if (in_array('Reward Point', restaurant_modules()) && $restaurant) {
+            $query->with(['rewardBalance' => function ($q) use ($restaurant) {
+                $q->where('restaurant_id', $restaurant->id);
             }]);
         }
 
         $customers = $query->orderBy('id', 'desc')->paginate($perPage);
 
-        $rewardSettings = \App\Models\RewardSetting::getForRestaurant(restaurant()->id);
+        $rewardSettings = $restaurant
+            ? \App\Models\RewardSetting::getForRestaurant($restaurant->id)
+            : null;
 
         return view('livewire.customer.customer-table', [
             'customers' => $customers,

@@ -34,7 +34,7 @@ class CustomerRewardPoints extends Component
         $this->settings = RewardSetting::getForRestaurant(restaurant()->id);
     }
 
-    public function adjustPoints()
+    public function saveAdjustment()
     {
         $this->validate([
             'adjustPoints' => 'required|integer',

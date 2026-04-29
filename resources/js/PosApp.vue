@@ -65,6 +65,7 @@
                 :order-note="orderNote"
                 :reward-point-discount="rewardPointDiscount"
                 :reward-points-redeemed="rewardPointsRedeemed"
+                :reward-points-earned="rewardPointsEarned"
                 :reward-points-available="rewardPointsAvailable"
                 :reward-display-name="rewardDisplayName"
                 :reward-settings-enabled="rewardSettingsEnabled"
@@ -315,6 +316,7 @@ const customExtras = ref([]);
 // Reward Points state
 const rewardPointDiscount = ref(0);
 const rewardPointsRedeemed = ref(0);
+const rewardPointsEarned = ref(0);
 const rewardPointsAvailable = ref(0);
 const rewardDisplayName = ref('Reward');
 const rewardSettingsEnabled = ref(false);
@@ -1285,6 +1287,19 @@ const handleRemoveRewardRedemption = () => {
     rewardPointDiscount.value = 0;
 };
 
+/** Reset Vue POS reward refs to defaults (new order / customer change / cart clear). */
+const resetRewardState = () => {
+    rewardPointDiscount.value = 0;
+    rewardPointsRedeemed.value = 0;
+    rewardPointsEarned.value = 0;
+    rewardPointsAvailable.value = 0;
+    rewardDisplayName.value = "Reward";
+    rewardSettingsEnabled.value = false;
+    rewardMaxRedeemable.value = 0;
+    rewardAmountPerPoint.value = 1;
+    canRedeemRewardPoints.value = false;
+};
+
 /**
  * Fetch reward points balance from the API when a customer is selected.
  * Also loads bootstrap-level reward settings for display_name, conversion rate, etc.
@@ -1340,6 +1355,20 @@ const syncRewardState = async (customerIdOverride = null) => {
         canRedeemRewardPoints.value = false;
     }
 };
+
+let rewardBalanceDebounce = null;
+watch(
+    cartItems,
+    () => {
+        if (rewardBalanceDebounce) {
+            clearTimeout(rewardBalanceDebounce);
+        }
+        rewardBalanceDebounce = setTimeout(() => {
+            syncRewardState();
+        }, 320);
+    },
+    { deep: true }
+);
 
 // Save order number to localStorage
 const saveOrderNumberToStorage = (orderNum) => {
@@ -1638,6 +1667,7 @@ const clearCartAfterSave = () => {
     currentTable.value = "";
     currentTableId.value = null;
     calculateTaxes();
+    resetRewardState();
 };
 
 const handleSaveOrder = async (...actions) => {
@@ -2074,6 +2104,7 @@ const handleSaveCustomer = async (customerData) => {
     const previousAddress = deliveryAddress.value;
 
     applyCustomerState(customerData);
+    resetRewardState();
 
     try {
         if (activeOrderId) {
@@ -2092,6 +2123,7 @@ const handleSaveCustomer = async (customerData) => {
         customerId.value = previousCustomerId;
         customerPhone.value = previousPhone;
         deliveryAddress.value = previousAddress;
+        syncRewardState(previousCustomerId);
 
         const message = error?.response?.data?.message || "Failed to update customer on order.";
         console.error("Error updating customer on order:", error);
@@ -2111,11 +2143,7 @@ const handleRemoveCustomer = async () => {
     deliveryAddress.value = "";
     clearCustomerFromStorage();
 
-    // Clear reward state when customer is removed
-    handleRemoveRewardRedemption();
-    rewardPointsAvailable.value = 0;
-    rewardMaxRedeemable.value = 0;
-    canRedeemRewardPoints.value = false;
+    resetRewardState();
 
     // Sync removal to backend if editing an existing order
     const activeOrderId = resolveActiveOrderId();
@@ -2644,6 +2672,7 @@ const applyOrderPayload = (payload, activeOrderId) => {
     // Restore reward state from server order data
     rewardPointDiscount.value = Number(payload.reward_point_discount || 0);
     rewardPointsRedeemed.value = Number(payload.reward_points_redeemed || 0);
+    rewardPointsEarned.value = Number(payload.reward_points_earned || 0);
     kotGroups.value = Array.isArray(payload.kots) ? payload.kots : [];
     deliveryAddress.value = payload.delivery_address || payload.customer?.delivery_address || payload.customer?.address || "";
     customerPhone.value = payload.customer_phone || "";
@@ -2794,6 +2823,7 @@ const applyOrderPayload = (payload, activeOrderId) => {
     orderId.value = String(activeOrderId);
 
     console.log("Order data loaded successfully:", payload);
+    syncRewardState(customerId.value || customer.value?.id || null);
 };
 
 const applySelectedTable = async (tableCode, tableId, targetActiveOrderId = null) => {
