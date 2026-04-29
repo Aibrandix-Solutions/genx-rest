@@ -14,16 +14,21 @@ use Illuminate\Support\Facades\Log;
 class RewardPointsService
 {
     /**
-     * Resolve the restaurant ID for an order
+     * Resolve the restaurant ID for reward operations on an order.
+     *
+     * Orders are branch-scoped ({@see Order::$branch_id}, {@see HasBranch}); earn/redeem
+     * uses restaurant-scoped rows ({@see RewardBalance}, {@see RewardTransaction}).
+     * Prefer the order’s own restaurant_id when present, else the branch’s restaurant_id
+     * (same pattern as {@see OrderObserver} loading branch.restaurant), then session.
      */
     protected function getRestaurantId(Order $order): ?int
     {
         $restaurantId = $order->restaurant_id;
-        
+
         if (is_null($restaurantId) && $order->branch_id) {
             $restaurantId = $order->branch->restaurant_id;
         }
-        
+
         return $restaurantId ?? restaurant()?->id;
     }
     /**
@@ -272,7 +277,7 @@ class RewardPointsService
         $discountAmount = $this->calculateDiscountFromPoints($points, $restaurantId);
 
         try {
-            DB::transaction(function () use ($order, $customer, $points, $discountAmount, $settings, $balance) {
+            DB::transaction(function () use ($order, $customer, $points, $discountAmount, $settings, $balance, $restaurantId) {
                 // Create redemption transaction
                 // Resolve currency safely (restaurant() helper may be null in API/queue context)
                 $currencyId = null;
@@ -365,7 +370,8 @@ class RewardPointsService
         if (!$restaurantId) {
             throw new \InvalidArgumentException('Restaurant ID is required for point adjustment');
         }
-        $balance = RewardBalance::getForCustomer($customer->id, $restaurantId);        $settings = RewardSetting::getForRestaurant($restaurantId);
+        $balance = RewardBalance::getForCustomer($customer->id, $restaurantId);
+        $settings = RewardSetting::getForRestaurant($restaurantId);
 
         return DB::transaction(function () use ($customer, $points, $description, $restaurantId, $balance, $settings) {
             $transaction = RewardTransaction::create([

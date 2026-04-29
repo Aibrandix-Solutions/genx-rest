@@ -857,7 +857,11 @@ class PosVueOrderController extends Controller
             $rewardPointsRedeemed = 0;
             $customerIdForReward = isset($validated['customer_id']) ? (int) $validated['customer_id'] : null;
 
-            if ($action === 'bill' && $customerIdForReward) {
+            // Legacy parity (Pos.php::saveOrder): persist reward discount on order totals for
+            // both KOT and bill. Ledger redemption (RewardTransaction + balance) runs on bill only.
+            $applyRewardPricing = $customerIdForReward && in_array($action, ['bill', 'kot'], true);
+
+            if ($applyRewardPricing) {
                 $existingRedeem = RewardTransaction::query()
                     ->where('order_id', $order->id)
                     ->where('type', 'redeem')

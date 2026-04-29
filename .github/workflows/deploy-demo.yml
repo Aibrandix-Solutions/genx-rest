@@ -1,8 +1,8 @@
-name: Deploy Genx Restaurant (demo.digipartner.lk via SFTP)
+name: Deploy Restaurant (demo.digipartner.lk via SFTP)
 
 on:
   push:
-    branches: [] # Manual merge to this branch triggers deploy
+    branches: [old] # Manual merge to this branch triggers deploy
   workflow_dispatch:
 
 jobs:
