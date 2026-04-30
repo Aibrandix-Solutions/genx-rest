@@ -98,6 +98,32 @@ class PosBootstrapService
             'pickup_days_range' => $restaurant?->pickup_days_range ?? 1,
             'restaurant_id' => $restaurant?->id,
             'branch_id' => $branch?->id,
+
+            // Reward Points settings for POS
+            'reward_settings' => $this->buildRewardSettings($restaurant),
+        ];
+    }
+
+    private function buildRewardSettings($restaurant): ?array
+    {
+        if (! $restaurant?->id) {
+            return null;
+        }
+
+        $settings = \App\Models\RewardSetting::getForRestaurant($restaurant->id);
+
+        if (!in_array('Reward Point', restaurant_modules()) || !$settings || !$settings->enable_reward_point) {
+            return null;
+        }
+
+        return [
+            'enabled' => true,
+            'display_name' => $settings->reward_point_display_name ?? 'Reward',
+            'amount_spend_for_unit_point' => (float) ($settings->amount_spend_for_unit_point ?? 1),
+            'redeem_amount_per_unit_point' => (float) ($settings->redeem_amount_per_unit_point ?? 1),
+            'minimum_order_total_to_redeem' => (float) ($settings->minimum_order_total_to_redeem ?? 0),
+            'minimum_redeem_point' => (int) ($settings->minimum_redeem_point ?? 0),
+            'maximum_redeem_point_per_order' => $settings->maximum_redeem_point_per_order ? (int) $settings->maximum_redeem_point_per_order : null,
         ];
     }
 

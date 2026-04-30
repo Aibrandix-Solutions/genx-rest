@@ -279,6 +279,7 @@ class PosController extends Controller
         $payload['modules'] = array_values(restaurant_modules() ?? []);
         $payload['hide_menu_item_image_on_pos'] = (bool) (restaurant()->hide_menu_item_image_on_pos ?? false);
         $payload['allow_custom_order_extras'] = (bool) (restaurant()->allow_custom_order_extras ?? false);
+        $payload['reward_settings'] = $data['reward_settings'] ?? null;
         $payload['pos_preferences'] = [
             'default_order_type_id' => (int) (auth()->user()?->default_order_type_id ?? restaurant()->default_order_type_id ?? 0),
             'selected_delivery_app' => null,
@@ -481,6 +482,8 @@ class PosController extends Controller
                 'note' => (string) ($order->note ?? ''),
                 'sub_total' => (float) ($order->sub_total ?? 0),
                 'total' => (float) ($order->total ?? 0),
+                'reward_point_discount' => (float) ($order->reward_point_discount ?? 0),
+                'reward_points_redeemed' => (int) ($order->reward_points_redeemed ?? 0),
                 'table_id' => $order->table_id ? (int) $order->table_id : null,
                 'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
                 'lines' => $lines,

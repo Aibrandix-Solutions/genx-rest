@@ -352,9 +352,9 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div class="flex flex-col rounded overflow-visible">
+        <div class="flex flex-col rounded overflow-visible max-h-[calc(2*4.5rem+3rem)] overflow-y-auto" style="max-height: 180px;">
             <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
-                <thead class="bg-gray-100 dark:bg-gray-700">
+                <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
                     <tr>
                         <th scope="col"
                             class="p-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 rtl:text-right ltr:text-left">
@@ -877,6 +877,29 @@
                         </svg>
                         Add Discount
                     </button>
+
+                    <!-- Redeem Reward Points Button -->
+                    <button
+                        v-if="canRedeemRewardPoints && rewardSettingsEnabled && customer?.id && rewardPointsAvailable > 0 && rewardPointDiscount <= 0"
+                        class="text-left inline-flex items-center px-3 py-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-600 rounded-lg font-semibold text-sm text-amber-700 dark:text-amber-300 shadow-sm hover:bg-amber-100 dark:hover:bg-amber-900/50 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 transition ease-in-out duration-150 ml-2"
+                        @click="redeemCustomPoints = 0; showRewardRedeemModal = true">
+                        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        Redeem {{ rewardDisplayName }}
+                        <span class="ml-1 text-xs bg-amber-200 dark:bg-amber-800 px-1.5 py-0.5 rounded-full">
+                            {{ rewardPointsAvailable }} pts
+                        </span>
+                    </button>
+
+                    <!-- Points Balance Badge (when customer selected and reward enabled) -->
+                    <div v-if="rewardSettingsEnabled && customer && rewardPointsAvailable > 0 && rewardPointDiscount > 0"
+                        class="inline-flex items-center px-3 py-2 bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-amber-700 dark:text-amber-300 ml-2">
+                        <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                        </svg>
+                        {{ rewardPointsAvailable }} pts remaining
+                    </div>
                 </div>
 
                 <div class="flex justify-between text-gray-500 text-sm dark:text-neutral-400">
@@ -954,6 +977,31 @@
                         <div>
                             -{{ currencySymbol
                             }}{{ formatPrice(discountAmount) }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reward Points Discount Line -->
+                <div v-if="rewardPointDiscount && rewardPointDiscount > 0">
+                    <div class="flex justify-between text-amber-500 text-sm dark:text-amber-400">
+                        <div class="inline-flex items-center gap-x-1">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                            </svg>
+                            {{ rewardDisplayName }} Points ({{ rewardPointsRedeemed }} pts)
+                            <span class="text-red-500 hover:scale-110 active:scale-100 cursor-pointer"
+                                @click="$emit('remove-reward-redemption')">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
+                                    xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd"
+                                        d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                                        clip-rule="evenodd" />
+                                </svg>
+                            </span>
+                        </div>
+                        <div>
+                            -{{ currencySymbol
+                            }}{{ formatPrice(rewardPointDiscount) }}
                         </div>
                     </div>
                 </div>
@@ -1061,6 +1109,19 @@
                 <div class="flex justify-between font-medium dark:text-neutral-300">
                     <div>Total</div>
                     <div>{{ currencySymbol }} {{ formatPrice(total) }}</div>
+                </div>
+
+                <!-- Reward Points Earned Line -->
+                <div v-if="orderStatus === 'paid' && rewardPointsEarned > 0" class="flex justify-between items-center text-sm mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-gray-700">
+                    <div class="text-amber-600 dark:text-amber-500 font-medium inline-flex items-center gap-1.5">
+                        <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                        </svg>
+                        Points Awarded
+                    </div>
+                    <div class="font-medium text-amber-600 dark:text-amber-500">
+                        +{{ rewardPointsEarned }} pts
+                    </div>
                 </div>
             </div>
 
@@ -1250,6 +1311,88 @@
 
         <!-- Discount Modal -->
         <DiscountModal :show="showDiscountModal" @close="showDiscountModal = false" @save="handleApplyDiscount" />
+
+        <!-- Reward Points Redeem Modal -->
+        <div v-if="showRewardRedeemModal" class="jetstream-modal fixed inset-0 overflow-y-auto px-4 py-6 sm:px-0 z-50" @click.self="showRewardRedeemModal = false">
+            <div class="fixed inset-0 transform transition-all bg-gray-500 dark:bg-gray-900 opacity-75" @click="showRewardRedeemModal = false"></div>
+            <div class="mb-6 bg-white dark:bg-gray-800 rounded-lg overflow-hidden shadow-xl transform transition-all sm:w-full sm:max-w-lg sm:mx-auto overflow-y-auto">
+                <div class="px-6 py-4">
+                    <div class="text-lg font-medium text-gray-900 dark:text-gray-100">
+                        Redeem {{ rewardDisplayName }} Points
+                    </div>
+                    <div class="mt-4 text-sm text-gray-600 dark:text-gray-400">
+                        <p class="mb-4">Available: <span class="font-semibold text-skin-base">{{ rewardPointsAvailable }}</span> points</p>
+                        
+                        <!-- Quick Pick Buttons -->
+                        <div class="mb-4">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 block">
+                                Quick Select
+                            </label>
+                            <div class="grid grid-cols-4 gap-2">
+                                <button v-for="pct in [25, 50, 75, 100]" :key="pct"
+                                    @click="redeemCustomPoints = Math.min(Math.floor(rewardMaxRedeemable * pct / 100), rewardMaxRedeemable)"
+                                    class="px-3 py-2 text-sm font-medium rounded-lg border transition-all duration-200"
+                                    :class="redeemCustomPoints === Math.min(Math.floor(rewardMaxRedeemable * pct / 100), rewardMaxRedeemable)
+                                        ? 'bg-skin-base text-white border-skin-base shadow-md dark:bg-skin-base dark:border-skin-base'
+                                        : 'bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:border-skin-base hover:text-skin-base dark:hover:border-skin-base dark:hover:text-skin-base'">
+                                    {{ pct }}%
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Custom Input -->
+                        <div class="mb-4">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+                                Custom Points
+                            </label>
+                            <input type="number" v-model.number="redeemCustomPoints"
+                                :max="rewardMaxRedeemable" :min="0" step="1"
+                                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-700 rounded-md shadow-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-300 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:focus:ring-gray-600 focus:border-transparent text-sm"
+                                placeholder="Enter points to redeem" />
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Max redeemable: {{ rewardMaxRedeemable }} points
+                            </p>
+                        </div>
+
+                        <!-- Preview -->
+                        <div v-if="redeemCustomPoints > 0"
+                            class="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 border border-gray-200 dark:border-gray-700 mt-4">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-gray-600 dark:text-gray-400">Points to redeem</span>
+                                <span class="font-semibold text-gray-800 dark:text-gray-200">{{ redeemCustomPoints }}</span>
+                            </div>
+                            <div class="flex justify-between text-sm mt-1">
+                                <span class="text-gray-600 dark:text-gray-400">Discount value</span>
+                                <span class="font-semibold text-green-600 dark:text-green-400">
+                                    {{ currencySymbol }}{{ formatPrice(redeemCustomPoints * rewardAmountPerPoint) }}
+                                </span>
+                            </div>
+                            <div class="flex justify-between text-sm mt-1">
+                                <span class="text-gray-600 dark:text-gray-400">Remaining balance</span>
+                                <span class="text-gray-800 dark:text-gray-200">{{ rewardPointsAvailable - redeemCustomPoints }} pts</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div class="flex flex-row justify-end px-6 py-4 bg-gray-100 dark:bg-gray-800 text-end">
+                    <div class="flex justify-end gap-2 w-full">
+                        <button type="button"
+                            class="button-cancel inline-flex justify-center text-gray-500 items-center bg-white hover:bg-gray-100 focus:ring-4 focus:outline-none focus:ring-blue-300 rounded-lg border border-gray-200 text-sm font-medium px-3 py-2 hover:text-gray-900 focus:z-10 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-500 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-600"
+                            @click="showRewardRedeemModal = false">
+                            Cancel
+                        </button>
+                        <button type="button"
+                            class="text-white justify-center bg-skin-base hover:bg-skin-base/[.8] sm:w-auto dark:bg-skin-base dark:hover:bg-skin-base/[.8] font-semibold rounded-lg text-sm px-3 py-2 text-center rtl:space-x-reverse disabled:opacity-50 disabled:cursor-not-allowed"
+                            @click="handleApplyRewardRedemption"
+                            :disabled="!redeemCustomPoints || redeemCustomPoints <= 0">
+                            Apply {{ redeemCustomPoints || 0 }} Points
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Table Assignment Modal -->
         <TableAssignmentModal :show="showTableAssignmentModal" @close="showTableAssignmentModal = false"
@@ -1474,6 +1617,43 @@ const props = defineProps({
         type: String,
         default: "",
     },
+    // Reward Points
+    rewardPointDiscount: {
+        type: Number,
+        default: 0,
+    },
+    rewardPointsRedeemed: {
+        type: Number,
+        default: 0,
+    },
+    rewardPointsEarned: {
+        type: Number,
+        default: 0,
+    },
+    rewardPointsAvailable: {
+        type: Number,
+        default: 0,
+    },
+    rewardDisplayName: {
+        type: String,
+        default: 'Reward',
+    },
+    rewardSettingsEnabled: {
+        type: Boolean,
+        default: false,
+    },
+    rewardMaxRedeemable: {
+        type: Number,
+        default: 0,
+    },
+    rewardAmountPerPoint: {
+        type: Number,
+        default: 1,
+    },
+    canRedeemRewardPoints: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits([
@@ -1513,11 +1693,15 @@ const emit = defineEmits([
     "add-custom-extra",
     "remove-custom-extra",
     "update-custom-extra",
+    "apply-reward-redemption",
+    "remove-reward-redemption",
 ]);
 
 const localPax = ref(props.pax);
 const localWaiterId = ref(props.waiterId);
 const showDiscountModal = ref(false);
+const showRewardRedeemModal = ref(false);
+const redeemCustomPoints = ref(0);
 const showOrderTypeDropdown = ref(false);
 const showTableAssignmentModal = ref(false);
 const formattedOrderNumber = ref(props.orderNumber || "");
@@ -2424,7 +2608,10 @@ const total = computed(() => {
         calculatedTotal -= props.discountAmount;
     }
 
-    // Add delivery fee
+    // Subtract reward points discount
+    if (props.rewardPointDiscount && props.rewardPointDiscount > 0) {
+        calculatedTotal -= props.rewardPointDiscount;
+    }
     if (props.deliveryFee && props.deliveryFee > 0) {
         calculatedTotal += props.deliveryFee;
     }
@@ -2577,6 +2764,19 @@ const handleApplyDiscount = (discountData, done) => {
         if (typeof done === "function") {
             done(error);
         }
+    }
+};
+
+// Handle reward points redemption
+const handleApplyRewardRedemption = () => {
+    const points = Math.min(
+        Math.max(0, Math.floor(redeemCustomPoints.value)),
+        props.rewardMaxRedeemable
+    );
+    if (points > 0) {
+        emit("apply-reward-redemption", points);
+        showRewardRedeemModal.value = false;
+        redeemCustomPoints.value = 0;
     }
 };
 

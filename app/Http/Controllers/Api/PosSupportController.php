@@ -1306,4 +1306,66 @@ class PosSupportController extends Controller
 
         return null;
     }
+
+    /**
+     * Get customer reward points balance and max redeemable for POS.
+     *
+     * Called when a customer is selected in the Vue POS to populate
+     * the redemption modal with correct limits.
+     */
+    public function customerRewardBalance(Request $request)
+    {
+        abort_if(! in_array('Order', restaurant_modules()), 403);
+
+        $validated = $request->validate([
+            'customer_id' => ['required', 'integer', 'exists:customers,id'],
+            'order_subtotal' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $restaurant = restaurant();
+        abort_if(! $restaurant, 422, 'Restaurant context is required');
+
+        $settings = \App\Models\RewardSetting::getForRestaurant($restaurant->id);
+
+        if (! $settings || ! $settings->enable_reward_point) {
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'enabled' => false,
+                    'available_points' => 0,
+                    'max_redeemable' => 0,
+                    'amount_per_point' => 1,
+                    'display_name' => 'Reward',
+                    'can_redeem' => false,
+                ],
+            ]);
+        }
+
+        $customer = Customer::findOrFail((int) $validated['customer_id']);
+        $balance = \App\Models\RewardBalance::getForCustomer($customer->id, $restaurant->id);
+        $availablePoints = $balance->available_points;
+        $orderSubtotal = (float) ($validated['order_subtotal'] ?? 0);
+
+        $rewardService = app(\App\Services\RewardPointsService::class);
+        $maxRedeemable = $rewardService->calculateMaxRedeemablePoints(
+            $customer,
+            $restaurant->id,
+            $orderSubtotal
+        );
+
+        $canRedeem = user_can('Redeem Reward Points') && $availablePoints > 0 && $maxRedeemable > 0;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'enabled' => true,
+                'available_points' => $availablePoints,
+                'max_redeemable' => $maxRedeemable,
+                'amount_per_point' => (float) ($settings->redeem_amount_per_unit_point ?? 1),
+                'display_name' => $settings->reward_point_display_name ?? 'Reward',
+                'can_redeem' => $canRedeem,
+                'minimum_order_total_to_redeem' => (float) ($settings->minimum_order_total_to_redeem ?? 0),
+            ],
+        ]);
+    }
 }

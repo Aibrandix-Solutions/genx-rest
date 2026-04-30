@@ -98,10 +98,12 @@
                     @class(["inline-block p-4 border-b-2 rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300", 'border-transparent' => ($activeSetting != 'orderSettings'), 'active border-skin-base dark:text-skin-base dark:border-skin-base text-skin-base' => ($activeSetting == 'orderSettings')])>@lang('modules.settings.orderSetting')</a>
             </li>
 
+            @if(in_array('Reward Point', restaurant_modules()))
             <li class="me-2">
                 <a href="{{ route('settings.index').'?tab=rewardPoints' }}" wire:navigate
                     @class(["inline-block p-4 border-b-2 rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300", 'border-transparent' => ($activeSetting != 'rewardPoints'), 'active border-skin-base dark:text-skin-base dark:border-skin-base text-skin-base' => ($activeSetting == 'rewardPoints')])>@lang('modules.settings.rewardPointsSettings')</a>
             </li>
+            @endif
 
             <!-- NAV ITEM - CUSTOM MODULES  -->
             @foreach (custom_module_plugins() as $item)

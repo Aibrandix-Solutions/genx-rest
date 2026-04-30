@@ -690,7 +690,7 @@ return [
         'viewHistory' => 'View History',
         'applyPoints' => 'Apply Points',
         'pointsApplied' => 'Points Applied',
-        'discountFromPoints' => 'Discount from Points',
+        'discountFromPoints' => 'Loyalty Discount',
         'insufficientPoints' => 'Insufficient points',
         'pointsAwarded' => 'Points Awarded',
         'pointsRedeemed' => 'Points Redeemed',

@@ -63,6 +63,15 @@
                 :tip-amount="tipAmount"
                 :pickup-date-time="pickupDateTime"
                 :order-note="orderNote"
+                :reward-point-discount="rewardPointDiscount"
+                :reward-points-redeemed="rewardPointsRedeemed"
+                :reward-points-earned="rewardPointsEarned"
+                :reward-points-available="rewardPointsAvailable"
+                :reward-display-name="rewardDisplayName"
+                :reward-settings-enabled="rewardSettingsEnabled"
+                :reward-max-redeemable="rewardMaxRedeemable"
+                :reward-amount-per-point="rewardAmountPerPoint"
+                :can-redeem-reward-points="canRedeemRewardPoints"
                 @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
                 @select-table="handleSelectTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
@@ -87,6 +96,8 @@
                 @add-custom-extra="handleAddCustomExtra"
                 @remove-custom-extra="handleRemoveCustomExtra"
                 @update-custom-extra="handleUpdateCustomExtra"
+                @apply-reward-redemption="handleApplyRewardRedemption"
+                @remove-reward-redemption="handleRemoveRewardRedemption"
                 :order="order" />
         </div>
 
@@ -302,6 +313,16 @@ const orderLifecycleStatus = ref("");
 // when the restaurant setting allow_custom_order_extras is enabled.
 const allowCustomOrderExtras = ref(false);
 const customExtras = ref([]);
+// Reward Points state
+const rewardPointDiscount = ref(0);
+const rewardPointsRedeemed = ref(0);
+const rewardPointsEarned = ref(0);
+const rewardPointsAvailable = ref(0);
+const rewardDisplayName = ref('Reward');
+const rewardSettingsEnabled = ref(false);
+const rewardMaxRedeemable = ref(0);
+const rewardAmountPerPoint = ref(1);
+const canRedeemRewardPoints = ref(false);
 const orderPermissions = ref({
     can_update_order: false,
     can_delete_order: false,
@@ -1250,6 +1271,105 @@ const handleRemoveDiscount = () => {
     discountValue.value = 0;
 };
 
+// Reward Points handlers
+const handleApplyRewardRedemption = (points) => {
+    // Calculate discount locally — the actual redemption transaction
+    // happens server-side when the order is billed (PosVueOrderController::store).
+    const amountPerPoint = rewardAmountPerPoint.value || 1;
+    const discount = Math.round(points * amountPerPoint * 100) / 100;
+
+    rewardPointsRedeemed.value = points;
+    rewardPointDiscount.value = discount;
+};
+
+const handleRemoveRewardRedemption = () => {
+    rewardPointsRedeemed.value = 0;
+    rewardPointDiscount.value = 0;
+};
+
+/** Reset Vue POS reward refs to defaults (new order / customer change / cart clear). */
+const resetRewardState = () => {
+    rewardPointDiscount.value = 0;
+    rewardPointsRedeemed.value = 0;
+    rewardPointsEarned.value = 0;
+    rewardPointsAvailable.value = 0;
+    rewardDisplayName.value = "Reward";
+    rewardSettingsEnabled.value = false;
+    rewardMaxRedeemable.value = 0;
+    rewardAmountPerPoint.value = 1;
+    canRedeemRewardPoints.value = false;
+};
+
+/**
+ * Fetch reward points balance from the API when a customer is selected.
+ * Also loads bootstrap-level reward settings for display_name, conversion rate, etc.
+ */
+const syncRewardState = async (customerIdOverride = null) => {
+    const cid = customerIdOverride || customerId.value || customer.value?.id;
+
+    // Load settings from bootstrap (cached, no API call needed)
+    const bootstrapReward = bootstrapData.value?.reward_settings;
+    if (!bootstrapReward || !bootstrapReward.enabled) {
+        rewardSettingsEnabled.value = false;
+        rewardPointsAvailable.value = 0;
+        rewardMaxRedeemable.value = 0;
+        canRedeemRewardPoints.value = false;
+        return;
+    }
+
+    rewardSettingsEnabled.value = true;
+    rewardDisplayName.value = bootstrapReward.display_name || "Reward";
+    rewardAmountPerPoint.value = Number(bootstrapReward.redeem_amount_per_unit_point || 1);
+
+    if (!cid) {
+        rewardPointsAvailable.value = 0;
+        rewardMaxRedeemable.value = 0;
+        canRedeemRewardPoints.value = false;
+        return;
+    }
+
+    try {
+        const currentSubTotal = cartItems.value.reduce(
+            (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 1),
+            0
+        );
+        const { data } = await axios.get("/api/pos/customer-reward-balance", {
+            params: {
+                customer_id: cid,
+                order_subtotal: currentSubTotal,
+            },
+        });
+
+        if (data?.success && data?.data) {
+            const d = data.data;
+            rewardPointsAvailable.value = d.available_points || 0;
+            rewardMaxRedeemable.value = d.max_redeemable || 0;
+            rewardAmountPerPoint.value = d.amount_per_point || 1;
+            rewardDisplayName.value = d.display_name || "Reward";
+            canRedeemRewardPoints.value = !!d.can_redeem;
+        }
+    } catch (error) {
+        console.error("Error fetching reward balance:", error);
+        rewardPointsAvailable.value = 0;
+        rewardMaxRedeemable.value = 0;
+        canRedeemRewardPoints.value = false;
+    }
+};
+
+let rewardBalanceDebounce = null;
+watch(
+    cartItems,
+    () => {
+        if (rewardBalanceDebounce) {
+            clearTimeout(rewardBalanceDebounce);
+        }
+        rewardBalanceDebounce = setTimeout(() => {
+            syncRewardState();
+        }, 320);
+    },
+    { deep: true }
+);
+
 // Save order number to localStorage
 const saveOrderNumberToStorage = (orderNum) => {
     try {
@@ -1547,6 +1667,7 @@ const clearCartAfterSave = () => {
     currentTable.value = "";
     currentTableId.value = null;
     calculateTaxes();
+    resetRewardState();
 };
 
 const handleSaveOrder = async (...actions) => {
@@ -1665,6 +1786,10 @@ const handleSaveOrder = async (...actions) => {
                     note: String(row?.note || ""),
                 }))
                 : [],
+            // Reward points redemption — sent to server for persistence;
+            // actual balance deduction happens at billing time in PosVueOrderController::store.
+            reward_points_redeemed: rewardPointsRedeemed.value > 0 ? rewardPointsRedeemed.value : null,
+            reward_point_discount: rewardPointDiscount.value > 0 ? rewardPointDiscount.value : null,
         };
 
         console.log("Order data being sent:", {
@@ -1979,6 +2104,7 @@ const handleSaveCustomer = async (customerData) => {
     const previousAddress = deliveryAddress.value;
 
     applyCustomerState(customerData);
+    resetRewardState();
 
     try {
         if (activeOrderId) {
@@ -1989,11 +2115,15 @@ const handleSaveCustomer = async (customerData) => {
 
         clearCustomerFromStorage();
         showAddCustomerModal.value = false;
+
+        // Sync reward points for the newly attached customer
+        syncRewardState(customerData?.id);
     } catch (error) {
         customer.value = previousCustomer;
         customerId.value = previousCustomerId;
         customerPhone.value = previousPhone;
         deliveryAddress.value = previousAddress;
+        syncRewardState(previousCustomerId);
 
         const message = error?.response?.data?.message || "Failed to update customer on order.";
         console.error("Error updating customer on order:", error);
@@ -2012,6 +2142,8 @@ const handleRemoveCustomer = async () => {
     customerPhone.value = "";
     deliveryAddress.value = "";
     clearCustomerFromStorage();
+
+    resetRewardState();
 
     // Sync removal to backend if editing an existing order
     const activeOrderId = resolveActiveOrderId();
@@ -2534,7 +2666,13 @@ const applyOrderPayload = (payload, activeOrderId) => {
         can_delete_order: !!payload.permissions?.can_delete_order,
         can_edit_billed_order: !!payload.permissions?.can_edit_billed_order,
         can_delete_kot_item: !!payload.permissions?.can_delete_kot_item,
+        can_redeem_reward_points: payload.permissions?.can_redeem_reward_points !== false,
     };
+
+    // Restore reward state from server order data
+    rewardPointDiscount.value = Number(payload.reward_point_discount || 0);
+    rewardPointsRedeemed.value = Number(payload.reward_points_redeemed || 0);
+    rewardPointsEarned.value = Number(payload.reward_points_earned || 0);
     kotGroups.value = Array.isArray(payload.kots) ? payload.kots : [];
     deliveryAddress.value = payload.delivery_address || payload.customer?.delivery_address || payload.customer?.address || "";
     customerPhone.value = payload.customer_phone || "";
@@ -2685,6 +2823,7 @@ const applyOrderPayload = (payload, activeOrderId) => {
     orderId.value = String(activeOrderId);
 
     console.log("Order data loaded successfully:", payload);
+    syncRewardState(customerId.value || customer.value?.id || null);
 };
 
 const applySelectedTable = async (tableCode, tableId, targetActiveOrderId = null) => {
@@ -2822,6 +2961,9 @@ onMounted(async () => {
     // This prevents blank page while loadMenuData processes
     isLoading.value = false;
     console.log("POS App loaded successfully");
+
+    // Sync reward points state after initial load
+    syncRewardState();
 });
 
 // Reload menu data when coming back online

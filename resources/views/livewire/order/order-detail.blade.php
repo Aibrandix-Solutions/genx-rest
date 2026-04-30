@@ -617,6 +617,20 @@
                             </div>
                         @endif
 
+                        @if ($order->reward_point_discount > 0 && in_array('Reward Point', restaurant_modules()))
+                            <div class="flex justify-between text-sm text-amber-500 dark:text-amber-400">
+                                <div class="inline-flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                    </svg>
+                                    @lang('modules.reward.discountFromPoints') ({{ $order->reward_points_redeemed }} pts)
+                                </div>
+                                <div>
+                                    -{{ currency_format($order->reward_point_discount, $currencyId) }}
+                                </div>
+                            </div>
+                        @endif
+
                         @foreach ($order->charges as $item)
                             <div class="flex justify-between text-sm text-gray-500 dark:text-gray-400">
                                 <div class="inline-flex items-center gap-x-1">
@@ -727,6 +741,20 @@
                                 {{ currency_format($order->total, $currencyId) }}
                             </div>
                         </div>
+
+                        @if ($order->reward_points_earned > 0 && in_array('Reward Point', restaurant_modules()))
+                            <div class="flex justify-between font-medium text-amber-500 dark:text-amber-400 mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-gray-600">
+                                <div class="inline-flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                    </svg>
+                                    @lang('modules.reward.pointsAwarded')
+                                </div>
+                                <div>
+                                    +{{ $order->reward_points_earned }} pts
+                                </div>
+                            </div>
+                        @endif
 
 
                         <div class="flex justify-between font-medium dark:text-gray-400">

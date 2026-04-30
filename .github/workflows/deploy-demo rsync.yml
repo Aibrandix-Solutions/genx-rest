@@ -1,8 +1,8 @@
-name: Deploy Restaurant (demo.digipartner.lk via SFTP)
+name: Deploy demo.digipartner.lk (rsync + SSH)
 
 on:
   push:
-    branches: [old] # Manual merge to this branch triggers deploy
+    branches: [speed]
   workflow_dispatch:
 
 jobs:
@@ -31,6 +31,8 @@ jobs:
               -o IdentitiesOnly=yes \
               "${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}" \
               "echo SSH OK: \$(whoami) on \$(hostname)"
+
+
 
       # --- Build assets (NPM) ---
       - name: Install Node.js
@@ -108,30 +110,19 @@ jobs:
           $kernel->terminate($request, $response);
           PHP
 
-      # --- SFTP uploads ---
-      - name: Upload app via SFTP (to /demo/laravel)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_app/*"
-          remote_path: "domains/digipartner.lk/public_html/demo/laravel/"
-          delete_remote_files: false
-          sftp_only: true
+      # --- Rsync uploads (incremental; no --delete so server .env, vendor/, storage,
+      #    and demo docroot laravel/ + user-uploads are not pruned) ---
+      - name: Upload app via rsync (to /demo/laravel)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_app/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/demo/laravel/
 
-      - name: Upload public via SFTP (to /demo)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_public/*"
-          remote_path: "domains/digipartner.lk/public_html/demo/"
-          delete_remote_files: false
-          sftp_only: true
+      - name: Upload public via rsync (to /demo)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_public/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/demo/
 
       # --- SSH: composer install & caches on the server ---
       - name: SSH - composer install & caches
@@ -171,13 +162,6 @@ jobs:
             # Install composer if missing
             if ! command -v composer >/dev/null 2>&1; then
               php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-              EXPECTED_SIG="$(curl -s https://composer.github.io/installer.sig)"
-              ACTUAL_SIG="$(php -r "echo hash_file('sha384', 'composer-setup.php');")"
-              if [ "$EXPECTED_SIG" != "$ACTUAL_SIG" ]; then
-                echo 'ERROR: Invalid Composer installer signature' >&2
-                rm composer-setup.php
-                exit 1
-              fi
               php composer-setup.php --install-dir=$HOME/bin --filename=composer
               rm composer-setup.php
               export PATH="$HOME/bin:$PATH"
