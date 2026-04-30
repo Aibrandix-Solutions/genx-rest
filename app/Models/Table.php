@@ -47,6 +47,46 @@ class Table extends BaseModel
         return Attribute::get(fn(): string => asset_url_local_s3('qrcodes/' . $this->getQrCodeFileName()));
     }
 
+    /**
+     * Effective availability derived from the live state of the table.
+     *
+     * Rules:
+     * - `running`  → the table is assigned: it has an active order (kot/billed)
+     *               OR its session is currently locked (manual user-lock or order-lock).
+     *               "Locked" and "running" are the same concept for display purposes.
+     * - `reserved` → no active order / no lock, but the stored column is `reserved`
+     *               (separate concern, driven by the reservation flow).
+     * - `available` → unlocked and unassigned.
+     *
+     * Stale stored `running` values are ignored; a table is only running when the
+     * live state (order or lock) says so. Paid/cancelled orders are historical and
+     * never hold the table (they are not part of `activeOrder`).
+     */
+    public function effectiveAvailableStatus(): Attribute
+    {
+        return Attribute::get(function (): string {
+            $hasActiveOrder = $this->relationLoaded('activeOrder')
+                ? (bool) $this->getRelation('activeOrder')
+                : $this->activeOrder()->exists();
+
+            if ($hasActiveOrder) {
+                return 'running';
+            }
+
+            $session = $this->relationLoaded('tableSession')
+                ? $this->getRelation('tableSession')
+                : $this->tableSession;
+
+            if ($session && $session->isLocked()) {
+                return 'running';
+            }
+
+            $stored = (string) ($this->attributes['available_status'] ?? 'available');
+
+            return $stored === 'reserved' ? 'reserved' : 'available';
+        });
+    }
+
     public function generateQrCode()
     {
         // Generate a new hash to invalidate old QR code links

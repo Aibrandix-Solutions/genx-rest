@@ -19,6 +19,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Validate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -566,24 +567,44 @@ class CreateMenuItem extends Component
 
     private function createMenuItem(): MenuItem
     {
-        // Auto-generate item code if empty
-        if (empty($this->itemCode)) {
+        $userSuppliedCode = trim((string) $this->itemCode) !== '';
+
+        if (! $userSuppliedCode) {
             $this->itemCode = $this->generateItemCode();
         }
 
-        return MenuItem::create([
-            'item_name' => $this->translationNames[$this->globalLocale],
-            'item_code' => $this->itemCode,
-            'price' => $this->hasVariations ? 0 : (float)$this->itemPrice,
-            'item_category_id' => $this->itemCategory,
-            'description' => $this->translationDescriptions[$this->globalLocale],
-            'is_available' => $this->isAvailable,
-            'type' => $this->itemType,
-            'menu_id' => $this->menu,
-            'preparation_time' => $this->preparationTime,
-            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
-            'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : false,
-        ]);
+        $maxAttempts = 15;
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                return MenuItem::create([
+                    'item_name' => $this->translationNames[$this->globalLocale],
+                    'item_code' => $this->itemCode,
+                    'price' => $this->hasVariations ? 0 : (float) $this->itemPrice,
+                    'item_category_id' => $this->itemCategory,
+                    'description' => $this->translationDescriptions[$this->globalLocale],
+                    'is_available' => $this->isAvailable,
+                    'type' => $this->itemType,
+                    'menu_id' => $this->menu,
+                    'preparation_time' => $this->preparationTime,
+                    'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
+                    'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : false,
+                ]);
+            } catch (QueryException $e) {
+                if ($userSuppliedCode || ! MenuItem::isDuplicateBranchItemCodeException($e)) {
+                    throw $e;
+                }
+                if ($attempt === $maxAttempts) {
+                    throw $e;
+                }
+                $branch = branch();
+                if (! $branch) {
+                    throw $e;
+                }
+                $this->itemCode = MenuItem::generateNextItemCodeForBranch((int) $branch->id);
+            }
+        }
+
+        throw new \RuntimeException('Unable to allocate a unique item code.');
     }
 
     /**
@@ -591,33 +612,19 @@ class CreateMenuItem extends Component
      *
      * Bypasses only AvailableMenuItemScope so unavailable items are still
      * counted, while BranchScope remains active to keep codes branch-scoped.
-     * The do-while loop guarantees uniqueness against the same filtered set
-     * that the unique validation rule uses (branch-scoped, all availability).
+     * DB unique index on (branch_id, item_code) plus retry on insert in
+     * {@see createMenuItem()} handles concurrent allocation.
      */
     private function generateItemCode(): string
     {
-        $prefix = 'IT';
-        $lastItem = MenuItem::withoutGlobalScope(\App\Scopes\AvailableMenuItemScope::class)
-            ->where('item_code', 'like', $prefix . '%')
-            ->orderBy('item_code', 'desc')
-            ->first();
-
-        if ($lastItem && preg_match('/' . $prefix . '(\d+)/', $lastItem->item_code, $matches)) {
-            $number = intval($matches[1]) + 1;
-        } else {
-            $number = 1;
+        $branch = branch();
+        if (! $branch) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'itemCode' => 'Branch context is required to generate an item code.',
+            ]);
         }
 
-        // Guarantee uniqueness even if existing item_code values are irregular.
-        do {
-            $candidate = $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
-            $exists = MenuItem::withoutGlobalScope(\App\Scopes\AvailableMenuItemScope::class)
-                ->where('item_code', $candidate)
-                ->exists();
-            $number++;
-        } while ($exists);
-
-        return $candidate;
+        return MenuItem::generateNextItemCodeForBranch((int) $branch->id);
     }
 
     private function handleTranslations(MenuItem $menuItem): void

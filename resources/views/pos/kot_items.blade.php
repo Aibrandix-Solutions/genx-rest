@@ -323,7 +323,7 @@
                         @endif
 
                         <tr class="hover:bg-gray-100 dark:hover:bg-gray-700"
-                            wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class='opacity-50'>
+                            wire:key='menu-item-{{ $key }}' wire:loading.class='opacity-50'>
                             <td class="flex flex-col p-2 mr-12 lg:min-w-20 @if($comboId) pl-4 border-l-2 border-blue-200 dark:border-blue-800 @endif">
                                 <div class="inline-flex items-center gap-2">
                                     <div
@@ -371,8 +371,7 @@
 
                                 <div class="relative flex items-center max-w-[8rem] mx-auto"
                                     wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')"
-                                        wire:loading.attr="disabled" wire:loading.class="opacity-50"
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;"
                                         @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
@@ -380,27 +379,20 @@
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
-                                        {{-- Loading spinner for subQty --}}
-                                        <div wire:loading.flex wire:target="subQty('{{ $key }}')"
-                                            class="absolute inset-0 items-center justify-center">
-                                            <svg class="animate-spin h-3 w-3 text-skin-base"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                        </div>
                                     </button>
 
-                                    <input type="text" wire:model.lazy="orderItemQty.{{ $key }}" wire:change="updateQty('{{ $key }}')"
+                                    <input type="text" data-pos-qty-key="{{ $key }}" value="{{ $orderItemQty[$key] ?? 1 }}"
+                                        onchange="
+                                            const val = parseInt(this.value, 10);
+                                            const normalized = isNaN(val) || val < 1 ? 1 : val;
+                                            this.value = normalized;
+                                            window.posClient?.queueQtySet(@js((string) $key), normalized, this);
+                                            return false;
+                                        "
                                         class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')"
-                                        wire:loading.attr="disabled" wire:loading.class="opacity-50"
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;"
                                         @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
@@ -408,19 +400,6 @@
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
-                                        {{-- Loading spinner for addQty --}}
-                                        <div wire:loading.flex wire:target="addQty('{{ $key }}')"
-                                            class="absolute inset-0 items-center justify-center">
-                                            <svg class="animate-spin h-3 w-3 text-skin-base"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                        </div>
                                     </button>
                                 </div>
 
@@ -442,7 +421,7 @@
                                 @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
-                                    wire:click="deleteCartItems('{{ $key }}')" wire:loading.attr="disabled"
+                                    onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;" wire:loading.attr="disabled"
                                     wire:loading.class="opacity-50">
                                     <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor" viewBox="0 0 20 20"
                                         xmlns="http://www.w3.org/2000/svg">

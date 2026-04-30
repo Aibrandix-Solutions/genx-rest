@@ -15,6 +15,7 @@ use Livewire\Component;
 use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
 use App\Livewire\Customer\AddCustomer;
+use App\Livewire\Order\OrderDetail;
 use Illuminate\Support\Facades\DB;
 
 class AddPayment extends Component
@@ -662,7 +663,16 @@ class AddPayment extends Component
             }
         }
 
-        $this->dispatch('showOrderDetail', id: $this->order->id);
+        $receipt = restaurant()->receiptSetting;
+        $directPrint = $receipt
+            && (bool)($receipt->direct_print_after_payment ?? false)
+            && $this->order->status === 'paid';
+
+        if ($directPrint) {
+            $this->dispatch('receiptPrintFromPayment', id: $this->order->id)->to(OrderDetail::class);
+        } else {
+            $this->dispatch('showOrderDetail', id: $this->order->id);
+        }
         $this->dispatch('refreshOrders');
         $this->dispatch('resetPos');
         $this->dispatch('refreshPayments');
