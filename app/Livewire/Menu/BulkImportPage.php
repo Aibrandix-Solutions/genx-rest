@@ -184,6 +184,7 @@ class BulkImportPage extends Component
     {
         $defaultMapping = [
             'item_name' => 'item_name',
+            'item_code' => 'item_code',
             'category_name' => 'category_name',
             'menu_name' => 'menu_name',
             'price' => 'price',
@@ -626,10 +627,10 @@ class BulkImportPage extends Component
         }
 
         $sampleData = [
-            ['item_name', 'description', 'price', 'category_name', 'menu_name', 'type', 'show_on_customer_site'],
-            ['Sample Item 1', 'Delicious sample item', '15.99', $sampleCategory, $sampleMenu, 'veg', 'yes'],
-            ['Sample Item 2', 'Another tasty item', '12.50', $sampleCategory, $sampleMenu, 'non-veg', 'yes'],
-            ['Sample Item 3', 'Great vegetarian option', '18.00', $sampleCategory, $sampleMenu, 'veg', 'no'],
+            ['item_name', 'item_code', 'description', 'price', 'category_name', 'menu_name', 'type', 'show_on_customer_site'],
+            ['Sample Item 1', '', 'Delicious sample item', '15.99', $sampleCategory, $sampleMenu, 'veg', 'yes'],
+            ['Sample Item 2', 'SKU-1002', 'Another tasty item', '12.50', $sampleCategory, $sampleMenu, 'non-veg', 'yes'],
+            ['Sample Item 3', '', 'Great vegetarian option', '18.00', $sampleCategory, $sampleMenu, 'veg', 'no'],
         ];
 
         $filename = 'menu_items_sample.csv';
