@@ -414,6 +414,30 @@
                 </div>
             </div>
 
+            <!-- Import Mode Selection -->
+            @if(!empty($variationsSheetHeaders))
+            <div class="mb-3 p-3 border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">{{ __('modules.menu.importMode') }}</h3>
+                <div class="space-y-2">
+                    <label class="flex items-center space-x-2 p-2 border border-gray-200 dark:border-gray-700 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors {{ $importMode === 'merge' ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20' : '' }}">
+                        <input type="radio" wire:model.live="importMode" value="merge" class="text-blue-600 focus:ring-blue-500">
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ __('modules.menu.mergeMode') }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ __('modules.menu.mergeModeDescription') }}</div>
+                        </div>
+                    </label>
+                    
+                    <label class="flex items-center space-x-2 p-2 border border-gray-200 dark:border-gray-700 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors {{ $importMode === 'replace' ? 'border-red-400 bg-red-50 dark:bg-red-900/20' : '' }}">
+                        <input type="radio" wire:model.live="importMode" value="replace" class="text-red-600 focus:ring-red-500">
+                        <div class="flex-1">
+                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ __('modules.menu.replaceMode') }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ __('modules.menu.replaceModeDescription') }}</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+            @endif
+
             <!-- Start Import Button -->
             <div class="flex justify-center pt-1">
                 <x-button
@@ -531,46 +555,76 @@
             <!-- Results Summary -->
             <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-6">
                 <h4 class="text-lg font-semibold text-green-800 dark:text-green-200 mb-4">{{ __('modules.menu.importSummary') }}</h4>
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ $uploadResults['total'] }}</div>
-                        <div class="text-sm text-green-700 dark:text-green-300">{{ __('modules.menu.totalRecords') }}</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ $uploadResults['success'] }}</div>
-                        <div class="text-sm text-green-700 dark:text-green-300">{{ __('modules.menu.successfulImports') }}</div>
-                    </div>
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{ $uploadResults['skipped'] }}</div>
-                        <div class="text-sm text-yellow-700 dark:text-yellow-300">{{ __('app.skipped') }}</div>
+                
+                <!-- Menu Items Results -->
+                <div class="mb-4">
+                    <h5 class="text-sm font-semibold text-green-800 dark:text-green-200 mb-3">{{ __('modules.menu.allMenuItems') }}</h5>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ $uploadResults['items_total'] ?? 0 }}</div>
+                            <div class="text-xs text-green-700 dark:text-green-300">{{ __('modules.menu.totalRecords') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ $uploadResults['items_success'] ?? 0 }}</div>
+                            <div class="text-xs text-emerald-700 dark:text-emerald-300">{{ __('modules.menu.successfulImports') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{ $uploadResults['items_skipped'] ?? 0 }}</div>
+                            <div class="text-xs text-yellow-700 dark:text-yellow-300">{{ __('app.skipped') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-2xl font-bold text-red-600 dark:text-red-400">{{ $uploadResults['items_failed'] ?? 0 }}</div>
+                            <div class="text-xs text-red-700 dark:text-red-300">{{ __('modules.menu.failedImports') }}</div>
+                        </div>
                     </div>
                 </div>
 
-                @if($uploadResults['categories_created'] > 0 || $uploadResults['menus_created'] > 0)
+                <!-- Variations Results -->
+                @if(($uploadResults['variations_total'] ?? 0) > 0)
+                <div class="mb-4 border-t border-green-200 dark:border-green-700 pt-4">
+                    <h5 class="text-sm font-semibold text-green-800 dark:text-green-200 mb-3">{{ __('modules.menu.itemVariations') }}</h5>
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+                        <div class="text-center">
+                            <div class="text-xl font-bold text-green-600 dark:text-green-400">{{ $uploadResults['variations_total'] ?? 0 }}</div>
+                            <div class="text-xs text-green-700 dark:text-green-300">{{ __('modules.menu.totalRecords') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xl font-bold text-emerald-600 dark:text-emerald-400">{{ $uploadResults['variations_success'] ?? 0 }}</div>
+                            <div class="text-xs text-emerald-700 dark:text-emerald-300">{{ __('modules.menu.successfulImports') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xl font-bold text-yellow-600 dark:text-yellow-400">{{ $uploadResults['variations_skipped'] ?? 0 }}</div>
+                            <div class="text-xs text-yellow-700 dark:text-yellow-300">{{ __('app.skipped') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xl font-bold text-red-600 dark:text-red-400">{{ $uploadResults['variations_failed'] ?? 0 }}</div>
+                            <div class="text-xs text-red-700 dark:text-red-300">{{ __('modules.menu.failedImports') }}</div>
+                        </div>
+                        <div class="text-center">
+                            <div class="text-xl font-bold text-orange-600 dark:text-orange-400">{{ $uploadResults['variations_deleted'] ?? 0 }}</div>
+                            <div class="text-xs text-orange-700 dark:text-orange-300">{{ __('app.deleted') }}</div>
+                        </div>
+                    </div>
+                </div>
+                @endif
+
+                <!-- Auto-Created Resources -->
+                @if(($uploadResults['categories_created'] ?? 0) > 0 || ($uploadResults['menus_created'] ?? 0) > 0)
                 <div class="border-t border-green-200 dark:border-green-700 pt-4">
                     <h5 class="text-sm font-semibold text-green-800 dark:text-green-200 mb-2">{{ __('modules.menu.autoCreated') }}</h5>
                     <div class="grid grid-cols-2 gap-4">
-                        @if($uploadResults['categories_created'] > 0)
+                        @if(($uploadResults['categories_created'] ?? 0) > 0)
                         <div class="text-center">
                             <div class="text-lg font-bold text-blue-600 dark:text-blue-400">{{ $uploadResults['categories_created'] }}</div>
                             <div class="text-xs text-blue-700 dark:text-blue-300">{{ __('modules.menu.categoriesCreated') }}</div>
                         </div>
                         @endif
-                        @if($uploadResults['menus_created'] > 0)
+                        @if(($uploadResults['menus_created'] ?? 0) > 0)
                         <div class="text-center">
                             <div class="text-lg font-bold text-purple-600 dark:text-purple-400">{{ $uploadResults['menus_created'] }}</div>
                             <div class="text-xs text-purple-700 dark:text-purple-300">{{ __('modules.menu.menusCreated') }}</div>
                         </div>
                         @endif
-                    </div>
-                </div>
-                @endif
-
-                @if($uploadResults['failed'] > 0)
-                <div class="border-t border-green-200 dark:border-green-700 pt-4">
-                    <div class="text-center">
-                        <div class="text-2xl font-bold text-red-600 dark:text-red-400">{{ $uploadResults['failed'] }}</div>
-                        <div class="text-sm text-red-700 dark:text-red-300">{{ __('modules.menu.failedImports') }}</div>
                     </div>
                 </div>
                 @endif

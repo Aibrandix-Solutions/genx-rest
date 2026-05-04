@@ -13,6 +13,7 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Features\SupportPagination\WithoutUrlPagination;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\MenuItemExport;
+use App\Exports\MenuItemsWithVariationsExport;
 use Livewire\Attributes\Reactive;
 
 class MenuItems extends Component
@@ -164,7 +165,7 @@ class MenuItems extends Component
         $branchId = branch()?->id;
         abort_if(! $branchId, 422, 'Branch context is required to export menu items.');
 
-        return Excel::download(new MenuItemExport($branchId), 'menu-items.xlsx');
+        return Excel::download(new MenuItemsWithVariationsExport($branchId), 'menu-items-with-variations.xlsx');
     }
 
     public function render()
