@@ -1,0 +1,152 @@
+name: Deploy digierp.cloud
+
+on:
+  push:
+    branches: [vps]
+  workflow_dispatch:
+
+env:
+  DOMAIN_NAME: digierp.cloud
+  APP_PATH: /home/digierp.cloud/laravel
+  PUBLIC_PATH: /home/digierp.cloud/public_html
+  PHP_BIN: /usr/local/lsws/lsphp82/bin/php
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare SSH key
+        run: |
+          set -e
+          echo "${{ secrets.VPS_SSH_KEY }}" > /tmp/vps_key
+          chmod 600 /tmp/vps_key
+          ssh-keygen -lf /tmp/vps_key
+
+      - name: SSH preflight
+        run: |
+          ssh -i /tmp/vps_key \
+            -p "${{ secrets.VPS_SSH_PORT }}" \
+            -o StrictHostKeyChecking=no \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" \
+            "echo SSH OK: \$(whoami) on \$(hostname)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare deploy package
+        run: |
+          set -e
+
+          rm -rf deploy_app
+          mkdir -p deploy_app
+
+          rsync -a ./ deploy_app/ \
+            --exclude="deploy_app" \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude="node_modules" \
+            --exclude="vendor" \
+            --exclude=".env" \
+            --exclude="storage/logs/*" \
+            --exclude="storage/framework/cache/*" \
+            --exclude="storage/framework/sessions/*" \
+            --exclude="storage/framework/views/*"
+
+          mkdir -p deploy_app/storage/app
+          mkdir -p deploy_app/storage/framework/cache
+          mkdir -p deploy_app/storage/framework/sessions
+          mkdir -p deploy_app/storage/framework/views
+          mkdir -p deploy_app/storage/logs
+          mkdir -p deploy_app/bootstrap/cache
+
+      - name: Upload app to VPS
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_app/ \
+            ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:${{ env.APP_PATH }}/
+
+      - name: Run Laravel deployment
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            APP_PATH="${{ env.APP_PATH }}"
+            PUBLIC_PATH="${{ env.PUBLIC_PATH }}"
+            PHP_BIN="${{ env.PHP_BIN }}"
+
+            cd "$APP_PATH"
+
+            if [ ! -f .env ]; then
+              echo "Missing .env at $APP_PATH/.env"
+              exit 1
+            fi
+
+            mkdir -p storage/framework/cache
+            mkdir -p storage/framework/sessions
+            mkdir -p storage/framework/views
+            mkdir -p storage/logs
+            mkdir -p bootstrap/cache
+
+            chown -R nobody:nobody storage bootstrap/cache || true
+            chmod -R 775 storage bootstrap/cache || true
+
+            REQUIRED="mbstring intl bcmath curl dom fileinfo gd json openssl pdo pdo_mysql tokenizer xml sodium"
+            MISSING=""
+
+            for ext in $REQUIRED; do
+              $PHP_BIN -m | grep -qi "^$ext$" || MISSING="$MISSING $ext"
+            done
+
+            if [ -n "$MISSING" ]; then
+              echo "Missing PHP extensions:$MISSING"
+              exit 1
+            fi
+
+            if ! command -v composer >/dev/null 2>&1; then
+              $PHP_BIN -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+              $PHP_BIN composer-setup.php --install-dir=/usr/local/bin --filename=composer
+              rm composer-setup.php
+            fi
+
+            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+            $PHP_BIN artisan optimize:clear
+
+            $PHP_BIN artisan module:publish || true
+            $PHP_BIN artisan module:publish-migration Inventory || true
+
+            $PHP_BIN artisan migrate --force
+
+            $PHP_BIN artisan storage:link || true
+
+            if [ -e "$PUBLIC_PATH" ] && [ ! -L "$PUBLIC_PATH" ]; then
+              rm -rf "$PUBLIC_PATH"
+            fi
+
+            ln -sfn "$APP_PATH/public" "$PUBLIC_PATH"
+
+            $PHP_BIN artisan config:cache
+            $PHP_BIN artisan route:cache
+            $PHP_BIN artisan view:cache
+            $PHP_BIN artisan queue:restart || true
+
+            systemctl restart lsws
