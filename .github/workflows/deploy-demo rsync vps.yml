@@ -7,7 +7,7 @@ on:
 
 env:
   DOMAIN_NAME: digierp.cloud
-  APP_PATH: /home/digierp.cloud/laravel
+  APP_PATH: /home/digierp.cloud/public_html/laravel
   PUBLIC_PATH: /home/digierp.cloud/public_html
   PHP_BIN: /usr/local/lsws/lsphp82/bin/php
 
@@ -47,30 +47,67 @@ jobs:
           npm run build
 
       - name: Prepare deploy package
+        shell: bash
         run: |
           set -e
 
-          rm -rf deploy_app
-          mkdir -p deploy_app
+          rm -rf deploy_app deploy_public
+          mkdir -p deploy_app deploy_public
 
-          rsync -a ./ deploy_app/ \
-            --exclude="deploy_app" \
-            --exclude=".git" \
-            --exclude=".github" \
-            --exclude="node_modules" \
-            --exclude="vendor" \
-            --exclude=".env" \
-            --exclude="storage/logs/*" \
-            --exclude="storage/framework/cache/*" \
-            --exclude="storage/framework/sessions/*" \
-            --exclude="storage/framework/views/*"
+          # Core app (NO vendor, NO public)
+          cp -r app bootstrap config database routes artisan composer.json composer.lock phpunit.xml .htaccess Modules deploy_app/ 2>/dev/null || true
 
+          # Translations
+          if [ -d lang ]; then cp -r lang deploy_app/; fi
+          mkdir -p deploy_app/resources
+          [ -d resources/lang ] && cp -r resources/lang deploy_app/resources/
+          [ -d resources/views ] && cp -r resources/views deploy_app/resources/
+
+          # Laravel runtime skeleton
           mkdir -p deploy_app/storage/app
-          mkdir -p deploy_app/storage/framework/cache
-          mkdir -p deploy_app/storage/framework/sessions
-          mkdir -p deploy_app/storage/framework/views
+          mkdir -p deploy_app/storage/framework/{cache,sessions,views}
           mkdir -p deploy_app/storage/logs
           mkdir -p deploy_app/bootstrap/cache
+          touch deploy_app/storage/.gitignore
+
+          # Public contents for the split-docroot webroot
+          rsync -a public/ deploy_public/
+
+          # Ensure public/build is deployed and also available under deploy_app/public/build
+          mkdir -p deploy_app/public/build
+          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
+          if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
+
+          # Ensure .htaccess is included explicitly
+          if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
+
+          # Write split-docroot index.php that points to ./laravel
+          cat > deploy_public/index.php <<'PHP'
+          <?php
+
+          use Illuminate\Contracts\Http\Kernel;
+          use Illuminate\Http\Request;
+
+          define('LARAVEL_START', microtime(true));
+
+          if (file_exists($maintenance = __DIR__ . '/laravel/storage/framework/maintenance.php')) {
+              require $maintenance;
+          }
+
+          define('LARAVEL_BASE', __DIR__ . '/laravel');
+
+          require LARAVEL_BASE . '/vendor/autoload.php';
+          $app = require LARAVEL_BASE . '/bootstrap/app.php';
+
+          /** @var Kernel $kernel */
+          $kernel = $app->make(Kernel::class);
+
+          $response = tap($kernel->handle(
+              $request = Request::capture()
+          ))->send();
+
+          $kernel->terminate($request, $response);
+          PHP
 
       - name: Upload app to VPS
         run: |
@@ -78,6 +115,13 @@ jobs:
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
             deploy_app/ \
             ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:${{ env.APP_PATH }}/
+
+      - name: Upload public to VPS
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_public/ \
+            ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:${{ env.PUBLIC_PATH }}/
 
       - name: Run Laravel deployment
         uses: appleboy/ssh-action@v1.0.3
@@ -138,11 +182,9 @@ jobs:
 
             $PHP_BIN artisan storage:link || true
 
-            if [ -e "$PUBLIC_PATH" ] && [ ! -L "$PUBLIC_PATH" ]; then
-              rm -rf "$PUBLIC_PATH"
-            fi
-
-            ln -sfn "$APP_PATH/public" "$PUBLIC_PATH"
+            rm -rf "$PUBLIC_PATH/storage" "$PUBLIC_PATH/user-uploads" 2>/dev/null || true
+            ln -sfn "$APP_PATH/public/storage" "$PUBLIC_PATH/storage"
+            ln -sfn "$APP_PATH/public/user-uploads" "$PUBLIC_PATH/user-uploads"
 
             $PHP_BIN artisan config:cache
             $PHP_BIN artisan route:cache
