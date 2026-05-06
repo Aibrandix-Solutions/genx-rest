@@ -34,6 +34,7 @@ class ModuleSeeder extends Seeder
             ['name' => 'Vendor'],
             ['name' => 'Expense Category'],
             ['name' => 'Inventory'],
+            ['name' => 'HRM'],
         ];
 
         foreach ($modules as $module) {

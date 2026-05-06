@@ -2,43 +2,45 @@
 
 namespace App\Livewire\Pos;
 
+use App\Events\NewOrderCreated;
+use App\Livewire\Customer\AddCustomer;
+use App\Models\Customer;
+use App\Models\DeliveryExecutive;
+use App\Models\DeliveryPlatform;
+use App\Models\ItemCategory;
 use App\Models\Kot;
+use App\Models\KotCancelReason;
+use App\Models\KotItem;
+use App\Models\KotPlace;
+use App\Models\Menu;
+use App\Models\MenuItem;
+use App\Models\MenuItemVariation;
+use App\Models\ModifierOption;
+use App\Models\Order;
+use App\Models\OrderCharge;
+use App\Models\OrderItem;
+use App\Models\OrderTax;
+use App\Models\OrderType;
+use App\Models\Printer;
+use App\Models\RestaurantCharge;
+use App\Models\Table;
 use App\Models\Tax;
 use App\Models\User;
-use App\Models\Order;
-use App\Models\Table;
-use App\Models\KotItem;
-use App\Models\Printer;
-use Livewire\Component;
-use App\Models\KotPlace;
-use App\Models\MenuItem;
-use App\Models\OrderTax;
-use App\Models\OrderItem;
-use App\Models\OrderType;
-use App\Models\OrderCharge;
 use App\Scopes\BranchScope;
-use Illuminate\Support\Arr;
-use Illuminate\Support\Str;
-use Livewire\Attributes\On;
-use App\Models\ItemCategory;
-use App\Models\ModifierOption;
-use App\Traits\PrinterSetting;
-use Illuminate\Support\Carbon;
-use App\Events\NewOrderCreated;
-use App\Models\KotCancelReason;
-use Illuminate\Validation\Rule;
-use App\Models\RestaurantCharge;
-use App\Models\DeliveryExecutive;
-use App\Models\MenuItemVariation;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache;
-use App\Livewire\Customer\AddCustomer;
-use Jantinnerezo\LivewireAlert\LivewireAlert;
-use App\Models\Customer;
-use App\Models\Menu;
-use App\Models\DeliveryPlatform;
+use App\Services\Pos\BillSecondaryActionResolver;
+use App\Services\PosBatchSyncService;
+use App\Services\PosBootstrapService;
+use App\Services\RewardPointsService;
 use App\Support\KotAdjustmentLogger;
+use App\Traits\PrinterSetting;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Livewire\Attributes\On;
+use Livewire\Component;
 
 class Pos extends Component
 {
@@ -46,78 +48,154 @@ class Pos extends Component
 
     protected $listeners = ['refreshPos' => '$refresh', 'customerSelected' => 'setCustomer', 'setOrderTypeChoice'];
 
-
     public $categoryList;
+
     public $search;
+
     public $filterCategories;
+
     public $menuItem;
+
     public $subTotal;
+
     public $total;
+
     public $orderNumber;
+
     public $kotNumber;
+
     public $tableNo;
+
     public $tableId;
+
     public $users;
+
     public $noOfPax = 1;
+
     public $selectWaiter;
+
     public $taxes;
+
     public $orderNote;
+
     public $tableOrder;
+
     public $tableOrderID;
+
     public $orderType;
+
     public $orderTypeSlug;
+
     public $kotList = [];
+
     public $showVariationModal = false;
+
     public $showKotNote = false;
+
     public $showTableModal = false;
+
     public $showErrorModal = true;
+
     public $showNewKotButton = false;
+
     public $orderDetail = null;
+
     public $showReservationModal = false;
+
     public $reservationId = null;
+
     public $reservationCustomer = null;
+
     public $reservation = null;
+
     public $isSameCustomer = false;
+
     public $intendedOrderAction = null;
+
     public $orderItemList = [];
+
     public $orderItemVariation = [];
+
     public $orderItemQty = [];
+
     public $orderItemAmount = [];
+
     public $deliveryExecutives;
+
     public $selectDeliveryExecutive;
+
     public $orderID;
+
     public $discountType;
+
     public $discountValue;
+
     public $discountAmount;
+
     public $restaurantSetting;
+
     public $showDiscountModal = false;
+
     public $selectedModifierItem;
+
     public $modifiers;
+
     public $showModifiersModal = false;
+
     public $itemModifiersSelected = [];
+
     public $orderItemModifiersPrice = [];
+
     public $orderItemComboPack = [];
+
     public $orderItemOriginalPrice = [];
+
     public $orderItemComboDiscount = [];
+
     public $orderItemComboName = [];
+
+    public $orderItemUnitPrice = [];
+
+    public $orderItemDisplayPrice = [];
+
     public $extraCharges;
+
+    public $orderExtras = [];
+
     public $discountedTotal;
+
     public $tipAmount = 0;
+
     public $orderStatus;
+
     public $deliveryFee = 0;
+
     public $itemNotes = [];
+
     public $orderPlaces;
+
     public $cancelReasons;
+
     public $confirmDeleteModal = false;
+
     public $deleteOrderModal = false;
+
     public $cancelReason;
+
     public $cancelReasonText;
+
     public $orderTypeId;
+
     public $selectedDeliveryApp = null;
+
     public $deliveryDateTime;
+
     public $customerDisplayStatus = 'idle';
+
     public $totalTaxAmount = 0;
+
     public $orderItemTaxDetails = [];
+
     /**
      * When a KOT-backed line is rehydrated from a persisted order_item row, keep item-level tax
      * fields aligned with what was saved (calculateTotal() re-runs updateOrderItemTaxDetails()).
@@ -125,28 +203,280 @@ class Pos extends Component
      * @var array<string, array{tax_amount: float, tax_percentage: float|null, tax_breakup: mixed}>
      */
     public $orderItemPersistedTaxOverride = [];
+
     public $taxMode;
+
     public $pickupRange;
+
     public $showRemovalReasonModal = false;
+
     public $removalReason = '';
+
     public $pendingRemovalItem = null;
+
     public $pendingRemovalAction = null;
+
     public $pendingRemovalNewQuantity = null;
+
     public $pendingRemovalComboItems = [];
+
     public $now;
+
     public $minDate;
+
     public $maxDate;
+
     public $defaultDate;
+
     public $formattedOrderNumber;
+
     public $customerId;
+
     public $customer;
+
     public $menuList;
+
     public $menuId;
+
+    // Lightweight order type selector (dropdown) + persistence
+    public $showOrderTypeDropdown = false;
+
+    public $availableOrderTypes = [];
+
+    public $availableDeliveryPlatforms = [];
+
+    public $setAsDefaultOrderType = false;
+
+    public $userDefaultOrderTypeId = null;
+
+    public $orderTypeName = null;
+
+    public $selectedDeliveryPlatformName = null;
+
+    // Optimistic qty update properties
+    public $pendingQtySyncs = [];  // Track items awaiting debounced sync
+
+    public $qtyDebounceTimer = null;  // Handle for debounce timer
+
+    public $isQtyOptimisticMode = true;  // Enable optimistic qty updates
+
+    // Reward Points Redemption
+    public $rewardPointDiscount = 0;
+    public $rewardPointsRedeemed = 0;
+    public $rewardPointsAvailable = 0;
+    public $rewardSettings = null;
+    public $rewardDisplayName = 'Reward';
 
     public function setCustomer($customerId = null)
     {
         $this->customerId = $customerId;
         $this->customer = Customer::find($customerId);
+        $this->loadCustomerRewardBalance();
+    }
+
+    /**
+     * Load the customer's reward balance and settings for display in POS
+     */
+    protected function loadCustomerRewardBalance(): void
+    {
+        $this->rewardPointsAvailable = 0;
+        $this->rewardSettings = null;
+        $this->rewardDisplayName = 'Reward';
+
+        if (!$this->customerId) {
+            return;
+        }
+
+        try {
+            $settings = \App\Models\RewardSetting::getForRestaurant(restaurant()->id);
+            if (!$settings->enable_reward_point) {
+                return;
+            }
+
+            $this->rewardSettings = $settings;
+            $this->rewardDisplayName = $settings->reward_point_display_name ?: 'Reward';
+
+            $balance = \App\Models\RewardBalance::getForCustomer($this->customerId, restaurant()->id);
+            $this->rewardPointsAvailable = $balance->available_points;
+        } catch (\Exception $e) {
+            \Log::warning('Failed to load reward balance for POS', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Apply reward points redemption to the current order
+     */
+    public function applyRewardRedemption(int $points): void
+    {
+        if (!user_can('Redeem Reward Points')) {
+            $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if (!$this->customerId || !$this->rewardSettings || !$this->rewardSettings->enable_reward_point) {
+            $this->alert('error', 'Reward points are not available.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        if ($points <= 0) {
+            $this->alert('error', 'Please enter valid points to redeem.', ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Validate minimum redeem points
+        if ($this->rewardSettings->minimum_redeem_point && $points < $this->rewardSettings->minimum_redeem_point) {
+            $this->alert('error', "Minimum {$this->rewardSettings->minimum_redeem_point} points required to redeem.", ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Validate max per order
+        if ($this->rewardSettings->maximum_redeem_point_per_order && $points > $this->rewardSettings->maximum_redeem_point_per_order) {
+            $points = $this->rewardSettings->maximum_redeem_point_per_order;
+        }
+
+        // Validate available balance
+        if ($points > $this->rewardPointsAvailable) {
+            $this->alert('error', "Insufficient points. Available: {$this->rewardPointsAvailable}", ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Validate minimum order total for redemption
+        if ($this->total < $this->rewardSettings->minimum_order_total_to_redeem) {
+            $this->alert('error', "Minimum order total of {$this->rewardSettings->minimum_order_total_to_redeem} required to redeem points.", ['toast' => true, 'position' => 'top-end']);
+            return;
+        }
+
+        // Calculate discount amount
+        $discountAmount = $points * $this->rewardSettings->redeem_amount_per_unit_point;
+
+        // Can't redeem more than order value (after other discounts)
+        $maxDiscount = $this->total;
+        if ($discountAmount > $maxDiscount) {
+            $discountAmount = $maxDiscount;
+            $points = (int) floor($discountAmount / $this->rewardSettings->redeem_amount_per_unit_point);
+        }
+
+        $this->rewardPointDiscount = round($discountAmount, 2);
+        $this->rewardPointsRedeemed = $points;
+        $this->calculateTotal();
+
+        $this->alert('success', "Applied {$points} {$this->rewardDisplayName} points (" . number_format($this->rewardPointDiscount, 2) . ' discount)', [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 3000,
+        ]);
+    }
+
+    /**
+     * Remove reward points redemption from the current order
+     */
+    public function removeRewardRedemption(): void
+    {
+        $this->rewardPointDiscount = 0;
+        $this->rewardPointsRedeemed = 0;
+        $this->calculateTotal();
+
+        $this->alert('info', 'Reward points discount removed.', [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 2000,
+        ]);
+    }
+
+    /**
+     * Get the maximum redeemable points for the current order context
+     */
+    public function getMaxRedeemablePointsProperty(): int
+    {
+        if (!$this->rewardSettings || !$this->rewardSettings->enable_reward_point || !$this->customerId) {
+            return 0;
+        }
+
+        if ($this->total < $this->rewardSettings->minimum_order_total_to_redeem) {
+            return 0;
+        }
+
+        $available = $this->rewardPointsAvailable;
+
+        // Apply max per order limit
+        if ($this->rewardSettings->maximum_redeem_point_per_order) {
+            $available = min($available, $this->rewardSettings->maximum_redeem_point_per_order);
+        }
+
+        // Can't redeem more than order total
+        $maxPointsByOrderTotal = (int) floor($this->total / $this->rewardSettings->redeem_amount_per_unit_point);
+        return min($available, $maxPointsByOrderTotal);
+    }
+
+    protected function applyBootstrapContext(array $bootstrap): void
+    {
+        $this->categoryList = $bootstrap['categories'] ?? ItemCategory::all();
+        $this->availableOrderTypes = isset($bootstrap['order_types']) ? $bootstrap['order_types']->toArray() : [];
+        $this->availableDeliveryPlatforms = isset($bootstrap['delivery_platforms']) ? $bootstrap['delivery_platforms']->toArray() : [];
+        $this->users = $bootstrap['waiters'] ?? collect();
+        $this->taxes = $bootstrap['taxes'] ?? Tax::all();
+        $this->deliveryExecutives = $bootstrap['delivery_executives'] ?? collect();
+        $this->pickupRange = (int) ($bootstrap['pickup_days_range'] ?? $this->pickupRange ?? 1);
+        $this->taxMode = $bootstrap['tax_mode'] ?? $this->taxMode;
+        $this->selectWaiter = user()->id;
+        $this->maxDate = now()->addDays($this->pickupRange - 1)->endOfDay()->format('Y-m-d\TH:i');
+    }
+
+    protected function loadBootstrapContext(): void
+    {
+        $startedAt = microtime(true);
+
+        try {
+            $resolved = app(PosBootstrapService::class)->resolve();
+            $this->applyBootstrapContext($resolved['data']);
+
+            Log::info('POS bootstrap loaded', [
+                'source' => $resolved['cached'] ? 'cache' : 'compute',
+                'restaurant_id' => restaurant()->id ?? null,
+                'branch_id' => branch()->id ?? null,
+                'ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
+
+            return;
+        } catch (\Throwable $e) {
+            Log::warning('POS bootstrap failed, falling back to legacy queries', [
+                'restaurant_id' => restaurant()->id ?? null,
+                'branch_id' => branch()->id ?? null,
+                'ms' => (int) round((microtime(true) - $startedAt) * 1000),
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        $this->loadLegacyBootstrapContext();
+    }
+
+    protected function loadLegacyBootstrapContext(): void
+    {
+        $this->categoryList = ItemCategory::all();
+
+        $this->availableOrderTypes = OrderType::where('is_active', true)
+            ->orderBy('order_type_name')
+            ->get(['id', 'order_type_name', 'slug', 'type'])
+            ->toArray();
+
+        $this->availableDeliveryPlatforms = DeliveryPlatform::where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->toArray();
+
+        $this->users = User::withoutGlobalScope(BranchScope::class)
+            ->where(function ($q) {
+                return $q->where('branch_id', branch()->id)
+                    ->orWhereNull('branch_id');
+            })
+            ->role('waiter_'.restaurant()->id)
+            ->where('restaurant_id', restaurant()->id)
+            ->get();
+
+        $this->taxMode = restaurant()->tax_mode;
+        $this->taxes = Tax::all();
+        $this->selectWaiter = user()->id;
+        $this->deliveryExecutives = DeliveryExecutive::where('status', 'available')->get();
     }
 
     public function mount()
@@ -154,43 +484,65 @@ class Pos extends Component
 
         $this->total = 0;
         $this->subTotal = 0;
-        $this->categoryList = ItemCategory::all();
         $this->pickupRange = restaurant()->pickup_days_range ?? 1;
+        $this->loadBootstrapContext();
         // Set minimum date to next minute to avoid past times
         $this->minDate = now()->addMinute()->format('Y-m-d\TH:i');
         $this->maxDate = now()->addDays($this->pickupRange - 1)->endOfDay()->format('Y-m-d\TH:i');
         $this->defaultDate = old('deliveryDateTime', $this->deliveryDateTime ?? $this->minDate);
 
-        // Check if user has a default order type set and no order is being edited
-        if (!$this->orderID && !$this->tableOrderID) {
-            $user = auth()->user();
-            if ($user && $user->default_order_type_id) {
-                $defaultOrderType = OrderType::find($user->default_order_type_id);
-                if ($defaultOrderType && $defaultOrderType->is_active) {
-                    // Auto-set the default order type
-                    $this->orderTypeId = $defaultOrderType->id;
-                    $this->orderType = $defaultOrderType->type;
-                    $this->orderTypeSlug = $defaultOrderType->slug;
+        // Restore last selection from session (so navigating away/back doesn't reset)
+        if (! $this->orderID && ! $this->tableOrderID) {
+            $sessionOrderTypeId = session()->get('pos.order_type_id');
+            $sessionDeliveryAppId = session()->get('pos.delivery_app_id');
+
+            if ($sessionOrderTypeId) {
+                $sessionOrderType = OrderType::find($sessionOrderTypeId);
+                if ($sessionOrderType && $sessionOrderType->is_active) {
+                    $this->orderTypeId = $sessionOrderType->id;
+                    $this->orderType = $sessionOrderType->type;
+                    $this->orderTypeSlug = $sessionOrderType->slug;
+                    $this->orderTypeName = $sessionOrderType->order_type_name;
+
+                    if ($this->orderTypeSlug === 'delivery') {
+                        $this->selectedDeliveryApp = $sessionDeliveryAppId;
+                    }
+                }
+            }
+
+            // If session has no selection, fall back to user's default order type
+            if (! $this->orderTypeId) {
+                $user = auth()->user();
+                if ($user && $user->default_order_type_id) {
+                    $defaultOrderType = OrderType::find($user->default_order_type_id);
+                    if ($defaultOrderType && $defaultOrderType->is_active) {
+                        $this->orderTypeId = $defaultOrderType->id;
+                        $this->orderType = $defaultOrderType->type;
+                        $this->orderTypeSlug = $defaultOrderType->slug;
+                        $this->orderTypeName = $defaultOrderType->order_type_name;
+                    }
+                }
+            }
+
+            // Final fallback: ensure an order type is always selected (default to Dine In)
+            if (! $this->orderTypeId) {
+                $dineIn = OrderType::where('type', 'dine_in')->where('is_active', true)->first();
+                if ($dineIn) {
+                    $this->orderTypeId = $dineIn->id;
+                    $this->orderType = $dineIn->type;
+                    $this->orderTypeSlug = $dineIn->slug;
+                    $this->orderTypeName = $dineIn->order_type_name;
+                } else {
+                    // Extremely defensive fallback
+                    $this->orderType = 'dine_in';
+                    $this->orderTypeSlug = 'dine_in';
                 }
             }
         }
 
-        $this->users = User::withoutGlobalScope(BranchScope::class)
-            ->where(function ($q) {
-                return $q->where('branch_id', branch()->id)
-                    ->orWhereNull('branch_id');
-            })
-            ->role('waiter_' . restaurant()->id)
-            ->where('restaurant_id', restaurant()->id)
-            ->get();
-
-        $this->taxMode = restaurant()->tax_mode;
-
-        $this->taxes = Tax::all();
-
-        $this->selectWaiter = user()->id;
-
-        $this->deliveryExecutives = DeliveryExecutive::where('status', 'available')->get();
+        $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
+        $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
+        $this->showOrderTypeDropdown = ! $this->orderTypeId;
 
         if ($this->tableOrderID) {
             $this->tableId = $this->tableOrderID;
@@ -221,7 +573,7 @@ class Pos extends Component
         if ($this->orderID) {
             $order = Order::find($this->orderID);
 
-            if (!$order || $order->status === 'canceled') {
+            if (! $order || $order->status === 'canceled') {
                 return $this->redirect(route('pos.index'), navigate: true);
             }
 
@@ -239,10 +591,49 @@ class Pos extends Component
             $this->orderStatus = $order->order_status;
             $this->orderTypeId = $order->order_type_id;
             $this->orderType = $order->order_type;
+
+            // Restore reward points state from existing order
+            $this->rewardPointDiscount = (float) ($order->reward_point_discount ?? 0);
+            $this->rewardPointsRedeemed = (int) ($order->reward_points_redeemed ?? 0);
+            if ($order->customer_id) {
+                $this->customerId = $order->customer_id;
+                $this->customer = Customer::find($order->customer_id);
+                $this->loadCustomerRewardBalance();
+            }
+
+            // Ensure existing orders always resolve to a concrete order type ID
+            if (! $this->orderTypeId && $this->orderType) {
+                $resolved = OrderType::where('type', $this->orderType)
+                    ->orWhere('slug', $this->orderType)
+                    ->where('is_active', true)
+                    ->first();
+
+                if ($resolved) {
+                    $this->orderTypeId = $resolved->id;
+                    $this->orderTypeSlug = $resolved->slug;
+                    $this->orderType = $resolved->type;
+                    $this->orderTypeName = $resolved->order_type_name;
+                }
+            }
+
+            if ($this->orderTypeId) {
+                $this->orderTypeName = $this->orderTypeName ?? OrderType::where('id', $this->orderTypeId)->value('order_type_name');
+            }
             $this->deliveryDateTime = $order->pickup_date;
             $this->taxMode = $order->tax_mode ?? $this->taxMode;
             $this->selectedDeliveryApp = $order->delivery_app_id;
 
+            $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
+            $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
+
+            $this->orderExtras = $order->extras()
+                ->orderBy('id')
+                ->get(['note', 'amount'])
+                ->map(fn ($extra) => [
+                    'note' => $extra->note,
+                    'amount' => (float) $extra->amount,
+                ])
+                ->toArray();
             $this->selectDeliveryExecutive = $order->delivery_executive_id;
 
             // kot.blade passes orderDetail="{{ $showOrderDetail }}" (URL flag). Only replace with the real Order
@@ -263,14 +654,79 @@ class Pos extends Component
         if (($this->orderID || $this->tableOrderID) && $this->orderDetail instanceof \App\Models\Order) {
             $this->setupOrderItems();
         }
+        $this->refreshSelectedDeliveryPlatformName();
 
         if ($this->orderID) {
-            $this->extraCharges = ($order->status === 'kot' && !$this->orderDetail) ? [] : $order->extraCharges;
+            $this->extraCharges = ($order->status === 'kot' && ! $this->orderDetail) ? [] : $order->extraCharges;
         }
-
 
         $this->cancelReasons = KotCancelReason::where('cancel_order', true)->get();
         $this->menuList = Menu::withoutGlobalScopes()->where('branch_id', branch()->id)->orderBy('sort_order')->get();
+    }
+
+    public function toggleOrderTypeDropdown(): void
+    {
+        $this->showOrderTypeDropdown = ! $this->showOrderTypeDropdown;
+    }
+
+    public function updatedSetAsDefaultOrderType($value): void
+    {
+        $user = auth()->user();
+        if (! $user) {
+            return;
+        }
+
+        $value = (bool) $value;
+
+        if ($value && $this->orderTypeId) {
+            $user->update(['default_order_type_id' => (int) $this->orderTypeId]);
+            $this->userDefaultOrderTypeId = (int) $this->orderTypeId;
+
+            return;
+        }
+
+        if (! $value && $user->default_order_type_id && $this->orderTypeId && ((int) $user->default_order_type_id === (int) $this->orderTypeId)) {
+            $user->update(['default_order_type_id' => null]);
+            $this->userDefaultOrderTypeId = null;
+        }
+    }
+
+    public function updatedSelectedDeliveryApp(): void
+    {
+        // Only relevant for delivery orders
+        if (($this->orderTypeSlug ?? null) !== 'delivery') {
+            $this->selectedDeliveryApp = null;
+            $this->selectedDeliveryPlatformName = null;
+
+            return;
+        }
+
+        // Persist last chosen platform for this session
+        session()->put('pos.delivery_app_id', $this->selectedDeliveryApp);
+
+        $this->refreshSelectedDeliveryPlatformName();
+        $this->updateCartItemsPricing();
+        $this->calculateTotal();
+    }
+
+    private function refreshSelectedDeliveryPlatformName(): void
+    {
+        if (($this->orderTypeSlug ?? null) !== 'delivery') {
+            $this->selectedDeliveryPlatformName = null;
+
+            return;
+        }
+
+        if ($this->selectedDeliveryApp === 'default' || $this->selectedDeliveryApp === null || $this->selectedDeliveryApp === '') {
+            $this->selectedDeliveryPlatformName = __('modules.order.default');
+
+            return;
+        }
+
+        $platformId = is_numeric($this->selectedDeliveryApp) ? (int) $this->selectedDeliveryApp : null;
+        $this->selectedDeliveryPlatformName = $platformId
+            ? (DeliveryPlatform::where('id', $platformId)->value('name') ?? null)
+            : null;
     }
 
     public function setOrderTypeChoice($value)
@@ -279,17 +735,17 @@ class Pos extends Component
             // Handle if $value is an array containing orderType and orderTypeId
             if (is_array($value) && isset($value['orderTypeId'])) {
                 $this->orderTypeId = $value['orderTypeId'];
-                
+
                 // Store delivery platform if provided
                 $this->selectedDeliveryApp = $value['deliveryPlatform'] ?? null;
-                
+
                 // Get the order type object
                 $orderType = OrderType::find($this->orderTypeId);
-                
+
                 if ($orderType) {
                     $this->orderType = $orderType->type;
                     $this->orderTypeSlug = $orderType->slug;
-                    
+
                     // If this is a delivery order, handle delivery-specific settings
                     if ($this->orderTypeSlug === 'delivery') {
                         // You can set default delivery fee here if needed
@@ -297,27 +753,27 @@ class Pos extends Component
                     } else {
                         $this->deliveryFee = 0;
                     }
-                    
+
                     // Get relevant extra charges for this order type
                     $this->extraCharges = RestaurantCharge::whereJsonContains('order_types', $this->orderTypeSlug)
                         ->where('is_enabled', true)
                         ->get();
-                    
+
                     // Update prices for existing cart items when delivery platform changes
                     $this->updateCartItemsPricing();
-                    
+
                     // Calculate total with new order type settings
                     $this->calculateTotal();
-                    
+
                     // Display success notification for better UX
-                    $platformName = $this->selectedDeliveryApp && $this->selectedDeliveryApp !== 'default' 
+                    $platformName = $this->selectedDeliveryApp && $this->selectedDeliveryApp !== 'default'
                         ? DeliveryPlatform::find($this->selectedDeliveryApp)?->name ?? ''
                         : '';
-                    
-                    $message = $platformName 
-                        ? __('modules.order.orderTypeSetTo', ['type' => $orderType->order_type_name]) . ' - ' . $platformName
+
+                    $message = $platformName
+                        ? __('modules.order.orderTypeSetTo', ['type' => $orderType->order_type_name]).' - '.$platformName
                         : __('modules.order.orderTypeSetTo', ['type' => $orderType->order_type_name]);
-                    
+
                     $this->alert('success', $message, [
                         'toast' => true,
                         'position' => 'top-end',
@@ -328,22 +784,22 @@ class Pos extends Component
             } else {
                 // Legacy handling for direct ID passing
                 $this->orderTypeId = $value;
-                
+
                 $this->selectedDeliveryApp = null;
-                
+
                 $orderType = OrderType::find($this->orderTypeId);
-                
+
                 if ($orderType) {
                     $this->orderType = $orderType->type;
                     $this->orderTypeSlug = $orderType->slug;
-                    
+
                     // Update prices for existing cart items
                     $this->updateCartItemsPricing();
                 }
             }
         } catch (\Exception $e) {
-            Log::error('Error setting order type: ' . $e->getMessage());
-            $this->alert('error', 'Error setting order type: ' . $e->getMessage(), [
+            Log::error('Error setting order type: '.$e->getMessage());
+            $this->alert('error', 'Error setting order type: '.$e->getMessage(), [
                 'toast' => true,
                 'position' => 'top-end',
             ]);
@@ -359,7 +815,8 @@ class Pos extends Component
         if ($this->selectedDeliveryApp === 'default' || $this->selectedDeliveryApp === null) {
             return null;
         }
-        return is_numeric($this->selectedDeliveryApp) ? (int)$this->selectedDeliveryApp : null;
+
+        return is_numeric($this->selectedDeliveryApp) ? (int) $this->selectedDeliveryApp : null;
     }
 
     /**
@@ -396,6 +853,7 @@ class Pos extends Component
         }
 
         ksort($normalized);
+
         return $normalized;
     }
 
@@ -406,6 +864,7 @@ class Pos extends Component
         foreach ($qtyMap as $modifierOptionId => $qty) {
             $sync[$modifierOptionId] = ['quantity' => $qty];
         }
+
         return $sync;
     }
 
@@ -413,13 +872,14 @@ class Pos extends Component
     {
         $ids = [];
         foreach (($this->itemModifiersSelected ?? []) as $selected) {
-            if (!is_array($selected)) {
+            if (! is_array($selected)) {
                 continue;
             }
             $ids = array_merge($ids, array_keys($this->normalizeModifierQuantities($selected)));
         }
         $ids = array_values(array_unique($ids));
         sort($ids);
+
         return $ids;
     }
 
@@ -458,9 +918,9 @@ class Pos extends Component
                 if (isset($this->orderItemVariation[$key])) {
                     $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
-                
+
                 // Update modifier prices
-                if (!empty($this->itemModifiersSelected[$key])) {
+                if (! empty($this->itemModifiersSelected[$key])) {
                     $modifierOptions = $this->getModifierOptionsProperty();
                     $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
                     foreach (array_keys($selected) as $modifierId) {
@@ -470,7 +930,7 @@ class Pos extends Component
                     }
                     $this->orderItemModifiersPrice[$key] = $this->calculateModifierTotal($selected, $modifierOptions);
                 }
-                
+
                 // Recalculate item amount with updated prices
                 $basePrice = isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $item->price;
                 $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
@@ -480,25 +940,67 @@ class Pos extends Component
 
     public function updatedOrderTypeId($value)
     {
+        // Defensive: ensure orderTypeId never stays empty (prevents UI/state mismatch)
+        if (! $value) {
+            $fallback = OrderType::where('type', 'dine_in')->where('is_active', true)->first();
+            if ($fallback) {
+                $this->orderTypeId = $fallback->id;
+                $this->orderTypeSlug = $fallback->slug;
+                $this->orderType = $fallback->type;
+                $this->orderTypeName = $fallback->order_type_name;
+                $this->selectedDeliveryApp = null;
+                $this->selectedDeliveryPlatformName = null;
+                session()->put('pos.order_type_id', (int) $this->orderTypeId);
+                $value = $this->orderTypeId;
+            } else {
+                // If dine-in is missing, keep previous behavior of a safe early return
+                return;
+            }
+        }
         // Only clear tax overrides when the cart already has items — i.e., the user
         // explicitly changed the order type mid-session, not during mount initialisation
         // (at mount time the cart is still empty so the override array is empty anyway).
-        if (!empty($this->orderItemList)) {
+        if (! empty($this->orderItemList)) {
             $this->orderItemPersistedTaxOverride = [];
         }
         // Get the order type information efficiently
-        $orderType = OrderType::select('slug', 'type')->find($value);
+        $orderType = OrderType::select('slug', 'type', 'order_type_name')->find($value);
 
         // Update the local variables to keep them in sync
-        $this->orderTypeSlug = $orderType ? $orderType->slug : $this->orderType;
+        $this->orderTypeSlug = $orderType ? $orderType->slug : $this->orderTypeSlug;
         $this->orderType = $orderType ? $orderType->type : $this->orderType;
+        $this->orderTypeName = $orderType ? $orderType->order_type_name : null;
+
+        // Keep default checkbox in sync with user preference
+        $this->userDefaultOrderTypeId = auth()->user()?->default_order_type_id;
+        $this->setAsDefaultOrderType = (bool) ($this->orderTypeId && $this->userDefaultOrderTypeId && ((int) $this->orderTypeId === (int) $this->userDefaultOrderTypeId));
+
+        // Clear delivery platform when leaving delivery order type
+        if ($this->orderTypeSlug !== 'delivery') {
+            $this->selectedDeliveryApp = null;
+            $this->selectedDeliveryPlatformName = null;
+        } else {
+            $this->refreshSelectedDeliveryPlatformName();
+        }
+
+        // Close dropdown after a selection is made
+        $this->showOrderTypeDropdown = false;
+
+        // Persist last choice for this session (navigation/refresh)
+        session()->put('pos.order_type_id', (int) $this->orderTypeId);
+
+        // If user keeps "set as default" checked and changes type, update their default
+        if ($this->setAsDefaultOrderType && auth()->user() && $this->orderTypeId) {
+            auth()->user()->update(['default_order_type_id' => (int) $this->orderTypeId]);
+            $this->userDefaultOrderTypeId = (int) $this->orderTypeId;
+        }
 
         $mainExtraCharges = RestaurantCharge::whereJsonContains('order_types', $this->orderTypeSlug)
             ->where('is_enabled', true)
             ->get();
 
         // Handle new orders or table orders without active orders
-        if ((!$this->orderID && !$this->tableOrderID) || ($this->tableOrderID && !$this->tableOrder->activeOrder)) {
+        if ((! $this->orderID && ! $this->tableOrderID) || ($this->tableOrderID && ! $this->tableOrder->activeOrder)) {
             $this->extraCharges = $mainExtraCharges;
             $this->orderStatus = 'confirmed';
 
@@ -517,27 +1019,28 @@ class Pos extends Component
                         $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                     }
                 }
-                
+
                 // Recalculate modifier prices
-                if (!empty($this->itemModifiersSelected[$key])) {
+                if (! empty($this->itemModifiersSelected[$key])) {
                     $modifierOptions = $this->getModifierOptionsProperty();
                     $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
                     $this->orderItemModifiersPrice[$key] = $this->calculateModifierTotal($selected, $modifierOptions);
                 }
-                
+
                 // Recalculate item amount
                 $basePrice = isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $item->price;
                 $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
             }
 
             $this->calculateTotal();
+
             return;
         }
 
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : Order::find($this->orderID);
 
         // Early return if no valid order or order is paid
-        if (!$order || $order->status === 'paid') {
+        if (! $order || $order->status === 'paid') {
             return;
         }
 
@@ -550,33 +1053,33 @@ class Pos extends Component
         $this->extraCharges = $orderTypeSlugFromOrder === $this->orderTypeSlug ? $order->extraCharges : $mainExtraCharges;
 
         $this->orderStatus = $order->order_status;
-        
+
         // Recalculate prices for all items in cart when order type changes
         foreach ($this->orderItemList as $key => $item) {
             // Skip combo items - their prices are fixed and shouldn't be recalculated
-            if (isset($this->orderItemComboPack[$key]) && !empty($this->orderItemComboPack[$key])) {
+            if (isset($this->orderItemComboPack[$key]) && ! empty($this->orderItemComboPack[$key])) {
                 continue;
             }
-            
+
             if ($this->orderTypeId) {
                 $item->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 if (isset($this->orderItemVariation[$key])) {
                     $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
             }
-            
+
             // Recalculate modifier prices
-            if (!empty($this->itemModifiersSelected[$key])) {
+            if (! empty($this->itemModifiersSelected[$key])) {
                 $modifierOptions = $this->getModifierOptionsProperty();
                 $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
                 $this->orderItemModifiersPrice[$key] = $this->calculateModifierTotal($selected, $modifierOptions);
             }
-            
+
             // Recalculate item amount
             $basePrice = isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $item->price;
             $this->orderItemAmount[$key] = $this->orderItemQty[$key] * ($basePrice + ($this->orderItemModifiersPrice[$key] ?? 0));
         }
-        
+
         $this->calculateTotal();
     }
 
@@ -586,12 +1089,12 @@ class Pos extends Component
     private function getDefaultDeliveryFee(): float
     {
         $branch = branch();
-        if (!$branch) {
+        if (! $branch) {
             return 0;
         }
 
         $deliverySettings = $branch->deliverySetting;
-        if (!$deliverySettings || !$deliverySettings->is_enabled) {
+        if (! $deliverySettings || ! $deliverySettings->is_enabled) {
             return 0;
         }
 
@@ -628,7 +1131,7 @@ class Pos extends Component
 
     public function updatedOrderStatus($value)
     {
-        if ((!$this->orderID && !$this->tableOrderID) || !$this->orderDetail instanceof Order || is_null($value)) {
+        if ((! $this->orderID && ! $this->tableOrderID) || ! $this->orderDetail instanceof Order || is_null($value)) {
 
             return;
         }
@@ -645,13 +1148,13 @@ class Pos extends Component
     public function changeOrderType()
     {
         // Check if we have ongoing order items that would be affected
-        if (!empty($this->orderItemList)) {
+        if (! empty($this->orderItemList)) {
             // Show confirmation dialog before changing
             $this->alert('question', __('modules.order.changeOrderType'), [
                 'text' => __('modules.order.changeOrderTypeConfirmation'),
-                'showCancelButton' => true,                
-                'showConfirmButton' => true,                
-                'withConfirmButton' => __('app.yes') . ', ' . __('app.change'),
+                'showCancelButton' => true,
+                'showConfirmButton' => true,
+                'withConfirmButton' => __('app.yes').', '.__('app.change'),
                 'cancelButtonText' => __('app.cancel'),
                 'timer' => 3000,
                 'onConfirmed' => 'confirmChangeOrderType',
@@ -665,17 +1168,8 @@ class Pos extends Component
     #[On('confirmChangeOrderType')]
     public function resetOrderTypeSelection()
     {
-        // Reset order type related properties
-        $this->orderTypeId = null;
-        $this->orderTypeSlug = null;
-        $this->orderType = null;
-        $this->selectedDeliveryApp = null;
-        
-        // Clear delivery fee if it was set
-        $this->deliveryFee = 0;
-        
-        // Recalculate with new settings
-        $this->calculateTotal();
+        // Keep order type selected; just open the selector so user can change it.
+        $this->showOrderTypeDropdown = true;
     }
 
     public function showTableOrder()
@@ -724,6 +1218,8 @@ class Pos extends Component
             $this->orderItemOriginalPrice = [];
             $this->orderItemComboDiscount = [];
             $this->orderItemComboName = [];
+            $this->orderItemUnitPrice = [];
+            $this->orderItemDisplayPrice = [];
             $this->orderItemModifiersPrice = [];
             $this->itemModifiersSelected = [];
             $this->itemNotes = [];
@@ -744,19 +1240,19 @@ class Pos extends Component
             $persistedComboQueues = $this->buildPersistedComboOrderItemQueues($this->orderDetail->id);
 
             foreach ($this->orderDetail->kot as $kot) {
-                $this->kotList['kot_' . $kot->id] = $kot;
+                $this->kotList['kot_'.$kot->id] = $kot;
 
                 // Track which combos have already been assigned an instance number *in this KOT*.
                 // All items of the same combo within one KOT share the same instance key.
                 $comboInThisKot = [];  // comboPackId => instanceKey assigned for this KOT
 
                 foreach ($kot->items as $item) {
-                    $key = 'kot_' . $kot->id . '_' . $item->id;
-                    
+                    $key = 'kot_'.$kot->id.'_'.$item->id;
+
                     $this->orderItemList[$key] = $item->menuItem;
                     $this->orderItemQty[$key] = $item->quantity;
                     $this->itemModifiersSelected[$key] = $item->modifierOptions->pluck('pivot.quantity', 'id')->toArray();
-                    
+
                     // Check if this KOT item is from a combo pack.
                     // Priority: combo_pack_id stored directly on KotItem (set since fix rev2),
                     // then order_items table lookup, then legacy [COMBO:id] note fallback.
@@ -777,19 +1273,19 @@ class Pos extends Component
                         // by menu/variation lookup (ambiguous when same SKU also sold standalone).
                         // If there is no matching persisted individual line, we can safely
                         // recover combo classification from persisted combo queues.
-                        if (!$this->hasPersistedIndividualQueueMatch($persistedIndividualQueues, $item)) {
+                        if (! $this->hasPersistedIndividualQueueMatch($persistedIndividualQueues, $item)) {
                             $orderItem = $this->shiftMatchingPersistedComboOrderItemWithoutPack($persistedComboQueues, $item);
-                            if ($orderItem && !empty($orderItem->combo_pack_id)) {
+                            if ($orderItem && ! empty($orderItem->combo_pack_id)) {
                                 $comboPackId = (int) $orderItem->combo_pack_id;
                                 $isComboItem = true;
                             }
                         }
 
                         // Legacy explicit note markers remain supported.
-                        if (!$isComboItem && $item->note && str_contains($item->note, '[COMBO:')) {
+                        if (! $isComboItem && $item->note && str_contains($item->note, '[COMBO:')) {
                             preg_match('/\[COMBO:(\d+)\]/', $item->note, $matches);
-                            if (!empty($matches[1])) {
-                                $comboPackId = (int)$matches[1];
+                            if (! empty($matches[1])) {
+                                $comboPackId = (int) $matches[1];
                                 $isComboItem = true;
                                 $orderItem = $this->shiftMatchingPersistedComboOrderItem(
                                     $persistedComboQueues,
@@ -799,7 +1295,7 @@ class Pos extends Component
                             }
                         }
                     }
-                    
+
                     if ($isComboItem && ($orderItem || $comboPackId)) {
                         // Prefer persisted combo instance token so one combo split into multiple
                         // kitchen KOTs still resolves to one "remove whole combo" group.
@@ -807,13 +1303,13 @@ class Pos extends Component
                             ?? $this->extractComboInstanceKey($orderItem?->note);
 
                         // Backward-compatible fallback for old rows without instance tokens.
-                        if (!$instanceKey) {
+                        if (! $instanceKey) {
                             // Assign a unique instance key per combo per KOT.
                             // The first time we see comboPackId in this KOT, allocate a new instance number.
-                            if (!isset($comboInThisKot[$comboPackId])) {
+                            if (! isset($comboInThisKot[$comboPackId])) {
                                 $instanceNum = $comboInstanceCounters[$comboPackId] ?? 0;
                                 $comboInstanceCounters[$comboPackId] = $instanceNum + 1;
-                                $comboInThisKot[$comboPackId] = $comboPackId . '_' . $instanceNum;
+                                $comboInThisKot[$comboPackId] = $comboPackId.'_'.$instanceNum;
                             }
                             $instanceKey = $comboInThisKot[$comboPackId];
                         }
@@ -821,40 +1317,40 @@ class Pos extends Component
                         // Restore combo pricing from order item if available
                         if ($orderItem) {
                             $this->orderItemComboPack[$key] = $instanceKey;
-                            
+
                             // Calculate per-unit prices from order item
                             // orderItem->original_price is stored as TOTAL (original_price × quantity)
                             // orderItem->amount is the TOTAL discounted amount (what customer paid)
                             // orderItem->combo_discount_amount is stored as TOTAL discount
                             // Use amount/quantity as source of truth for per-unit discounted price
-                            $unitOriginalPrice = $orderItem->original_price && $orderItem->quantity > 0 
-                                ? $orderItem->original_price / $orderItem->quantity 
+                            $unitOriginalPrice = $orderItem->original_price && $orderItem->quantity > 0
+                                ? $orderItem->original_price / $orderItem->quantity
                                 : 0;
-                            $unitPrice = $orderItem->amount && $orderItem->quantity > 0 
+                            $unitPrice = $orderItem->amount && $orderItem->quantity > 0
                                 ? $orderItem->amount / $orderItem->quantity  // Use amount/quantity as source of truth
                                 : ($orderItem->price ?? 0); // Fallback to price field
-                            $unitDiscount = $orderItem->combo_discount_amount && $orderItem->quantity > 0 
-                                ? $orderItem->combo_discount_amount / $orderItem->quantity 
+                            $unitDiscount = $orderItem->combo_discount_amount && $orderItem->quantity > 0
+                                ? $orderItem->combo_discount_amount / $orderItem->quantity
                                 : 0;
-                            
+
                             // Scale to current KOT item quantity
                             $this->orderItemOriginalPrice[$key] = $unitOriginalPrice * $item->quantity;
                             $this->orderItemComboDiscount[$key] = $unitDiscount * $item->quantity;
-                            
+
                             // Use the discounted price per unit, scaled to KOT item quantity
                             $this->orderItemAmount[$key] = $unitPrice * $item->quantity;
                         } else {
                             // Fallback: recalculate combo price if order item not found
                             $combo = \App\Models\ComboPack::with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])
                                 ->find($comboPackId);
-                            
+
                             if ($combo) {
                                 $comboItemPrices = $combo->calculateComboItemPrices($this->orderTypeId, $this->normalizeDeliveryAppId());
-                                
+
                                 // Find the matching combo item
                                 foreach ($comboItemPrices as $itemData) {
                                     $comboItem = $itemData['combo_item'];
-                                    if ($comboItem->menu_item_id == $item->menu_item_id && 
+                                    if ($comboItem->menu_item_id == $item->menu_item_id &&
                                         $comboItem->menu_item_variation_id == $item->menu_item_variation_id) {
                                         $this->orderItemComboPack[$key] = $instanceKey;
                                         $this->orderItemOriginalPrice[$key] = $itemData['original_price'] * $item->quantity;
@@ -865,11 +1361,11 @@ class Pos extends Component
                                 }
                             }
                         }
-                        
+
                         $this->orderItemModifiersPrice[$key] = 0; // Combo items don't have modifiers
 
                         // Cache combo name for visual grouping in UI (keyed by instance key)
-                        if ($comboPackId && !isset($this->orderItemComboName[$instanceKey])) {
+                        if ($comboPackId && ! isset($this->orderItemComboName[$instanceKey])) {
                             $comboNameModel = \App\Models\ComboPack::find($comboPackId);
                             if ($comboNameModel) {
                                 $this->orderItemComboName[$instanceKey] = $comboNameModel->getTranslation('name', app()->getLocale());
@@ -895,9 +1391,10 @@ class Pos extends Component
                             }
                             $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum(function ($modifier) {
                                 $qty = (int) ($modifier->pivot->quantity ?? 1);
+
                                 return $modifier->price * max(1, $qty);
                             });
-                            if ($this->taxMode === 'item' && !is_null($savedIndividual->tax_amount)) {
+                            if ($this->taxMode === 'item' && ! is_null($savedIndividual->tax_amount)) {
                                 $this->orderItemPersistedTaxOverride[$key] = [
                                     'tax_amount' => (float) $savedIndividual->tax_amount,
                                     'tax_percentage' => $savedIndividual->tax_percentage !== null
@@ -921,6 +1418,7 @@ class Pos extends Component
 
                             $this->orderItemModifiersPrice[$key] = $item->modifierOptions->sum(function ($modifier) {
                                 $qty = (int) ($modifier->pivot->quantity ?? 1);
+
                                 return $modifier->price * max(1, $qty);
                             });
                             $basePrice = $item->menuItemVariation ? $item->menuItemVariation->price : $item->menuItem->price;
@@ -1195,7 +1693,7 @@ class Pos extends Component
 
     protected function persistedIndividualLineKey(int $menuItemId, ?int $variationId, int $quantity): string
     {
-        return $menuItemId . '|' . ($variationId ?? 'null') . '|' . $quantity;
+        return $menuItemId.'|'.($variationId ?? 'null').'|'.$quantity;
     }
 
     protected function shiftMatchingPersistedIndividualOrderItem(array &$queues, KotItem $kotItem): ?OrderItem
@@ -1206,7 +1704,7 @@ class Pos extends Component
             (int) $kotItem->quantity
         );
 
-        if (!isset($queues[$key]) || $queues[$key] === []) {
+        if (! isset($queues[$key]) || $queues[$key] === []) {
             return null;
         }
 
@@ -1256,7 +1754,7 @@ class Pos extends Component
 
     protected function persistedComboLineKey(int $comboPackId, int $menuItemId, ?int $variationId, int $quantity): string
     {
-        return $comboPackId . '|' . $menuItemId . '|' . ($variationId ?? 'null') . '|' . $quantity;
+        return $comboPackId.'|'.$menuItemId.'|'.($variationId ?? 'null').'|'.$quantity;
     }
 
     protected function shiftMatchingPersistedComboOrderItem(array &$queues, int $comboPackId, KotItem $kotItem): ?OrderItem
@@ -1268,7 +1766,7 @@ class Pos extends Component
             (int) $kotItem->quantity
         );
 
-        if (!isset($queues[$key]) || $queues[$key] === []) {
+        if (! isset($queues[$key]) || $queues[$key] === []) {
             return null;
         }
 
@@ -1280,11 +1778,11 @@ class Pos extends Component
         $menuItemId = (int) $kotItem->menu_item_id;
         $variationId = $kotItem->menu_item_variation_id !== null ? (int) $kotItem->menu_item_variation_id : null;
         $quantity = (int) $kotItem->quantity;
-        $suffix = '|' . $menuItemId . '|' . ($variationId ?? 'null') . '|' . $quantity;
+        $suffix = '|'.$menuItemId.'|'.($variationId ?? 'null').'|'.$quantity;
 
         $matchedKey = null;
         foreach ($queues as $key => $rows) {
-            if ($rows === [] || !str_ends_with((string) $key, $suffix)) {
+            if ($rows === [] || ! str_ends_with((string) $key, $suffix)) {
                 continue;
             }
 
@@ -1304,20 +1802,20 @@ class Pos extends Component
 
     public function addCartItems($id, $variationCount, $modifierCount)
     {
-        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
             return;
         }
 
         $this->dispatch('play_beep');
         $this->menuItem = MenuItem::find($id);
-        
+
         // Set price context immediately after loading the item to prevent price flickering
         if ($this->orderTypeId) {
             $this->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
         }
 
         // Initialize item note if it doesn't exist
-        if (!isset($this->itemNotes[$id])) {
+        if (! isset($this->itemNotes[$id])) {
             $this->itemNotes[$id] = '';
         }
 
@@ -1333,33 +1831,34 @@ class Pos extends Component
 
     public function addComboToCart($comboId)
     {
-        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
             return;
         }
 
         $this->dispatch('play_beep');
-        
+
         $combo = \App\Models\ComboPack::with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])->findOrFail($comboId);
-        
+
         // Check if combo is available
-        if (!$combo->isAvailable()) {
+        if (! $combo->isAvailable()) {
             $this->alert('error', __('modules.combo.comboNotAvailable'), [
                 'toast' => true,
                 'position' => 'top-end',
             ]);
+
             return;
         }
 
         // Phase 3.3: Warn if any combo item already exists individually in the cart
         $conflictNames = [];
         foreach ($combo->comboPackItems as $comboItem) {
-            $regularKey = $comboItem->menuItem->id . ($comboItem->menu_item_variation_id ? '_' . $comboItem->menu_item_variation_id : '');
-            if (isset($this->orderItemList[$regularKey]) && !isset($this->orderItemComboPack[$regularKey])) {
+            $regularKey = $comboItem->menuItem->id.($comboItem->menu_item_variation_id ? '_'.$comboItem->menu_item_variation_id : '');
+            if (isset($this->orderItemList[$regularKey]) && ! isset($this->orderItemComboPack[$regularKey])) {
                 $conflictNames[] = $comboItem->menuItem->item_name;
             }
         }
-        if (!empty($conflictNames)) {
-            $this->alert('info', implode(', ', array_unique($conflictNames)) . ' ' . __('modules.combo.addingAsCombo'), [
+        if (! empty($conflictNames)) {
+            $this->alert('info', implode(', ', array_unique($conflictNames)).' '.__('modules.combo.addingAsCombo'), [
                 'toast' => true,
                 'position' => 'top-end',
                 'timer' => 4000,
@@ -1382,10 +1881,10 @@ class Pos extends Component
         // Compute which instance number this addition is (supports adding the same combo multiple times)
         $existingInstanceKeys = array_unique(array_filter(
             array_values($this->orderItemComboPack ?? []),
-            fn($v) => str_starts_with((string)$v, $combo->id . '_')
+            fn ($v) => str_starts_with((string) $v, $combo->id.'_')
         ));
         $instanceNum = count($existingInstanceKeys);
-        $instanceKey = $combo->id . '_' . $instanceNum;
+        $instanceKey = $combo->id.'_'.$instanceNum;
 
         // Cache combo name for visual grouping in UI (keyed by instance key)
         $this->orderItemComboName[$instanceKey] = $combo->getTranslation('name', app()->getLocale());
@@ -1397,8 +1896,8 @@ class Pos extends Component
             $variationId = $comboItem->menu_item_variation_id;
 
             // Create unique ID for this combo item (includes instance number to support multiple combos)
-            $itemId = $menuItem->id . ($variationId ? '_' . $variationId : '');
-            $comboItemKey = 'combo_' . $combo->id . '_' . $instanceNum . '_' . $itemId;
+            $itemId = $menuItem->id.($variationId ? '_'.$variationId : '');
+            $comboItemKey = 'combo_'.$combo->id.'_'.$instanceNum.'_'.$itemId;
 
             // Store variation reference (price context was already set before calculateComboItemPrices)
             if ($variationId) {
@@ -1407,30 +1906,30 @@ class Pos extends Component
                     $this->orderItemVariation[$comboItemKey] = $variation;
                 }
             }
-            
+
             // Store combo pack info
             $this->orderItemList[$comboItemKey] = $menuItem;
             $this->orderItemQty[$comboItemKey] = $comboItem->quantity;
-            
+
             // Use the calculated combo price (already includes discount)
             $comboPrice = $itemData['price'];
             $originalPrice = $itemData['original_price'];
             $comboDiscount = $itemData['combo_discount_amount'];
-            
+
             // Store combo metadata
             $this->orderItemAmount[$comboItemKey] = $comboPrice * $comboItem->quantity;
             $this->orderItemComboPack[$comboItemKey] = $instanceKey;
             $this->orderItemOriginalPrice[$comboItemKey] = $originalPrice * $comboItem->quantity;
             $this->orderItemComboDiscount[$comboItemKey] = $comboDiscount;
-            
+
             // Initialize item note
-            if (!isset($this->itemNotes[$comboItemKey])) {
+            if (! isset($this->itemNotes[$comboItemKey])) {
                 $this->itemNotes[$comboItemKey] = __('modules.combo.itemsAddedFromCombo');
             }
         }
-        
+
         $this->calculateTotal();
-        
+
         $this->alert('success', __('modules.combo.comboAdded'), [
             'toast' => true,
             'position' => 'top-end',
@@ -1443,7 +1942,7 @@ class Pos extends Component
     {
         // Check table lock status first
         $tableModel = Table::find($table->id);
-        if (!$tableModel->canBeAccessedByUser(user()->id)) {
+        if (! $tableModel->canBeAccessedByUser(user()->id)) {
             $session = $tableModel->tableSession;
             $lockedByUser = $session?->lockedByUser;
 
@@ -1456,13 +1955,14 @@ class Pos extends Component
             ]);
 
             $this->showTableModal = false;
+
             return;
         }
 
         // Lock the table for current user
         $lockResult = $tableModel->lockForUser(user()->id);
 
-        if (!$lockResult['success']) {
+        if (! $lockResult['success']) {
             $this->alert('error', __('messages.tableLockFailed'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -1471,13 +1971,14 @@ class Pos extends Component
             ]);
 
             $this->showTableModal = false;
+
             return;
         }
 
         // Release previous table lock if exists
         if ($this->tableId && $this->tableId !== $table->id) {
             Table::where('id', $this->tableId)->update([
-                'available_status' => 'available'
+                'available_status' => 'available',
             ]);
         }
 
@@ -1496,7 +1997,7 @@ class Pos extends Component
                 $this->orderDetail->date_time->format('d-m-Y') == now()->format('d-m-Y')
             ) {
                 Table::where('id', $this->tableId)->update([
-                    'available_status' => 'running'
+                    'available_status' => 'running',
                 ]);
             }
 
@@ -1519,20 +2020,20 @@ class Pos extends Component
     {
         $this->showVariationModal = false;
         $menuItemVariation = MenuItemVariation::find($variationId);
-        
+
         // Set price context on variation BEFORE using it to prevent price flickering
         if ($this->orderTypeId) {
             $menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
         }
-        
+
         $modifiersAvailable = $menuItemVariation->menuItem->modifiers->count();
 
         if ($modifiersAvailable) {
-            $this->selectedModifierItem = $menuItemVariation->menu_item_id . '_' . $variationId;
+            $this->selectedModifierItem = $menuItemVariation->menu_item_id.'_'.$variationId;
             $this->showModifiersModal = true;
         } else {
-            $this->orderItemVariation['"' . $menuItemVariation->menu_item_id . '_' . $variationId . '"'] = $menuItemVariation;
-            $this->syncCart('"' . $menuItemVariation->menu_item_id . '_' . $variationId . '"');
+            $this->orderItemVariation['"'.$menuItemVariation->menu_item_id.'_'.$variationId.'"'] = $menuItemVariation;
+            $this->syncCart('"'.$menuItemVariation->menu_item_id.'_'.$variationId.'"');
         }
     }
 
@@ -1544,7 +2045,7 @@ class Pos extends Component
             $table?->updateActivity(user()->id);
         }
 
-        if (!isset($this->orderItemList[$id])) {
+        if (! isset($this->orderItemList[$id])) {
             // Set price context BEFORE adding to cart to prevent price flickering
             if ($this->orderTypeId) {
                 $this->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
@@ -1552,10 +2053,10 @@ class Pos extends Component
                     $this->orderItemVariation[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
             }
-            
+
             $this->orderItemList[$id] = $this->menuItem;
             $this->orderItemQty[$id] = $this->orderItemQty[$id] ?? 1;
-            
+
             $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
             $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
             $this->calculateTotal();
@@ -1568,21 +2069,24 @@ class Pos extends Component
     {
         if ($this->isComboCartLine($id)) {
             $this->alert('error', 'Combo items cannot be removed individually. Remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
         if ($this->requiresRemovalReason($id)) {
-            if (!user_can('Delete KOT Item')) {
+            if (! user_can('Delete KOT Item')) {
                 $this->alert('error', __('messages.kotDeletePermissionDenied'), [
-            'toast' => true,
-            'position' => 'top-end',
-            'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
-        ]);
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+
                 return;
             }
 
             $this->promptRemovalReason($id, 'delete');
+
             return;
         }
 
@@ -1591,27 +2095,164 @@ class Pos extends Component
 
     public function removeComboGroup(string $instanceKey): void
     {
-        if (!$this->canModifyCurrentOrderItems()) {
+        if (! $this->canModifyCurrentOrderItems()) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
         $keysToDelete = array_keys(array_filter(
             $this->orderItemComboPack ?? [],
-            fn($v) => $v === $instanceKey
+            fn ($v) => $v === $instanceKey
         ));
 
         // Keep combo-group removal guard identical to individual cart-line removal:
         // existing KOT lines require Delete KOT Item permission.
-        if (!empty($keysToDelete) && $this->requiresRemovalReason($keysToDelete[0]) && !user_can('Delete KOT Item')) {
+        if (! empty($keysToDelete) && $this->requiresRemovalReason($keysToDelete[0]) && ! user_can('Delete KOT Item')) {
             $this->alert('error', __('messages.kotDeletePermissionDenied'), [
                 'toast' => true,
                 'position' => 'top-end',
                 'showCancelButton' => false,
-                'cancelButtonText' => __('app.close')
+                'cancelButtonText' => __('app.close'),
             ]);
+
             return;
         }
+
+        $firstComboKey = $keysToDelete[0] ?? null;
+        $isPersistedExistingCombo = $firstComboKey
+            ? $this->isAlreadyPersistedOrderItemCartKey((string) $firstComboKey)
+            : false;
+
+        // Existing-items combos (order_item_*) must also collect a reason to stay aligned with
+        // KOT reduction/removal workflow.
+        if (! empty($keysToDelete) && ($this->requiresRemovalReason($firstComboKey) || $isPersistedExistingCombo)) {
+            $this->pendingRemovalComboItems = $keysToDelete;
+            $this->pendingRemovalItem = '__combo__';
+            $this->pendingRemovalAction = 'delete_combo';
+            $this->pendingRemovalNewQuantity = null;
+            $this->removalReason = '';
+            $this->showRemovalReasonModal = true;
+
+            return;
+        }
+
+        foreach ($keysToDelete as $key) {
+            $this->executeDeleteCartItems($key);
+        }
+
+        unset($this->orderItemComboName[$instanceKey]);
+        $this->calculateTotal();
+    }
+
+    /**
+     * Apply a batch of client-queued POS operations in a single request.
+     * Keeps interaction client-first while reducing Livewire round-trips.
+     */
+    public function applyClientOps(array $operations): void
+    {
+        if (empty($operations)) {
+            return;
+        }
+
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
+            return;
+        }
+
+        $maxOps = 40;
+        $ops = array_slice($operations, 0, $maxOps);
+
+        foreach ($ops as $op) {
+            if (! is_array($op)) {
+                continue;
+            }
+
+            $type = (string) ($op['type'] ?? '');
+
+            if ($type === 'add_item') {
+                $itemId = (int) ($op['id'] ?? 0);
+                $variationCount = (int) ($op['variationCount'] ?? 0);
+                $modifierCount = (int) ($op['modifierCount'] ?? 0);
+
+                if ($itemId > 0) {
+                    $this->addCartItems($itemId, $variationCount, $modifierCount);
+                }
+
+                continue;
+            }
+
+            if ($type === 'add_combo') {
+                $comboId = (int) ($op['comboId'] ?? 0);
+                if ($comboId > 0) {
+                    $this->addComboToCart($comboId);
+                }
+
+                continue;
+            }
+
+            if ($type === 'qty_delta') {
+                $lineKey = (string) ($op['key'] ?? '');
+                $delta = (int) ($op['delta'] ?? 0);
+
+                if ($lineKey === '' || $delta === 0) {
+                    continue;
+                }
+
+                if ($delta > 0) {
+                    for ($i = 0; $i < $delta; $i++) {
+                        $this->optimisticAddQty($lineKey);
+                    }
+                } else {
+                    for ($i = 0; $i < abs($delta); $i++) {
+                        $this->optimisticSubQty($lineKey);
+                    }
+                }
+
+                continue;
+            }
+
+            if ($type === 'qty_set') {
+                $lineKey = (string) ($op['key'] ?? '');
+                $qty = (int) ($op['qty'] ?? 0);
+
+                if ($lineKey === '') {
+                    continue;
+                }
+
+                if ($qty <= 0) {
+                    if ($this->shouldBatchRemovalPromptForPersistedLine($lineKey)) {
+                        if ($this->requiresRemovalReason($lineKey) && ! user_can('Delete KOT Item')) {
+                            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                                'toast' => true,
+                                'position' => 'top-end',
+                                'showCancelButton' => false,
+                                'cancelButtonText' => __('app.close'),
+                            ]);
+
+                            continue;
+                        }
+                        if ($this->isAlreadyPersistedOrderItemCartKey($lineKey) && ! $this->canModifyCurrentOrderItems()) {
+                            $this->alert('error', __('messages.noPermission'), [
+                                'toast' => true,
+                                'position' => 'top-end',
+                            ]);
+
+                            continue;
+                        }
+                        $this->promptRemovalReason($lineKey, 'delete');
+
+                        continue;
+                    }
+                    // Remove line through full deletion path to clear all dependent cart state.
+                    $this->executeDeleteCartItems($lineKey);
+                } else {
+                    // Set new quantity
+                    $this->orderItemQty[$lineKey] = $qty;
+                    $this->updateQty($lineKey);
+                }
+
+                continue;
+            }
 
         $firstComboKey = $keysToDelete[0] ?? null;
         $isPersistedExistingCombo = $firstComboKey
@@ -1630,12 +2271,13 @@ class Pos extends Component
             return;
         }
 
-        foreach ($keysToDelete as $key) {
-            $this->executeDeleteCartItems($key);
-        }
+                if ($lineKey === '') {
+                    continue;
+                }
 
-        unset($this->orderItemComboName[$instanceKey]);
-        $this->calculateTotal();
+                $this->deleteCartItems($lineKey);
+            }
+        }
     }
 
     public function deleteOrderItems($id)
@@ -1643,12 +2285,14 @@ class Pos extends Component
         $orderStatus = $this->orderDetail?->status ?? null;
         $isBilledOrPaid = in_array($orderStatus, ['billed', 'paid', 'payment_due']);
 
-        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+        if ($isBilledOrPaid && ! user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
-        if (!$isBilledOrPaid && !user_can('Delete Order')) {
+        if (! $isBilledOrPaid && ! user_can('Delete Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
@@ -1682,7 +2326,7 @@ class Pos extends Component
                     'toast' => true,
                     'position' => 'top-end',
                     'showCancelButton' => false,
-                    'cancelButtonText' => __('app.close')
+                    'cancelButtonText' => __('app.close'),
                 ]);
 
                 return $this->redirect(route('pos.index'), navigate: true);
@@ -1690,8 +2334,6 @@ class Pos extends Component
 
             $this->total = 0;
             $this->subTotal = 0;
-
-
 
             $this->discountedTotal = $this->total;
 
@@ -1703,7 +2345,7 @@ class Pos extends Component
 
             Order::where('id', $this->orderDetail->id)->update([
                 'sub_total' => $this->subTotal,
-                'total' => $this->total
+                'total' => $this->total,
             ]);
         }
     }
@@ -1712,13 +2354,14 @@ class Pos extends Component
     {
         $order = Order::find($id);
 
-        if (!$order) {
+        if (! $order) {
             $this->alert('error', __('messages.orderNotFound'), [
                 'toast' => true,
                 'position' => 'top-end',
                 'showCancelButton' => false,
-                'cancelButtonText' => __('app.close')
+                'cancelButtonText' => __('app.close'),
             ]);
+
             return;
         }
 
@@ -1735,7 +2378,7 @@ class Pos extends Component
             'toast' => true,
             'position' => 'top-end',
             'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
+            'cancelButtonText' => __('app.close'),
         ]);
 
         return $this->redirect(route('pos.index'), navigate: true);
@@ -1743,12 +2386,13 @@ class Pos extends Component
 
     public function addQty($id)
     {
-        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
             return;
         }
 
         if ($this->isComboCartLine($id)) {
             $this->alert('error', 'Combo item quantity cannot be edited individually. Edit/remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
@@ -1759,7 +2403,7 @@ class Pos extends Component
         }
 
         $this->orderItemQty[$id] = isset($this->orderItemQty[$id]) ? ($this->orderItemQty[$id] + 1) : 1;
-        
+
         // Set price context before using price
         if ($this->orderTypeId) {
             if (isset($this->orderItemVariation[$id])) {
@@ -1769,7 +2413,7 @@ class Pos extends Component
                 $this->orderItemList[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
             }
         }
-        
+
         $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
         $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
         $this->calculateTotal();
@@ -1777,34 +2421,36 @@ class Pos extends Component
 
     public function subQty($id)
     {
-        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
             return;
         }
 
         if ($this->isComboCartLine($id)) {
             $this->alert('error', 'Combo items cannot be removed individually. Remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
         if ($this->requiresRemovalReason($id)) {
-            if (!user_can('Delete KOT Item')) {
+            if (! user_can('Delete KOT Item')) {
                 $this->alert('error', __('messages.kotDeletePermissionDenied'), [
                     'toast' => true,
                     'position' => 'top-end',
                     'showCancelButton' => false,
-                    'cancelButtonText' => __('app.close')
+                    'cancelButtonText' => __('app.close'),
                 ]);
+
                 return;
             }
 
             $context = $this->parseKotContext($id);
-            if (!$context) {
+            if (! $context) {
                 return;
             }
 
             $kotItem = KotItem::find($context['kot_item_id']);
 
-            if (!$kotItem) {
+            if (! $kotItem) {
                 return;
             }
 
@@ -1813,6 +2459,7 @@ class Pos extends Component
             } else {
                 $this->promptRemovalReason($id, 'decrement', $kotItem->quantity - 1);
             }
+
             return;
         }
 
@@ -1823,7 +2470,7 @@ class Pos extends Component
         }
 
         $this->orderItemQty[$id] = (isset($this->orderItemQty[$id]) && $this->orderItemQty[$id] > 1) ? ($this->orderItemQty[$id] - 1) : 1;
-        
+
         // Set price context before using price
         if ($this->orderTypeId) {
             if (isset($this->orderItemVariation[$id])) {
@@ -1833,13 +2480,13 @@ class Pos extends Component
                 $this->orderItemList[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
             }
         }
-        
+
         $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
         $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
         $this->calculateTotal();
     }
 
-    public function calculateTotal()
+    public function calculateTotal(bool $skipRealtimeSideEffects = false)
     {
         $this->total = 0;
         $this->subTotal = 0;
@@ -1878,26 +2525,36 @@ class Pos extends Component
             }
         }
 
-        $this->discountedTotal = $this->total;
+        $itemsSubTotalForDiscount = $this->subTotal;
+        $extrasTotal = $this->getOrderExtrasTotal();
+
+        // Extras are part of order total, but excluded from discount calculations
+        if ($extrasTotal > 0) {
+            $this->total += $extrasTotal;
+        }
 
         // Apply discounts
         if ($this->discountValue > 0 && $this->discountType) {
             if ($this->discountType === 'percent') {
-                $this->discountAmount = round(($this->subTotal * $this->discountValue) / 100, 2);
+                $this->discountAmount = round(($itemsSubTotalForDiscount * $this->discountValue) / 100, 2);
             } elseif ($this->discountType === 'fixed') {
-                $this->discountAmount = min($this->discountValue, $this->subTotal);
+                $this->discountAmount = min($this->discountValue, $itemsSubTotalForDiscount);
             }
 
             $this->total -= $this->discountAmount;
         }
 
-        $this->discountedTotal = $this->total;
+        // Charges/taxes base should match POS UI breakdown:
+        // base = (items subtotal + custom extras) - discount
+        // Note: custom extras are excluded from discount calculations (handled above).
+        $chargeAndTaxBase = max(0, round(($this->subTotal + $extrasTotal) - ((float) ($this->discountAmount ?? 0)), 2));
+        $this->discountedTotal = $chargeAndTaxBase;
 
         // Calculate taxes using centralized method
         $this->recalculateTaxTotals();
 
         // Apply extra charges
-        if (!empty($this->orderItemAmount) && $this->extraCharges) {
+        if (! empty($this->orderItemAmount) && $this->extraCharges) {
             foreach ($this->extraCharges ?? [] as $charge) {
                 $this->total += $charge->getAmount($this->discountedTotal);
             }
@@ -1912,70 +2569,181 @@ class Pos extends Component
             $this->total += $this->deliveryFee;
         }
 
-        // Calculate tax and charge amounts for display
-        $taxesForDisplay = $this->taxes->map(function ($tax) {
-            $amount = (($tax->tax_percent / 100) * $this->discountedTotal);
-            return [
-                'name' => $tax->tax_name,
-                'percent' => $tax->tax_percent,
-                'amount' => $amount,
-            ];
-        })->toArray();
-        $chargesForDisplay = collect($this->extraCharges ?? [])->map(function ($charge) {
-            return [
-                'name' => $charge->name,
-                'amount' => $charge->getAmount($this->discountedTotal),
-            ];
-        })->toArray();
-
-        $paymentGateway = restaurant()->paymentGateways;
-        $qrCodeImageUrl = $paymentGateway && $paymentGateway->is_qr_payment_enabled ? $paymentGateway->qr_code_image_url : null;
-
-        $customerDisplayData = [
-            'order_number' => $this->orderNumber,
-            'formatted_order_number' => $this->formattedOrderNumber,
-            'items' => $this->getCustomerDisplayItems(),
-            'sub_total' => $this->subTotal,
-            'discount' => $this->discountAmount ?? 0,
-            'total' => $this->total,
-            'taxes' => $taxesForDisplay,
-            'extra_charges' => $chargesForDisplay,
-            'tip' => $this->tipAmount,
-            'delivery_fee' => $this->deliveryFee,
-            'order_type' => $this->orderType,
-            'status' => $this->customerDisplayStatus ?? 'idle',
-            'cash_due' => ($this->customerDisplayStatus ?? null) === 'billed' ? $this->total : null,
-            'qr_code_image_url' => $qrCodeImageUrl,
-        ];
-
-        $userId = auth()->id();
-        $cacheKey = 'customer_display_cart_user_' . $userId;
-        Cache::put($cacheKey, $customerDisplayData, now()->addMinutes(30));
-
-        // Broadcast customer display update if Pusher is enabled
-        if (pusherSettings()->is_enabled_pusher_broadcast) {
-            try {
-                broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
-            } catch (\Exception $e) {
-                // Log the error but don't break the request
-                // Common causes: network timeout, SSL issues, Pusher API down
-                \Log::warning('Pusher broadcast failed for CustomerDisplayUpdated', [
-                    'error' => $e->getMessage(),
-                    'user_id' => $userId,
-                    'exception_class' => get_class($e),
-                ]);
-            }
+        // Apply reward points discount (after all other calculations)
+        if ($this->rewardPointDiscount > 0) {
+            $this->total = max(0, $this->total - $this->rewardPointDiscount);
         }
 
-        // Optionally, still dispatch browser event
-        $this->dispatch('orderUpdated', [
-            'order_number' => $this->orderNumber,
-            'formatted_order_number' => $this->formattedOrderNumber,
-            'items' => $this->getCustomerDisplayItems(),
-            'sub_total' => $this->subTotal,
-            'discount' => $this->discountAmount ?? 0,
-            'total' => $this->total,
-        ]);
+        if (! $skipRealtimeSideEffects) {
+            // Calculate tax and charge amounts for display
+            $taxesForDisplay = collect($this->taxes ?? [])->map(function ($tax) {
+                $amount = (($tax->tax_percent / 100) * $this->discountedTotal);
+
+                return [
+                    'name' => $tax->tax_name,
+                    'percent' => $tax->tax_percent,
+                    'amount' => $amount,
+                ];
+            })->toArray();
+            $chargesForDisplay = collect($this->extraCharges ?? [])->map(function ($charge) {
+                return [
+                    'name' => $charge->name,
+                    'amount' => $charge->getAmount($this->discountedTotal),
+                ];
+            })->toArray();
+            $displayItems = $this->getCustomerDisplayItems();
+            $displayCustomExtras = $this->getCustomerDisplayCustomExtras();
+
+            $paymentGateway = restaurant()->paymentGateways;
+            $qrCodeImageUrl = $paymentGateway && $paymentGateway->is_qr_payment_enabled ? $paymentGateway->qr_code_image_url : null;
+
+            $customerDisplayData = [
+                'order_number' => $this->orderNumber,
+                'formatted_order_number' => $this->formattedOrderNumber,
+                'items' => $displayItems,
+                'custom_extras' => $displayCustomExtras,
+                'sub_total' => $this->subTotal,
+                'discount' => $this->discountAmount ?? 0,
+                'reward_point_discount' => $this->rewardPointDiscount ?? 0,
+                'total' => $this->total,
+                'taxes' => $taxesForDisplay,
+                'extra_charges' => $chargesForDisplay,
+                'tip' => $this->tipAmount,
+                'delivery_fee' => $this->deliveryFee,
+                'order_type' => $this->orderType,
+                'status' => $this->customerDisplayStatus ?? 'idle',
+                'cash_due' => ($this->customerDisplayStatus ?? null) === 'billed' ? $this->total : null,
+                'qr_code_image_url' => $qrCodeImageUrl,
+            ];
+
+            $userId = auth()->id();
+            $cacheKey = 'customer_display_cart_user_'.$userId;
+            Cache::put($cacheKey, $customerDisplayData, now()->addMinutes(30));
+
+            // Broadcast customer display update if Pusher is enabled
+            $isPusherEnabled = (bool) optional(pusherSettings())->is_enabled_pusher_broadcast;
+            if ($isPusherEnabled) {
+                try {
+                    broadcast(new \App\Events\CustomerDisplayUpdated($customerDisplayData, $userId));
+                } catch (\Exception $e) {
+                    // Log the error but don't break the request
+                    // Common causes: network timeout, SSL issues, Pusher API down
+                    \Log::warning('Pusher broadcast failed for CustomerDisplayUpdated', [
+                        'error' => $e->getMessage(),
+                        'user_id' => $userId,
+                        'exception_class' => get_class($e),
+                    ]);
+                }
+            }
+
+            // Optionally, still dispatch browser event
+            $this->dispatch('orderUpdated', [
+                'order_number' => $this->orderNumber,
+                'formatted_order_number' => $this->formattedOrderNumber,
+                'items' => $displayItems,
+                'custom_extras' => $displayCustomExtras,
+                'sub_total' => $this->subTotal,
+                'discount' => $this->discountAmount ?? 0,
+                'reward_point_discount' => $this->rewardPointDiscount ?? 0,
+                'total' => $this->total,
+            ]);
+        }
+    }
+
+    public function updated($name, $value)
+    {
+        if (is_string($name) && Str::startsWith($name, 'orderExtras.')) {
+            $this->calculateTotal();
+        }
+    }
+
+    public function updatedOrderExtras()
+    {
+        $this->calculateTotal();
+    }
+
+    public function addOrderExtraRow()
+    {
+        if (! (restaurant()->allow_custom_order_extras ?? false)) {
+            return;
+        }
+
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
+            return;
+        }
+
+        $this->orderExtras[] = [
+            'amount' => 0,
+            'note' => '',
+        ];
+
+        $this->calculateTotal();
+    }
+
+    public function removeOrderExtraRow($index)
+    {
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
+            return;
+        }
+
+        if (! isset($this->orderExtras[$index])) {
+            return;
+        }
+
+        unset($this->orderExtras[$index]);
+        $this->orderExtras = array_values($this->orderExtras);
+        $this->calculateTotal();
+    }
+
+    private function normalizeOrderExtras(): array
+    {
+        $normalized = [];
+
+        foreach (($this->orderExtras ?? []) as $extra) {
+            if (! is_array($extra)) {
+                continue;
+            }
+
+            $note = trim((string) ($extra['note'] ?? ''));
+            $amount = (float) ($extra['amount'] ?? 0);
+            $amount = max(0, round($amount, 2));
+
+            if ($note === '' && $amount <= 0) {
+                continue;
+            }
+
+            $normalized[] = [
+                'note' => ($note !== '' ? $note : null),
+                'amount' => $amount,
+            ];
+        }
+
+        return $normalized;
+    }
+
+    private function getOrderExtrasTotal(): float
+    {
+        return (float) collect($this->normalizeOrderExtras())->sum('amount');
+    }
+
+    private function getCustomerDisplayCustomExtras(): array
+    {
+        return $this->normalizeOrderExtras();
+    }
+
+    private function syncOrderExtras(Order $order): void
+    {
+        if (! (restaurant()->allow_custom_order_extras ?? false)) {
+            return;
+        }
+
+        $extras = $this->normalizeOrderExtras();
+
+        $order->extras()->delete();
+
+        if (! empty($extras)) {
+            $order->extras()->createMany($extras);
+        }
     }
 
     private function recalculateTaxTotals()
@@ -1988,7 +2756,7 @@ class Pos extends Component
                 $this->totalTaxAmount += $taxAmount;
                 $this->total += $taxAmount;
             }
-        } elseif ($this->taxMode === 'item' && !empty($this->orderItemAmount)) {
+        } elseif ($this->taxMode === 'item' && ! empty($this->orderItemAmount)) {
             // Item-based taxation - taxes are already calculated in calculateTotal()
             $totalInclusiveTax = 0;
             $totalExclusiveTax = 0;
@@ -2020,13 +2788,15 @@ class Pos extends Component
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
         $isBilledOrPaid = $order && in_array($order->status, ['billed', 'paid', 'payment_due']);
 
-        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+        if ($isBilledOrPaid && ! user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
-        if (!$isBilledOrPaid && !user_can('Update Order')) {
+        if (! $isBilledOrPaid && ! user_can('Update Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
@@ -2040,8 +2810,9 @@ class Pos extends Component
                 'toast' => true,
                 'position' => 'top-end',
                 'showCancelButton' => false,
-                'cancelButtonText' => __('app.close')
+                'cancelButtonText' => __('app.close'),
             ]);
+
             return;
         }
 
@@ -2057,16 +2828,16 @@ class Pos extends Component
             }
 
             $oldDiscount = (float) ($order->discount_amount ?? 0);
-            $newTotal    = max(0, ($order->total + $oldDiscount) - $discountAmount);
+            $newTotal = max(0, ($order->total + $oldDiscount) - $discountAmount);
             $statusBefore = $order->status;
 
             try {
                 DB::transaction(function () use ($order, $discountAmount, $newTotal, $statusBefore) {
                     $order->update([
-                        'discount_type'   => $this->discountType,
-                        'discount_value'  => $this->discountValue,
+                        'discount_type' => $this->discountType,
+                        'discount_value' => $this->discountValue,
                         'discount_amount' => $discountAmount,
-                        'total'           => $newTotal,
+                        'total' => $newTotal,
                     ]);
 
                     if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
@@ -2100,27 +2871,29 @@ class Pos extends Component
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
         $isBilledOrPaid = $order && in_array($order->status, ['billed', 'paid', 'payment_due']);
 
-        if ($isBilledOrPaid && !user_can('Edit Billed Order')) {
+        if ($isBilledOrPaid && ! user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
-        if (!$isBilledOrPaid && !user_can('Update Order')) {
+        if (! $isBilledOrPaid && ! user_can('Update Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
         if ($order) {
             $statusBefore = $order->status;
             $removedDiscount = (float) $order->discount_amount;
-            $newTotal        = $order->total + $removedDiscount;
+            $newTotal = $order->total + $removedDiscount;
 
             if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
                 $amountPaid = $order->payments()
                     ->where('payment_method', '!=', 'due')
                     ->sum('amount');
 
-                if ($amountPaid < $newTotal - 0.0001 && !$order->canRecordDueBalance()) {
+                if ($amountPaid < $newTotal - 0.0001 && ! $order->canRecordDueBalance()) {
                     $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), [
                         'toast' => true,
                         'position' => 'top-end',
@@ -2158,8 +2931,8 @@ class Pos extends Component
                     $shortfall = round($newTotal - $amountPaid, 2);
                     $order->payments()->create([
                         'payment_method' => 'due',
-                        'amount'         => $shortfall,
-                        'order_id'       => $order->id,
+                        'amount' => $shortfall,
+                        'order_id' => $order->id,
                     ]);
                     $order->update(['status' => 'payment_due']);
                 }
@@ -2202,13 +2975,13 @@ class Pos extends Component
 
         $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
 
-        if ($newStatus === 'payment_due' && !$order->canRecordDueBalance()) {
+        if ($newStatus === 'payment_due' && ! $order->canRecordDueBalance()) {
             throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
         }
 
         $order->update([
             'amount_paid' => $amountPaid,
-            'status'      => $newStatus,
+            'status' => $newStatus,
         ]);
     }
 
@@ -2236,8 +3009,9 @@ class Pos extends Component
     {
         // Permission check before any other processing
         if ($action === 'cancel') {
-            if (!user_can('Delete Order')) {
+            if (! user_can('Delete Order')) {
                 $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
                 return;
             }
         } elseif ($this->orderID) {
@@ -2247,17 +3021,20 @@ class Pos extends Component
                 && in_array($orderForPerm->status, ['billed', 'paid', 'payment_due'], true);
 
             if ($kotAfterBilled) {
-                if (!user_can('Edit Billed Order')) {
+                if (! user_can('Edit Billed Order')) {
                     $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
                     return;
                 }
-            } elseif (!user_can('Update Order')) {
+            } elseif (! user_can('Update Order')) {
                 $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
                 return;
             }
         } else {
-            if (!user_can('Create Order')) {
+            if (! user_can('Create Order')) {
                 $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
                 return;
             }
         }
@@ -2265,7 +3042,7 @@ class Pos extends Component
         // Check if table is locked by another user before saving order
         if ($this->tableId && $this->orderType === 'dine_in') {
             $table = Table::find($this->tableId);
-            if ($table && !$table->canBeAccessedByUser(user()->id)) {
+            if ($table && ! $table->canBeAccessedByUser(user()->id)) {
                 $session = $table->tableSession;
                 $lockedByUser = $session?->lockedByUser;
                 $lockedUserName = $lockedByUser?->name ?? 'Another user';
@@ -2274,6 +3051,7 @@ class Pos extends Component
                     'toast' => true,
                     'position' => 'top-end',
                 ]);
+
                 return;
             }
         }
@@ -2286,7 +3064,7 @@ class Pos extends Component
             'deliveryFee' => 'nullable|numeric|min:0',
         ];
 
-        if (!$this->orderID && !$this->tableOrderID) {
+        if (! $this->orderID && ! $this->tableOrderID) {
             $rules['selectWaiter'] = 'required_if:orderType,dine_in';
         }
 
@@ -2304,7 +3082,7 @@ class Pos extends Component
         // wire:change fires updateQty() (Livewire batching race condition)
         foreach ($this->orderItemList as $key => $item) {
             // Skip combo items - they have special pricing
-            if (!empty($this->orderItemComboPack[$key])) {
+            if (! empty($this->orderItemComboPack[$key])) {
                 continue;
             }
 
@@ -2338,24 +3116,24 @@ class Pos extends Component
         if ($action !== 'cancel') {
             // Extract integer combo pack IDs from instance keys (e.g. "5_0" -> 5)
             $uniqueComboIds = array_unique(array_map(
-                fn($v) => (int)explode('_', (string)$v)[0],
+                fn ($v) => (int) explode('_', (string) $v)[0],
                 array_filter(array_values($this->orderItemComboPack))
             ));
             foreach ($uniqueComboIds as $comboPackId) {
                 $comboPack = \App\Models\ComboPack::with(['comboPackItems.menuItem.recipes.inventoryItem'])->find($comboPackId);
                 if ($comboPack) {
                     $stockResult = $comboPack->validateStock();
-                    if (!$stockResult['valid']) {
+                    if (! $stockResult['valid']) {
                         $this->alert('error', $stockResult['message'], [
                             'toast' => true,
                             'position' => 'top-end',
                         ]);
+
                         return;
                     }
                 }
             }
         }
-
         switch ($action) {
             case 'bill':
                 $successMessage = __('messages.billedSuccess');
@@ -2369,7 +3147,6 @@ class Pos extends Component
                 $status = 'kot';
                 $tableStatus = 'running';
                 break;
-
 
             case 'cancel':
                 $successMessage = __('messages.orderCanceled');
@@ -2385,19 +3162,20 @@ class Pos extends Component
             $orderTypeName = $orderType->order_type_name ?? $orderTypeName;
         }
 
-        if ((!$this->tableOrderID && !$this->orderID) || ($this->tableOrderID && !$this->tableOrder->activeOrder)) {
+        if ((! $this->tableOrderID && ! $this->orderID) || ($this->tableOrderID && ! $this->tableOrder->activeOrder)) {
 
             $orderNumberData = Order::generateOrderNumber(branch());
             $table = Table::find($this->tableId);
             $reservationId = $table?->activeReservation?->id;
 
             // Check if there's an active reservation and show confirmation modal
-            if ($reservationId && $this->orderType === 'dine_in' && !$this->isSameCustomer && !$this->intendedOrderAction) {
+            if ($reservationId && $this->orderType === 'dine_in' && ! $this->isSameCustomer && ! $this->intendedOrderAction) {
                 $this->reservationId = $reservationId;
                 $this->reservationCustomer = $table->activeReservation->customer;
                 $this->reservation = $table->activeReservation;
                 $this->showReservationModal = true;
                 $this->intendedOrderAction = $action; // Store the intended action
+
                 return;
             }
             $order = Order::create([
@@ -2409,6 +3187,8 @@ class Pos extends Component
                 'discount_type' => $this->discountType,
                 'discount_value' => $this->discountValue,
                 'discount_amount' => $this->discountAmount,
+                'reward_point_discount' => $this->rewardPointDiscount > 0 ? $this->rewardPointDiscount : null,
+                'reward_points_redeemed' => $this->rewardPointsRedeemed > 0 ? $this->rewardPointsRedeemed : null,
                 'waiter_id' => $this->selectWaiter,
                 'sub_total' => $this->subTotal,
                 'total' => $this->total,
@@ -2427,9 +3207,9 @@ class Pos extends Component
                 'customer_id' => $this->isSameCustomer ? $this->reservationCustomer->id : $this->customerId,
             ]);
 
-            if (!empty($this->extraCharges)) {
+            if (! empty($this->extraCharges)) {
                 $chargesData = collect($this->extraCharges)
-                    ->map(fn($charge) => [
+                    ->map(fn ($charge) => [
                         'charge_id' => $charge->id,
                     ])->toArray();
 
@@ -2464,12 +3244,15 @@ class Pos extends Component
             ]);
         }
 
+        $this->syncOrderExtras($order);
+
         if ($status == 'canceled') {
             $order->delete();
 
             Table::where('id', $this->tableId)->update([
-                'available_status' => $tableStatus
+                'available_status' => $tableStatus,
             ]);
+
             return $this->redirect(route('pos.index'), navigate: true);
         }
 
@@ -2479,20 +3262,28 @@ class Pos extends Component
         $kotIds = [];
         if ($status == 'kot') {
             $hasLoadedKotLines = collect(array_keys($this->orderItemList))
-                ->contains(fn($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'));
+                ->contains(fn ($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'));
             $hasFullLoadedKotContext = $this->orderID
                 ? $this->hasCompleteLoadedKotContext($order)
                 : true;
             // New KOT "add-only" sessions must append new lines and never wipe existing rows.
-            $appendOnlyKotSave = $this->orderID && (!$hasLoadedKotLines || !$hasFullLoadedKotContext);
+            $appendOnlyKotSave = $this->orderID && (! $hasLoadedKotLines || ! $hasFullLoadedKotContext);
 
             if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
                 // Group items by kitchen — each item goes to ONE kitchen only
                 // For multi-kitchen items, use the primary (first) kitchen
                 $groupedItems = [];
 
+                $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)
+                    ->where('is_default', true)
+                    ->value('id');
+
+                if (! $defaultKotPlaceId) {
+                    $defaultKotPlaceId = KotPlace::where('branch_id', $order->branch_id)->value('id');
+                }
+
                 foreach ($this->orderItemList as $key => $item) {
-                    // Skip items already in an existing KOT (loaded via setupOrderItems with "kot_" keys).
+                    // Skip items already in an existing KOT (kot_*) or already stored as order_items (order_item_*).
                     // Only NEW items (added in the current session) should go into this new KOT.
                     if ($this->shouldExcludeFromNewKotTicketPayload((string) $key)) {
                         continue;
@@ -2505,7 +3296,22 @@ class Pos extends Component
                     $isMultiKitchen = count($kitchenIds) > 1;
 
                     if (empty($kitchenIds)) {
-                        continue;
+                        $kotPlaceId = $menuItem->kot_place_id ?? null;
+                        if (! $kotPlaceId && $defaultKotPlaceId) {
+                            // Persist the fallback so this doesn't break future orders/KOTs.
+                            MenuItem::withoutGlobalScopes()
+                                ->whereKey($menuItem->id)
+                                ->update(['kot_place_id' => $defaultKotPlaceId]);
+                            $kotPlaceId = $defaultKotPlaceId;
+                        }
+
+                        if ($kotPlaceId) {
+                            $kitchenIds = [$kotPlaceId];
+                        }
+
+                        if (empty($kitchenIds)) {
+                            continue;
+                        }
                     }
 
                     // Use the first (primary) kitchen — item goes to ONE KOT only
@@ -2518,10 +3324,10 @@ class Pos extends Component
                         'quantity' => $this->orderItemQty[$key],
                         'modifiers' => $this->itemModifiersSelected[$key] ?? [],
                         'note' => $this->itemNotes[$key] ?? null,
-                        'combo_pack_id' => isset($this->orderItemComboPack[$key]) ? (int)explode('_', (string)$this->orderItemComboPack[$key])[0] : null,
+                        'combo_pack_id' => isset($this->orderItemComboPack[$key]) ? (int) explode('_', (string) $this->orderItemComboPack[$key])[0] : null,
                         'original_price' => $this->orderItemOriginalPrice[$key] ?? null,
                         'combo_discount_amount' => $this->orderItemComboDiscount[$key] ?? null,
-                        'is_combo_item' => !empty($this->orderItemComboPack[$key]),
+                        'is_combo_item' => ! empty($this->orderItemComboPack[$key]),
                         'is_multi_kitchen' => $isMultiKitchen,
                     ];
 
@@ -2530,6 +3336,7 @@ class Pos extends Component
 
                 foreach ($groupedItems as $kotPlaceId => $items) {
                     $kot = Kot::create([
+                        'branch_id' => $order->branch_id,
                         'kot_number' => Kot::generateKotNumber($order->branch),
                         'order_id' => $order->id,
                         'order_type_id' => $order->order_type_id,
@@ -2560,11 +3367,12 @@ class Pos extends Component
             } else {
                 // No kitchen module: single KOT for all items
                 $kot = Kot::create([
+                    'branch_id' => $order->branch_id,
                     'kot_number' => Kot::generateKotNumber($order->branch) + 1,
                     'order_id' => $order->id,
                     'order_type_id' => $order->order_type_id,
                     'token_number' => Kot::generateTokenNumber(branch()->id, $order->order_type_id),
-                    'note' => $this->orderNote
+                    'note' => $this->orderNote,
                 ]);
 
                 foreach ($this->orderItemList as $key => $value) {
@@ -2583,7 +3391,7 @@ class Pos extends Component
                         'quantity' => $this->orderItemQty[$key],
                         'note' => $note,
                         'combo_pack_id' => isset($this->orderItemComboPack[$key])
-                            ? (int)explode('_', (string)$this->orderItemComboPack[$key])[0]
+                            ? (int) explode('_', (string) $this->orderItemComboPack[$key])[0]
                             : null,
                         'order_type_id' => $order->order_type_id ?? null,
                         'order_type' => $order->order_type ?? null,
@@ -2599,7 +3407,7 @@ class Pos extends Component
                 // New KOT can be opened in "add-only" mode where existing KOT lines are not
                 // loaded in-memory. In that case, keep previous order_items and append only
                 // the newly added lines instead of deleting historical rows.
-                if (!$this->orderID || !$appendOnlyKotSave) {
+                if (! $this->orderID || ! $appendOnlyKotSave) {
                     $order->items()->delete();
                 }
 
@@ -2612,8 +3420,8 @@ class Pos extends Component
                     }
 
                     $comboInstanceKey = $this->orderItemComboPack[$key] ?? null;
-                    $comboPackIdKot = $comboInstanceKey ? (int)explode('_', (string)$comboInstanceKey)[0] : null;
-                    $isComboItemKot = !empty($comboInstanceKey);
+                    $comboPackIdKot = $comboInstanceKey ? (int) explode('_', (string) $comboInstanceKey)[0] : null;
+                    $isComboItemKot = ! empty($comboInstanceKey);
                     $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
 
                     if ($this->orderTypeId) {
@@ -2628,19 +3436,19 @@ class Pos extends Component
                         : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
 
                     $kotOrderItem = OrderItem::create([
-                        'order_id'                => $order->id,
-                        'menu_item_id'            => isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $value->id,
-                        'menu_item_variation_id'  => isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null,
-                        'combo_pack_id'           => $comboPackIdKot ?: null,
-                        'quantity'                => $this->orderItemQty[$key],
-                        'price'                   => $itemPriceKot,
-                        'original_price'          => $this->orderItemOriginalPrice[$key] ?? null,
-                        'combo_discount_amount'   => $this->orderItemComboDiscount[$key] ?? null,
-                        'is_combo_item'           => $isComboItemKot,
-                        'amount'                  => $this->orderItemAmount[$key],
-                        'note'                    => $note,
-                        'tax_amount'              => $this->orderItemTaxDetails[$key]['tax_amount'] ?? null,
-                        'tax_percentage'          => $this->orderItemTaxDetails[$key]['tax_percent'] ?? null,
+                        'order_id' => $order->id,
+                        'menu_item_id' => isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $value->id,
+                        'menu_item_variation_id' => isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null,
+                        'combo_pack_id' => $comboPackIdKot ?: null,
+                        'quantity' => $this->orderItemQty[$key],
+                        'price' => $itemPriceKot,
+                        'original_price' => $this->orderItemOriginalPrice[$key] ?? null,
+                        'combo_discount_amount' => $this->orderItemComboDiscount[$key] ?? null,
+                        'is_combo_item' => $isComboItemKot,
+                        'amount' => $this->orderItemAmount[$key],
+                        'note' => $note,
+                        'tax_amount' => $this->orderItemTaxDetails[$key]['tax_amount'] ?? null,
+                        'tax_percentage' => $this->orderItemTaxDetails[$key]['tax_percent'] ?? null,
                     ]);
                     $kotOrderItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key] ?? []));
                 }
@@ -2669,18 +3477,18 @@ class Pos extends Component
                 }
 
                 Order::where('id', $order->id)->update([
-                    'sub_total'        => $this->subTotal,
-                    'total'            => $this->total,
-                    'discount_amount'  => $this->discountAmount,
+                    'sub_total' => $this->subTotal,
+                    'total' => $this->total,
+                    'discount_amount' => $this->discountAmount,
                     'total_tax_amount' => $this->totalTaxAmount,
-                    'tax_mode'         => $this->taxMode,
+                    'tax_mode' => $this->taxMode,
                 ]);
             }
 
             if ($secondAction == 'bill' && $thirdAction == 'payment') {
                 // Update order status to billed
                 $order->update([
-                    'status' => 'billed'
+                    'status' => 'billed',
                 ]);
 
                 // Now bill the order
@@ -2692,22 +3500,23 @@ class Pos extends Component
                             $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                         }
                     }
-                    
+
                     // Check if this item is from a combo pack (instance key -> real DB id)
                     $comboInstanceKey = $this->orderItemComboPack[$key] ?? null;
-                    $comboPackId = $comboInstanceKey ? (int)explode('_', (string)$comboInstanceKey)[0] : null;
+                    $comboPackId = $comboInstanceKey ? (int) explode('_', (string) $comboInstanceKey)[0] : null;
                     $originalPrice = $this->orderItemOriginalPrice[$key] ?? null;
                     $comboDiscountAmount = $this->orderItemComboDiscount[$key] ?? null;
-                    $isComboItem = !empty($comboInstanceKey);
+                    $isComboItem = ! empty($comboInstanceKey);
                     $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
-                    
+
                     // For combo items, calculate per-unit price from orderItemAmount
                     // For regular items, use menu item price
                     $itemPrice = $isComboItem && $this->orderItemQty[$key] > 0
                         ? $this->orderItemAmount[$key] / $this->orderItemQty[$key] // Discounted per-unit price
                         : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
-                    
+
                     $orderItem = OrderItem::create([
+                        'branch_id' => $order->branch_id,
                         'order_id' => $order->id,
                         'menu_item_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menu_item_id : $this->orderItemList[$key]->id),
                         'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
@@ -2728,7 +3537,7 @@ class Pos extends Component
                     foreach ($this->taxes as $key => $value) {
                         OrderTax::create([
                             'order_id' => $order->id,
-                            'tax_id' => $value->id
+                            'tax_id' => $value->id,
                         ]);
                     }
                 }
@@ -2740,6 +3549,7 @@ class Pos extends Component
                 $this->printKot($order, $kot);
                 $this->printOrder($order);
                 $this->resetPos();
+
                 return;
             }
         }
@@ -2757,24 +3567,25 @@ class Pos extends Component
                         $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                     }
                 }
-                
+
                 $taxBreakup = isset($this->orderItemTaxDetails[$key]['tax_breakup']) ? json_encode($this->orderItemTaxDetails[$key]['tax_breakup']) : null;
 
                 // Check if this item is from a combo pack (instance key -> real DB id)
                 $comboInstanceKey = $this->orderItemComboPack[$key] ?? null;
-                $comboPackId = $comboInstanceKey ? (int)explode('_', (string)$comboInstanceKey)[0] : null;
+                $comboPackId = $comboInstanceKey ? (int) explode('_', (string) $comboInstanceKey)[0] : null;
                 $originalPrice = $this->orderItemOriginalPrice[$key] ?? null;
                 $comboDiscountAmount = $this->orderItemComboDiscount[$key] ?? null;
-                $isComboItem = !empty($comboInstanceKey);
+                $isComboItem = ! empty($comboInstanceKey);
                 $note = $this->withComboInstanceNote($this->itemNotes[$key] ?? null, $comboInstanceKey);
-                
+
                 // For combo items, calculate per-unit price from orderItemAmount
                 // For regular items, use menu item price
                 $itemPrice = $isComboItem && $this->orderItemQty[$key] > 0
                     ? $this->orderItemAmount[$key] / $this->orderItemQty[$key] // Discounted per-unit price
                     : (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $value->price);
-                
+
                 $orderItem = OrderItem::create([
+                    'branch_id' => $order->branch_id,
                     'order_type' => $this->orderType,
                     'order_type_id' => $this->orderTypeId,
                     'order_id' => $order->id,
@@ -2801,7 +3612,7 @@ class Pos extends Component
                 foreach ($this->taxes as $key => $value) {
                     OrderTax::create([
                         'order_id' => $order->id,
-                        'tax_id' => $value->id
+                        'tax_id' => $value->id,
                     ]);
                 }
             }
@@ -2809,7 +3620,7 @@ class Pos extends Component
             $order->load('charges');
 
             $validCharges = collect($this->extraCharges ?? [])
-                ->filter(fn($charge) => in_array($this->orderTypeSlug, $charge->order_types));
+                ->filter(fn ($charge) => in_array($this->orderTypeSlug, $charge->order_types));
 
             $currentChargeIds = $order->charges->pluck('charge_id');
             $validChargeIds = $validCharges->pluck('id');
@@ -2818,8 +3629,7 @@ class Pos extends Component
             $order->charges()->whereNotIn('charge_id', $validChargeIds)->delete();
 
             $validChargeIds->diff($currentChargeIds)->each(
-                fn($chargeId) =>
-                OrderCharge::create(['order_id' => $order->id, 'charge_id' => $chargeId])
+                fn ($chargeId) => OrderCharge::create(['order_id' => $order->id, 'charge_id' => $chargeId])
             );
 
             $this->total = 0;
@@ -2828,6 +3638,14 @@ class Pos extends Component
             foreach ($order->load('items')->items as $value) {
                 $this->subTotal = ($this->subTotal + $value->amount);
                 $this->total = ($this->total + $value->amount);
+            }
+
+            // Include custom extras in billed totals (extras are not part of sub_total)
+            $stateExtrasTotal = $this->getOrderExtrasTotal();
+            $dbExtrasTotal = (float) $order->extras()->sum('amount');
+            $extrasTotal = max($stateExtrasTotal, $dbExtrasTotal);
+            if ($extrasTotal > 0) {
+                $this->total += $extrasTotal;
             }
 
             $this->discountedTotal = $this->total;
@@ -2859,13 +3677,43 @@ class Pos extends Component
                 $this->total += $this->deliveryFee;
             }
 
+            // Apply reward points discount to billed total
+            if ($this->rewardPointDiscount > 0) {
+                $this->total = max(0, $this->total - $this->rewardPointDiscount);
+            }
+
             Order::where('id', $order->id)->update([
                 'sub_total' => $this->subTotal,
                 'total' => $this->total,
                 'discount_amount' => $this->discountAmount,
+                'reward_point_discount' => $this->rewardPointDiscount > 0 ? $this->rewardPointDiscount : null,
+                'reward_points_redeemed' => $this->rewardPointsRedeemed > 0 ? $this->rewardPointsRedeemed : null,
                 'total_tax_amount' => $this->totalTaxAmount,
                 'tax_mode' => $this->taxMode,
             ]);
+
+            // Execute reward points redemption via the service (creates transaction, deducts balance)
+            if ($this->rewardPointsRedeemed > 0 && $this->customerId) {
+                try {
+                    $customer = Customer::find($this->customerId);
+                    $freshOrder = Order::find($order->id);
+                    if ($customer && $freshOrder) {
+                        $rewardService = app(RewardPointsService::class);
+                        $rewardService->redeemPoints($freshOrder, $customer, $this->rewardPointsRedeemed);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Error redeeming reward points at billing: ' . $e->getMessage());
+                    // Revert reward fields on failure to maintain consistency
+                    Order::where('id', $order->id)->update([
+                        'reward_point_discount' => null,
+                        'reward_points_redeemed' => null,
+                    ]);
+                    $this->rewardPointDiscount = 0;
+                    $this->rewardPointsRedeemed = 0;
+                    // Recalculate total without reward discount
+                    $this->calculateTotal();
+                }
+            }
 
             if ($order->placed_via == null || $order->placed_via == 'pos') {
                 NewOrderCreated::dispatch($order);
@@ -2878,9 +3726,8 @@ class Pos extends Component
             $this->setCustomerDisplayStatus('billed');
         }
 
-
         Table::where('id', $this->tableId)->update([
-            'available_status' => $tableStatus
+            'available_status' => $tableStatus,
         ]);
 
         $this->dispatch('posOrderSuccess');
@@ -2889,7 +3736,7 @@ class Pos extends Component
             'toast' => true,
             'position' => 'top-end',
             'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
+            'cancelButtonText' => __('app.close'),
         ]);
 
         if ($status == 'kot') {
@@ -2899,7 +3746,7 @@ class Pos extends Component
             }
 
             if ($this->orderID) {
-                return $this->redirect(route('pos.kot', $order->id) . '?show-order-detail=true', navigate: true);
+                return $this->redirect(route('pos.kot', $order->id).'?show-order-detail=true', navigate: true);
             }
 
             $this->dispatch('resetPos');
@@ -2908,20 +3755,17 @@ class Pos extends Component
         }
 
         if ($status == 'billed') {
-            // return $this->redirect(route('orders.index'), navigate: true);
-            switch ($secondAction) {
+            $billFollowUp = app(BillSecondaryActionResolver::class)->resolve('bill', $secondAction);
 
-                case 'payment':
-                    $this->dispatch('showPaymentModal', id: $order->id);
-                    break;
-                case 'print':
+            if ($billFollowUp['open_payment']) {
+                $this->dispatch('showPaymentModal', id: $order->id);
+            }
 
-                    $orderPlaces = \App\Models\MultipleOrder::with('printerSetting')->get();
+            if ($billFollowUp['print_receipt']) {
+                $orderPlace = \App\Models\MultipleOrder::with('printerSetting')->first();
+                $printerSetting = $orderPlace?->printerSetting;
 
-                    foreach ($orderPlaces as $orderPlace) {
-                        $printerSetting = $orderPlace->printerSetting;
-                    }
-
+                try {
                     switch ($printerSetting?->printing_choice) {
                         case 'directPrint':
                             $this->handleOrderPrint($order->id);
@@ -2931,33 +3775,18 @@ class Pos extends Component
                             $this->dispatch('print_location', $url);
                             break;
                     }
-
-                    $this->dispatch('resetPos');
-
-                    try {
-
-                        // switch ($printerSetting?->printing_choice) {
-                        //     case 'directPrint':
-                        //         $this->handleOrderPrint($order->id);
-                        //         break;
-                        //     default:
-                        //         $url = route('orders.print', $order->id);
-                        //         $this->dispatch('print_location', $url);
-                        //         break;
-                        // }
-                    } catch (\Throwable $e) {
-                        Log::info($e->getMessage());
-                        $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
-                            'toast' => true,
-                            'position' => 'top-end',
-                            'showCancelButton' => false,
-                            'cancelButtonText' => __('app.close')
-                        ]);
-                    }
+                } catch (\Throwable $e) {
+                    Log::info($e->getMessage());
+                    $this->alert('error', __('messages.printerNotConnected').' '.$e->getMessage(), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                        'showCancelButton' => false,
+                        'cancelButtonText' => __('app.close'),
+                    ]);
+                }
             }
 
-            // change
-            if (!in_array($secondAction, ['payment', 'print'])) {
+            if ($billFollowUp['show_order_detail']) {
                 $this->dispatch('showOrderDetail', id: $order->id, fromPos: true);
             }
 
@@ -2972,15 +3801,16 @@ class Pos extends Component
     public function printOrder($order)
     {
         // Handle if $order is just an ID instead of an Order object
-        if (!is_object($order)) {
+        if (! is_object($order)) {
             $order = Order::find($order);
-            if (!$order) {
+            if (! $order) {
                 $this->alert('error', __('messages.orderNotFound'), [
                     'toast' => true,
                     'position' => 'top-end',
                     'showCancelButton' => false,
-                    'cancelButtonText' => __('app.close')
+                    'cancelButtonText' => __('app.close'),
                 ]);
+
                 return;
             }
         }
@@ -3018,16 +3848,20 @@ class Pos extends Component
             foreach ($kots as $kot) {
                 // Each KOT now has kitchen_place_id set directly (multi-kitchen routing)
                 $kotPlaceId = $kot->kitchen_place_id;
-                if (!$kotPlaceId) {
+                if (! $kotPlaceId) {
                     // Fallback for legacy KOTs: derive from first item
                     $firstItem = $kot->items->first();
                     $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
                 }
 
-                if (!$kotPlaceId) continue;
+                if (! $kotPlaceId) {
+                    continue;
+                }
 
                 $kotPlace = KotPlace::with('printerSetting')->find($kotPlaceId);
-                if (!$kotPlace) continue;
+                if (! $kotPlace) {
+                    continue;
+                }
 
                 $printerSetting = $kotPlace->printerSetting;
 
@@ -3035,31 +3869,32 @@ class Pos extends Component
                     $printerSetting = Printer::where('is_default', true)->first();
                 }
 
-                    // If no printer is set, fallback to print URL dispatch
-                    if (!$printerSetting) {
-                        $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                        $this->dispatch('print_location', $url);
-                        continue;
-                    }
+                // If no printer is set, fallback to print URL dispatch
+                if (! $printerSetting) {
+                    $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+                    $this->dispatch('print_location', $url);
 
-                    try {
-                        switch ($printerSetting->printing_choice) {
-                            case 'directPrint':
-                                $this->handleKotPrint($kot->id, $kotPlace->id);
-                                break;
-                            default:
-                                $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                                $this->dispatch('print_location', $url);
-                                break;
-                        }
-                    } catch (\Throwable $e) {
-                        $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
-                            'toast' => true,
-                            'position' => 'top-end',
-                            'showCancelButton' => false,
-                            'cancelButtonText' => __('app.close')
-                        ]);
+                    continue;
+                }
+
+                try {
+                    switch ($printerSetting->printing_choice) {
+                        case 'directPrint':
+                            $this->handleKotPrint($kot->id, $kotPlace->id);
+                            break;
+                        default:
+                            $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+                            $this->dispatch('print_location', $url);
+                            break;
                     }
+                } catch (\Throwable $e) {
+                    $this->alert('error', __('messages.printerNotConnected').' '.$e->getMessage(), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                        'showCancelButton' => false,
+                        'cancelButtonText' => __('app.close'),
+                    ]);
+                }
             }
         } else {
             $kotPlace = KotPlace::where('is_default', 1)->first();
@@ -3069,7 +3904,7 @@ class Pos extends Component
             $kot = $kot ?? $order->kot()->first();
 
             // If no printer is set, fallback to print URL dispatch
-            if (!$printerSetting) {
+            if (! $printerSetting) {
                 $url = route('kot.print', [$kot->id, $kotPlace?->id]);
                 $this->dispatch('print_location', $url);
             }
@@ -3086,11 +3921,11 @@ class Pos extends Component
                         break;
                 }
             } catch (\Throwable $e) {
-                $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
+                $this->alert('error', __('messages.printerNotConnected').' '.$e->getMessage(), [
                     'toast' => true,
                     'position' => 'top-end',
                     'showCancelButton' => false,
-                    'cancelButtonText' => __('app.close')
+                    'cancelButtonText' => __('app.close'),
                 ]);
             }
         }
@@ -3117,20 +3952,63 @@ class Pos extends Component
         $this->orderItemVariation = [];
         $this->orderItemQty = [];
         $this->orderItemAmount = [];
-        // Set default order type to Dine In
-        $defaultOrderType = OrderType::where('type', 'dine_in')
-            ->where('is_active', true)
-            ->first();
+        $this->orderItemUnitPrice = [];
+        $this->orderItemDisplayPrice = [];
+        // Prefer restoring last selection from session (New Order should not force Dine In)
+        $this->selectedDeliveryApp = null;
+        $this->selectedDeliveryPlatformName = null;
+        $this->orderTypeName = null;
 
-        if ($defaultOrderType) {
-            $this->orderType = $defaultOrderType->type;
-            $this->orderTypeSlug = $defaultOrderType->slug;
-            $this->orderTypeId = $defaultOrderType->id;
+        // Reset reward points state
+        $this->rewardPointDiscount = 0;
+        $this->rewardPointsRedeemed = 0;
+        $this->rewardPointsAvailable = 0;
+        $this->rewardSettings = null;
+        $this->rewardDisplayName = 'Reward';
+
+        $sessionOrderTypeId = session()->get('pos.order_type_id');
+        $sessionDeliveryAppId = session()->get('pos.delivery_app_id');
+
+        $sessionOrderType = $sessionOrderTypeId
+            ? OrderType::where('id', (int) $sessionOrderTypeId)->where('is_active', true)->first()
+            : null;
+
+        if ($sessionOrderType) {
+            $this->orderTypeId = $sessionOrderType->id;
+            $this->orderType = $sessionOrderType->type;
+            $this->orderTypeSlug = $sessionOrderType->slug;
+            $this->orderTypeName = $sessionOrderType->order_type_name;
+
+            if ($this->orderTypeSlug === 'delivery') {
+                $this->selectedDeliveryApp = $sessionDeliveryAppId;
+                $this->refreshSelectedDeliveryPlatformName();
+            }
         } else {
-            //  if no default order type found
-            $this->orderType = 'dine_in';
-            $this->orderTypeSlug = 'dine_in';
-            $this->orderTypeId = null;
+            // Fallback: keep existing default behavior
+            $defaultOrderType = OrderType::where('type', 'dine_in')
+                ->where('is_active', true)
+                ->first();
+
+            if ($defaultOrderType) {
+                $this->orderType = $defaultOrderType->type;
+                $this->orderTypeSlug = $defaultOrderType->slug;
+                $this->orderTypeId = $defaultOrderType->id;
+                $this->orderTypeName = $defaultOrderType->order_type_name;
+            } else {
+                // If no dine-in exists, fall back to the first active order type.
+                $fallbackOrderType = OrderType::where('is_active', true)->orderBy('order_type_name')->first();
+
+                if ($fallbackOrderType) {
+                    $this->orderType = $fallbackOrderType->type;
+                    $this->orderTypeSlug = $fallbackOrderType->slug;
+                    $this->orderTypeId = $fallbackOrderType->id;
+                    $this->orderTypeName = $fallbackOrderType->order_type_name;
+                } else {
+                    // Extremely defensive fallback if no order types exist at all
+                    $this->orderType = 'dine_in';
+                    $this->orderTypeSlug = 'dine_in';
+                }
+            }
         }
 
         $this->discountType = null;
@@ -3223,8 +4101,9 @@ class Pos extends Component
             'removalReason' => 'required|string|min:3',
         ]);
 
-        if (!$this->pendingRemovalItem || !$this->pendingRemovalAction) {
+        if (! $this->pendingRemovalItem || ! $this->pendingRemovalAction) {
             $this->resetRemovalReasonState();
+
             return;
         }
 
@@ -3247,13 +4126,29 @@ class Pos extends Component
 
     protected function requiresRemovalReason($id): bool
     {
-        if (!$this->orderID) {
+        if (! $this->orderID) {
             return false;
         }
 
         $context = $this->parseKotContext($id);
 
-        return !is_null($context);
+        return ! is_null($context);
+    }
+
+    /**
+     * KOT-persisted and saved order_item_* cart lines need a removal reason (same as deleteCartItems).
+     */
+    protected function shouldBatchRemovalPromptForPersistedLine(string $lineKey): bool
+    {
+        if (! $this->orderID) {
+            return false;
+        }
+
+        if ($this->requiresRemovalReason($lineKey)) {
+            return true;
+        }
+
+        return $this->isAlreadyPersistedOrderItemCartKey($lineKey);
     }
 
     protected function parseKotContext($id): ?array
@@ -3288,11 +4183,11 @@ class Pos extends Component
 
     protected function extractComboInstanceKey(?string $note): ?string
     {
-        if (!$note) {
+        if (! $note) {
             return null;
         }
 
-        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $note, $matches) && !empty($matches[1])) {
+        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $note, $matches) && ! empty($matches[1])) {
             return trim((string) $matches[1]);
         }
 
@@ -3307,20 +4202,21 @@ class Pos extends Component
             return $base !== '' ? $base : null;
         }
 
-        $merged = trim($base . ' [COMBO_INSTANCE:' . $instanceKey . ']');
+        $merged = trim($base.' [COMBO_INSTANCE:'.$instanceKey.']');
+
         return $merged !== '' ? $merged : null;
     }
 
     protected function applyKotQuantityChange(string $itemId, int $newQuantity, ?string $note = null): void
     {
         $context = $this->parseKotContext($itemId);
-        if (!$context) {
+        if (! $context) {
             return;
         }
 
         $kotItem = KotItem::with('kot')->find($context['kot_item_id']);
 
-        if (!$kotItem) {
+        if (! $kotItem) {
             return;
         }
 
@@ -3328,6 +4224,7 @@ class Pos extends Component
 
         if ($newQuantity <= 0) {
             $this->executeDeleteCartItems($itemId, $note);
+
             return;
         }
 
@@ -3358,7 +4255,7 @@ class Pos extends Component
      */
     protected function deletePersistedOrderItemForKotLine(KotItem $kotItem): void
     {
-        if (!$this->orderDetail instanceof Order) {
+        if (! $this->orderDetail instanceof Order) {
             return;
         }
 
@@ -3384,7 +4281,7 @@ class Pos extends Component
 
         $orderItem = $query->orderBy('id')->first();
 
-        if (!$orderItem) {
+        if (! $orderItem) {
             $orderItem = OrderItem::query()
                 ->where('order_id', $this->orderDetail->id)
                 ->where('menu_item_id', $kotItem->menu_item_id)
@@ -3419,9 +4316,45 @@ class Pos extends Component
         unset($this->orderItemComboPack[$id]);
         unset($this->orderItemOriginalPrice[$id]);
         unset($this->orderItemComboDiscount[$id]);
+        unset($this->orderItemUnitPrice[$id]);
+        unset($this->orderItemDisplayPrice[$id]);
 
-        if (!$this->orderDetail || !is_object($this->orderDetail)) {
+        if (! $this->orderDetail || ! is_object($this->orderDetail)) {
             $this->calculateTotal();
+
+            return;
+        }
+
+        $persistedOrderItemContext = $this->parsePersistedOrderItemContext($id);
+        if ($persistedOrderItemContext) {
+            if (! $this->canModifyCurrentOrderItems()) {
+                $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
+                return;
+            }
+
+            $orderItem = OrderItem::query()
+                ->where('id', $persistedOrderItemContext['order_item_id'])
+                ->where('order_id', $this->orderDetail->id)
+                ->first();
+
+            if ($orderItem) {
+                $orderItem->modifierOptions()->detach();
+                $orderItem->delete();
+            }
+
+            $this->calculateTotal();
+
+            if ($this->orderID) {
+                Order::where('id', $this->orderID)->update([
+                    'sub_total' => $this->subTotal,
+                    'total' => $this->total,
+                    'discount_amount' => $this->discountAmount,
+                    'total_tax_amount' => $this->totalTaxAmount,
+                ]);
+                $this->orderDetail?->refresh();
+            }
+
             return;
         }
 
@@ -3459,8 +4392,9 @@ class Pos extends Component
 
         $context = $this->parseKotContext($id);
 
-        if (!$context) {
+        if (! $context) {
             $this->calculateTotal();
+
             return;
         }
 
@@ -3479,7 +4413,7 @@ class Pos extends Component
             $kotItem->delete();
         }
 
-        if (!empty($this->orderItemList)) {
+        if (! empty($this->orderItemList)) {
             $this->calculateTotal();
 
             if ($this->orderID) {
@@ -3496,16 +4430,18 @@ class Pos extends Component
         }
 
         $kot = Kot::find($context['kot_id']);
-        if (!$kot) {
+        if (! $kot) {
             $this->calculateTotal();
+
             return;
         }
 
         $order = $this->orderDetail;
         $kot->delete();
 
-        if (!$order || !($order instanceof Order)) {
+        if (! $order || ! ($order instanceof Order)) {
             $this->calculateTotal();
+
             return;
         }
 
@@ -3531,7 +4467,7 @@ class Pos extends Component
                 'toast' => true,
                 'position' => 'top-end',
                 'showCancelButton' => false,
-                'cancelButtonText' => __('app.close')
+                'cancelButtonText' => __('app.close'),
             ]);
         } else {
             $order->delete();
@@ -3540,7 +4476,7 @@ class Pos extends Component
                 'toast' => true,
                 'position' => 'top-end',
                 'showCancelButton' => false,
-                'cancelButtonText' => __('app.close')
+                'cancelButtonText' => __('app.close'),
             ]);
         }
 
@@ -3592,6 +4528,287 @@ class Pos extends Component
     #[On('setPosModifier')]
     public function setPosModifier($modifierIds)
     {
+        // Handle modifier selection from modal
+        $this->handleSetPosModifier($modifierIds);
+    }
+
+    /**
+     * Optimistic qty update - updates UI immediately, syncs to server in background
+     * This provides instant feedback for quantity changes without Livewire round-trip delay
+     */
+    public function optimisticAddQty($id)
+    {
+        // Check permissions first
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
+            return;
+        }
+
+        // Reject if combo item
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo item quantity cannot be edited individually. Edit/remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+
+            return;
+        }
+
+        // Update table activity
+        if ($this->tableId) {
+            $table = Table::find($this->tableId);
+            $table?->updateActivity(user()->id);
+        }
+
+        // OPTIMISTIC: Update UI immediately
+        $oldQty = $this->orderItemQty[$id] ?? 0;
+        $this->orderItemQty[$id] = $oldQty + 1;
+
+        // Update amount for display
+        if ($this->orderTypeId) {
+            if (isset($this->orderItemVariation[$id])) {
+                $this->orderItemVariation[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+            }
+            if (isset($this->orderItemList[$id])) {
+                $this->orderItemList[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+            }
+        }
+
+        $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
+        $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
+
+        // OPTIMISTIC: Update totals for display
+        $this->calculateTotal();
+
+        // Queue debounced server sync
+        $this->pendingQtySyncs[$id] = [
+            'action' => 'add',
+            'qty' => $this->orderItemQty[$id],
+            'timestamp' => now()->timestamp,
+        ];
+
+        $this->debouncedQtySync();
+    }
+
+    /**
+     * Optimistic qty dec - updates UI immediately, syncs to server in background
+     */
+    public function optimisticSubQty($id)
+    {
+        // Check permissions
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
+            return;
+        }
+
+        // Reject if combo item
+        if ($this->isComboCartLine($id)) {
+            $this->alert('error', 'Combo items cannot be removed individually. Remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+
+            return;
+        }
+
+        // Check if removal reason is required (KOT-backed item that was already saved)
+        if ($this->requiresRemovalReason($id)) {
+            if (! user_can('Delete KOT Item')) {
+                $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+
+                return;
+            }
+
+            // For saved items, use normal flow since it requires modal
+            $this->subQty($id);
+
+            return;
+        }
+
+        // Update table activity
+        if ($this->tableId) {
+            $table = Table::find($this->tableId);
+            $table?->updateActivity(user()->id);
+        }
+
+        // OPTIMISTIC: Update UI immediately
+        $oldQty = $this->orderItemQty[$id] ?? 1;
+        $newQty = max(0, $oldQty - 1);
+
+        if ($newQty <= 0) {
+            // Item completely removed
+            $comboInstanceKey = $this->orderItemComboPack[$id] ?? null;
+
+            unset($this->orderItemQty[$id]);
+            unset($this->orderItemAmount[$id]);
+            unset($this->orderItemList[$id]);
+            unset($this->orderItemVariation[$id]);
+            unset($this->itemModifiersSelected[$id]);
+            unset($this->orderItemModifiersPrice[$id]);
+            unset($this->orderItemTaxDetails[$id]);
+            unset($this->itemNotes[$id]);
+            unset($this->orderItemComboPack[$id]);
+            unset($this->orderItemComboDiscount[$id]);
+            unset($this->orderItemUnitPrice[$id]);
+            unset($this->orderItemDisplayPrice[$id]);
+            unset($this->orderItemOriginalPrice[$id]);
+            unset($this->orderItemPersistedTaxOverride[$id]);
+
+            if ($comboInstanceKey) {
+                unset($this->orderItemComboName[$comboInstanceKey]);
+            }
+        } else {
+            // Qty decreased
+            $this->orderItemQty[$id] = $newQty;
+
+            // Update amount for display
+            if ($this->orderTypeId) {
+                if (isset($this->orderItemVariation[$id])) {
+                    $this->orderItemVariation[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+                if (isset($this->orderItemList[$id])) {
+                    $this->orderItemList[$id]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+            }
+
+            $basePrice = $this->orderItemVariation[$id]->price ?? $this->orderItemList[$id]->price;
+            $this->orderItemAmount[$id] = $this->orderItemQty[$id] * ($basePrice + ($this->orderItemModifiersPrice[$id] ?? 0));
+        }
+
+        // OPTIMISTIC: Update totals for display
+        $this->calculateTotal();
+
+        // Queue debounced server sync
+        $this->pendingQtySyncs[$id] = [
+            'action' => $newQty <= 0 ? 'delete' : 'sub',
+            'qty' => $newQty,
+            'timestamp' => now()->timestamp,
+        ];
+
+        $this->debouncedQtySync();
+    }
+
+    /**
+     * Debounced queue for syncing pending qty changes to server
+     * Collects multiple qty updates within 1 second, then syncs as batch
+     */
+    public function debouncedQtySync()
+    {
+        // Clear existing debounce timer if any
+        if ($this->qtyDebounceTimer) {
+            // Timer would be client-side in JS, but for now just track
+        }
+
+        // Set debounce delay (1 second) - this triggers the actual sync
+        // In real implementation with JS, this prevents multiple round-trips
+        $this->dispatch('scheduleQtySync', ['delay' => 1000]);
+    }
+
+    /**
+     * Execute queued qty syncs to the server
+     * Called after debounce period expires
+     */
+    public function syncPendingQtys()
+    {
+        if (empty($this->pendingQtySyncs)) {
+            return;
+        }
+
+        try {
+            $syncStartedAt = microtime(true);
+            $batchResult = app(PosBatchSyncService::class)->apply($this->exportBatchSyncState(), $this->pendingQtySyncs);
+            $this->applyBatchSyncState($batchResult['state'] ?? []);
+
+            // Clear pending syncs
+            $this->pendingQtySyncs = [];
+
+            // Final recalc to ensure server and UI are in sync
+            $this->calculateTotal();
+
+            Log::info('POS batch qty sync completed', [
+                'restaurant_id' => restaurant()->id ?? null,
+                'branch_id' => branch()->id ?? null,
+                'applied' => $batchResult['applied'] ?? 0,
+                'removed' => $batchResult['removed_ids'] ?? [],
+                'ms' => (int) round((microtime(true) - $syncStartedAt) * 1000),
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to sync pending qty changes: '.$e->getMessage());
+            $this->reloadAuthoritativeOrderState();
+            $this->alert('error', 'Failed to sync quantity changes. Please refresh and try again.', [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+        }
+    }
+
+    protected function reloadAuthoritativeOrderState(): void
+    {
+        $this->pendingQtySyncs = [];
+        $this->qtyDebounceTimer = null;
+
+        $order = null;
+
+        if ($this->orderDetail instanceof Order) {
+            $order = $this->orderDetail->refresh()->load([
+                'kot.items.menuItem',
+                'kot.items.menuItemVariation',
+                'kot.items.modifierOptions',
+                'items.menuItem',
+                'items.menuItemVariation',
+                'items.modifierOptions',
+                'table',
+            ]);
+        } elseif ($this->orderID) {
+            $order = Order::with([
+                'kot.items.menuItem',
+                'kot.items.menuItemVariation',
+                'kot.items.modifierOptions',
+                'items.menuItem',
+                'items.menuItemVariation',
+                'items.modifierOptions',
+                'table',
+            ])->find($this->orderID);
+        }
+
+        if ($order) {
+            $this->orderDetail = $order;
+            $this->setupOrderItems();
+            $this->calculateTotal();
+        }
+    }
+
+    protected function exportBatchSyncState(): array
+    {
+        return [
+            'orderItemQty' => $this->orderItemQty,
+            'orderItemAmount' => $this->orderItemAmount,
+            'orderItemList' => $this->orderItemList,
+            'orderItemVariation' => $this->orderItemVariation,
+            'itemModifiersSelected' => $this->itemModifiersSelected,
+            'orderItemModifiersPrice' => $this->orderItemModifiersPrice,
+            'orderItemTaxDetails' => $this->orderItemTaxDetails,
+            'itemNotes' => $this->itemNotes,
+            'orderItemComboPack' => $this->orderItemComboPack,
+            'orderItemComboDiscount' => $this->orderItemComboDiscount,
+            'orderItemUnitPrice' => $this->orderItemUnitPrice,
+            'orderItemDisplayPrice' => $this->orderItemDisplayPrice,
+            'orderItemOriginalPrice' => $this->orderItemOriginalPrice,
+            'orderItemPersistedTaxOverride' => $this->orderItemPersistedTaxOverride,
+            'orderItemComboName' => $this->orderItemComboName,
+        ];
+    }
+
+    protected function applyBatchSyncState(array $state): void
+    {
+        foreach (array_keys($this->exportBatchSyncState()) as $key) {
+            if (array_key_exists($key, $state)) {
+                $this->{$key} = $state[$key];
+            }
+        }
+    }
+
+    // Continuation of setPosModifier method body
+    protected function handleSetPosModifier($modifierIds)
+    {
         $this->showModifiersModal = false;
 
         $selection = is_array($modifierIds) ? (reset($modifierIds) ?: []) : [];
@@ -3599,28 +4816,28 @@ class Pos extends Component
 
         $signatureParts = [];
         foreach ($modifierQtyMap as $modifierOptionId => $qty) {
-            $signatureParts[] = $modifierOptionId . ':' . $qty;
+            $signatureParts[] = $modifierOptionId.':'.$qty;
         }
         $signature = implode('|', $signatureParts);
         $sortNumber = $signature ? md5($signature) : '0';
 
-        $keyId = $this->selectedModifierItem . '-' . $sortNumber;
+        $keyId = $this->selectedModifierItem.'-'.$sortNumber;
         if (isset(explode('_', $this->selectedModifierItem)[1])) {
             $menuItemVariation = MenuItemVariation::find(explode('_', $this->selectedModifierItem)[1]);
-            
+
             // Set price context BEFORE storing to prevent price flickering
             if ($this->orderTypeId) {
                 $menuItemVariation->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
             }
-            
+
             $this->orderItemVariation[$keyId] = $menuItemVariation;
             $this->selectedModifierItem = explode('_', $this->selectedModifierItem)[0];
-            
+
             // Set price context on menu item
             if ($this->orderTypeId && isset($this->orderItemList[$keyId])) {
                 $this->orderItemList[$keyId]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
             }
-            
+
             $this->orderItemAmount[$keyId] = 1 * ($this->orderItemVariation[$keyId]->price ?? $this->orderItemList[$keyId]->price);
         }
 
@@ -3637,14 +4854,14 @@ class Pos extends Component
     public function getModifierOptionsProperty()
     {
         $modifiers = ModifierOption::whereIn('id', $this->getSelectedModifierOptionIds())->get();
-        
+
         // Set price context on modifier options
         if ($this->orderTypeId) {
             foreach ($modifiers as $modifier) {
                 $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
             }
         }
-        
+
         return $modifiers->keyBy('id');
     }
 
@@ -3656,18 +4873,19 @@ class Pos extends Component
             'toast' => true,
             'position' => 'top-end',
             'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
+            'cancelButtonText' => __('app.close'),
         ]);
     }
 
     public function cancelOrder()
     {
-        if (!user_can('Delete Order')) {
+        if (! user_can('Delete Order')) {
             $this->alert('error', __('messages.noPermission'), ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
 
-        if (!$this->cancelReason && !$this->cancelReasonText) {
+        if (! $this->cancelReason && ! $this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -3739,7 +4957,7 @@ class Pos extends Component
     public function render()
     {
         // Only generate order number if there is no existing order or table order without active order
-        if ((!$this->orderID && !$this->tableOrderID) || ($this->tableOrderID && !$this->tableOrder->activeOrder)) {
+        if ((! $this->orderID && ! $this->tableOrderID) || ($this->tableOrderID && ! $this->tableOrder->activeOrder)) {
             $orderNumberData = Order::generateOrderNumber(branch());
             $this->orderNumber = $orderNumberData['order_number'];
             $this->formattedOrderNumber = $orderNumberData['formatted_order_number'];
@@ -3747,23 +4965,23 @@ class Pos extends Component
 
         $query = MenuItem::withCount('variations', 'modifierGroups');
 
-        if (!empty($this->filterCategories)) {
+        if (! empty($this->filterCategories)) {
             $query = $query->where('item_category_id', $this->filterCategories);
         }
 
-        if (!empty($this->menuId)) {
+        if (! empty($this->menuId)) {
             $query = $query->where('menu_id', $this->menuId);
         }
 
         $query = $query->search('item_name', $this->search)->get();
-        
+
         // Set price context on all menu items
         if ($this->orderTypeId) {
             foreach ($query as $menuItem) {
                 $menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
             }
         }
-        
+
         // Load combo packs
         $branch = branch();
         $comboPacks = collect([]);
@@ -3774,22 +4992,22 @@ class Pos extends Component
                 ->orderBy('sort_order', 'asc')
                 ->orderBy('id', 'asc')
                 ->get()
-                ->filter(function($combo) {
+                ->filter(function ($combo) {
                     // Filter out combos that don't have items or aren't available
                     return $combo->comboPackItems->isNotEmpty() && $combo->isAvailable();
                 });
         }
-        
+
         $showCustomOrderTypes = restaurant()->show_order_type_options;
         $orderTypes = OrderType::where('branch_id', branch()->id)
             ->where('is_active', true)
-            ->when(!$showCustomOrderTypes, fn($q) => $q->where('is_default', true))
+            ->when(! $showCustomOrderTypes, fn ($q) => $q->where('is_default', true))
             ->get();
 
         return view('livewire.pos.pos', [
             'menuItems' => $query,
             'comboPacks' => $comboPacks,
-            'orderTypes' => $orderTypes
+            'orderTypes' => $orderTypes,
         ]);
     }
 
@@ -3798,7 +5016,7 @@ class Pos extends Component
     {
         $this->itemNotes[$itemId] = $note;
 
-        if (!$this->orderDetail) {
+        if (! $this->orderDetail) {
             return;
         }
 
@@ -3818,13 +5036,13 @@ class Pos extends Component
     {
         $this->orderItemTaxDetails = [];
 
-        if ($this->taxMode !== 'item' || !is_array($this->orderItemAmount)) {
+        if ($this->taxMode !== 'item' || ! is_array($this->orderItemAmount)) {
             return;
         }
 
         foreach ($this->orderItemAmount as $key => $value) {
             $menuItem = isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->menuItem : $this->orderItemList[$key];
-            
+
             // Set price context before using price
             if ($this->orderTypeId) {
                 $menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
@@ -3832,7 +5050,7 @@ class Pos extends Component
                     $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
             }
-            
+
             $qty = $this->orderItemQty[$key] ?? 1;
             $basePrice = isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $menuItem->price;
             $modifierPrice = $this->orderItemModifiersPrice[$key] ?? 0;
@@ -3879,6 +5097,7 @@ class Pos extends Component
             if (isset($this->orderItemOriginalPrice[$key]) && isset($this->orderItemQty[$key]) && $this->orderItemQty[$key] > 0) {
                 // Calculate unit price: (original - discount) / quantity
                 $totalDiscountedPrice = $this->orderItemOriginalPrice[$key] - ($this->orderItemComboDiscount[$key] ?? 0);
+
                 return $totalDiscountedPrice / $this->orderItemQty[$key];
             }
             // Fallback: use amount / quantity if available
@@ -3886,7 +5105,17 @@ class Pos extends Component
                 return $this->orderItemAmount[$key] / $this->orderItemQty[$key];
             }
         }
-        
+
+        // Rehydrated persisted order_item_* rows should keep their original saved display price.
+        if (str_starts_with((string) $key, 'order_item_')) {
+            if (isset($this->orderItemDisplayPrice[$key])) {
+                return (float) $this->orderItemDisplayPrice[$key];
+            }
+            if (isset($this->orderItemUnitPrice[$key])) {
+                return (float) $this->orderItemUnitPrice[$key];
+            }
+        }
+
         // For saved order items (viewing order detail), use the saved price from database
         // The key format for saved orders is typically numeric (item index) or the item ID
         if ($this->orderDetail && is_numeric($key)) {
@@ -3900,6 +5129,7 @@ class Pos extends Component
                     // Return the discounted price (price field) which is what was charged
                     return $orderItem->price;
                 }
+
                 // For non-combo items, return the saved price
                 return $orderItem->price;
             }
@@ -3916,7 +5146,7 @@ class Pos extends Component
                 // For combo items in active session, return the discounted price
                 return ($this->orderItemOriginalPrice[$key] - ($this->orderItemComboDiscount[$key] ?? 0)) / ($this->orderItemQty[$key] ?? 1);
             }
-            
+
             // Set price context before using price
             if ($this->orderTypeId) {
                 $this->orderItemList[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
@@ -3924,16 +5154,17 @@ class Pos extends Component
                     $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
             }
-            
+
             $basePrice = isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->price : $this->orderItemList[$key]->price;
             $modifierPrice = $this->orderItemModifiersPrice[$key] ?? 0;
+
             return $basePrice + $modifierPrice;
         }
 
         // For existing order items (when viewing order details), calculate from the order item itself
         if ($this->orderDetail && isset($this->orderDetail->items[$key])) {
             $orderItem = $this->orderDetail->items[$key];
-            
+
             // Set price context on menu items and variations
             if ($this->orderTypeId) {
                 $orderItem->menuItem->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
@@ -3945,10 +5176,11 @@ class Pos extends Component
                     $modifierOption->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
             }
-            
-            $basePrice = !is_null($orderItem->menuItemVariation) ? $orderItem->menuItemVariation->price : $orderItem->menuItem->price;
+
+            $basePrice = ! is_null($orderItem->menuItemVariation) ? $orderItem->menuItemVariation->price : $orderItem->menuItem->price;
             $modifierPrice = $orderItem->modifierOptions->sum(function ($modifier) {
                 $qty = (int) ($modifier->pivot->quantity ?? 1);
+
                 return $modifier->price * max(1, $qty);
             });
 
@@ -3961,6 +5193,7 @@ class Pos extends Component
                 if ($taxes->isNotEmpty()) {
                     $taxPercent = $taxes->sum('tax_percent');
                     $displayPrice = $itemPriceWithModifiers / (1 + $taxPercent / 100);
+
                     return $displayPrice;
                 }
             }
@@ -3975,6 +5208,31 @@ class Pos extends Component
     private function getCustomerDisplayItems()
     {
         $items = [];
+        $selectedModifiersByItem = [];
+        $modifierIds = [];
+
+        foreach ($this->orderItemList as $key => $item) {
+            $selected = [];
+            if (! empty($this->itemModifiersSelected[$key])) {
+                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+                $modifierIds = array_merge($modifierIds, array_keys($selected));
+            }
+
+            $selectedModifiersByItem[$key] = $selected;
+        }
+
+        $modifierOptions = collect();
+        if (! empty($modifierIds)) {
+            $modifierIds = array_values(array_unique(array_map('intval', $modifierIds)));
+            $modifierOptions = \App\Models\ModifierOption::whereIn('id', $modifierIds)->get()->keyBy('id');
+
+            if ($this->orderTypeId) {
+                foreach ($modifierOptions as $modifierOption) {
+                    $modifierOption->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
+                }
+            }
+        }
+
         foreach ($this->orderItemList as $key => $item) {
             // Set price context before using prices
             if ($this->orderTypeId) {
@@ -3983,27 +5241,25 @@ class Pos extends Component
                     $this->orderItemVariation[$key]->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
                 }
             }
-            
+
             $variation = $this->orderItemVariation[$key] ?? null;
             $basePrice = $variation->price ?? $item->price ?? 0;
             $modifiers = [];
             $modifierTotal = 0;
-            if (!empty($this->itemModifiersSelected[$key])) {
-                $selected = $this->normalizeModifierQuantities($this->itemModifiersSelected[$key]);
+            $selected = $selectedModifiersByItem[$key] ?? [];
+            if (! empty($selected)) {
                 foreach ($selected as $modifierId => $qty) {
-                    $modifier = \App\Models\ModifierOption::find((int) $modifierId);
-                    if ($modifier) {
-                        // Set price context for modifier
-                        if ($this->orderTypeId) {
-                            $modifier->setPriceContext($this->orderTypeId, $this->normalizeDeliveryAppId());
-                        }
-                        $modifiers[] = [
-                            'name' => $modifier->name,
-                            'price' => $modifier->price,
-                            'quantity' => (int) $qty,
-                        ];
-                        $modifierTotal += ($modifier->price * (int) $qty);
+                    $modifier = $modifierOptions->get((int) $modifierId);
+                    if (! $modifier) {
+                        continue;
                     }
+
+                    $modifiers[] = [
+                        'name' => $modifier->name,
+                        'price' => $modifier->price,
+                        'quantity' => (int) $qty,
+                    ];
+                    $modifierTotal += ($modifier->price * (int) $qty);
                 }
             }
             $totalUnitPrice = $basePrice + $modifierTotal;
@@ -4020,6 +5276,7 @@ class Pos extends Component
                 'notes' => $this->itemNotes[$key] ?? null,
             ];
         }
+
         return $items;
     }
 
@@ -4044,7 +5301,7 @@ class Pos extends Component
 
     public function updateQty($id)
     {
-        if (($this->orderID && !user_can('Update Order')) || (!$this->orderID && !user_can('Create Order'))) {
+        if (($this->orderID && ! user_can('Update Order')) || (! $this->orderID && ! user_can('Create Order'))) {
             return;
         }
 
@@ -4060,6 +5317,7 @@ class Pos extends Component
             }
 
             $this->alert('error', 'Combo item quantity cannot be edited individually. Edit/remove the whole combo.', ['toast' => true, 'position' => 'top-end']);
+
             return;
         }
         // Ensure quantity is at least 1
@@ -4085,17 +5343,17 @@ class Pos extends Component
 
     protected function isComboCartLine($id): bool
     {
-        return !empty($this->orderItemComboPack[$id] ?? null);
+        return ! empty($this->orderItemComboPack[$id] ?? null);
     }
 
     protected function canModifyCurrentOrderItems(): bool
     {
-        if (!$this->orderID) {
+        if (! $this->orderID) {
             return true;
         }
 
         $orderStatus = $this->orderDetail?->status;
-        if (!$orderStatus) {
+        if (! $orderStatus) {
             $orderStatus = Order::where('id', $this->orderID)->value('status');
         }
 
@@ -4115,7 +5373,7 @@ class Pos extends Component
     protected function hasCompleteLoadedKotContext(Order $order): bool
     {
         $expectedKotItemCount = KotItem::query()
-            ->whereHas('kot', fn($q) => $q->where('order_id', $order->id))
+            ->whereHas('kot', fn ($q) => $q->where('order_id', $order->id))
             ->count();
 
         if ($expectedKotItemCount === 0) {
@@ -4123,7 +5381,7 @@ class Pos extends Component
         }
 
         $loadedKotKeysCount = collect(array_keys($this->orderItemList))
-            ->filter(fn($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'))
+            ->filter(fn ($lineKey) => str_starts_with((string) $lineKey, 'kot_') || str_starts_with((string) $lineKey, '"kot_'))
             ->count();
 
         return $loadedKotKeysCount >= $expectedKotItemCount;

@@ -1,7 +1,6 @@
 <div>
-    @if(!$orderTypeId)
-    @livewire('forms.OrderTypeSelection')
-    @endif
+    {{-- Legacy order type modal (kept for reference; no longer rendered) --}}
+    {{-- @livewire('forms.OrderTypeSelection') --}}
     <div class="flex-grow lg:flex h-auto">
 
 
@@ -27,7 +26,7 @@
                 'menuItem' => $menuItem, 
                 'orderTypeId' => $orderTypeId,
                 'deliveryAppId' => $this->normalizedDeliveryAppId
-            ], key(str()->random(50)))
+            ], key('item-variations-' . ($menuItem->id ?? 'none') . '-' . ($orderTypeId ?? 'none') . '-' . ($this->normalizedDeliveryAppId ?? 'none')))
             @endif
         </x-slot>
 
@@ -160,13 +159,306 @@
                     'menuItemId' => $selectedModifierItem,
                     'orderTypeId' => $orderTypeId,
                     'deliveryAppId' => $selectedDeliveryApp
-                ], key(str()->random(50)))
+                ], key('item-modifiers-' . ($selectedModifierItem ?? 'none') . '-' . ($orderTypeId ?? 'none') . '-' . ($selectedDeliveryApp ?? 'none')))
             @endif
         </x-slot>
     </x-dialog-modal>
 
     @script
     <script>
+        let qtySyncTimeout = null;
+        let clientOpsFlushTimer = null;
+        let clientOpsInFlight = false;
+        const clientOpQueue = [];
+        const clientOpsTransport = String(window.POS_CLIENT_OPS_TRANSPORT || 'livewire').toLowerCase();
+        const clientOpsEndpoint = String(window.POS_CLIENT_OPS_ENDPOINT || '/ajax/pos/client-ops');
+
+        const sendClientOps = async (normalizedOps) => {
+            if (clientOpsTransport === 'ajax') {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+                const clientState = (window.posClientState && typeof window.posClientState === 'object') ? window.posClientState : {};
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+                try {
+                    const response = await fetch(clientOpsEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                        },
+                        body: JSON.stringify({
+                            state: clientState,
+                            operations: normalizedOps,
+                        }),
+                        signal: controller.signal,
+                    });
+
+                    clearTimeout(timeoutId);
+
+                    if (!response.ok) {
+                        const errorBody = await response.text();
+                        throw new Error(`POS AJAX client-op sync failed with status ${response.status}: ${errorBody}`);
+                    }
+
+                    let payload;
+                    const text = await response.text();
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (parseError) {
+                        throw new Error(`Failed to parse JSON response: ${text}`);
+                    }
+
+                    if (payload?.state && typeof payload.state === 'object') {
+                        window.posClientState = payload.state;
+                    }
+
+                    return;
+                } catch (error) {
+                    clearTimeout(timeoutId);
+                    if (error.name === 'AbortError') {
+                        console.error('POS client-op sync timed out after 10s');
+                    } else {
+                        console.error('POS client-op sync error:', error.message);
+                    }
+                    throw error;
+                }
+            }
+
+            await $wire.call('applyClientOps', normalizedOps);
+        };
+
+        const flushClientOps = async () => {
+            if (clientOpsInFlight || clientOpQueue.length === 0) {
+                return;
+            }
+
+            clientOpsInFlight = true;
+
+            const queuedOps = clientOpQueue.splice(0, 40);
+            const normalizedOps = [];
+            const lineStates = new Map();
+
+            const upsertLineState = (key, nextState) => {
+                if (!key) {
+                    return;
+                }
+
+                if (nextState === null) {
+                    lineStates.delete(key);
+                    return;
+                }
+
+                lineStates.set(key, nextState);
+            };
+
+            for (const op of queuedOps) {
+                if (!op || typeof op !== 'object') {
+                    continue;
+                }
+
+                const opType = String(op.type || '');
+
+                if (opType === 'qty_delta') {
+                    const key = String(op.key || '');
+                    const delta = Number(op.delta || 0);
+
+                    if (!key || Number.isNaN(delta) || delta === 0) {
+                        continue;
+                    }
+
+                    const currentState = lineStates.get(key);
+
+                    if (currentState?.type === 'remove_item') {
+                        continue;
+                    }
+
+                    if (currentState?.type === 'qty_set') {
+                        const nextQty = Number(currentState.qty || 0) + delta;
+                        if (nextQty <= 0) {
+                            upsertLineState(key, { type: 'remove_item', key });
+                        } else {
+                            upsertLineState(key, { type: 'qty_set', key, qty: nextQty });
+                        }
+                        continue;
+                    }
+
+                    const nextDelta = Number(currentState?.delta || 0) + delta;
+                    if (nextDelta === 0) {
+                        upsertLineState(key, null);
+                    } else {
+                        upsertLineState(key, { type: 'qty_delta', key, delta: nextDelta });
+                    }
+                    continue;
+                }
+
+                if (opType === 'qty_set') {
+                    const key = String(op.key || '');
+                    const qty = Number(op.qty || 0);
+
+                    if (!key || Number.isNaN(qty)) {
+                        continue;
+                    }
+
+                    if (qty <= 0) {
+                        upsertLineState(key, { type: 'remove_item', key });
+                    } else {
+                        upsertLineState(key, { type: 'qty_set', key, qty });
+                    }
+                    continue;
+                }
+
+                if (opType === 'remove_item') {
+                    const key = String(op.key || '');
+                    if (!key) {
+                        continue;
+                    }
+
+                    upsertLineState(key, { type: 'remove_item', key });
+                    continue;
+                }
+
+                normalizedOps.push(op);
+            }
+
+            lineStates.forEach((state) => {
+                normalizedOps.push(state);
+            });
+
+            try {
+                if (normalizedOps.length > 0) {
+                    await sendClientOps(normalizedOps);
+                }
+            } catch (error) {
+                for (let i = queuedOps.length - 1; i >= 0; i--) {
+                    clientOpQueue.unshift(queuedOps[i]);
+                }
+                console.error('POS client-op sync failed', error);
+            } finally {
+                clientOpsInFlight = false;
+
+                if (clientOpQueue.length > 0) {
+                    clientOpsFlushTimer = setTimeout(flushClientOps, 100);
+                }
+            }
+        };
+
+        const queueClientOp = (operation) => {
+            clientOpQueue.push(operation);
+
+            if (clientOpsFlushTimer) {
+                clearTimeout(clientOpsFlushTimer);
+            }
+
+            clientOpsFlushTimer = setTimeout(flushClientOps, 80);
+        };
+
+        window.posClient = {
+            queueAddItem(payload) {
+                const id = Number(payload?.id || 0);
+                const variationCount = Number(payload?.variationCount || 0);
+                const modifierCount = Number(payload?.modifierCount || 0);
+
+                if (variationCount > 0 || modifierCount > 0) {
+                    if (clientOpsFlushTimer) {
+                        clearTimeout(clientOpsFlushTimer);
+                        clientOpsFlushTimer = null;
+                    }
+
+                    flushClientOps().finally(() => {
+                        $wire.call('addCartItems', id, variationCount, modifierCount)
+                            .catch((error) => {
+                                console.error('POS immediate add-item failed', error);
+                            });
+                    });
+                    return;
+                }
+
+                queueClientOp({
+                    type: 'add_item',
+                    id,
+                    variationCount,
+                    modifierCount,
+                });
+            },
+
+            queueDeleteItem(key, sourceEl = null) {
+                const safeKey = String(key || '');
+
+                if (!safeKey) {
+                    return;
+                }
+
+                const row = sourceEl?.closest('tr');
+                if (row) {
+                    row.dataset.pendingDelete = '1';
+                    row.style.opacity = '0.6';
+                    row.style.pointerEvents = 'none';
+                }
+
+                queueClientOp({
+                    type: 'remove_item',
+                    key: safeKey,
+                });
+            },
+
+            queueQtySet(key, qty, sourceEl = null) {
+                const safeKey = String(key || '');
+                const rawQty = Number(qty || 0);
+                const safeQty = Math.max(1, Math.floor(rawQty));
+
+                if (!safeKey || Number.isNaN(safeQty)) {
+                    return;
+                }
+
+                const wrapper = sourceEl?.closest('div.relative.flex.items-center');
+                const qtyInput = wrapper?.querySelector('input[data-pos-qty-key]');
+
+                if (qtyInput) {
+                    qtyInput.value = String(safeQty);
+                }
+
+                queueClientOp({
+                    type: 'qty_set',
+                    key: safeKey,
+                    qty: safeQty,
+                });
+            },
+
+            queueAddCombo(comboId) {
+                queueClientOp({
+                    type: 'add_combo',
+                    comboId: Number(comboId || 0),
+                });
+            },
+
+            queueQtyDelta(key, delta, sourceEl = null) {
+                const safeKey = String(key || '');
+                const safeDelta = Number(delta || 0);
+
+                if (!safeKey || Number.isNaN(safeDelta) || safeDelta === 0) {
+                    return;
+                }
+
+                const wrapper = sourceEl?.closest('div.relative.flex.items-center');
+                const qtyInput = wrapper?.querySelector('input[data-pos-qty-key]');
+
+                if (qtyInput) {
+                    const currentVal = Number(qtyInput.value || 0);
+                    const nextVal = Math.max(0, currentVal + safeDelta);
+                    qtyInput.value = String(nextVal);
+                }
+
+                queueClientOp({
+                    type: 'qty_delta',
+                    key: safeKey,
+                    delta: safeDelta,
+                });
+            },
+        };
+
         $wire.on('play_beep', () => {
             new Audio("{{ asset('sound/sound_beep-29.mp3')}}").play();
         });
@@ -176,6 +468,18 @@
             anchor.href = url;
             anchor.target = '_blank';
             anchor.click();
+        });
+
+        $wire.on('scheduleQtySync', (payload) => {
+            const delay = payload?.delay ?? (Array.isArray(payload) ? payload[0]?.delay : null) ?? 1000;
+
+            if (qtySyncTimeout) {
+                clearTimeout(qtySyncTimeout);
+            }
+
+            qtySyncTimeout = setTimeout(() => {
+                $wire.call('syncPendingQtys');
+            }, delay);
         });
 
     </script>

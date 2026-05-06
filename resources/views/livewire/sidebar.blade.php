@@ -154,13 +154,32 @@
                         @endif
 
                         {{-- Payment Accounts (Inventory) --}}
-                        @if ($this->hasModule('Inventory'))
+                        @if (
+                            $this->hasModule('Inventory')
+                            && (
+                                user_can('Show Payment Account')
+                                || user_can('Show Payment Account Report')
+                                || user_can('Show Payment Account Balance Sheet')
+                                || user_can('Show Payment Account Trial Balance')
+                                || user_can('Show Payment Account Cash Flow')
+                            )
+                        )
                             <x-sidebar-dropdown-menu name='Payment Accounts' icon='payments' :active='request()->routeIs(["payment-accounts.*"])'>
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Accounts', 'link' => route('payment-accounts.index'), 'active' => request()->routeIs('payment-accounts.index')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Payment Account Report', 'link' => route('payment-accounts.report'), 'active' => request()->routeIs('payment-accounts.report')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Balance Sheet', 'link' => route('payment-accounts.balance-sheet'), 'active' => request()->routeIs('payment-accounts.balance-sheet')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Trial Balance', 'link' => route('payment-accounts.trial-balance'), 'active' => request()->routeIs('payment-accounts.trial-balance')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Cash Flow', 'link' => route('payment-accounts.cash-flow'), 'active' => request()->routeIs('payment-accounts.cash-flow')])
+                                @if (user_can('Show Payment Account'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Accounts', 'link' => route('payment-accounts.index'), 'active' => request()->routeIs('payment-accounts.index')])
+                                @endif
+                                @if (user_can('Show Payment Account Report'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Payment Account Report', 'link' => route('payment-accounts.report'), 'active' => request()->routeIs('payment-accounts.report')])
+                                @endif
+                                @if (user_can('Show Payment Account Balance Sheet'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Balance Sheet', 'link' => route('payment-accounts.balance-sheet'), 'active' => request()->routeIs('payment-accounts.balance-sheet')])
+                                @endif
+                                @if (user_can('Show Payment Account Trial Balance'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Trial Balance', 'link' => route('payment-accounts.trial-balance'), 'active' => request()->routeIs('payment-accounts.trial-balance')])
+                                @endif
+                                @if (user_can('Show Payment Account Cash Flow'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Cash Flow', 'link' => route('payment-accounts.cash-flow'), 'active' => request()->routeIs('payment-accounts.cash-flow')])
+                                @endif
                             </x-sidebar-dropdown-menu>
                         @endif
 

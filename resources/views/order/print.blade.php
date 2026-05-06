@@ -139,7 +139,7 @@
         }
         .summary-row.secondary {
             font-size: 8pt;
-            color: #555;
+            color: #000;
             margin-bottom: 0.5mm;
         }
 
@@ -178,7 +178,19 @@
 
         .modifiers {
             font-size: 8pt;
-            color: #555;
+            color: #000;
+        }
+        .combo-component {
+            font-size: 8pt;
+            color: #000;
+            margin-top: 1px;
+            padding-left: 6px;
+        }
+
+        /* Thermal printers: keep all receipt text black for contrast */
+        .receipt,
+        .receipt *:not(img):not(svg) {
+            color: #000 !important;
         }
 
         .combo-items {
@@ -456,23 +468,71 @@
                                 @if($modifierLinePrice > 0)
                                     (+{{ currency_format_for_receipt_item($modifierLinePrice, restaurant()->currency_id) }})
                                 @endif
-                            </div>
-                        @endforeach
-                    </td>
-                    <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
-                    <td class="amount">
-                        {{ currency_format_for_receipt_item($item->amount, restaurant()->currency_id) }}
-                    </td>
-                    </tr>
+                                @foreach ($item->modifierOptions as $modifier)
+                                    @php
+                                        $modifierQty = (int) ($modifier->pivot->quantity ?? 1);
+                                        $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty);
+                                    @endphp
+                                    <div class="modifiers">• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                        @if($modifierLinePrice > 0)
+                                            (+{{ currency_format_for_receipt_item($modifierLinePrice, restaurant()->currency_id) }})
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </td>
+                            <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
+                            <td class="amount">
+                                {{ currency_format_for_receipt_item($item->amount, restaurant()->currency_id) }}
+                            </td>
+                        </tr>
+                    @else
+                        @php
+                            $group = $comboGroups[$row['key']] ?? null;
+                            if (!$group) {
+                                continue;
+                            }
+                            $packQty = $group['has_real_instance_keys']
+                                ? max(1, count($group['instance_keys']))
+                                : max(1, (int) round(($group['line_total_quantity'] ?? 0) / max(1, (int) ($group['expected_quantity_per_pack'] ?? 1))));
+                            $packAmount = (float) ($group['total_amount'] ?? 0);
+                            $packUnitPrice = $packQty > 0 ? $packAmount / $packQty : $packAmount;
+                        @endphp
+                        <tr>
+                            <td class="qty">{{ $packQty }}</td>
+                            <td class="description">
+                                {{ $group['pack_name'] }}
+                                @foreach ($group['components'] as $componentLabel => $componentQty)
+                                    <div class="combo-component">- {{ $componentQty }} {{ $componentLabel }}</div>
+                                @endforeach
+                            </td>
+                            <td class="price">{{ currency_format_for_receipt_item($packUnitPrice, restaurant()->currency_id) }}</td>
+                            <td class="amount">{{ currency_format_for_receipt_item($packAmount, restaurant()->currency_id) }}</td>
+                        </tr>
+                    @endif
                 @endforeach
             </tbody>
         </table>
 
         <div class="summary">
+            @php
+                $extrasTotal = (float) ($order->extras?->sum('amount') ?? 0);
+                $chargeTaxBase = $order->sub_total + $extrasTotal - ($order->discount_amount ?? 0);
+            @endphp
             <div class="summary-row">
                 <span>@lang('modules.order.subTotal'):</span>
                 <span>{{ currency_format($order->sub_total, restaurant()->currency_id) }}</span>
             </div>
+
+            @if(($order->extras?->count() ?? 0) > 0)
+                @foreach ($order->extras as $extra)
+                    @if(($extra->amount ?? 0) > 0 || $extra->note)
+                        <div class="summary-row">
+                            <span>{{ $extra->note ?: 'Extra' }}:</span>
+                            <span>{{ currency_format($extra->amount, restaurant()->currency_id) }}</span>
+                        </div>
+                    @endif
+                @endforeach
+            @endif
 
             @if (!is_null($order->discount_amount))
                 <div class="summary-row">
@@ -484,6 +544,13 @@
                 </div>
             @endif
 
+            @if ($order->reward_point_discount > 0 && in_array('Reward Point', restaurant_modules()))
+                <div class="summary-row">
+                    <span>@lang('modules.reward.discountFromPoints') ({{ $order->reward_points_redeemed }} pts):</span>
+                    <span>-{{ currency_format($order->reward_point_discount, restaurant()->currency_id) }}</span>
+                </div>
+            @endif
+
             @foreach ($order->charges as $item)
             <div class="summary-row">
                 <span>{{ $item->charge->charge_name }}
@@ -492,7 +559,7 @@
                     @endif:
                 </span>
                 <span>
-                    {{ currency_format(($item->charge->getAmount($order->sub_total - ($order->discount_amount ?? 0))), restaurant()->currency_id) }}
+                    {{ currency_format(($item->charge->getAmount($chargeTaxBase)), restaurant()->currency_id) }}
                 </span>
             </div>
             @endforeach
@@ -521,7 +588,7 @@
                 @foreach ($order->taxes as $item)
                     <div class="summary-row">
                         <span>{{ $item->tax->tax_name }} ({{ $item->tax->tax_percent }}%):</span>
-                        <span>{{ currency_format(($item->tax->tax_percent / 100) * ($order->sub_total - ($order->discount_amount ?? 0)), restaurant()->currency_id) }}</span>
+                        <span>{{ currency_format(($item->tax->tax_percent / 100) * ($chargeTaxBase), restaurant()->currency_id) }}</span>
                     </div>
                 @endforeach
             @else
@@ -571,6 +638,13 @@
                 <span>@lang('modules.order.total'):</span>
                 <span>{{ currency_format($order->total, restaurant()->currency_id) }}</span>
             </div>
+
+            @if ($order->reward_points_earned > 0 && in_array('Reward Point', restaurant_modules()))
+                <div class="summary-row">
+                    <span>@lang('modules.reward.pointsAwarded'):</span>
+                    <span>+{{ $order->reward_points_earned }} pts</span>
+                </div>
+            @endif
 
         </div>
 

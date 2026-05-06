@@ -13,11 +13,19 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Features\SupportPagination\WithoutUrlPagination;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\MenuItemExport;
+use App\Exports\MenuItemsWithVariationsExport;
+use Livewire\Attributes\Reactive;
 
 class MenuItems extends Component
 {
 
     use WithPagination, WithoutUrlPagination, LivewireAlert;
+
+    #[Reactive]
+    public $search = '';
+
+    #[Reactive]
+    public $perPage = 10;
 
     public $showEditMenuItem = false;
     public $clearFilterButton = false;
@@ -27,18 +35,18 @@ class MenuItems extends Component
     public $confirmDeleteMenuItem = false;
     public $showFilters = false;
     public $menuID = null;
-    public $search;
     public $categoryList = [];
     public $menus = [];
     public $filterCategories = [];
     public $filterTypes = [];
     public $filterAvailability;
     public $sortOrder = 'desc';
-    public $perPage = 10;
-
 
     public function mount()
     {
+        if (! in_array((int) $this->perPage, [10, 20, 30, 50,100,200], true)) {
+            $this->perPage = 10;
+        }
         $this->categoryList = ItemCategory::all();
         $this->menus = Menu::all();
     }
@@ -154,7 +162,10 @@ class MenuItems extends Component
     #[On('exportMenuItems')]
     public function export()
     {
-        return Excel::download(new MenuItemExport, 'menu-items.xlsx');
+        $branchId = branch()?->id;
+        abort_if(! $branchId, 422, 'Branch context is required to export menu items.');
+
+        return Excel::download(new MenuItemsWithVariationsExport($branchId), 'menu-items-with-variations.xlsx');
     }
 
     public function render()
@@ -191,7 +202,15 @@ class MenuItems extends Component
             $this->clearFilterButton = true;
         }
 
-        $query = $query->search('item_name', $this->search)->orderBy('id', $this->sortOrder)->paginate($this->perPage);
+        if ($this->search !== '' && $this->search !== null) {
+            $term = '%'.$this->search.'%';
+            $query->where(function ($q) use ($term) {
+                $q->where('item_name', 'like', $term)
+                    ->orWhere('item_code', 'like', $term);
+            });
+        }
+
+        $query = $query->orderBy('id', $this->sortOrder)->paginate(max(1, (int) $this->perPage));
 
         return view('livewire.menu.menu-items', [
             'menuItems' => $query

@@ -200,7 +200,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                     ->whereDate('orders.date_time', $item->date)
                     ->where('orders.branch_id', branch()->id)
                     ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
-                THEN (restaurant_charges.charge_value / 100) * orders.sub_total
+                THEN (restaurant_charges.charge_value / 100) * GREATEST(0, (orders.sub_total + COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0)) - COALESCE(orders.discount_amount, 0))
                 ELSE restaurant_charges.charge_value END')) ?? 0;
             }
 
@@ -277,7 +277,8 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                     'taxes.tax_percent',
                     'orders.sub_total',
                     'orders.discount_amount',
-                    'orders.id as order_id'
+                    'orders.id as order_id',
+                    DB::raw('COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0) as extras_total')
                 )
                 ->get();
 
@@ -285,7 +286,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             if ($orderTaxData->isNotEmpty()) {
                 foreach ($orderTaxData as $orderTax) {
                     $taxName = $orderTax->tax_name;
-                    $taxAmount = ($orderTax->tax_percent / 100) * ($orderTax->sub_total - ($orderTax->discount_amount ?? 0));
+                    $taxAmount = ($orderTax->tax_percent / 100) * max(0, ((float) $orderTax->sub_total + (float) ($orderTax->extras_total ?? 0)) - ((float) ($orderTax->discount_amount ?? 0)));
 
                     $taxAmounts[$taxName] += $taxAmount;
                     $taxDetails[$taxName]['total_amount'] += $taxAmount;

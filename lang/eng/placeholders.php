@@ -3,7 +3,7 @@
 return array (
   'menuNamePlaceholder' => 'e.g. Breakfast',
   'searchMenus' => 'Search your menu here',
-  'searchMenuItems' => 'Search your menu item here',
+  'searchMenuItems' => 'Search by name or item code',
   'menuItemNamePlaceholder' => 'e.g., Margherita Pizza',
   'itemVariationPlaceholder' => 'e.g., Small, Medium, Large',
   'itemDescriptionPlaceholder' => 'e.g., A classic Italian pizza with fresh tomatoes and basil.',

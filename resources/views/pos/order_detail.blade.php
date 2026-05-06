@@ -234,7 +234,7 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
-                        wire:key='order-detail-kot-{{ $kot->id }}-{{ microtime() }}'>
+                        wire:key='order-detail-kot-{{ $kot->id }}'>
                         @php $renderedDetailComboGroups = []; @endphp
                         @forelse ($orderItemList as $key => $item)
                             @continue(!str_contains($key, 'kot_' . $kot->id . '_'))
@@ -293,7 +293,7 @@
                             @endif
 
                             <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 @if($isComboItem) border-l-2 border-blue-200 dark:border-blue-800 @endif"
-                                wire:key='order-detail-item-{{ $key }}-{{ microtime() }}' wire:loading.class.delay='opacity-10'>
+                                wire:key='order-detail-item-{{ $key }}' wire:loading.class.delay='opacity-10'>
                                 <td class="flex flex-col p-2 mr-12 lg:min-w-28">
                                     <div class="inline-flex items-center gap-2 text-xs text-gray-900 dark:text-white">
                                         {{ $itemName }}
@@ -326,13 +326,13 @@
                                 </td>
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
                                     <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='order-detail-qty-{{ $key }}'>
-                                        <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                        <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                             </svg>
                                         </button>
-                                        <input type="text" wire:model="orderItemQty.{{ $key }}" class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:text-white" readonly />
-                                        <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                        <input type="text" data-pos-qty-key="{{ $key }}" wire:model="orderItemQty.{{ $key }}" class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:text-white" readonly />
+                                        <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                             </svg>
@@ -347,7 +347,7 @@
                                 </td>
                                 @if ($canManageOrderDetailItems && !$isComboItem)
                                     <td class="p-2 text-right whitespace-nowrap">
-                                        <button type="button" class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
+                                        <button type="button" class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                                                 <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2H9zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"></path>
                                             </svg>
@@ -375,6 +375,9 @@
 
         <div>
             <div class="w-full h-auto p-4 mt-3 space-y-4 text-center rounded select-none bg-gray-50 dark:bg-gray-700">
+                @php
+                    $orderExtrasTotal = (float) ($orderDetail->extras?->sum('amount') ?? 0);
+                @endphp
                 <div class="flex justify-between text-sm text-gray-500 dark:text-neutral-400">
                     <div>
                         @lang('modules.order.totalItem')
@@ -391,6 +394,20 @@
                         {{ currency_format($orderDetail->sub_total, restaurant()->currency_id) }}
                     </div>
                 </div>
+
+                @if (restaurant()->allow_custom_order_extras ?? false)
+                    @foreach(($orderDetail->extras ?? []) as $extra)
+                        @php
+                            $extraAmount = (float) ($extra->amount ?? 0);
+                            $extraNote = trim((string) ($extra->note ?? ''));
+                        @endphp
+                        @continue($extraAmount <= 0 && $extraNote === '')
+                        <div class="flex justify-between text-sm text-gray-500 dark:text-neutral-400">
+                            <div>{{ $extraNote !== '' ? $extraNote : 'Extra' }}</div>
+                            <div>{{ currency_format($extraAmount, restaurant()->currency_id) }}</div>
+                        </div>
+                    @endforeach
+                @endif
 
                 @if (!is_null($orderDetail->discount_amount))
                 <div wire:key="discountAmount" class="flex justify-between text-sm text-green-500 dark:text-green-400">
@@ -422,7 +439,7 @@
                         @endif
                     </div>
                     <div>
-                        {{ currency_format($charge->getAmount($subTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
+                        {{ currency_format($charge->getAmount($orderDetail->sub_total + $orderExtrasTotal - ($orderDetail->discount_amount ?? 0)), restaurant()->currency_id) }}
                     </div>
                 </div>
                 @endforeach
@@ -460,7 +477,7 @@
                                 {{ $item->tax->tax_name }} ({{ $item->tax->tax_percent }}%)
                             </div>
                             <div>
-                                {{ currency_format(($item->tax->tax_percent / 100) * ($orderDetail->sub_total - ($orderDetail->discount_amount ?? 0)), restaurant()->currency_id) }}
+                                {{ currency_format(($item->tax->tax_percent / 100) * ($orderDetail->sub_total + $orderExtrasTotal - ($orderDetail->discount_amount ?? 0)), restaurant()->currency_id) }}
                             </div>
                         </div>
                     @endforeach

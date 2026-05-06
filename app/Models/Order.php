@@ -6,6 +6,7 @@ use App\Models\BaseModel;
 use App\Traits\HasBranch;
 use App\Enums\OrderStatus;
 use App\Models\OrderCharge;
+use App\Models\OrderExtra;
 use App\Scopes\BranchScope;
 use App\Models\DeliveryExecutive;
 use App\Models\OrderNumberSetting;
@@ -77,6 +78,11 @@ class Order extends BaseModel
     public function charges(): HasMany
     {
         return $this->hasMany(OrderCharge::class);
+    }
+
+    public function extras(): HasMany
+    {
+        return $this->hasMany(OrderExtra::class);
     }
 
     public function extraCharges(): BelongsToMany

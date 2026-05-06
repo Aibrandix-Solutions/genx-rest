@@ -176,18 +176,46 @@
                             @endphp
 
 
-                                    <x-restaurant-table
-                                        wire:key='table-{{ $item->id . microtime() }}'
-                                        wire:click='showTableOrder({{ $item->id }})'
-                                        :shape="$item->seating_capacity >= 4 ? 'rectangle' : 'circle'"
-                                        :seats="$item->seating_capacity"
-                                        :code="$item->table_code"
-                                        :status="$item->available_status"
-                                        :is-inactive="$item->status === 'inactive'"
-                                        :kot-count="$item->activeOrder ? $item->activeOrder->kot->count() : 0"
-                                        :is-reservation-active="$isReservationActive"
-                                        class="scale-75"
-                                    />
+                                    <div class="relative flex flex-col items-center" wire:key='layout-wrap-{{ $item->id . microtime() }}'>
+                                        <x-restaurant-table
+                                            wire:key='table-{{ $item->id . microtime() }}'
+                                            wire:click='showTableOrder({{ $item->id }})'
+                                            :shape="$item->seating_capacity >= 4 ? 'rectangle' : 'circle'"
+                                            :seats="$item->seating_capacity"
+                                            :code="$item->table_code"
+                                            :status="$item->effective_available_status"
+                                            :is-inactive="$item->status === 'inactive'"
+                                            :kot-count="$item->activeOrder ? $item->activeOrder->kot->count() : 0"
+                                            :is-reservation-active="$isReservationActive"
+                                            class="scale-75"
+                                        />
+
+                                        @if(user_can('Update Table') || (user_can('Delete Table') && !$item->activeOrder))
+                                            <div class="flex items-center gap-1 -mt-6">
+                                                @if(user_can('Update Table'))
+                                                    <button type="button" wire:click.stop='showEditTable({{ $item->id }})'
+                                                        class="p-1.5 rounded-md bg-white border border-gray-200 text-gray-600 hover:text-gray-900 hover:bg-gray-100 shadow-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
+                                                        title="@lang('modules.table.editTable')">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                                                            <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+                                                            <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+                                                        </svg>
+                                                    </button>
+                                                @endif
+
+                                                @if(user_can('Delete Table') && !$item->activeOrder)
+                                                    <button type="button" wire:click.stop='confirmDeleteTable({{ $item->id }})'
+                                                        class="p-1.5 rounded-md bg-white border border-gray-200 text-red-600 hover:text-red-700 hover:bg-red-50 shadow-sm dark:bg-gray-700 dark:border-gray-600"
+                                                        title="@lang('modules.table.deleteTable')">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                                                            <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                                                            <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                                                        </svg>
+                                                    </button>
+                                                @endif
+                                            </div>
+                                        @endif
+                                    </div>
                                 @endforeach
                             </div>
                         </div>
@@ -227,10 +255,10 @@
                                 <div wire:key='table-{{ $item->id . microtime() }}'
                                     wire:click='showTableOrder({{ $item->id }})'
                                     @class([
-                                        'aspect-square rounded-lg p-2 cursor-pointer flex flex-col items-center justify-center transition-all transform hover:scale-105 hover:shadow-md relative',
-                                        'bg-green-100 border-green-200' => $item->available_status == 'available',
-                                        'bg-red-100 border-red-200' => $item->available_status == 'reserved',
-                                        'bg-blue-100 border-blue-200' => $item->available_status == 'running',
+                                        'group aspect-square rounded-lg p-2 cursor-pointer flex flex-col items-center justify-center transition-all transform hover:scale-105 hover:shadow-md relative',
+                                        'bg-green-100 border-green-200' => $item->effective_available_status == 'available',
+                                        'bg-red-100 border-red-200' => $item->effective_available_status == 'reserved',
+                                        'bg-blue-100 border-blue-200' => $item->effective_available_status == 'running',
                                         'opacity-50' => $item->status == 'inactive'
                                     ])>
 
@@ -288,6 +316,31 @@
                                     @if($item->activeOrder)
                                         <span class="text-xs mt-1">{{ $item->activeOrder->kot->count() }} @lang('modules.order.kot')</span>
                                     @endif
+
+                                    @if(user_can('Update Table') || (user_can('Delete Table') && !$item->activeOrder))
+                                        <div class="absolute bottom-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            @if(user_can('Update Table'))
+                                                <button type="button" wire:click.stop='showEditTable({{ $item->id }})'
+                                                    class="p-1 rounded bg-white text-gray-600 hover:text-gray-900 hover:bg-gray-100 shadow-sm"
+                                                    title="@lang('modules.table.editTable')">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                                        <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+                                                        <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+                                                    </svg>
+                                                </button>
+                                            @endif
+                                            @if(user_can('Delete Table') && !$item->activeOrder)
+                                                <button type="button" wire:click.stop='confirmDeleteTable({{ $item->id }})'
+                                                    class="p-1 rounded bg-white text-red-600 hover:text-red-700 hover:bg-red-50 shadow-sm"
+                                                    title="@lang('modules.table.deleteTable')">
+                                                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="currentColor" viewBox="0 0 16 16">
+                                                        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                                                        <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                                                    </svg>
+                                                </button>
+                                            @endif
+                                        </div>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>
@@ -331,12 +384,12 @@
                             {{-- wire:click='showEditTable({{ $item->id }})' --}}
                             wire:key='table-{{ $item->id . '-' . $loop->index . microtime() }}'
                                 href="javascript:;">
-                                <div class="flex items-center gap-4 justify-between w-full cursor-pointer" @if($item->activeOrder) wire:click='showTableOrderDetail({{ $item->id }})' @else wire:click='showTableOrder({{ $item->id }})' @endif>
+                                <div class="flex items-center gap-4 justify-between w-full cursor-pointer" wire:click='showTableOrder({{ $item->id }})'>
                                     <div class="flex items-center gap-x-2">
                                     <div @class(['p-3 rounded-lg tracking-wide ',
-                                    'bg-green-100 text-green-600' => ($item->available_status == 'available'),
-                                    'bg-red-100 text-red-600' => ($item->available_status == 'reserved'),
-                                    'bg-blue-100 text-blue-600' => ($item->available_status == 'running')])>
+                                    'bg-green-100 text-green-600' => ($item->effective_available_status == 'available'),
+                                    'bg-red-100 text-red-600' => ($item->effective_available_status == 'reserved'),
+                                    'bg-blue-100 text-blue-600' => ($item->effective_available_status == 'running')])>
                                         <h3 wire:loading.class.delay='opacity-50'
                                             @class(['font-semibold'])>
                                             {{ $item->table_code }}
@@ -420,12 +473,21 @@
                                         @endif
 
                                         @if(user_can('Update Table'))
-                                        <x-secondary-button wire:click='showEditTable({{ $item->id }})' class="text-xs">
+                                        <x-secondary-button wire:click='showEditTable({{ $item->id }})' class="text-xs" title="@lang('modules.table.editTable')">
                                             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-square" viewBox="0 0 16 16">
                                                 <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
                                                 <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
                                             </svg>
                                         </x-secondary-button>
+                                        @endif
+
+                                        @if(user_can('Delete Table') && !$item->activeOrder)
+                                        <x-danger-button wire:click='confirmDeleteTable({{ $item->id }})' class="text-xs" title="@lang('modules.table.deleteTable')">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                                                <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                                                <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                                            </svg>
+                                        </x-danger-button>
                                         @endif
 
 
@@ -476,4 +538,24 @@
         </x-slot>
     </x-right-modal>
     @endif
+
+    <x-confirmation-modal wire:model.live="confirmDeleteTableModal">
+        <x-slot name="title">
+            @lang('modules.table.deleteTable')
+        </x-slot>
+
+        <x-slot name="content">
+            @lang('modules.table.deleteTableMessage')
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-secondary-button wire:click="$set('confirmDeleteTableModal', false)" wire:loading.attr="disabled">
+                {{ __('app.close') }}
+            </x-secondary-button>
+
+            <x-danger-button class="ml-3" wire:click='deleteTable' wire:loading.attr="disabled">
+                {{ __('app.delete') }}
+            </x-danger-button>
+        </x-slot>
+    </x-confirmation-modal>
 </div>

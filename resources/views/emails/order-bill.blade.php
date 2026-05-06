@@ -28,6 +28,17 @@
 | **{{ $item->menuItem->item_name }}** @if ($item->modifierOptions->isNotEmpty()) @foreach ($item->modifierOptions as $modifier) @php $modifierQty = (int) ($modifier->pivot->quantity ?? 1); $modifierLinePrice = ($modifier->price ?? 0) * max(1, $modifierQty); @endphp <br> &nbsp;• {{ $modifier->name }}@if($modifierQty > 1) ×{{ $modifierQty }}@endif @if ($modifierLinePrice > 0) (+{{ currency_format($modifierLinePrice, $settings->currency_id) }}) @endif @endforeach @endif @if($item->note) <br> <em>{{ __('modules.order.note') }}: {{ $item->note }}</em> @endif | {{ $item->quantity }} | {{ currency_format(($item->price + $modifierTotal) * $item->quantity, $settings->currency_id) }} |
 @endforeach
 | **{{ __('modules.order.subTotal') }}**   |               | **{{ currency_format($subtotal, $settings->currency_id) }}** |
+@php($safeExtras = $extras ?? collect())
+@if($safeExtras->isNotEmpty())
+@foreach ($safeExtras as $extra)
+@php
+    $extraAmount = (float) ($extra->amount ?? 0);
+    $extraNote = trim((string) ($extra->note ?? ''));
+@endphp
+@continue($extraAmount <= 0 && $extraNote === '')
+| **{{ $extraNote !== '' ? $extraNote : __('modules.order.extra') }}** |     | **{{ currency_format($extraAmount, $settings->currency_id) }}** |
+@endforeach
+@endif
 @if (!is_null($order->discount_amount))
 | **{{ __('modules.order.discount') }}** @if ($order->discount_type == 'percent') **({{ rtrim(rtrim($order->discount_value, '0'), '.') }}%)** @endif |     | **-{{ currency_format($order->discount_amount, $settings->currency_id) }}** |
 @endif

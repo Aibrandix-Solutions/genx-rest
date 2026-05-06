@@ -65,7 +65,20 @@
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
                     <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Items</h2>
+                    <div class="flex items-center gap-2">
+                        <x-secondary-button type="button" wire:click="downloadItemsImportTemplate">
+                            Download Import Template
+                        </x-secondary-button>
+                        <label class="inline-flex items-center px-3 py-2 text-sm font-medium border rounded-md cursor-pointer border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200">
+                            Import Items
+                            <input type="file" class="hidden" wire:model="itemImportFile" accept=".xlsx,.xls,.csv,.txt">
+                        </label>
+                        <x-button type="button" wire:click="importItemsFromFile" wire:loading.attr="disabled" wire:target="itemImportFile,importItemsFromFile">
+                            Upload
+                        </x-button>
+                    </div>
                 </div>
+                @error('itemImportFile') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
                 <!-- Item Search Bar -->
                 <div class="relative">

@@ -1,33 +1,66 @@
 <div
     class="lg:w-6/12 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto pr-4 px-2 py-4 dark:bg-gray-800">
 
-    {{-- Order Type Indicator --}}
-    @if($orderTypeId)
-    <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <span class="text-xs text-gray-500 dark:text-gray-400">@lang('modules.settings.orderType'):</span>
-            <span class="text-sm font-semibold text-gray-900 dark:text-white">
-                {{ \App\Models\OrderType::find($orderTypeId)?->order_type_name ?? ucfirst($orderType) }}
-            </span>
-            
-            @if($orderTypeSlug === 'delivery' && $selectedDeliveryApp)
-                <span class="text-xs text-gray-500 dark:text-gray-400 mx-2">•</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">Platform:</span>
-                <span class="text-sm font-medium text-gray-900 dark:text-white">
-                    @if($selectedDeliveryApp === 'default')
-                        Default
-                    @else
-                        {{ \App\Models\DeliveryPlatform::find($selectedDeliveryApp)?->name ?? 'Unknown' }}
-                    @endif
+    {{-- Order Type Indicator + Dropdown Selector (replaces modal UX) --}}
+    <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-xs text-gray-500 dark:text-gray-400">@lang('modules.settings.orderType'):</span>
+                <span class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ $orderTypeName ?? ($orderType ? ucfirst($orderType) : null) ?? __('modules.order.selectOrderType') }}
                 </span>
-            @endif
+
+                @if($setAsDefaultOrderType)
+                    <span class="text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full">
+                        @lang('modules.order.default')
+                    </span>
+                @endif
+
+                @if(($orderTypeSlug ?? null) === 'delivery' && $selectedDeliveryApp)
+                    <span class="text-xs text-gray-500 dark:text-gray-400 mx-2">•</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">@lang('modules.order.platform'):</span>
+                    <span class="text-sm font-medium text-gray-900 dark:text-white">
+                        {{ $selectedDeliveryPlatformName ?? ($selectedDeliveryApp === 'default' ? __('modules.order.default') : '—') }}
+                    </span>
+                @endif
+            </div>
+
+            <button type="button" wire:click="toggleOrderTypeDropdown" class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
+                {{ $showOrderTypeDropdown ? __('app.close') : __('app.change') }}
+            </button>
         </div>
-        
-        <button type="button" wire:click="changeOrderType" class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
-            Change
-        </button>
+
+        @if($showOrderTypeDropdown)
+            <div class="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-2">
+                <div class="lg:col-span-2">
+                    <x-label class="text-xs" value="{{ __('modules.order.selectOrderType') }}" />
+                    <x-select class="text-sm w-full" wire:model.live="orderTypeId">
+                        @foreach($availableOrderTypes as $type)
+                            <option value="{{ $type['id'] }}">{{ $type['order_type_name'] }}</option>
+                        @endforeach
+                    </x-select>
+                </div>
+
+                <label class="flex items-center justify-center gap-2 cursor-pointer select-none w-full">
+                    <input type="checkbox" wire:model.live="setAsDefaultOrderType"
+                        class="w-4 h-4 text-skin-base bg-gray-100 border-gray-300 rounded focus:ring-skin-base focus:ring-2 dark:bg-gray-700 dark:border-gray-600 dark:focus:ring-skin-base">
+                    <span class="text-xs text-gray-700 dark:text-gray-300">@lang('modules.order.setAsDefault')</span>
+                </label>
+
+                @if(($orderTypeSlug ?? null) === 'delivery' && $orderTypeId)
+                    <div class="lg:col-span-2">
+                        <x-label class="text-xs" value="{{ __('modules.order.platform') }}" />
+                        <x-select class="text-sm w-full" wire:model.live="selectedDeliveryApp">
+                            <option value="default">@lang('modules.order.default')</option>
+                            @foreach($availableDeliveryPlatforms as $platform)
+                                <option value="{{ $platform['id'] }}">{{ $platform['name'] }}</option>
+                            @endforeach
+                        </x-select>
+                    </div>
+                @endif
+            </div>
+        @endif
     </div>
-    @endif
 
     <div>
         <div class="mt-2">
@@ -290,7 +323,7 @@
                         @endif
 
                         <tr class="hover:bg-gray-100 dark:hover:bg-gray-700"
-                            wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class='opacity-50'>
+                            wire:key='menu-item-{{ $key }}' wire:loading.class='opacity-50'>
                             <td class="flex flex-col p-2 mr-12 lg:min-w-20 @if($comboId) pl-4 border-l-2 border-blue-200 dark:border-blue-800 @endif">
                                 <div class="inline-flex items-center gap-2">
                                     <div
@@ -338,8 +371,7 @@
 
                                 <div class="relative flex items-center max-w-[8rem] mx-auto"
                                     wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')"
-                                        wire:loading.attr="disabled" wire:loading.class="opacity-50"
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;"
                                         @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
@@ -347,27 +379,20 @@
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
-                                        {{-- Loading spinner for subQty --}}
-                                        <div wire:loading.flex wire:target="subQty('{{ $key }}')"
-                                            class="absolute inset-0 items-center justify-center">
-                                            <svg class="animate-spin h-3 w-3 text-skin-base"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                        </div>
                                     </button>
 
-                                    <input type="text" wire:model.lazy="orderItemQty.{{ $key }}" wire:change="updateQty('{{ $key }}')"
+                                    <input type="text" data-pos-qty-key="{{ $key }}" value="{{ $orderItemQty[$key] ?? 1 }}"
+                                        onchange="
+                                            const val = parseInt(this.value, 10);
+                                            const normalized = isNaN(val) || val < 1 ? 1 : val;
+                                            this.value = normalized;
+                                            window.posClient?.queueQtySet(@js((string) $key), normalized, this);
+                                            return false;
+                                        "
                                         class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')"
-                                        wire:loading.attr="disabled" wire:loading.class="opacity-50"
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;"
                                         @disabled($comboId)
                                         class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
@@ -375,19 +400,6 @@
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
-                                        {{-- Loading spinner for addQty --}}
-                                        <div wire:loading.flex wire:target="addQty('{{ $key }}')"
-                                            class="absolute inset-0 items-center justify-center">
-                                            <svg class="animate-spin h-3 w-3 text-skin-base"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                        </div>
                                     </button>
                                 </div>
 
@@ -409,7 +421,7 @@
                                 @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
-                                    wire:click="deleteCartItems('{{ $key }}')" wire:loading.attr="disabled"
+                                    onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;" wire:loading.attr="disabled"
                                     wire:loading.class="opacity-50">
                                     <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor" viewBox="0 0 20 20"
                                         xmlns="http://www.w3.org/2000/svg">

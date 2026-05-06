@@ -20,6 +20,8 @@ use App\Models\BranchPaymentAccountSetting;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\PurchaseItemsImportTemplateExport;
 use Modules\Inventory\Entities\PurchaseAttachment;
 
 class CreateDirectPurchase extends Component
@@ -40,6 +42,7 @@ class CreateDirectPurchase extends Component
     
     // Items
     public $items = [];
+    public $itemImportFile;
     public $searchItem = '';
     public $filteredItems = [];
     public $showSearchResults = false;
@@ -90,6 +93,7 @@ class CreateDirectPurchase extends Component
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
         'paymentNote' => 'nullable|string|max:500',
         'attachments.*' => 'nullable|file|mimes:pdf,jpeg,jpg,png,gif,webp|max:5120',
+        'itemImportFile' => 'nullable|file|mimes:xlsx,xls,csv,txt|max:5120',
     ];
 
     protected $messages = [
@@ -186,6 +190,107 @@ class CreateDirectPurchase extends Component
     public function addItem()
     {
         $this->items[] = $this->makePurchaseItemRow();
+    }
+
+    public function downloadItemsImportTemplate()
+    {
+        return Excel::download(new PurchaseItemsImportTemplateExport(), 'purchase-items-template.xlsx');
+    }
+
+    public function importItemsFromFile(): void
+    {
+        $this->validateOnly('itemImportFile');
+
+        if (!$this->itemImportFile) {
+            return;
+        }
+
+        $rows = Excel::toArray([], $this->itemImportFile)[0] ?? [];
+        if (count($rows) < 2) {
+            $this->addError('itemImportFile', 'Template appears empty. Please add at least one row.');
+            return;
+        }
+
+        $headers = array_map(
+            fn ($h) => strtolower(trim((string) $h)),
+            (array) ($rows[0] ?? [])
+        );
+        $requiredHeaders = ['item_name', 'quantity'];
+        foreach ($requiredHeaders as $requiredHeader) {
+            if (!in_array($requiredHeader, $headers, true)) {
+                $this->addError('itemImportFile', "Missing required column: {$requiredHeader}");
+                return;
+            }
+        }
+
+        $indexMap = array_flip($headers);
+        $errors = [];
+        $importedCount = 0;
+        $this->items = array_values(array_filter($this->items, fn ($row) => !empty($row['inventory_item_id'])));
+
+        for ($i = 1; $i < count($rows); $i++) {
+            $row = (array) $rows[$i];
+            if (count(array_filter($row, fn ($v) => trim((string) $v) !== '')) === 0) {
+                continue;
+            }
+
+            $itemName = trim((string) ($row[$indexMap['item_name']] ?? ''));
+            $quantityRaw = $row[$indexMap['quantity']] ?? null;
+            $unitPriceRaw = $row[$indexMap['unit_price']] ?? null;
+            $discountRaw = $row[$indexMap['discount']] ?? 0;
+            $discountTypeRaw = strtolower(trim((string) ($row[$indexMap['discount_type']] ?? 'fixed')));
+            $excelRow = $i + 1;
+
+            if ($itemName === '') {
+                $errors[] = "Row {$excelRow}: item_name is required.";
+                continue;
+            }
+
+            $quantity = is_numeric($quantityRaw) ? (float) $quantityRaw : null;
+            if ($quantity === null || $quantity <= 0) {
+                $errors[] = "Row {$excelRow}: quantity must be greater than 0.";
+                continue;
+            }
+
+            $item = InventoryItem::query()
+                ->where('restaurant_id', restaurant()->id)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($itemName)])
+                ->first();
+
+            if (!$item) {
+                $errors[] = "Row {$excelRow}: item '{$itemName}' not found.";
+                continue;
+            }
+
+            $unitPrice = is_numeric($unitPriceRaw) ? (float) $unitPriceRaw : (float) ($item->unit_purchase_price ?? 0);
+            $discount = is_numeric($discountRaw) ? (float) $discountRaw : 0;
+            $discountType = in_array($discountTypeRaw, ['fixed', 'percentage'], true) ? $discountTypeRaw : 'fixed';
+
+            $this->items[] = [
+                ...$this->makePurchaseItemRow(),
+                'inventory_item_id' => $item->id,
+                'quantity' => $quantity,
+                'unit_price' => max(0, $unitPrice),
+                'discount' => max(0, $discount),
+                'discount_type' => $discountType,
+                'last_purchase_price' => PurchaseOrderItem::where('inventory_item_id', $item->id)
+                    ->orderBy('created_at', 'desc')
+                    ->value('unit_price'),
+            ];
+            $importedCount++;
+        }
+
+        $this->itemImportFile = null;
+
+        if (!empty($errors)) {
+            $this->addError('itemImportFile', implode(' ', array_slice($errors, 0, 5)));
+        }
+
+        if ($importedCount > 0) {
+            $this->alert('success', "{$importedCount} item rows imported.");
+        } elseif (empty($errors)) {
+            $this->addError('itemImportFile', 'No rows were imported.');
+        }
     }
 
     protected function makePurchaseItemRow(): array

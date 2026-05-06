@@ -27,6 +27,7 @@ class ReceiptSetting extends Component
     public bool $showPaymentDetails;
     public bool $showOrderType;
     public bool $showCurrencyPrefix;
+    public bool $directPrintAfterPayment;
 
     public function mount()
     {
@@ -43,6 +44,7 @@ class ReceiptSetting extends Component
         $this->paymentQrCode = $this->receiptSetting->payment_qr_code_url;
         $this->showOrderType = (bool)$this->receiptSetting->show_order_type;
         $this->showCurrencyPrefix = (bool)$this->receiptSetting->show_currency_prefix;
+        $this->directPrintAfterPayment = (bool)($this->receiptSetting->direct_print_after_payment ?? false);
     }
 
     public function submitForm()
@@ -60,6 +62,7 @@ class ReceiptSetting extends Component
             'show_payment_details' => $this->showPaymentDetails,
             'show_order_type' => $this->showOrderType,
             'show_currency_prefix' => $this->showCurrencyPrefix,
+            'direct_print_after_payment' => $this->directPrintAfterPayment,
         ];
 
         if ($this->showPaymentQrCode && !$this->paymentQrCode) {

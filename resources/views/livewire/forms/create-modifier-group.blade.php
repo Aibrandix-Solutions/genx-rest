@@ -426,7 +426,7 @@
                     <div>
                         <x-label for="modifierOptions.{{ $index }}.price" :value="__('modules.modifier.defaultPrice')" />
                         <x-input id="modifierOptions.{{ $index }}.price" type="number" step="0.001" class="mt-1 block w-full"
-                            wire:model.live.debounce.500ms="modifierOptions.{{ $index }}.price" placeholder="{{ __('placeholders.modifierOptionPricePlaceholder') }}" />
+                            wire:model.blur="modifierOptions.{{ $index }}.price" placeholder="{{ __('placeholders.modifierOptionPricePlaceholder') }}" />
                         <x-input-error for="modifierOptions.{{ $index }}.price" class="mt-2" />
                     </div>
 
@@ -453,7 +453,7 @@
                                     <span class="text-gray-500 text-sm">{{ restaurant()->currency->currency_symbol }}</span>
                                 </div>
                                 <x-input type="number" step="0.001"
-                                        wire:model.live="optionOrderTypePrices.{{ $index }}.{{ $orderType->id }}"
+                                        wire:model.blur="optionOrderTypePrices.{{ $index }}.{{ $orderType->id }}"
                                         class="block pl-8 pr-3 w-32"
                                         placeholder="0.00" />
                             </div>
@@ -479,7 +479,7 @@
                                     <span class="text-gray-500 text-sm">{{ restaurant()->currency->currency_symbol }}</span>
                                 </div>
                                 <x-input type="number" step="0.001"
-                                        wire:model.live="optionBaseDeliveryPrice.{{ $index }}"
+                                        wire:model.blur="optionBaseDeliveryPrice.{{ $index }}"
                                         class="block pl-8 pr-3 w-32"
                                         placeholder="0.00" />
                             </div>

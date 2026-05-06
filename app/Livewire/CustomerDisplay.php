@@ -14,6 +14,7 @@ class CustomerDisplay extends Component
     public $orderNumber = null;
     public $taxes = [];
     public $extraCharges = [];
+    public $customExtras = [];
     public $tip = 0;
     public $deliveryFee = 0;
     public $orderType = null;
@@ -39,6 +40,7 @@ class CustomerDisplay extends Component
             $this->orderItems = $cart['items'] ?? [];
             $this->taxes = $cart['taxes'] ?? [];
             $this->extraCharges = $cart['extra_charges'] ?? [];
+            $this->customExtras = $cart['custom_extras'] ?? [];
             $this->tip = $cart['tip'] ?? 0;
             $this->deliveryFee = $cart['delivery_fee'] ?? 0;
             $this->orderType = $cart['order_type'] ?? null;
@@ -54,6 +56,7 @@ class CustomerDisplay extends Component
             $this->orderItems = [];
             $this->taxes = [];
             $this->extraCharges = [];
+            $this->customExtras = [];
             $this->tip = 0;
             $this->deliveryFee = 0;
             $this->orderType = null;
