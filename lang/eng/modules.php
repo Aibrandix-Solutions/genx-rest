@@ -1541,7 +1541,11 @@ return [
         'lastMinuteBookingSettings' => 'Last-Minute Booking Settings',
         'disableSlotMinutes' => 'Disable Slot Minutes',
         'disableSlotMinutesInfo' => 'Set how many minutes before a time slot that bookings should be disabled. This only applies to reservations for today.',
-
+        'editReservation' => 'Edit Reservation',
+        'deleteReservation' => 'Delete Reservation',
+        'deleteReservationConfirm' => 'Are you sure you want to delete this reservation?',
+        'specialRequests' => 'Special Requests',
+        'updateReservation' => 'Update Reservation',
 
     ],
 
