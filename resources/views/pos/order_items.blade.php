@@ -1,5 +1,14 @@
 <div
     class="flex flex-col h-auto min-h-screen px-2 py-4 pr-4 bg-white border-l lg:w-6/12 dark:border-gray-700 dark:bg-gray-800">
+    @php
+        $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
+        $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
+            ? $rawOrderStatus->value
+            : (string) ($rawOrderStatus ?? '');
+        $showActionColumn = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+            ? user_can('Edit Billed Order')
+            : (user_can('Delete Order') || user_can('Update Order'));
+    @endphp
     <div>
 
         <div class="flex items-center justify-between mt-1 mb-2">
@@ -450,7 +459,7 @@
                             @if ($showActionColumn)
                             <td class="p-2 text-right whitespace-nowrap">
                                 @if (!$isComboItem)
-                                    <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;">
+                                    <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
                                         <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
                                             xmlns="http://www.w3.org/2000/svg">
                                             <path fill-rule="evenodd"
@@ -476,18 +485,19 @@
 
         @php
             $nonKotRows = [];
-            foreach ($orderItemList as $k => $v) {
-                // Some legacy payloads wrap keys in quotes, normalize before prefix checks.
-                $normalizedKey = trim((string) $k, '"');
-                if (!str_starts_with($normalizedKey, 'kot_')) {
-                    $nonKotRows[$k] = $v;
+            foreach ($orderItemList as $key => $item) {
+                // Some keys can arrive wrapped in quotes from older payload shapes.
+                $normalizedKey = trim((string) $key, '"');
+                if (str_starts_with($normalizedKey, 'kot_')) {
+                    continue;
                 }
+
+                $nonKotRows[] = ['key' => $key, 'item' => $item];
             }
         @endphp
 
         @if (!empty($nonKotRows))
-            <div class="flex justify-between p-2 text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700 mt-2">
-                <div>@lang('modules.order.orderItems')</div>
+            <div class="flex justify-between p-2 mt-3 text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700">
                 <div>@lang('modules.order.existingItems')</div>
             </div>
 
@@ -516,29 +526,31 @@
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
                         @php
-                            $renderedNonKotComboGroups = [];
+                            $renderedExistingComboGroups = [];
                         @endphp
-                        @foreach ($nonKotRows as $key => $item)
+                        @foreach ($nonKotRows as $row)
                             @php
+                                $key = $row['key'];
+                                $item = $row['item'];
                                 $itemName = $item->item_name;
                                 $itemVariation = (isset($orderItemVariation[$key]) ? $orderItemVariation[$key]->variation : '');
                                 $displayPrice = $this->getItemDisplayPrice($key);
                                 $totalAmount = $orderItemAmount[$key] ?? 0;
                                 $isComboItem = isset($orderItemComboPack[$key]) && !empty($orderItemComboPack[$key]);
                                 $orderComboId = $orderItemComboPack[$key] ?? null;
-                                $showOrderComboHeader = $orderComboId && !in_array($orderComboId, $renderedNonKotComboGroups);
-                                if ($showOrderComboHeader) {
-                                    $renderedNonKotComboGroups[] = $orderComboId;
-                                    $orderGroupSavings = 0;
-                                    foreach ($nonKotRows as $nk => $nv) {
-                                        if (($orderItemComboPack[$nk] ?? null) == $orderComboId) {
-                                            $orderGroupSavings += $orderItemComboDiscount[$nk] ?? 0;
+                                $showExistingComboHeader = $orderComboId && !in_array($orderComboId, $renderedExistingComboGroups);
+                                if ($showExistingComboHeader) {
+                                    $renderedExistingComboGroups[] = $orderComboId;
+                                    $existingGroupSavings = 0;
+                                    foreach ($nonKotRows as $r) {
+                                        $rk = $r['key'];
+                                        if (($orderItemComboPack[$rk] ?? null) == $orderComboId) {
+                                            $existingGroupSavings += $orderItemComboDiscount[$rk] ?? 0;
                                         }
                                     }
                                 }
                             @endphp
-
-                            @if ($showOrderComboHeader)
+                            @if ($showExistingComboHeader)
                                 <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
                                     <td colspan="{{ $showActionColumn ? 5 : 4 }}" class="px-2 py-1.5">
                                         <div class="flex items-center justify-between">
@@ -549,9 +561,9 @@
                                                 {{ $orderItemComboName[$orderComboId] ?? 'Combo Pack' }}
                                             </span>
                                             <div class="flex items-center gap-2">
-                                                @if (!empty($orderGroupSavings) && $orderGroupSavings > 0)
+                                                @if (!empty($existingGroupSavings) && $existingGroupSavings > 0)
                                                     <span class="text-xs font-medium text-green-600 dark:text-green-400">
-                                                        Save {{ currency_format($orderGroupSavings, restaurant()->currency_id) }}
+                                                        Save {{ currency_format($existingGroupSavings, restaurant()->currency_id) }}
                                                     </span>
                                                 @endif
                                                 @if ($showActionColumn)
@@ -571,8 +583,7 @@
                                     </td>
                                 </tr>
                             @endif
-
-                            <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 @if($isComboItem) border-l-2 border-blue-200 dark:border-blue-800 @endif" wire:key='menu-item-existing-{{ $key }}-{{ $loop->index }}' wire:loading.class.delay='opacity-10'>
+                            <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 @if($isComboItem) border-l-2 border-blue-200 dark:border-blue-800 @endif">
                                 <td class="flex flex-col p-2 mr-12 lg:min-w-28">
                                     <div class="inline-flex items-center gap-2 text-xs text-gray-900 dark:text-white">
                                         {{ $itemName }}
@@ -611,34 +622,31 @@
                                         </div>
                                     @endif
                                 </td>
-
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
-                                    <div class="relative flex items-center max-w-[8rem] mx-auto">
-                                        <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                    <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-existing-{{ $key }}-counter'>
+                                        <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                             </svg>
                                         </button>
-                                        <input type="text" data-pos-qty-key="{{ $key }}" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" readonly />
-                                        <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                        <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly />
+                                        <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                             </svg>
                                         </button>
                                     </div>
                                 </td>
-
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
                                     {{ currency_format($displayPrice, restaurant()->currency_id) }}
                                 </td>
                                 <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ currency_format($totalAmount, restaurant()->currency_id) }}
                                 </td>
-
                                 @if ($showActionColumn)
                                     <td class="p-2 text-right whitespace-nowrap">
                                         @if (!$isComboItem)
-                                            <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;">
+                                            <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
                                                 <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
                                                     <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
                                                 </svg>
