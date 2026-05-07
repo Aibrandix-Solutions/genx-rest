@@ -379,7 +379,12 @@ class PosSupportController extends Controller
         $isAdmin = user_can('Manage Settings') || user_can('Manage Order') || user_can('Manage Table');
 
         $tables = Table::query()
-            ->with(['area:id,area_name', 'tableSession.lockedByUser:id,name', 'activeOrder:id,table_id'])
+            ->with([
+                'area:id,area_name',
+                'tableSession.lockedByUser:id,name',
+                'activeOrder:id,table_id,order_number,formatted_order_number,status,waiter_id',
+                'activeOrder.waiter:id,name',
+            ])
             ->where('branch_id', $branch->id)
             ->orderBy('table_code')
             ->get()
@@ -404,11 +409,22 @@ class PosSupportController extends Controller
                     $effectiveStatus = 'available';
                 }
 
+                // Build active-order details for UI enrichment
+                $activeOrder = $table->activeOrder;
+                $orderNumber = null;
+                if ($activeOrder) {
+                    $orderNumber = $activeOrder->formatted_order_number
+                        ?: ($activeOrder->order_number ? '#' . $activeOrder->order_number : null);
+                }
+
                 return [
                     'id' => (int) $table->id,
                     'table_code' => (string) $table->table_code,
                     'status' => (string) ($table->status ?? 'active'),
-                    'active_order_id' => $table->activeOrder ? (int) $table->activeOrder->id : null,
+                    'active_order_id' => $activeOrder ? (int) $activeOrder->id : null,
+                    'active_order_number' => $orderNumber,
+                    'active_order_status' => $activeOrder ? (string) $activeOrder->status : null,
+                    'active_order_waiter' => $activeOrder?->waiter?->name,
                     'available_status' => $effectiveStatus,
                     'area_id' => (int) ($table->area_id ?? 0),
                     'area_name' => (string) ($table->area?->area_name ?? 'Unknown Area'),
