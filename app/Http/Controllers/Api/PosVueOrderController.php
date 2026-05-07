@@ -34,7 +34,8 @@ class PosVueOrderController extends Controller
 {
     public function show(int $id)
     {
-        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('View Order'), 403);
+        $canAccess = user_can('View Order') || user_can('Create Order') || user_can('Update Order');
+        abort_if(! in_array('Order', restaurant_modules()) || ! $canAccess, 403);
 
         $branch = branch();
         abort_if(! $branch, 422, 'Branch context is required');
