@@ -645,35 +645,3 @@
 </body>
 
 </html>
-                                <th class="price">@lang('app.dateTime')</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($order->payments as $payment)
-                                <tr>
-                                    <td class="qty">{{ currency_format($payment->amount, restaurant()->currency_id) }}</td>
-                                    <td class="payment-method">@lang('modules.order.' . $payment->payment_method)</td>
-                                    <td class="price">
-                                        @if($payment->payment_method != 'due')
-                                            {{ $payment->created_at->timezone(timezone())->translatedFormat('d M Y h:i A') }}
-                                        @endif
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            @endif
-        </div>
-
-
-    </div>
-
-    <script>
-        window.onload = function() {
-            window.print();
-        }
-    </script>
-</body>
-
-</html>
