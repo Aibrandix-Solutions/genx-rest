@@ -74,7 +74,7 @@
                 :can-redeem-reward-points="canRedeemRewardPoints"
                 @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
-                @select-table="handleSelectTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
+                @select-table="handleSelectTable" @remove-table="handleRemoveTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
                 @update:orderStatus="handleOrderStatusUpdate" @add-note="handleAddNote"
                 @update:selectedDeliveryExecutive="handleDeliveryExecutiveUpdate"
                 @update:deliveryFee="handleDeliveryFeeUpdate"
@@ -905,6 +905,69 @@ const handleSelectTable = (table) => {
         showTableChangeConfirmationModal.value = true;
     } else {
         applySelectedTable(selectedTableCode, selectedTableId, selectedActiveOrderId);
+    }
+};
+
+/**
+ * Remove the current table assignment from the order.
+ * Clears local state, calls the API to detach the table from any existing
+ * order, and releases the table's session lock so it becomes available.
+ */
+const handleRemoveTable = async () => {
+    if (!currentTable.value && !currentTableId.value) return;
+
+    const confirmed = await showPosConfirm(
+        `Remove table ${currentTable.value || ""} from this order?`,
+        {
+            icon: "warning",
+            confirmButtonText: "Remove Table",
+            cancelButtonText: "Cancel",
+        }
+    );
+    if (!confirmed) return;
+
+    const previousTableId = currentTableId.value;
+    const previousTableCode = currentTable.value;
+
+    // Clear local state immediately
+    currentTable.value = "";
+    currentTableId.value = null;
+
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+
+    if (activeOrderId) {
+        try {
+            // Detach table from the persisted order (sets orders.table_id = null,
+            // releases the old table's available_status and session lock server-side).
+            await axios.post(`/api/pos/orders/${activeOrderId}/table`, {
+                table_id: null,
+            });
+
+            await loadOrderData(activeOrderId);
+
+            showPosAlert("success", `Table ${previousTableCode} removed from order.`);
+        } catch (error) {
+            // Revert on failure
+            currentTable.value = previousTableCode;
+            currentTableId.value = previousTableId;
+            const errorMessage =
+                error?.response?.data?.message ||
+                error?.message ||
+                "Failed to remove table";
+            showPosAlert("error", errorMessage);
+            return;
+        }
+    } else {
+        // No persisted order — just release the user-lock on the table
+        if (previousTableId) {
+            try {
+                await axios.post(`/api/pos/tables/${previousTableId}/unlock`);
+            } catch (e) {
+                // Best-effort; the lock will timeout anyway
+                console.warn("Failed to unlock previous table:", e);
+            }
+        }
+        showPosAlert("success", `Table ${previousTableCode} removed.`);
     }
 };
 
