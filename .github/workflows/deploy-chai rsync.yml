@@ -1,8 +1,8 @@
-name: Deploy Genx Restaurant (via SFTP)
+name: Deploy aibrandix.com (rsync + SSH)
 
 on:
   push:
-    branches: [old-himan]
+    branches: [himan]
   workflow_dispatch:
 
 jobs:
@@ -33,11 +33,11 @@ jobs:
               "echo SSH OK: \$(whoami) on \$(hostname)"
 
       # --- Build assets (NPM) ---
-      # Uncomment these lines if your public/build assets are not committed to the repo
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+
       - name: Build Assets
         run: |
           npm ci
@@ -52,7 +52,6 @@ jobs:
           mkdir -p deploy_app deploy_public
 
           # Core app (NO vendor, NO public)
-          # Added 'Modules' to the list
           cp -r app bootstrap config database routes artisan composer.json composer.lock phpunit.xml .htaccess Modules deploy_app/ 2>/dev/null || true
 
           # Translations
@@ -70,16 +69,16 @@ jobs:
 
           # Public contents
           rsync -a public/ deploy_public/
-          # Add public/build to deploy_public
-          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
-          # Ensure public/build is also in deploy_app so backend can find manifest.json
+
+          # Ensure public/build is deployed and also available under deploy_app/public/build
           mkdir -p deploy_app/public/build
+          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
           if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
 
-          # ✅ Ensure .htaccess is included explicitly
+          # Ensure .htaccess is included explicitly
           if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
 
-          # Write split-docroot index.php that points to /laravel
+          # Write split-docroot index.php that points to ./laravel
           cat > deploy_public/index.php <<'PHP'
           <?php
 
@@ -93,7 +92,7 @@ jobs:
               require $maintenance;
           }
 
-          // Point to the 'laravel' directory (relative to public_html/)
+          // Point to the 'laravel' directory (relative to this docroot)
           define('LARAVEL_BASE', __DIR__ . '/laravel');
 
           require LARAVEL_BASE . '/vendor/autoload.php';
@@ -109,32 +108,19 @@ jobs:
           $kernel->terminate($request, $response);
           PHP
 
-      # --- SFTP uploads ---
-      - name: Upload app via SFTP (to /laravel)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_app/*"
-          # UPDATE THIS PATH
-          remote_path: "domains/aibrandix.com/public_html/laravel/"
-          delete_remote_files: false
-          sftp_only: true
+      # --- Rsync uploads (incremental; no --delete so server .env, vendor/, storage,
+      #    and docroot laravel/ + user-uploads are not pruned) ---
+      - name: Upload app via rsync (to /laravel)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_app/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/aibrandix.com/public_html/laravel/
 
-      - name: Upload public via SFTP (to /)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_public/*"
-          # UPDATE THIS PATH
-          remote_path: "domains/aibrandix.com/public_html/"
-          delete_remote_files: false
-          sftp_only: true
+      - name: Upload public via rsync (to /)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_public/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/aibrandix.com/public_html/
 
       # --- SSH: composer install & caches on the server ---
       - name: SSH - composer install & caches
@@ -146,8 +132,16 @@ jobs:
           key: ${{ secrets.GENX_SSH_KEY }}
           script: |
             set -e
-            # UPDATE THIS PATH
+
+            # Target aibrandix.com Laravel app dir
             cd /home/u158663215/domains/aibrandix.com/public_html/laravel
+
+            # Safety: do not run artisan/migrations until the environment has its own .env
+            if [ ! -f .env ]; then
+              echo "❌ Missing .env at /home/u158663215/domains/aibrandix.com/public_html/laravel/.env"
+              echo "Create it with correct DB credentials and APP_URL."
+              exit 1
+            fi
 
             # Ensure runtime dirs
             mkdir -p storage/framework/{cache,sessions,views}
@@ -159,7 +153,7 @@ jobs:
             MISSING=""
             for ext in $REQUIRED; do php -m | grep -qi "^$ext$" || MISSING="$MISSING $ext"; done
             if [ -n "$MISSING" ]; then
-              echo "❌ Missing PHP extensions:$MISSING"
+              echo "Missing PHP extensions:$MISSING"
               exit 1
             fi
 
@@ -173,19 +167,21 @@ jobs:
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
-            # Clear & rebuild caches (ensures Livewire routes are registered)
+            # Clear & rebuild caches
             php artisan optimize:clear || true
-            # php artisan optimize || true
 
-            # Run migrations (optional, uncomment if needed)
+            # Publish module assets and migrations (optional but recommended)
+            php artisan module:publish || true
+            php artisan module:publish-migration Inventory || true
+
+            # Run migrations
             php artisan migrate --force
 
             # Storage link
             php artisan storage:link || true
 
-            # Create symlink for user-uploads (from public_html to laravel/public/user-uploads)
+            # Symlink for user-uploads within docroot
             cd /home/u158663215/domains/aibrandix.com/public_html
             rm -rf user-uploads 2>/dev/null || true
             ln -sf /home/u158663215/domains/aibrandix.com/public_html/laravel/public/user-uploads user-uploads
-            echo "✅ user-uploads symlink created"
             ls -la user-uploads
