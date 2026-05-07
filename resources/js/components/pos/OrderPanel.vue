@@ -363,7 +363,7 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div class="flex flex-col rounded overflow-visible max-h-[calc(2*4.5rem+3rem)] overflow-y-auto" style="max-height: 250px;">
+        <div ref="cartContainer" class="flex flex-col rounded overflow-visible max-h-[calc(2*4.5rem+3rem)] overflow-y-auto" style="max-height: 250px;">
             <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
                 <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
                     <tr>
@@ -1417,7 +1417,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, reactive } from "vue";
+import { ref, computed, watch, onMounted, reactive, nextTick } from "vue";
 import axios from "axios";
 import DiscountModal from "./DiscountModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
@@ -1730,6 +1730,18 @@ const fallbackWaiters = ref([]);
 const showRemovalReasonModal = ref(false);
 const pendingRemovalItemId = ref(null);
 const pendingRemovalKotItem = ref(null); // { id (kot_item_id), name }
+const cartContainer = ref(null);
+
+watch(
+    () => props.cartItems.length,
+    () => {
+        nextTick(() => {
+            if (cartContainer.value) {
+                cartContainer.value.scrollTop = cartContainer.value.scrollHeight;
+            }
+        });
+    }
+);
 
 watch(
     () => props.pax,
@@ -2045,6 +2057,10 @@ const canShowLinkedAddPayment = computed(() => {
 });
 
 const canShowLinkedAddDiscount = computed(() => {
+    if (linkedLifecycleStatus.value === "kot") {
+        return !!props.orderPermissions?.can_update_order;
+    }
+
     return ["billed", "paid", "payment_due"].includes(linkedLifecycleStatus.value)
         && !!props.orderPermissions?.can_edit_billed_order;
 });
