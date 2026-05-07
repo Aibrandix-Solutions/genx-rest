@@ -2045,6 +2045,10 @@ const canShowLinkedAddPayment = computed(() => {
 });
 
 const canShowLinkedAddDiscount = computed(() => {
+    if (linkedLifecycleStatus.value === "kot") {
+        return !!props.orderPermissions?.can_update_order;
+    }
+
     return ["billed", "paid", "payment_due"].includes(linkedLifecycleStatus.value)
         && !!props.orderPermissions?.can_edit_billed_order;
 });
