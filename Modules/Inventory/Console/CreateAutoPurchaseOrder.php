@@ -47,9 +47,11 @@ class CreateAutoPurchaseOrder extends Command
             if ($inventorySettings && $inventorySettings->allow_auto_purchase) {
                 $this->info('Creating auto purchase order for restaurant: ' . $restaurant->name);
 
-                foreach ($restaurant->branches as $branch) {
-                    $inventoryItems = InventoryItem::where('branch_id', $branch->id)->get();
+                // InventoryItems are restaurant-scoped (not branch-scoped).
+                // Query once per restaurant, then create POs for each branch.
+                $inventoryItems = InventoryItem::where('restaurant_id', $restaurant->id)->get();
 
+                foreach ($restaurant->branches as $branch) {
                     foreach ($inventoryItems as $inventoryItem) {
                         if ($inventoryItem->current_stock <= $inventoryItem->threshold_quantity) {
 
