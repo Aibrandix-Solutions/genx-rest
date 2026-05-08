@@ -2728,42 +2728,13 @@ watch(
     { immediate: false }
 );
 
-// Fetch formatted order number
-const fetchOrderNumber = async () => {
-    try {
-        const response = await axios.get("/api/pos/get-order-number");
-        // API returns array format: [order_number, formatted_order_number]
-        if (Array.isArray(response.data) && response.data.length >= 2) {
-            formattedOrderNumber.value =
-                response.data[1] || response.data[0] || "";
-        } else if (response.data?.formatted_order_number) {
-            formattedOrderNumber.value = response.data.formatted_order_number;
-        } else if (response.data?.order_number) {
-            formattedOrderNumber.value = response.data.order_number;
-        } else {
-            formattedOrderNumber.value = props.orderNumber || "";
-        }
-        console.log("Fetched order number:", formattedOrderNumber.value);
-    } catch (error) {
-        console.error("Error fetching order number:", error);
-        formattedOrderNumber.value = props.orderNumber || "";
-    }
-};
+
 
 // Watch for orderNumber prop changes
 watch(
     () => props.orderNumber,
     (newVal) => {
-        if (!newVal) {
-            // Existing orders (including linked mode) should not fetch a new order number.
-            if (!props.order) {
-                fetchOrderNumber();
-            } else {
-                formattedOrderNumber.value = "";
-            }
-        } else {
-            formattedOrderNumber.value = newVal;
-        }
+        formattedOrderNumber.value = newVal || "";
     },
     { immediate: true }
 );
@@ -2774,10 +2745,6 @@ onMounted(() => {
         fetchExtraCharges(props.orderType);
     }
     fetchWaiters();
-    // Fetch order number if not provided
-    if (!props.orderNumber && !props.order) {
-        fetchOrderNumber();
-    }
 });
 
 // Handle discount application

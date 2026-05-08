@@ -48,13 +48,15 @@ class Kot extends BaseModel
 
     public static function generateKotNumber($branch)
     {
-        $lastKot = Kot::where('branch_id', $branch->id)->latest()->first();
+        $lastKot = Kot::where('branch_id', $branch->id)->latest('id')->first();
+        $nextNumber = $lastKot ? ((int)$lastKot->kot_number + 1) : 1;
 
-        if ($lastKot) {
-            return (((int)$lastKot->kot_number) + 1);
+        // Ensure the number is unique (avoid race conditions)
+        while (Kot::where('branch_id', $branch->id)->where('kot_number', $nextNumber)->exists()) {
+            $nextNumber++;
         }
 
-        return 1;
+        return $nextNumber;
     }
 
     public static function generateTokenNumber(int $branchId, ?int $orderTypeId): ?int
