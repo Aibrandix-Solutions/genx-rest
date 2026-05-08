@@ -484,6 +484,8 @@ class PosController extends Controller
                 'total' => (float) ($order->total ?? 0),
                 'reward_point_discount' => (float) ($order->reward_point_discount ?? 0),
                 'reward_points_redeemed' => (int) ($order->reward_points_redeemed ?? 0),
+                'order_number' => (string) ($order->order_number ?? ''),
+                'formatted_order_number' => (string) ($order->show_formatted_order_number ?? ''),
                 'table_id' => $order->table_id ? (int) $order->table_id : null,
                 'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
                 'lines' => $lines,

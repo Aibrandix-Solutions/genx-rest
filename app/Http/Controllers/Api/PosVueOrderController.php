@@ -1017,6 +1017,8 @@ class PosVueOrderController extends Controller
             'message' => $action === 'bill' ? __('messages.billedSuccess') : __('messages.kotGenerated'),
             'data' => [
                 'order_id' => $result['order']->id,
+                'order_number' => (string) ($result['order']->order_number ?? ''),
+                'formatted_order_number' => (string) ($result['order']->show_formatted_order_number ?? ''),
                 'is_update' => (bool) ($result['is_update'] ?? false),
                 'order_uuid' => $result['order']->uuid,
                 'status' => $result['order']->status,
