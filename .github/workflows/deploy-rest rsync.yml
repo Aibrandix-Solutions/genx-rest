@@ -1,8 +1,8 @@
-name: Deploy Genx Restaurant (rest.digipartner.lk via SFTP)
+name: Deploy Genx Restaurant (rest.digipartner.lk via rsync + SSH)
 
 on:
   push:
-    branches: [old-payment-account] # Manual merge to this branch triggers deploy
+    branches: [payment-account] # Manual merge to this branch triggers deploy
   workflow_dispatch:
 
 jobs:
@@ -108,30 +108,19 @@ jobs:
           $kernel->terminate($request, $response);
           PHP
 
-      # --- SFTP uploads ---
-      - name: Upload app via SFTP (to /rest/laravel)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_app/*"
-          remote_path: "domains/digipartner.lk/public_html/rest/laravel/"
-          delete_remote_files: false
-          sftp_only: true
+      # --- Rsync uploads (incremental; no --delete so server .env, vendor/, storage,
+      #    and rest docroot laravel/ + user-uploads are not pruned) ---
+      - name: Upload app via rsync (to /rest/laravel)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_app/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/rest/laravel/
 
-      - name: Upload public via SFTP (to /rest)
-        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
-        with:
-          server: ${{ secrets.GENX_SSH_HOST }}
-          port: ${{ secrets.GENX_SSH_PORT }}
-          username: ${{ secrets.GENX_SSH_USER }}
-          ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
-          local_path: "deploy_public/*"
-          remote_path: "domains/digipartner.lk/public_html/rest/"
-          delete_remote_files: false
-          sftp_only: true
+      - name: Upload public via rsync (to /rest)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_public/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/rest/
 
       # --- SSH: composer install & caches on the server ---
       - name: SSH - composer install & caches
