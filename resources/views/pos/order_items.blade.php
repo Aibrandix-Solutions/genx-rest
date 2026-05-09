@@ -1,5 +1,14 @@
 <div
     class="flex flex-col h-auto min-h-screen px-2 py-4 pr-4 bg-white border-l lg:w-6/12 dark:border-gray-700 dark:bg-gray-800">
+    @php
+        $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
+        $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
+            ? $rawOrderStatus->value
+            : (string) ($rawOrderStatus ?? '');
+        $showActionColumn = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+            ? user_can('Edit Billed Order')
+            : (user_can('Delete Order') || user_can('Update Order'));
+    @endphp
     <div>
 
         <div class="flex items-center justify-between mt-1 mb-2">
@@ -246,9 +255,9 @@
                         </div>
                     </div>
 
-                    @if (user_can('Update Order'))
+                    @if (user_can('Update Order') || user_can('Delete Order'))
                         <div class="flex justify-end items-center mt-4 space-x-2 rtl:!space-x-reverse">
-                            @if ($orderStatus->value === 'placed')
+                            @if ($orderStatus->value === 'placed' && user_can('Delete Order'))
                                 <x-danger-button class="inline-flex items-center gap-2 dark:text-gray-200"
                                     wire:click="$toggle('confirmDeleteModal')">
                                     <span>{{ __('modules.order.cancelOrder') }}</span>
@@ -259,7 +268,7 @@
                                 </x-danger-button>
                             @endif
 
-                            @if ($currentIndex < count($statuses) - 1)
+                            @if ($currentIndex < count($statuses) - 1 && user_can('Update Order'))
                                 <x-secondary-button class="inline-flex items-center gap-2"
                                     wire:click="$set('orderStatus', '{{ $statuses[$nextIndex] }}')">
                                     <span>{{ __('modules.order.moveTo') }}
@@ -275,6 +284,16 @@
                 </div>
             </div>
         @endif
+
+        @php
+            $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
+            $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
+                ? $rawOrderStatus->value
+                : (string) ($rawOrderStatus ?? '');
+            $showActionColumn = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+                ? user_can('Edit Billed Order')
+                : (user_can('Delete Order') || user_can('Update Order'));
+        @endphp
 
         @foreach ($kotList as $kot)
             <div class="flex justify-between p-2 text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700">
@@ -301,7 +320,7 @@
                                 class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                 @lang('modules.order.amount')
                             </th>
-                            @if (user_can('Delete Order'))
+                            @if ($showActionColumn)
                             <th scope="col" class="p-3 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                 @lang('app.action')
                             </th>
@@ -309,21 +328,68 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
-                        wire:key='menu-item-list-{{ microtime() }}'>
+                        wire:key='menu-item-list-{{ $kot->id }}'>
+                    @php
+                        $renderedOrderComboGroups = [];
+                    @endphp
 
                         @forelse ($orderItemList as $key => $item)
-                            @continue(!strpos($key, 'kot_' . $kot->id))
+                            @continue(!str_contains($key, 'kot_' . $kot->id . '_'))
 
                         @php
                             $itemName = $item->item_name;
                             $itemVariation = (isset($orderItemVariation[$key]) ? $orderItemVariation[$key]->variation : '');
-                            // Use display price (base price without tax for inclusive items)
                             $displayPrice = $this->getItemDisplayPrice($key);
-                            // Total amount per line (what customer pays)
                             $totalAmount = $orderItemAmount[$key];
                             $isComboItem = isset($orderItemComboPack[$key]) && !empty($orderItemComboPack[$key]);
+                            $orderComboId = $orderItemComboPack[$key] ?? null;
+                            $showOrderComboHeader = $orderComboId && !in_array($orderComboId, $renderedOrderComboGroups);
+                            if ($showOrderComboHeader) {
+                                $renderedOrderComboGroups[] = $orderComboId;
+                                $orderGroupSavings = 0;
+                                foreach ($orderItemList as $k => $v) {
+                                    if (($orderItemComboPack[$k] ?? null) == $orderComboId) {
+                                        $orderGroupSavings += $orderItemComboDiscount[$k] ?? 0;
+                                    }
+                                }
+                            }
                         @endphp
-                        <tr class="hover:bg-gray-100 dark:hover:bg-gray-700" wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class.delay='opacity-10'>
+
+                        @if ($showOrderComboHeader)
+                            <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                <td colspan="{{ $showActionColumn ? 5 : 4 }}" class="px-2 py-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                            </svg>
+                                            {{ $orderItemComboName[$orderComboId] ?? 'Combo Pack' }}
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            @if (!empty($orderGroupSavings) && $orderGroupSavings > 0)
+                                                <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                    Save {{ currency_format($orderGroupSavings, restaurant()->currency_id) }}
+                                                </span>
+                                            @endif
+                                            @if ($showActionColumn)
+                                                <button
+                                                    wire:click="removeComboGroup('{{ $orderComboId }}')"
+                                                    wire:loading.attr="disabled"
+                                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                    title="Remove whole combo">
+                                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                    Remove
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
+
+                        <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 @if($isComboItem) border-l-2 border-blue-200 dark:border-blue-800 @endif" wire:key='menu-item-{{ $key }}' wire:loading.class.delay='opacity-10'>
                             <td class="flex flex-col p-2 mr-12 lg:min-w-28">
                                 <div class="inline-flex items-center gap-2 text-xs text-gray-900 dark:text-white">
                                     {{ $itemName }}
@@ -366,15 +432,15 @@
                                 <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
 
                                 <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')" class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                         </svg>
                                     </button>
 
-                                    <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly  />
+                                    <input type="text" data-pos-qty-key="{{ $key }}" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly  />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')"  class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                         </svg>
@@ -390,21 +456,23 @@
                             <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
-                            @if (user_can('Delete Order'))
+                            @if ($showActionColumn)
                             <td class="p-2 text-right whitespace-nowrap">
-                                <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
-                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
-                                        xmlns="http://www.w3.org/2000/svg">
-                                        <path fill-rule="evenodd"
-                                            d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
-                                            clip-rule="evenodd"></path>
-                                    </svg>
-                                </button>
+                                @if (!$isComboItem)
+                                    <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
+                                        <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
+                                            xmlns="http://www.w3.org/2000/svg">
+                                            <path fill-rule="evenodd"
+                                                d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z"
+                                                clip-rule="evenodd"></path>
+                                        </svg>
+                                    </button>
+                                @endif
                             </td>
                             @endif
                         @empty
                             <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
-                                <td class="p-2 space-x-6" colspan="5">
+                                <td class="p-2 space-x-6" colspan="{{ $showActionColumn ? 5 : 4 }}">
                                     @lang('messages.noItemAdded')
                                 </td>
                             </tr>
@@ -415,10 +483,192 @@
             </div>
         @endforeach
 
+        @php
+            $nonKotRows = [];
+            foreach ($orderItemList as $key => $item) {
+                // Some keys can arrive wrapped in quotes from older payload shapes.
+                $normalizedKey = trim((string) $key, '"');
+                if (str_starts_with($normalizedKey, 'kot_')) {
+                    continue;
+                }
+
+                $nonKotRows[] = ['key' => $key, 'item' => $item];
+            }
+        @endphp
+
+        @if (!empty($nonKotRows))
+            <div class="flex justify-between p-2 mt-3 text-xs font-medium text-gray-500 bg-gray-100 dark:bg-gray-700">
+                <div>@lang('modules.order.existingItems')</div>
+            </div>
+
+            <div class="flex flex-col rounded">
+                <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="p-3 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-left">
+                                @lang('modules.menu.itemName')
+                            </th>
+                            <th scope="col" class="p-3 text-xs font-medium text-center text-gray-500 uppercase dark:text-gray-400">
+                                @lang('modules.order.qty')
+                            </th>
+                            <th scope="col" class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
+                                @lang('modules.order.price')
+                            </th>
+                            <th scope="col" class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
+                                @lang('modules.order.amount')
+                            </th>
+                            @if ($showActionColumn)
+                                <th scope="col" class="p-3 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
+                                    @lang('app.action')
+                                </th>
+                            @endif
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+                        @php
+                            $renderedExistingComboGroups = [];
+                        @endphp
+                        @foreach ($nonKotRows as $row)
+                            @php
+                                $key = $row['key'];
+                                $item = $row['item'];
+                                $itemName = $item->item_name;
+                                $itemVariation = (isset($orderItemVariation[$key]) ? $orderItemVariation[$key]->variation : '');
+                                $displayPrice = $this->getItemDisplayPrice($key);
+                                $totalAmount = $orderItemAmount[$key] ?? 0;
+                                $isComboItem = isset($orderItemComboPack[$key]) && !empty($orderItemComboPack[$key]);
+                                $orderComboId = $orderItemComboPack[$key] ?? null;
+                                $showExistingComboHeader = $orderComboId && !in_array($orderComboId, $renderedExistingComboGroups);
+                                if ($showExistingComboHeader) {
+                                    $renderedExistingComboGroups[] = $orderComboId;
+                                    $existingGroupSavings = 0;
+                                    foreach ($nonKotRows as $r) {
+                                        $rk = $r['key'];
+                                        if (($orderItemComboPack[$rk] ?? null) == $orderComboId) {
+                                            $existingGroupSavings += $orderItemComboDiscount[$rk] ?? 0;
+                                        }
+                                    }
+                                }
+                            @endphp
+                            @if ($showExistingComboHeader)
+                                <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                    <td colspan="{{ $showActionColumn ? 5 : 4 }}" class="px-2 py-1.5">
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                                </svg>
+                                                {{ $orderItemComboName[$orderComboId] ?? 'Combo Pack' }}
+                                            </span>
+                                            <div class="flex items-center gap-2">
+                                                @if (!empty($existingGroupSavings) && $existingGroupSavings > 0)
+                                                    <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                        Save {{ currency_format($existingGroupSavings, restaurant()->currency_id) }}
+                                                    </span>
+                                                @endif
+                                                @if ($showActionColumn)
+                                                    <button
+                                                        wire:click="removeComboGroup('{{ $orderComboId }}')"
+                                                        wire:loading.attr="disabled"
+                                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                        title="Remove whole combo">
+                                                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                            <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"></path>
+                                                        </svg>
+                                                        Remove
+                                                    </button>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                            @endif
+                            <tr class="hover:bg-gray-100 dark:hover:bg-gray-700 @if($isComboItem) border-l-2 border-blue-200 dark:border-blue-800 @endif">
+                                <td class="flex flex-col p-2 mr-12 lg:min-w-28">
+                                    <div class="inline-flex items-center gap-2 text-xs text-gray-900 dark:text-white">
+                                        {{ $itemName }}
+                                        @if ($isComboItem)
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                                COMBO
+                                            </span>
+                                        @endif
+                                    </div>
+                                    <div class="inline-flex items-center text-xs text-gray-600 dark:text-white">
+                                        {{ $itemVariation }}
+                                    </div>
+                                    @if ($isComboItem && isset($orderItemOriginalPrice[$key]))
+                                        <div class="text-xs text-gray-500 dark:text-gray-400">
+                                            <span class="line-through">{{ currency_format($orderItemOriginalPrice[$key] / ($orderItemQty[$key] ?? 1), restaurant()->currency_id) }}</span>
+                                            <span class="text-green-600 dark:text-green-400 ml-1">{{ currency_format($displayPrice, restaurant()->currency_id) }}</span>
+                                        </div>
+                                    @endif
+                                    @if (!empty($itemModifiersSelected[$key]))
+                                        <div class="text-xs text-gray-600 dark:text-white">
+                                            @foreach ($itemModifiersSelected[$key] as $modifierOptionId => $modifierQty)
+                                                @php
+                                                    $modifier = $this->modifierOptions[$modifierOptionId] ?? null;
+                                                    $modifierQty = (int) $modifierQty;
+                                                @endphp
+                                                @continue(!$modifier || $modifierQty <= 0)
+                                                <div class="flex justify-between items-center px-1 py-0.5 mb-1 text-xs bg-gray-200 rounded-md border-l-2 border-blue-500 dark:bg-gray-900">
+                                                    <span class="text-gray-900 dark:text-white">
+                                                        {{ $modifier->name }}@if ($modifierQty > 1) ×{{ $modifierQty }}@endif
+                                                    </span>
+                                                    <span class="text-gray-600 dark:text-gray-300">
+                                                        {{ currency_format($modifier->price * $modifierQty, restaurant()->currency_id) }}
+                                                    </span>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    @endif
+                                </td>
+                                <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
+                                    <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-existing-{{ $key }}-counter'>
+                                        <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                            <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
+                                            </svg>
+                                        </button>
+                                        <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly />
+                                        <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                            <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
+                                                <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </td>
+                                <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
+                                    {{ currency_format($displayPrice, restaurant()->currency_id) }}
+                                </td>
+                                <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
+                                    {{ currency_format($totalAmount, restaurant()->currency_id) }}
+                                </td>
+                                @if ($showActionColumn)
+                                    <td class="p-2 text-right whitespace-nowrap">
+                                        @if (!$isComboItem)
+                                            <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20" wire:click="deleteCartItems('{{ $key }}')">
+                                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                                </svg>
+                                            </button>
+                                        @endif
+                                    </td>
+                                @endif
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
     </div>
 
     <div>
         <div class="w-full h-auto p-4 mt-3 space-y-4 text-center rounded select-none bg-gray-50 dark:bg-gray-700">
+            @php
+                $orderExtrasTotal = collect($orderExtras ?? [])->sum(fn($e) => (float) ($e['amount'] ?? 0));
+            @endphp
+
             @if (count($orderItemList) > 0 && user_can('Update Order'))
                 <div class="text-left">
                     <x-secondary-button wire:click="showAddDiscount">
@@ -449,6 +699,41 @@
                     {{ currency_format($subTotal, restaurant()->currency_id) }}
                 </div>
             </div>
+
+            @if (restaurant()->allow_custom_order_extras ?? false)
+                <div class="pt-2 text-left">
+                    <div class="flex items-center justify-between">
+                        <div class="text-sm font-medium text-gray-700 dark:text-gray-200">Custom Extras</div>
+                        @if ((user_can('Update Order') && $orderID) || (user_can('Create Order') && !$orderID))
+                            <x-secondary-button wire:click="addOrderExtraRow">+ Add</x-secondary-button>
+                        @endif
+                    </div>
+
+                    @foreach(($orderExtras ?? []) as $index => $extra)
+                        <div class="flex gap-2 items-center mt-2">
+                            <x-input type="number" step="0.01" min="0" class="w-1/3 text-sm" placeholder="Amount" wire:model.live="orderExtras.{{ $index }}.amount" />
+                            <x-input type="text" class="w-2/3 text-sm" placeholder="Note (optional)" wire:model.live="orderExtras.{{ $index }}.note" />
+                            <button type="button" class="text-red-500 hover:scale-110 active:scale-100" wire:click="removeOrderExtraRow({{ $index }})" title="Remove">
+                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </div>
+                    @endforeach
+                </div>
+
+                @foreach(($orderExtras ?? []) as $extra)
+                    @php
+                        $extraAmount = (float) ($extra['amount'] ?? 0);
+                        $extraNote = trim((string) ($extra['note'] ?? ''));
+                    @endphp
+                    @continue($extraAmount <= 0 && $extraNote === '')
+                    <div class="flex justify-between text-sm text-gray-500 dark:text-neutral-400">
+                        <div>{{ $extraNote !== '' ? $extraNote : 'Extra' }}</div>
+                        <div>{{ currency_format($extraAmount, restaurant()->currency_id) }}</div>
+                    </div>
+                @endforeach
+            @endif
 
             @if ($discountAmount)
                 <div wire:key="discountAmount"
@@ -492,7 +777,7 @@
                         @endif
                     </div>
                     <div>
-                        {{ currency_format($charge->getAmount($subTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
+                        {{ currency_format($charge->getAmount($subTotal + $orderExtrasTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
                     </div>
                 </div>
             @endforeach
@@ -530,7 +815,7 @@
                             {{ $item->tax_name }} ({{ $item->tax_percent }}%)
                         </div>
                         <div>
-                            {{ currency_format(($item->tax_percent / 100) * ($subTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
+                            {{ currency_format(($item->tax_percent / 100) * ($subTotal + $orderExtrasTotal - ($discountAmount ?? 0)), restaurant()->currency_id) }}
                         </div>
                     </div>
                 @endforeach
@@ -616,6 +901,15 @@
                     <button class="w-full p-2 text-white rounded bg-skin-base" wire:click="saveOrder('bill')">
                         @lang('modules.order.addPayment')
                     </button>
+                </div>
+            @endif
+
+            @if (in_array($orderDetail->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
+                <div class="flex gap-2 {{ $orderDetail->status == 'billed' && user_can('Update Order') ? 'mt-2' : '' }}">
+                    <a href="{{ route('pos.kot', ['id' => $orderDetail->id]) }}"
+                        class="w-full p-2 text-center bg-white border rounded text-skin-base border-skin-base dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100">
+                        @lang('modules.order.newKot')
+                    </a>
                 </div>
             @endif
 

@@ -24,7 +24,7 @@
             @foreach ($menuItem->variations as $item)
                 <div
                     class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:shadow-sm p-3 transition"
-                    wire:key="menu-item-{{ $item->id . microtime() }}">
+                    wire:key="menu-item-{{ $item->id }}">
 
                     <div class="md:hidden mb-2 space-y-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                         <div>@lang('modules.menu.itemName')</div>

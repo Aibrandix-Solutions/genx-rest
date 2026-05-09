@@ -14,21 +14,20 @@ use Maatwebsite\Excel\Concerns\{FromCollection, ShouldAutoSize, WithHeadings, Wi
 class DetailedSalesReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
-    protected string $startTime, $endTime, $timezone, $offset;
+    protected string $startTime, $endTime, $timezone;
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
     protected string $filterByWaiter;
     protected string $filterPaymentMethod;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $offset, string $filterByWaiter = '', string $filterPaymentMethod = '')
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $filterByWaiter = '', string $filterPaymentMethod = '')
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
-        $this->offset = $offset;
         $this->filterByWaiter = $filterByWaiter;
         $this->filterPaymentMethod = $filterPaymentMethod;
         $this->currencyId = restaurant()->currency_id;
@@ -162,6 +161,8 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         // or complex logic inside map()
         foreach ($orders as $order) {
             $orderCharges = [];
+            $extrasTotal = (float) DB::table('order_extras')->where('order_id', $order->id)->sum('amount');
+            $chargeTaxBase = max(0, (float) $order->sub_total + $extrasTotal - ((float) ($order->discount_amount ?? 0)));
             foreach ($charges as $charge) {
                  // Ideally this should be eager loaded relation or better query.
                  // Re-using existing logic for consistency
@@ -170,7 +171,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
                         ->where('charge_id', $charge->id)
                         ->join('restaurant_charges', 'order_charges.charge_id', '=', 'restaurant_charges.id')
                         ->value(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
-                            THEN (restaurant_charges.charge_value / 100) * '.$order->sub_total.'
+                            THEN (restaurant_charges.charge_value / 100) * '.$chargeTaxBase.'
                             ELSE restaurant_charges.charge_value END'));
                 $orderCharges[$charge->charge_name] = $chargeAmount ?? 0;
             }
@@ -197,7 +198,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
 
             if ($orderTaxData->isNotEmpty()) {
                 foreach ($orderTaxData as $orderTax) {
-                    $taxAmount = ($orderTax->tax_percent / 100) * ($order->sub_total - ($order->discount_amount ?? 0));
+                    $taxAmount = ($orderTax->tax_percent / 100) * $chargeTaxBase;
                     $orderTaxBreakdown[$orderTax->tax_name] = $taxAmount;
                 }
             } else {

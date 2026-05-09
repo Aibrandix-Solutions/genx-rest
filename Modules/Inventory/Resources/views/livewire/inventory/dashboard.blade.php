@@ -228,8 +228,8 @@
             @foreach($expiringStockItems as $item)
                 <div class="p-3 rounded-lg border-l-4 border-orange-500 bg-orange-50 dark:bg-orange-900/20">
                     <div class="flex items-center justify-between mb-1">
-                        <span class="font-medium text-gray-900 dark:text-gray-100">{{ $item->item->name }}</span>
-                        <span class="text-sm text-gray-500 dark:text-gray-400">{{ $item->item->category->name ?? '-' }}</span>
+                        <span class="font-medium text-gray-900 dark:text-gray-100">{{ $item->item?->name ?? '-' }}</span>
+                        <span class="text-sm text-gray-500 dark:text-gray-400">{{ $item->item?->category?->name ?? '-' }}</span>
                     </div>
                     <div class="flex items-center justify-between text-sm">
                     <span class="flex items-center text-orange-700 dark:text-orange-300">
@@ -239,7 +239,7 @@
                         {{ __('inventory::modules.dashboard.sections.expiring_stock.expires_in', ['days' => intval($item->expiration_date->diffInDays(now(), true))]) }}
                     </span>
                     <span class="font-medium text-orange-700 dark:text-orange-300">
-                        {{ __('inventory::modules.dashboard.sections.expiring_stock.stock') }}: {{ $item->quantity }} {{ $item->item->unit->symbol }}
+                        {{ __('inventory::modules.dashboard.sections.expiring_stock.stock') }}: {{ $item->quantity }} {{ $item->item?->unit?->symbol ?? '' }}
                     </span>
                     </div>
                 </div>

@@ -55,7 +55,7 @@
                                     </div>
                                     @foreach($availableResults as $result)
                                         <div wire:key="customer-{{ $result->id }}"
-                                             wire:click="selectCustomer({{ $result->id }})"
+                                             wire:click="selectOrAttachSearchResult({{ $result->id }})"
                                              class="group flex items-center p-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer transition-colors border-b border-gray-100 dark:border-gray-600 last:border-b-0">
                                             <div class="flex-shrink-0 ltr:mr-3 rtl:ml-3">
                                                 <div class="w-8 h-8 rounded-full bg-skin-base flex items-center justify-center">
@@ -66,6 +66,11 @@
                                                 <p class="text-sm font-medium text-gray-900 dark:text-white mb-1">
                                                     {{ $result->name }}
                                                 </p>
+                                                @if(($result->is_employee ?? false) || ($result->employee_id ?? null))
+                                                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 mb-2">
+                                                        Employee
+                                                    </span>
+                                                @endif
                                                 <div class="flex flex-wrap gap-3">
                                                     @if($result->phone)
                                                         <span class="inline-flex items-center text-xs text-gray-600 dark:text-gray-400">

@@ -77,7 +77,14 @@ class PurchaseOrderList extends Component
 
     public function delete()
     {
+        abort_if(!user_can('Delete Purchase Order'), 403);
+
         if ($this->purchaseOrderToDelete) {
+            abort_if(
+                in_array($this->purchaseOrderToDelete->status, ['received', 'cancelled']),
+                403,
+                'Cannot delete a received or cancelled purchase order.'
+            );
             $this->purchaseOrderToDelete->delete();
             $this->dispatch('notify-success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
         }
@@ -94,6 +101,8 @@ class PurchaseOrderList extends Component
 
     public function send()
     {
+        abort_if(!user_can('Update Purchase Order'), 403);
+
         if ($this->purchaseOrderToSend) {
             $this->purchaseOrderToSend->update(['status' => 'sent']);
             $this->dispatch('notify-success', trans('inventory::modules.purchaseOrder.sent_successfully'));
@@ -112,7 +121,14 @@ class PurchaseOrderList extends Component
 
     public function cancel()
     {
+        abort_if(!user_can('Update Purchase Order'), 403);
+
         if ($this->purchaseOrderToCancel) {
+            abort_if(
+                in_array($this->purchaseOrderToCancel->status, ['received', 'cancelled']),
+                403,
+                'Cannot cancel a received or already-cancelled purchase order.'
+            );
             $this->purchaseOrderToCancel->update(['status' => 'cancelled']);
             $this->dispatch('notify-success', trans('inventory::modules.purchaseOrder.cancelled_successfully'));
         }
@@ -123,7 +139,7 @@ class PurchaseOrderList extends Component
 
     public function downloadPdf(PurchaseOrder $purchaseOrder)
     {
-        $purchaseOrder->load(['supplier', 'items.inventoryItem.unit']);
+        $purchaseOrder->load(['supplier', 'location.branch', 'items.inventoryItem.unit']);
         
         // Configure PDF
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [

@@ -32,7 +32,7 @@ return [
         'Show Order' => 'Show Order',
         'Update Order' => 'Update Order',
         'Delete Order' => 'Delete Order',
-        'Edit Billed Order' => 'Edit Billed Order',
+    'Edit Billed Order' => 'Edit Billed Order',
         'Create Customer' => 'Create Customer',
         'Show Customer' => 'Show Customer',
         'Update Customer' => 'Update Customer',
@@ -63,6 +63,30 @@ return [
         'Show Inventory Item' => 'Show Inventory Item',
         'Update Inventory Item' => 'Update Inventory Item',
         'Delete Inventory Item' => 'Delete Inventory Item',
+        
+        'Create Department' => 'Create Department',
+        'Show Department' => 'Show Department',
+        'Update Department' => 'Update Department',
+        'Delete Department' => 'Delete Department',
+        'Create Designation' => 'Create Designation',
+        'Show Designation' => 'Show Designation',
+        'Update Designation' => 'Update Designation',
+        'Delete Designation' => 'Delete Designation',
+        'Create Employee' => 'Create Employee',
+        'Show Employee' => 'Show Employee',
+        'Update Employee' => 'Update Employee',
+        'Delete Employee' => 'Delete Employee',
+
+        'Create Shift' => 'Create Shift',
+        'Show Shift' => 'Show Shift',
+        'Update Shift' => 'Update Shift',
+        'Delete Shift' => 'Delete Shift',
+        'Manage Attendance' => 'Manage Attendance',
+        'Manage Shift Assignments' => 'Manage Shift Assignments',
+        'Manage Leave Types' => 'Manage Leave Types',
+        'Manage Leave Requests' => 'Manage Leave Requests',
+        'Manage Holidays' => 'Manage Holidays',
+        'Manage Payroll' => 'Manage Payroll',
         // Plural versions (legacy/duplicate cleanup)
         'Create Inventory Items' => 'Create Inventory Item',
         'Show Inventory Items' => 'Show Inventory Item',
@@ -84,6 +108,7 @@ return [
         'Show Purchase Order' => 'Show Purchase Order',
         'Update Purchase Order' => 'Update Purchase Order',
         'Delete Purchase Order' => 'Delete Purchase Order',
+        'Edit Received Purchase' => 'Edit Received Purchase',
         'Create Purchase Return' => 'Create Purchase Return',
         'Show Purchase Return' => 'Show Purchase Return',
         'Update Purchase Return' => 'Update Purchase Return',
@@ -127,6 +152,16 @@ return [
         'Close Cash Register' => 'Close Cash Register',
         'Open Cash Register' => 'Open Cash Register',
         'Delete Kitchen Place' => 'Delete Kitchen Place',
+
+        // Payment Accounts
+        'Show Payment Account' => 'Show Payment Account',
+        'Create Payment Account' => 'Create Payment Account',
+        'Update Payment Account' => 'Update Payment Account',
+        'Delete Payment Account' => 'Delete Payment Account',
+        'Show Payment Account Report' => 'Show Payment Account Report',
+        'Show Payment Account Balance Sheet' => 'Show Payment Account Balance Sheet',
+        'Show Payment Account Trial Balance' => 'Show Payment Account Trial Balance',
+        'Show Payment Account Cash Flow' => 'Show Payment Account Cash Flow',
     ],
 
     'modules' => [
@@ -148,6 +183,7 @@ return [
         'Expense' => 'Expenses',
         'Vendor' => 'Vendor',
         'Inventory' => 'Inventory',
+        'HRM' => 'HRM',
         'Sms' => 'Sms',
         'Change Branch' => 'Change Branch',
         'Export Report' => 'Export Report',
@@ -160,6 +196,12 @@ return [
         'Kiosk' => 'Kiosk',
         'Cash Register' => 'Cash Register',
         'Sms' => 'Sms',
+
+        // Payment Accounts
+        'Payment Accounts' => 'Payment Accounts',
+
+        'Reward Point' => 'Loyalty Program',
+        'Redeem Reward Points' => 'Redeem reward points (POS)',
     ],
 
 

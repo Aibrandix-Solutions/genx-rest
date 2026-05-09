@@ -80,8 +80,12 @@ class PurchaseOrderController extends Controller
         abort_if($purchaseOrder->branch_id !== auth()->user()->branch_id, 403);
 
         $pdf = PDF::loadView('inventory::purchase-orders.pdf', [
-            'purchaseOrder' => $purchaseOrder->load(['supplier', 'items.inventoryItem.unit', 'createdBy', 'branch.restaurant'])
+            'purchaseOrder' => $purchaseOrder->load(['supplier', 'location.branch', 'items.inventoryItem.unit', 'creator', 'branch.restaurant'])
         ]);
+
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
 
         return $pdf->download("PURCHASE-{$purchaseOrder->po_number}.pdf");
     }
@@ -91,6 +95,11 @@ class PurchaseOrderController extends Controller
         abort_if(!in_array('Inventory', restaurant_modules()), 403);
         abort_if(!(user_can('Update Purchase Order') || user_can('Edit Purchase Order')), 403);
         abort_if($purchase->branch_id !== branch()->id, 403);
+
+        // Received purchases require special override permission
+        if ($purchase->status === 'received') {
+            abort_if(!user_can('Edit Received Purchase'), 403);
+        }
 
         return view('inventory::purchases.edit', ['purchase' => $purchase]);
     }

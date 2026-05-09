@@ -154,9 +154,16 @@ class InventoryServiceProvider extends ServiceProvider
             $sourcePath => $viewPath
         ], 'views');
 
-        $this->loadViewsFrom(array_merge(array_map(function ($path) {
+        $moduleViewPaths = array_map(function ($path) {
             return $path . '/modules/inventory';
-        }, \Config::get('view.paths')), [$sourcePath]), 'inventory');
+        }, \Config::get('view.paths'));
+
+        $existingViewPaths = array_values(array_filter(
+            array_merge($moduleViewPaths, [$sourcePath]),
+            fn ($path) => is_dir($path)
+        ));
+
+        $this->loadViewsFrom($existingViewPaths, 'inventory');
     }
 
 

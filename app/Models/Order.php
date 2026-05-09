@@ -6,6 +6,7 @@ use App\Models\BaseModel;
 use App\Traits\HasBranch;
 use App\Enums\OrderStatus;
 use App\Models\OrderCharge;
+use App\Models\OrderExtra;
 use App\Scopes\BranchScope;
 use App\Models\DeliveryExecutive;
 use App\Models\OrderNumberSetting;
@@ -51,6 +52,14 @@ class Order extends BaseModel
         return $this->belongsTo(Customer::class);
     }
 
+    /**
+     * Whether this order may have an outstanding balance tracked as "due" (POS / ledger policy).
+     */
+    public function canRecordDueBalance(): bool
+    {
+        return (bool) $this->customer_id;
+    }
+
     public function waiter(): BelongsTo
     {
         return $this->belongsTo(User::class)->withoutGlobalScope(BranchScope::class);
@@ -69,6 +78,11 @@ class Order extends BaseModel
     public function charges(): HasMany
     {
         return $this->hasMany(OrderCharge::class);
+    }
+
+    public function extras(): HasMany
+    {
+        return $this->hasMany(OrderExtra::class);
     }
 
     public function extraCharges(): BelongsToMany
@@ -140,8 +154,13 @@ class Order extends BaseModel
             return self::generateFormattedOrderNumber($branch->id, $settings);
         }
 
-        $lastOrder = Order::where('branch_id', $branch->id)->latest()->first();
+        $lastOrder = Order::where('branch_id', $branch->id)->latest('id')->first();
         $orderNumber = $lastOrder ? ((int)$lastOrder->order_number + 1) : 1;
+
+        // Ensure the number is unique (avoid race conditions)
+        while (Order::where('branch_id', $branch->id)->where('order_number', $orderNumber)->exists()) {
+            $orderNumber++;
+        }
 
         return [
             'order_number' => $orderNumber,

@@ -152,14 +152,23 @@ function timezone()
         return session('timezone');
     }
 
+    if (shop()) {
+        $shopTz = shop()->timezone ?? null;
+        if (!empty($shopTz)) {
+            session(['timezone' => $shopTz]);
+
+            return session('timezone');
+        }
+    }
+
     // For superadmin, use global setting timezone
     if (user() && is_null(user()->restaurant_id)) {
-        $globalTimezone = global_setting()->timezone ?? 'UTC';
+        $globalTimezone = global_setting()->timezone ?? config('app.timezone', 'Asia/Colombo');
         session(['timezone' => $globalTimezone]);
         return session('timezone');
     }
 
-    return 'UTC';
+    return config('app.timezone', 'Asia/Colombo');
 }
 
 function paymentGateway()
@@ -230,6 +239,10 @@ if (!function_exists('user_can')) {
 
     function user_can($permission)
     {
+        if (user() && method_exists(user(), 'can')) {
+            return user()->can($permission);
+        }
+
         if (is_null(role_permissions())) {
             $rolePermissions = [];
         } else {

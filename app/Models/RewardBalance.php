@@ -41,6 +41,32 @@ class RewardBalance extends BaseModel
     }
 
     /**
+     * Lifetime points earned from orders (earn transactions only).
+     */
+    public function getTotalEarnedAttribute(): int
+    {
+        return (int) RewardTransaction::query()
+            ->where('customer_id', $this->customer_id)
+            ->where('restaurant_id', $this->restaurant_id)
+            ->where('type', 'earn')
+            ->sum('points');
+    }
+
+    /**
+     * Lifetime points redeemed (absolute sum of redeem transactions).
+     */
+    public function getTotalRedeemedAttribute(): int
+    {
+        $sum = (int) RewardTransaction::query()
+            ->where('customer_id', $this->customer_id)
+            ->where('restaurant_id', $this->restaurant_id)
+            ->where('type', 'redeem')
+            ->sum('points');
+
+        return (int) abs($sum);
+    }
+
+    /**
      * Get or create reward balance for a customer
      */
     public static function getForCustomer($customerId, $restaurantId): self

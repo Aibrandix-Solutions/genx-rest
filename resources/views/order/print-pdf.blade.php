@@ -24,7 +24,7 @@
         body {
             font-size: 12px;
             line-height: 1.4;
-            color: #333;
+            color: #000;
         }
 
         .receipt {
@@ -56,7 +56,7 @@
         .restaurant-info {
             font-size: 12px;
             margin-bottom: 3px;
-            color: #666;
+            color: #000;
         }
 
         .order-info {
@@ -68,7 +68,7 @@
 
         .order-info h3 {
             margin-bottom: 10px;
-            color: #333;
+            color: #000;
             border-bottom: 1px solid #ddd;
             padding-bottom: 5px;
         }
@@ -86,7 +86,7 @@
 
         .info-label {
             font-weight: bold;
-            color: #555;
+            color: #000;
         }
 
         .items-table {
@@ -131,8 +131,25 @@
 
         .modifiers {
             font-size: 10px;
-            color: #666;
+            color: #000;
             margin-top: 3px;
+        }
+        .combo-component {
+            font-size: 10px;
+            color: #000;
+            margin-top: 2px;
+            padding-left: 8px;
+        }
+
+        .combo-items {
+            margin-top: 4px;
+            font-size: 10px;
+            color: #444;
+        }
+
+        .combo-items div {
+            margin-top: 2px;
+            padding-left: 8px;
         }
 
         .summary {
@@ -151,7 +168,7 @@
 
         .summary-row.secondary {
             font-size: 10px;
-            color: #666;
+            color: #000;
             margin-bottom: 3px;
             padding-left: 20px;
         }
@@ -170,7 +187,7 @@
             padding-top: 15px;
             border-top: 1px solid #ddd;
             font-size: 11px;
-            color: #666;
+            color: #000;
         }
 
         .qr_code {
@@ -191,7 +208,12 @@
 
         .payment-details h4 {
             margin-bottom: 10px;
-            color: #333;
+            color: #000;
+        }
+
+        .receipt,
+        .receipt *:not(img):not(svg) {
+            color: #000 !important;
         }
 
         @media print {
@@ -303,7 +325,112 @@
                 </tr>
             </thead>
             <tbody>
+                @php
+                    $renderedComboGroups = [];
+                    $comboInstanceItems = [];
+                    $comboInstanceToStructure = [];
+                    $comboStructureMeta = [];
+
+                    foreach ($order->items as $comboCandidate) {
+                        $candidateIsCombo = (bool) ($comboCandidate->is_combo_item ?? false) && !is_null($comboCandidate->combo_pack_id);
+                        if (!$candidateIsCombo) {
+                            continue;
+                        }
+
+                        $candidateInstanceKey = null;
+                        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', (string) $comboCandidate->note, $matches) && !empty($matches[1])) {
+                            $candidateInstanceKey = trim((string) $matches[1]);
+                        }
+
+                        $instanceBucketKey = ((int) $comboCandidate->combo_pack_id) . '::' . ($candidateInstanceKey ?: ('legacy-item-' . (int) $comboCandidate->id));
+                        if (!isset($comboInstanceItems[$instanceBucketKey])) {
+                            $comboInstanceItems[$instanceBucketKey] = collect();
+                        }
+                        $comboInstanceItems[$instanceBucketKey]->push($comboCandidate);
+                    }
+
+                    foreach ($comboInstanceItems as $instanceBucketKey => $bucketItems) {
+                        $firstComboItem = $bucketItems->first();
+                        if (!$firstComboItem) {
+                            continue;
+                        }
+
+                        $structureParts = $bucketItems->map(function ($entry) {
+                            return implode('|', [
+                                (int) ($entry->menu_item_id ?? 0),
+                                (int) ($entry->menu_item_variation_id ?? 0),
+                                (int) ($entry->quantity ?? 1),
+                            ]);
+                        })->sort()->values()->all();
+
+                        $structureKey = ((int) $firstComboItem->combo_pack_id) . '::' . md5(json_encode($structureParts));
+                        $comboInstanceToStructure[$instanceBucketKey] = $structureKey;
+
+                        if (!isset($comboStructureMeta[$structureKey])) {
+                            $comboStructureMeta[$structureKey] = [
+                                'pack_count' => 0,
+                                'total_amount' => 0,
+                                'display_items' => $bucketItems,
+                            ];
+                        }
+
+                        $comboStructureMeta[$structureKey]['pack_count']++;
+                        $comboStructureMeta[$structureKey]['total_amount'] += (float) $bucketItems->sum('amount');
+                    }
+                @endphp
+
                 @foreach ($order->items as $item)
+                    @php
+                        $isComboItem = (bool) ($item->is_combo_item ?? false) && !is_null($item->combo_pack_id);
+                        $instanceKey = null;
+                        if ($isComboItem && preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', (string) $item->note, $matches) && !empty($matches[1])) {
+                            $instanceKey = trim((string) $matches[1]);
+                        }
+                        $instanceBucketKey = $isComboItem
+                            ? (((int) ($item->combo_pack_id ?? 0)) . '::' . ($instanceKey ?: ('legacy-item-' . (int) $item->id)))
+                            : null;
+                        $comboGroupKey = $isComboItem
+                            ? ($comboInstanceToStructure[$instanceBucketKey] ?? $instanceBucketKey)
+                            : null;
+                    @endphp
+
+                    @if ($isComboItem)
+                        @continue(in_array($comboGroupKey, $renderedComboGroups, true))
+                        @php
+                            $renderedComboGroups[] = $comboGroupKey;
+                            $comboMeta = $comboStructureMeta[$comboGroupKey] ?? null;
+                            $comboPackCount = (int) ($comboMeta['pack_count'] ?? 1);
+                            $comboAmount = (float) ($comboMeta['total_amount'] ?? $item->amount);
+                            $comboUnitPrice = $comboPackCount > 0 ? ($comboAmount / $comboPackCount) : $comboAmount;
+                            $comboDisplayItems = $comboMeta['display_items'] ?? collect([$item]);
+                            $comboPackName = optional($item->comboPack)->getTranslation('name', app()->getLocale()) ?? optional($item->comboPack)->name ?? __('modules.combo.comboPack');
+                        @endphp
+                        <tr>
+                            <td class="qty">{{ $comboPackCount }}</td>
+                            <td class="description">
+                                <strong>{{ $comboPackName }}</strong>
+                                <div class="combo-items">
+                                    @foreach ($comboDisplayItems as $comboItem)
+                                        @php
+                                            $baseQty = (int) ($comboItem->quantity ?? 1);
+                                            $displayQty = $baseQty * max(1, $comboPackCount);
+                                        @endphp
+                                        <div>
+                                            - {{ $displayQty }}
+                                            {{ $comboItem->menuItem->item_name ?? __('app.item') }}
+                                            @if ($comboItem->menuItemVariation)
+                                                ({{ $comboItem->menuItemVariation->variation }})
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </td>
+                            <td class="price">{{ currency_format_for_receipt_item($comboUnitPrice, restaurant()->currency_id) }}</td>
+                            <td class="amount">{{ currency_format_for_receipt_item($comboAmount, restaurant()->currency_id) }}</td>
+                        </tr>
+                        @continue
+                    @endif
+
                     <tr>
                         <td class="qty">{{ $item->quantity }}</td>
                         <td class="description">
@@ -337,10 +464,25 @@
         </table>
 
         <div class="summary">
+            @php
+                $extrasTotal = (float) ($order->extras?->sum('amount') ?? 0);
+                $chargeTaxBase = max(0, $order->sub_total + $extrasTotal - ($order->discount_amount ?? 0));
+            @endphp
             <div class="summary-row">
                 <span>@lang('modules.order.subTotal'):</span>
                 <span>  {{ currency_format($order->sub_total, restaurant()->currency_id, false, true) }} </span>
             </div>
+
+            @if(($order->extras?->count() ?? 0) > 0)
+                @foreach ($order->extras as $extra)
+                    @if(($extra->amount ?? 0) > 0 || $extra->note)
+                        <div class="summary-row">
+                            <span>{{ $extra->note ?: 'Extra' }}:</span>
+                            <span>{{ currency_format($extra->amount, restaurant()->currency_id, false, true) }}</span>
+                        </div>
+                    @endif
+                @endforeach
+            @endif
 
             @if (!is_null($order->discount_amount))
                 <div class="summary-row">
@@ -353,6 +495,13 @@
                 </div>
             @endif
 
+            @if ($order->reward_point_discount > 0 && in_array('Reward Point', restaurant_modules()))
+                <div class="summary-row">
+                    <span>@lang('modules.reward.discountFromPoints') ({{ $order->reward_points_redeemed }} pts):</span>
+                    <span>-{{ currency_format($order->reward_point_discount, restaurant()->currency_id, false, true) }}</span>
+                </div>
+            @endif
+
             @foreach ($order->charges as $item)
                 <div class="summary-row">
                     <span>{{ $item->charge->charge_name }}
@@ -360,7 +509,7 @@
                             ({{ $item->charge->charge_value }}%)
                         @endif:
                     </span>
-                    <span>{{ currency_format(($item->charge->getAmount($order->sub_total - ($order->discount_amount ?? 0))), restaurant()->currency_id, true, true) }}</span>
+                    <span>{{ currency_format(($item->charge->getAmount($chargeTaxBase)), restaurant()->currency_id, true, true) }}</span>
                 </div>
             @endforeach
 
@@ -388,7 +537,7 @@
                 @foreach ($order->taxes as $item)
                     <div class="summary-row">
                         <span>{{ $item->tax->tax_name }} ({{ $item->tax->tax_percent }}%):</span>
-                        <span>{{ currency_format(($item->tax->tax_percent / 100) * ($order->sub_total - ($order->discount_amount ?? 0)), restaurant()->currency_id, false, true) }}</span>
+                        <span>{{ currency_format(($item->tax->tax_percent / 100) * ($chargeTaxBase), restaurant()->currency_id, false, true) }}</span>
                     </div>
                 @endforeach
             @else
@@ -436,6 +585,13 @@
                 <span>@lang('modules.order.total'):</span>
                 <span>{{ currency_format($order->total, restaurant()->currency_id, false, true) }}</span>
             </div>
+
+            @if ($order->reward_points_earned > 0 && in_array('Reward Point', restaurant_modules()))
+                <div class="summary-row">
+                    <span>@lang('modules.reward.pointsAwarded'):</span>
+                    <span>+{{ $order->reward_points_earned }} pts</span>
+                </div>
+            @endif
         </div>
 
         @if ($receiptSettings->show_payment_details && $order->payments->count())

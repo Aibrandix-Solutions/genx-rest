@@ -435,8 +435,10 @@ class UpdateMenuItem extends Component
         $this->variationDeliveryPrices[$index] = [];
 
         foreach ($this->deliveryApps as $app) {
-            $commission = $app->commission_value ?? 0;
-            $finalPrice = $basePrice + ($basePrice * $commission / 100);
+            $commission = (float)($app->commission_value ?? 0);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $basePrice + ($basePrice * $commission / 100)
+                : $basePrice + $commission;
             $this->variationDeliveryPrices[$index][$app->id] = number_format($finalPrice, 2);
         }
     }
@@ -445,6 +447,29 @@ class UpdateMenuItem extends Component
     {
         $this->calculateVariationDeliveryPrices($key);
         $this->recalculateTaxBreakdowns();
+    }
+
+    /**
+     * Copy the variation's standard price into all non-delivery order type fields
+     * AND into the base delivery price field, then recalculate platform prices.
+     * Always overwrites so the user gets a full sync when they click the button.
+     */
+    public function syncVariationPriceToAll(int $index): void
+    {
+        $price = $this->variationPrice[$index] ?? '';
+        if ($price === '' || $price === null) {
+            return;
+        }
+
+        foreach ($this->orderTypes as $orderType) {
+            if (strtolower($orderType->slug ?? $orderType->name) === 'delivery') {
+                continue;
+            }
+            $this->variationOrderTypePrices[$index][$orderType->id] = $price;
+        }
+
+        $this->variationBaseDeliveryPrice[$index] = $price;
+        $this->calculateVariationDeliveryPrices($index);
     }
 
     public function updatedVariationBaseDeliveryPrice($value, $key): void
@@ -519,11 +544,8 @@ class UpdateMenuItem extends Component
         $this->showItemPrice = true;
         $this->taxInclusivePriceDetails = $this->getTaxInclusivePriceDetailsProperty();
         $this->variationBreakdowns = [];
-
-        // If variations are now disabled, delete all old variations
-        if ($this->menuItem->variations->count() > 0) {
-            MenuItemVariation::where('menu_item_id', $this->menuItem->id)->delete();
-        }
+        // Do NOT delete variations here — the user may still cancel or re-enable.
+        // Deletion is deferred to handleVariationsOrPricing() on confirmed submit.
     }
 
     // FORM SUBMISSION AND VALIDATION
@@ -587,12 +609,17 @@ class UpdateMenuItem extends Component
             $this->itemCode = null;
         }
 
+        $branch = branch();
+        $itemCodeRule = Rule::unique('menu_items', 'item_code')
+            ->ignore($this->menuItem->id)
+            ->when($branch, fn($rule) => $rule->where('branch_id', $branch->id));
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
-            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code,' . $this->menuItem->id,
+            'itemCode' => ['nullable', 'string', 'max:50', $itemCodeRule],
             'isAvailable' => 'required|boolean',
             'showOnCustomerSite' => 'required|boolean',
             'platformAvailability.*' => 'nullable|boolean',
@@ -1107,8 +1134,10 @@ class UpdateMenuItem extends Component
             : (!empty($this->itemPrice) ? (float)$this->itemPrice : 0);
 
         foreach ($this->deliveryApps as $app) {
-            $commission = $app->commission_value ?? 0;
-            $finalPrice = $basePrice + ($basePrice * $commission / 100);
+            $commission = (float)($app->commission_value ?? 0);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $basePrice + ($basePrice * $commission / 100)
+                : $basePrice + $commission;
             $this->deliveryPrices[$app->id] = number_format($finalPrice, 2);
         }
     }
@@ -1216,9 +1245,10 @@ class UpdateMenuItem extends Component
                 }
             }
 
-            // Calculate final price with commission
             $commission = (float)($app->commission_value ?? 0);
-            $calculatedPrice = $deliveryBase + ($deliveryBase * $commission / 100);
+            $calculatedPrice = ($app->commission_type === 'percent')
+                ? $deliveryBase + ($deliveryBase * $commission / 100)
+                : $deliveryBase + $commission;
 
             MenuItemPrices::create([
                 'menu_item_id' => $menuItemId,
@@ -1228,7 +1258,7 @@ class UpdateMenuItem extends Component
                 'calculated_price' => $deliveryBase,
                 'override_price' => null,
                 'final_price' => $calculatedPrice,
-                'status' => $isAvailable, // Save the toggle state
+                'status' => $isAvailable,
             ]);
         }
     }

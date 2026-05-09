@@ -14,19 +14,18 @@ use Maatwebsite\Excel\Concerns\{FromCollection, ShouldAutoSize, WithHeadings, Wi
 class SalesReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
-    protected string $startTime, $endTime, $timezone, $offset;
+    protected string $startTime, $endTime, $timezone;
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $offset)
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
-        $this->offset = $offset;
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -131,7 +130,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                 }
             })
             ->select(
-                DB::raw("DATE(CONVERT_TZ(orders.date_time, '+00:00', '{$this->offset}')) as date"),
+                DB::raw("DATE(orders.date_time) as date"),
                 DB::raw('COUNT(DISTINCT orders.id) as total_orders'),
                 DB::raw('SUM(payments.amount) as total_amount'),
                 DB::raw('SUM(CASE WHEN payments.payment_method = "cash" THEN payments.amount ELSE 0 END) as cash_amount'),
@@ -159,7 +158,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                 }
             })
             ->select(
-                DB::raw("DATE(CONVERT_TZ(date_time, '+00:00', '{$this->offset}')) as date"),
+                DB::raw("DATE(date_time) as date"),
                 DB::raw('SUM(total) as orders_total'),
                 DB::raw('SUM(discount_amount) as discount_amount'),
                 DB::raw('SUM(tip_amount) as tip_amount'),
@@ -201,7 +200,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                     ->whereDate('orders.date_time', $item->date)
                     ->where('orders.branch_id', branch()->id)
                     ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
-                THEN (restaurant_charges.charge_value / 100) * orders.sub_total
+                THEN (restaurant_charges.charge_value / 100) * GREATEST(0, (orders.sub_total + COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0)) - COALESCE(orders.discount_amount, 0))
                 ELSE restaurant_charges.charge_value END')) ?? 0;
             }
 
@@ -278,7 +277,8 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                     'taxes.tax_percent',
                     'orders.sub_total',
                     'orders.discount_amount',
-                    'orders.id as order_id'
+                    'orders.id as order_id',
+                    DB::raw('COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0) as extras_total')
                 )
                 ->get();
 
@@ -286,7 +286,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             if ($orderTaxData->isNotEmpty()) {
                 foreach ($orderTaxData as $orderTax) {
                     $taxName = $orderTax->tax_name;
-                    $taxAmount = ($orderTax->tax_percent / 100) * ($orderTax->sub_total - ($orderTax->discount_amount ?? 0));
+                    $taxAmount = ($orderTax->tax_percent / 100) * max(0, ((float) $orderTax->sub_total + (float) ($orderTax->extras_total ?? 0)) - ((float) ($orderTax->discount_amount ?? 0)));
 
                     $taxAmounts[$taxName] += $taxAmount;
                     $taxDetails[$taxName]['total_amount'] += $taxAmount;

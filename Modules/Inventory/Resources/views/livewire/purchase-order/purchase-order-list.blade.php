@@ -164,13 +164,13 @@
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             {{ trans('app.export') }}
         </x-secondary-button>
-    @if(user_can('Create Purchase Order'))
-        <a href="{{ route('purchases.create') }}" wire:navigate
-           class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
-            {{ trans('inventory::modules.purchaseOrder.create_title') }}
-        </a>
+        @if(user_can('Create Purchase Order'))
+            <a href="{{ route('purchases.create') }}" wire:navigate
+               class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
+                {{ trans('inventory::modules.purchaseOrder.create_title') }}
+            </a>
+        @endif
     </div>
-    @endif
 
     <!-- Purchase Orders Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
@@ -282,7 +282,7 @@
                                                 </button>
                                             @endif
                                             
-                                            @if(!in_array($purchaseOrder->status, ['received', 'cancelled']) && user_can('Update Purchase Order'))
+                                            @if(!in_array($purchaseOrder->status, ['cancelled']) && user_can('Update Purchase Order') && ($purchaseOrder->status !== 'received' || user_can('Edit Received Purchase')))
                                                 <a href="{{ route('purchases.edit', $purchaseOrder->id) }}" @click="open = false" wire:navigate
                                                         class="w-full flex items-center px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/50">
                                                     <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

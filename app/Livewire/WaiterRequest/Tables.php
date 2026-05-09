@@ -40,12 +40,27 @@ class Tables extends Component
 
     public function showTableOrder($id)
     {
-        return $this->redirect(route('pos.show', $id), navigate: true);
+        $table = Table::with('activeOrder:id,table_id')->find($id);
+
+        if ($table && $table->activeOrder) {
+            return $this->redirect(route('pos.kot', $table->activeOrder->id), navigate: true);
+        }
+
+        return $this->redirect(route('pos.vue', ['table_id' => $id]), navigate: true);
     }
 
     public function showTableOrderDetail($id)
     {
-        return $this->redirect(route('pos.order', [$id]), navigate: true);
+        $table = Table::with('activeOrder:id,table_id')->find($id);
+
+        if ($table && $table->activeOrder) {
+            return $this->redirect(
+                route('pos.kot', $table->activeOrder->id) . '?show-order-detail=true',
+                navigate: true
+            );
+        }
+
+        return $this->redirect(route('pos.vue', ['table_id' => $id]), navigate: true);
     }
 
     public function markCompleted($id)

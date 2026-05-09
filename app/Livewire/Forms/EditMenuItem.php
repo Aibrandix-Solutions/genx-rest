@@ -266,12 +266,17 @@ class EditMenuItem extends Component
             $this->validateImage();
         }
 
+        $branch = branch();
+        $itemCodeRule = \Illuminate\Validation\Rule::unique('menu_items', 'item_code')
+            ->ignore($this->menuItem->id ?? 'NULL')
+            ->when($branch, fn($rule) => $rule->where('branch_id', $branch->id));
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'itemPrice' => 'required_if:hasVariations,false',
             'itemCategory' => 'required',
             'menu' => 'required',
-            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code,' . ($this->menuItem->id ?? 'NULL'),
+            'itemCode' => ['nullable', 'string', 'max:50', $itemCodeRule],
             'isAvailable' => 'required|boolean',
             'showOnCustomerSite' => 'required|boolean',
         ];
