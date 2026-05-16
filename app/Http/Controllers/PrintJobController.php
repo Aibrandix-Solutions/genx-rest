@@ -144,7 +144,7 @@ class PrintJobController extends Controller
     /**
      * Serve a print ticket image to the desktop app (key via header or ?key= query).
      */
-    public function image(Request $request, PrintJob $printJob): Response
+    public function image(Request $request, PrintJob $printJob, ?string $filename = null): Response
     {
         /** @var Branch $branch */
         $branch = $request->get('branch');
@@ -155,6 +155,10 @@ class PrintJobController extends Controller
 
         if (empty($printJob->image_filename)) {
             return response()->json(['message' => 'No image for this print job'], 404);
+        }
+
+        if ($filename !== null && $filename !== $printJob->image_filename) {
+            return response()->json(['message' => 'Image file not found'], 404);
         }
 
         $path = public_path(Files::UPLOAD_FOLDER.'/print/'.$printJob->image_filename);
@@ -178,6 +182,7 @@ class PrintJobController extends Controller
         $desktopUrl = $job->desktopImageUrl($branch->unique_hash);
         if ($desktopUrl !== null) {
             $data['image_path'] = $desktopUrl;
+            $data['content_type'] = 'image';
         }
 
         return $data;

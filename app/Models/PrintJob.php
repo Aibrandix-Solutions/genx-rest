@@ -39,7 +39,7 @@ class PrintJob extends Model
             return null;
         }
 
-        return url('/api/print-jobs/'.$this->id.'/image?'.http_build_query([
+        return url('/api/print-jobs/'.$this->id.'/'.$this->image_filename.'?'.http_build_query([
             'key' => $branchUniqueHash,
         ]));
     }
