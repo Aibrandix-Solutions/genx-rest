@@ -29,6 +29,21 @@ class PrintJob extends Model
         return asset(Files::UPLOAD_FOLDER . '/print/' . $this->image_filename);
     }
 
+    /**
+     * URL for the desktop print app to download ticket images (authenticated via branch key).
+     * Avoids relying on public /user-uploads/ static serving, which often 403s on shared hosting.
+     */
+    public function desktopImageUrl(string $branchUniqueHash): ?string
+    {
+        if (empty($this->image_filename) || $branchUniqueHash === '') {
+            return null;
+        }
+
+        return url('/api/print-jobs/'.$this->id.'/image?'.http_build_query([
+            'key' => $branchUniqueHash,
+        ]));
+    }
+
     public function restaurant()
     {
         return $this->belongsTo(Restaurant::class);

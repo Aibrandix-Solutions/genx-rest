@@ -20,6 +20,8 @@ Route::middleware(DesktopUniqueKeyMiddleware::class)->group(function () {
     //Multiple job pull
     Route::get('/print-jobs/pull-multiple', [PrintJobController::class, 'pullMultiple']);
 
+    Route::get('/print-jobs/{printJob}/image', [PrintJobController::class, 'image']);
+
     Route::get('/printer-details', [PrintJobController::class, 'printerDetails']);
     // mark a job done/failed
     Route::patch('/print-jobs/{printJob}', [PrintJobController::class, 'update']);

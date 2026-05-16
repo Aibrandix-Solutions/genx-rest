@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Branch;
 use App\Models\PrintJob;
 use Illuminate\Http\Request;
 use App\Models\Printer;
 use App\Helper\Files;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
 
 class PrintJobController extends Controller
 {
@@ -66,8 +68,8 @@ class PrintJobController extends Controller
 
         return response()->json([
             'success' => true,
-            'print_jobs' => $printJobs,
-            'count' => $printJobs->count()
+            'print_jobs' => $printJobs->map(fn (PrintJob $job) => $this->formatJobForDesktop($job, $branch))->values(),
+            'count' => $printJobs->count(),
         ]);
     }
     // Returns the oldest pending job (or 204 if none)
@@ -87,7 +89,7 @@ class PrintJobController extends Controller
 
         $job->update(['status' => 'printing']);
 
-        return response()->json($job);
+        return response()->json($this->formatJobForDesktop($job, $branch));
     }
 
     public function pullMultiple(Request $request)
@@ -134,7 +136,51 @@ class PrintJobController extends Controller
             $item->update(['status' => 'printing']);
         }
 
-        return response()->json($validJobs->values()->toArray());
+        return response()->json(
+            $validJobs->values()->map(fn (PrintJob $job) => $this->formatJobForDesktop($job, $branch))->all()
+        );
+    }
+
+    /**
+     * Serve a print ticket image to the desktop app (key via header or ?key= query).
+     */
+    public function image(Request $request, PrintJob $printJob): Response
+    {
+        /** @var Branch $branch */
+        $branch = $request->get('branch');
+
+        if ((int) $printJob->branch_id !== (int) $branch->id) {
+            return response()->json(['message' => 'Print job not found'], 404);
+        }
+
+        if (empty($printJob->image_filename)) {
+            return response()->json(['message' => 'No image for this print job'], 404);
+        }
+
+        $path = public_path(Files::UPLOAD_FOLDER.'/print/'.$printJob->image_filename);
+
+        if (! File::exists($path)) {
+            return response()->json(['message' => 'Image file not found'], 404);
+        }
+
+        return response()->file($path, [
+            'Content-Type' => 'image/png',
+            'Cache-Control' => 'private, no-cache',
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatJobForDesktop(PrintJob $job, Branch $branch): array
+    {
+        $data = $job->toArray();
+        $desktopUrl = $job->desktopImageUrl($branch->unique_hash);
+        if ($desktopUrl !== null) {
+            $data['image_path'] = $desktopUrl;
+        }
+
+        return $data;
     }
 
     // Electron calls this after attempting to print
@@ -188,7 +234,11 @@ class PrintJobController extends Controller
 
     public function pending(Request $request, $printId)
     {
+        /** @var Branch $branch */
+        $branch = $request->get('branch');
+
         $printJobs = PrintJob::where('printer_id', $printId)
+            ->where('branch_id', $branch->id)
             ->where('status', 'pending')
             ->with('printer:id,name,printing_choice,print_format,share_name,type')
             ->orderBy('created_at', 'asc')
@@ -196,7 +246,7 @@ class PrintJobController extends Controller
 
         return response()->json([
             'success' => true,
-            'print_jobs' => $printJobs
+            'print_jobs' => $printJobs->map(fn (PrintJob $job) => $this->formatJobForDesktop($job, $branch))->values(),
         ]);
     }
 }
