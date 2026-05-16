@@ -1,0 +1,187 @@
+name: Deploy Genx Restaurant (cafe.digipartner.lk via rsync + SSH)
+
+on:
+  push:
+    branches: [cafe-arcadia] # Manual merge to this branch triggers deploy
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # --- Validate secrets & connectivity (preflight) ---
+      - name: Validate SSH private key format
+        run: |
+          set -e
+          echo "${{ secrets.GENX_SSH_KEY }}" > /tmp/genx_key
+          chmod 600 /tmp/genx_key
+          echo "Fingerprint (ED25519 expected):"
+          ssh-keygen -lf /tmp/genx_key
+
+      - name: SSH preflight (connect & exit)
+        run: |
+          ssh -i /tmp/genx_key \
+              -p "${{ secrets.GENX_SSH_PORT }}" \
+              -o StrictHostKeyChecking=no \
+              -o IdentitiesOnly=yes \
+              "${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}" \
+              "echo SSH OK: \$(whoami) on \$(hostname)"
+
+      # --- Build assets (NPM) ---
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build Assets
+        run: |
+          npm ci
+          npm run build
+
+      # --- Build deploy artifacts (no vendor) ---
+      - name: Prepare deploy artifacts
+        shell: bash
+        run: |
+          set -e
+          rm -rf deploy_app deploy_public
+          mkdir -p deploy_app deploy_public
+
+          # Core app (NO vendor, NO public)
+          cp -r app bootstrap config database routes artisan composer.json composer.lock phpunit.xml .htaccess Modules deploy_app/ 2>/dev/null || true
+
+          # Translations
+          if [ -d lang ]; then cp -r lang deploy_app/; fi
+          mkdir -p deploy_app/resources
+          [ -d resources/lang ]  && cp -r resources/lang  deploy_app/resources/
+          [ -d resources/views ] && cp -r resources/views deploy_app/resources/
+
+          # Laravel runtime skeleton
+          mkdir -p deploy_app/storage/app
+          mkdir -p deploy_app/storage/framework/{cache,sessions,views}
+          mkdir -p deploy_app/storage/logs
+          mkdir -p deploy_app/bootstrap/cache
+          touch deploy_app/storage/.gitignore
+
+          # Public contents
+          rsync -a public/ deploy_public/
+
+          # Ensure public/build is deployed and also available under deploy_app/public/build
+          mkdir -p deploy_app/public/build
+          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
+          if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
+
+          # Ensure .htaccess is included explicitly
+          if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
+
+          # Write split-docroot index.php that points to ./laravel
+          cat > deploy_public/index.php <<'PHP'
+          <?php
+
+          use Illuminate\Contracts\Http\Kernel;
+          use Illuminate\Http\Request;
+
+          define('LARAVEL_START', microtime(true));
+
+          // maintenance file relative to public docroot
+          if (file_exists($maintenance = __DIR__ . '/laravel/storage/framework/maintenance.php')) {
+              require $maintenance;
+          }
+
+          // Point to the 'laravel' directory (relative to this docroot)
+          define('LARAVEL_BASE', __DIR__ . '/laravel');
+
+          require LARAVEL_BASE . '/vendor/autoload.php';
+          $app = require LARAVEL_BASE . '/bootstrap/app.php';
+
+          /** @var Kernel $kernel */
+          $kernel = $app->make(Kernel::class);
+
+          $response = tap($kernel->handle(
+              $request = Request::capture()
+          ))->send();
+
+          $kernel->terminate($request, $response);
+          PHP
+
+      # --- Rsync uploads (incremental; no --delete so server .env, vendor/, storage,
+      #    and cafe docroot laravel/ + user-uploads are not pruned) ---
+      - name: Upload app via rsync (to /cafe/laravel)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_app/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/cafe/laravel/
+
+      - name: Upload public via rsync (to /cafe)
+        run: |
+          rsync -avz \
+            -e "ssh -i /tmp/genx_key -p ${{ secrets.GENX_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_public/ ${{ secrets.GENX_SSH_USER }}@${{ secrets.GENX_SSH_HOST }}:domains/digipartner.lk/public_html/cafe/
+
+      # --- SSH: composer install & caches on the server ---
+      - name: SSH - composer install & caches
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GENX_SSH_HOST }}
+          port: ${{ secrets.GENX_SSH_PORT }}
+          username: ${{ secrets.GENX_SSH_USER }}
+          key: ${{ secrets.GENX_SSH_KEY }}
+          script: |
+            set -e
+
+            # Target cafe.digipartner.lk Laravel app dir
+            cd /home/u158663215/domains/digipartner.lk/public_html/cafe/laravel
+
+            # Safety: do not run artisan/migrations until the subdomain has its own .env
+            if [ ! -f .env ]; then
+              echo "❌ Missing .env at /home/u158663215/domains/digipartner.lk/public_html/cafe/laravel/.env"
+              echo "Create it with separate DB credentials (DB_DATABASE/DB_USERNAME/DB_PASSWORD) and correct APP_URL."
+              exit 1
+            fi
+
+            # Ensure runtime dirs
+            mkdir -p storage/framework/{cache,sessions,views}
+            mkdir -p bootstrap/cache
+            chmod -R 755 storage bootstrap/cache || true
+
+            # Check PHP extensions
+            REQUIRED="mbstring intl bcmath curl dom fileinfo gd json openssl pdo pdo_mysql tokenizer xml sodium"
+            MISSING=""
+            for ext in $REQUIRED; do php -m | grep -qi "^$ext$" || MISSING="$MISSING $ext"; done
+            if [ -n "$MISSING" ]; then
+              echo "Missing PHP extensions:$MISSING"
+              exit 1
+            fi
+
+            # Install composer if missing
+            if ! command -v composer >/dev/null 2>&1; then
+              php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+              php composer-setup.php --install-dir=$HOME/bin --filename=composer
+              rm composer-setup.php
+              export PATH="$HOME/bin:$PATH"
+            fi
+
+            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+            # Clear & rebuild caches
+            php artisan optimize:clear || true
+
+            # Publish module assets and migrations
+            php artisan module:publish || true
+            php artisan module:publish-migration Inventory || true
+
+            # Run migrations
+            php artisan migrate --force
+
+            # Storage link inside cafe docroot (safe; does not touch main domain)
+            php artisan storage:link || true
+
+            # Symlink for user-uploads within cafe docroot only
+            cd /home/u158663215/domains/digipartner.lk/public_html/cafe
+            rm -rf user-uploads 2>/dev/null || true
+            ln -sf /home/u158663215/domains/digipartner.lk/public_html/cafe/laravel/public/user-uploads user-uploads
+            ls -la user-uploads
