@@ -396,15 +396,21 @@ class PosVueOrderController extends Controller
             // existing order, the store path must preserve existing items/KOTs
             // (mirrors Pos.php::$appendOnlyKotSave).
             'append_kot' => ['nullable', 'boolean'],
+            // Legacy saveOrder('kot', 'bill', 'payment'): KOT first, then bill + payment modal.
+            'bill_after_kot' => ['nullable', 'boolean'],
         ]);
 
         $editingOrderId = isset($validated['order_id']) ? (int) $validated['order_id'] : null;
         $action = $validated['action'] ?? 'kot';
         $secondaryAction = $validated['secondary_action'] ?? null;
         $openPayment = (bool) ($validated['open_payment'] ?? false);
-        $status = $action === 'bill' ? 'billed' : 'kot';
-        $billFollowUp = app(BillSecondaryActionResolver::class)->resolve($action, $secondaryAction);
-        $opensImmediatePayment = ($action === 'bill')
+        $billAfterKot = (bool) ($validated['bill_after_kot'] ?? false);
+        $status = ($action === 'bill' || $billAfterKot) ? 'billed' : 'kot';
+        $billFollowUp = app(BillSecondaryActionResolver::class)->resolve(
+            ($action === 'bill' || $billAfterKot) ? 'bill' : $action,
+            $billAfterKot && $openPayment ? 'payment' : $secondaryAction
+        );
+        $opensImmediatePayment = ($action === 'bill' || $billAfterKot)
             && ($openPayment || $secondaryAction === 'payment' || ($billFollowUp['open_payment'] ?? false));
         // Append-only KOT save is valid only for `kot` action against an existing order.
         // Legacy parity (Pos.php::$appendOnlyKotSave): the New KOT screen posts
@@ -430,7 +436,7 @@ class PosVueOrderController extends Controller
             // transaction (see ~530–539): full replace always applies $status; append mode
             // only changes status on `bill:`, otherwise the row keeps its current status.
             if ($appendKot) {
-                $targetStatus = $action === 'bill'
+                $targetStatus = ($action === 'bill' || $billAfterKot)
                     ? 'billed'
                     : $currentStatus;
             } else {
@@ -497,7 +503,7 @@ class PosVueOrderController extends Controller
             $resolvedTableId = (int) $table->id;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -910,7 +916,7 @@ class PosVueOrderController extends Controller
                 'reward_points_redeemed' => $rewardPointsRedeemed > 0 ? $rewardPointsRedeemed : null,
             ]);
 
-            if ($action === 'bill' && $rewardPointsRedeemed > 0 && $customerIdForReward) {
+            if (($action === 'bill' || $billAfterKot) && $rewardPointsRedeemed > 0 && $customerIdForReward) {
                 $hasRedeem = RewardTransaction::query()
                     ->where('order_id', $order->id)
                     ->where('type', 'redeem')
@@ -926,11 +932,16 @@ class PosVueOrderController extends Controller
                 }
             }
 
+            if ($billAfterKot) {
+                $order->update(['status' => 'billed']);
+            }
+
             if (in_array($statusBeforeSave, ['paid', 'payment_due'], true)) {
                 self::syncPostPaymentBalance($order->fresh('payments'), $total, $opensImmediatePayment);
             }
 
             $kotIds = [];
+            $kotPrintTargets = [];
             if ($action === 'kot' || ($appendKot && $action === 'bill')) {
                 $groupedByKitchen = [];
                 foreach ($kotLineSeed as $line) {
@@ -949,6 +960,10 @@ class PosVueOrderController extends Controller
                     ]);
 
                     $kotIds[] = $kot->id;
+                    $kotPrintTargets[] = [
+                        'id' => $kot->id,
+                        'place_id' => (int) $kitchenPlaceId,
+                    ];
 
                     foreach ($groupedItems as $item) {
                         $kotRow = [
@@ -981,6 +996,7 @@ class PosVueOrderController extends Controller
                 'order' => $order->fresh(),
                 'order_item_ids' => $orderItemsCreated,
                 'kot_ids' => $kotIds,
+                'kot_print_targets' => $kotPrintTargets,
                 'is_update' => $isUpdate,
             ];
         });
@@ -1029,6 +1045,7 @@ class PosVueOrderController extends Controller
                     'secondary_action' => $billFollowUp['secondary_action'],
                     'open_payment' => $billFollowUp['open_payment'] || ($action === 'bill' && $openPayment),
                     'print_receipt' => $billFollowUp['print_receipt'],
+                    'print_kot' => $action === 'kot' && $secondaryAction === 'print',
                     'show_order_detail' => $billFollowUp['show_order_detail'],
                 ],
                 'kot_ids' => $result['kot_ids'],
@@ -1038,8 +1055,11 @@ class PosVueOrderController extends Controller
                     'kot' => route('pos.kot', ['id' => $result['order']->id]),
                     'bill' => route('orders.print', ['id' => $result['order']->id]),
                     'kot_print_urls' => array_map(
-                        fn ($kotId) => route('kot.print', ['id' => $kotId]),
-                        $result['kot_ids'] ?? []
+                        fn (array $target) => route('kot.print', [
+                            'id' => $target['id'],
+                            'kotPlaceid' => $target['place_id'],
+                        ]),
+                        $result['kot_print_targets'] ?? []
                     ),
                 ],
             ],
