@@ -1661,19 +1661,16 @@ const openBillPrintWindow = (id) => {
         return;
     }
 
-    const url = `/orders/print/${id}`;
-    const printWindow = window.open(url, "_blank");
-
-    if (printWindow) {
-        setTimeout(() => {
-            printWindow.print();
-        }, 1000);
-    }
+    openPrintUrl(`/orders/print/${id}`);
 };
 
 /**
  * Open a print URL. Uses anchor.click (legacy print_location parity) because
  * window.open after await is often blocked as a popup.
+ *
+ * Do not call print() from the parent window: kot/print and orders/print blades
+ * already invoke window.print() on load — a parent print() causes a second dialog
+ * (often seen in production when the pre-opened placeholder tab is used).
  */
 const openPrintUrl = (url, existingWindow = null) => {
     if (!url) {
@@ -1682,13 +1679,6 @@ const openPrintUrl = (url, existingWindow = null) => {
 
     if (existingWindow && !existingWindow.closed) {
         existingWindow.location.href = url;
-        setTimeout(() => {
-            try {
-                existingWindow.print();
-            } catch (_) {
-                // Browser may block print() on cross-origin; user can print manually.
-            }
-        }, 1000);
 
         return true;
     }
