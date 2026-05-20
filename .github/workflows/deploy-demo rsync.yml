@@ -2,7 +2,7 @@ name: Deploy demo.digipartner.lk (rsync + SSH)
 
 on:
   push:
-    branches: [speed]
+    branches: [demo]
   workflow_dispatch:
 
 jobs:
