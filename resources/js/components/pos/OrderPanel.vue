@@ -1457,6 +1457,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    assignedWaiterName: {
+        type: String,
+        default: "",
+    },
     cartItems: {
         type: Array,
         default: () => [],
@@ -2341,9 +2345,9 @@ watch(linkedKotGroups, (groups) => {
 }, { flush: "post" });
 
 const availableWaiters = computed(() => {
-    const source = Array.isArray(props.waiters) && props.waiters.length > 0
-        ? props.waiters
-        : fallbackWaiters.value;
+    const source = fallbackWaiters.value.length > 0
+        ? fallbackWaiters.value
+        : (Array.isArray(props.waiters) ? props.waiters : []);
 
     if (!Array.isArray(source)) {
         return [];
@@ -2371,6 +2375,10 @@ const selectedWaiterName = computed(() => {
 
     if (selected?.name) {
         return selected.name;
+    }
+
+    if (props.assignedWaiterName) {
+        return String(props.assignedWaiterName);
     }
 
     if (props.currentUser?.id && Number(props.currentUser.id) === selectedId) {
@@ -2407,10 +2415,6 @@ const fetchOrderTypes = async () => {
 };
 
 const fetchWaiters = async () => {
-    if (availableWaiters.value.length > 0) {
-        return;
-    }
-
     try {
         const response = await axios.get("/api/pos/waiters");
         if (Array.isArray(response.data)) {

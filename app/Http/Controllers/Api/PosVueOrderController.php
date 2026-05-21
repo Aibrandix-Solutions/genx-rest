@@ -23,6 +23,7 @@ use App\Models\RewardTransaction;
 use App\Models\Table;
 use App\Models\TableSession;
 use App\Models\Tax;
+use App\Models\User;
 use App\Services\Pos\BillSecondaryActionResolver;
 use App\Services\RewardPointsService;
 use Illuminate\Http\Request;
@@ -50,6 +51,7 @@ class PosVueOrderController extends Controller
                 'kot.items.menuItem',
                 'kot.items.menuItemVariation',
                 'table:id,table_code',
+                'waiter:id,name',
             ])
             ->where('id', $id)
             ->where('branch_id', $branch->id)
@@ -302,6 +304,7 @@ class PosVueOrderController extends Controller
                     'delivery_executive_id' => $order->delivery_executive_id ? (int) $order->delivery_executive_id : null,
                     'delivery_fee' => (float) ($order->delivery_fee ?? 0),
                     'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
+                    'waiter_name' => $order->waiter?->name ? (string) $order->waiter->name : null,
                     'customer_id' => $order->customer_id ? (int) $order->customer_id : null,
                     'customer' => $order->customer ? [
                         'id' => (int) $order->customer->id,
@@ -422,6 +425,14 @@ class PosVueOrderController extends Controller
         $branch = branch();
         $restaurant = restaurant();
         abort_if(! $branch || ! $restaurant, 422, 'Branch/restaurant context is required');
+
+        if (! empty($validated['waiter_id'])) {
+            abort_unless(
+                User::isAssignableWaiter((int) $validated['waiter_id'], (int) $restaurant->id, (int) $branch->id),
+                422,
+                'Selected waiter is not assignable to this branch.'
+            );
+        }
 
         if ($editingOrderId) {
             $orderForPermission = Order::query()

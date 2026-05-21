@@ -75,14 +75,7 @@ class OrderDetail extends Component
         }
         $this->cancelReasons = KotCancelReason::where('cancel_order', true)->get();
 
-        $this->users = User::withoutGlobalScope(BranchScope::class)
-            ->where(function ($q) {
-                return $q->where('branch_id', branch()->id)
-                    ->orWhereNull('branch_id');
-            })
-            ->role('waiter_' . restaurant()->id)
-            ->where('restaurant_id', restaurant()->id)
-            ->get();
+        $this->users = User::assignableWaitersQuery((int) restaurant()->id, (int) branch()->id)->get();
     }
 
     public function printOrder($orderId)
