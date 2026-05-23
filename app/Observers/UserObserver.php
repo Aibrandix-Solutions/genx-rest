@@ -16,4 +16,19 @@ class UserObserver
         $user->locale = global_setting()->locale;
     }
 
+    public function created(User $user): void
+    {
+        User::clearPosBootstrapCacheFor($user);
+    }
+
+    public function updated(User $user): void
+    {
+        User::clearPosBootstrapCacheFor($user);
+    }
+
+    public function deleted(User $user): void
+    {
+        User::clearPosBootstrapCacheFor($user);
+    }
+
 }

@@ -42,7 +42,7 @@
 
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
-                :waiters="waiters" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
+                :waiters="waiters" :assigned-waiter-name="assignedWaiterName" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
                 :saving-action="savingAction" :extra-charges="extraCharges" :discount-amount="discountAmount"
                 :discount-type="discountType" :discount-value="discountValue" :is-online="isOnline"
                 :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
@@ -285,6 +285,7 @@ const orderType = ref("Dine In");
 const orderNumber = ref("");
 const pax = ref(1);
 const waiterId = ref(null);
+const assignedWaiterName = ref("");
 const waiters = ref([]);
 const currentUser = ref(null);
 const canEditWaiter = ref(true);
@@ -2253,6 +2254,9 @@ const handleRemoveCustomer = async () => {
 
 const handleWaiterUpdate = async (newWaiterId) => {
     waiterId.value = newWaiterId ? Number(newWaiterId) : "";
+    if (!newWaiterId) {
+        assignedWaiterName.value = "";
+    }
 
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     if (!activeOrderId) {
@@ -2771,6 +2775,7 @@ const applyOrderPayload = (payload, activeOrderId) => {
 
     // Load order details
     waiterId.value = payload.waiter_id || "";
+    assignedWaiterName.value = payload.waiter_name ? String(payload.waiter_name) : "";
     orderNote.value = payload.note || "";
     tipAmount.value = Number(payload.tip_amount || 0);
     extraCharges.value = Array.isArray(payload.extra_charges) ? payload.extra_charges : [];
