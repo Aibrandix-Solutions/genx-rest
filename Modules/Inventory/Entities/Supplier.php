@@ -36,10 +36,14 @@ class Supplier extends Model
         return $this->hasMany(SupplierDocument::class);
     }
 
-    // Calculate total amount purchased
+    // Calculate total amount purchased (after discount)
     public function getTotalPurchasedAttribute()
     {
-        return $this->orders()->where('status', 'received')->sum('total_amount'); // Assuming 'total_amount' exists on PurchaseOrder
+        return (float) $this->orders()
+            ->where('status', 'received')
+            ->with('items')
+            ->get()
+            ->sum(fn ($po) => (float) $po->final_total);
     }
 
     // Calculate total amount paid
