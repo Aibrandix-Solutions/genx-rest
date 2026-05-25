@@ -17,8 +17,22 @@ class ViewPurchaseOrder extends Component
         'purchaseOrderPaymentSaved' => '$refresh',
     ];
 
-    public function show(PurchaseOrder $purchaseOrder)
+    public function show($purchaseOrder)
     {
+        // Accept either an int/string ID (from event payload) or an
+        // already-resolved model. Resolve manually so cross-branch records
+        // (when surfaced from places like the Stock-by-Location popup)
+        // still load. Restaurant guard prevents leaking across tenants.
+        if (!$purchaseOrder instanceof PurchaseOrder) {
+            $purchaseOrder = PurchaseOrder::withoutGlobalScopes()
+                ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+                ->find($purchaseOrder);
+        }
+
+        if (!$purchaseOrder) {
+            return;
+        }
+
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
             'location.branch',

@@ -110,7 +110,7 @@
         <div class="relative">
             <input type="text"
                    wire:model.live.debounce.300ms="search"
-                   placeholder="@lang('inventory::modules.stock.searchPlaceholder')"
+                   placeholder="@lang('inventory::modules.stock.searchByNameOrCode')"
                    class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-600 focus:border-transparent">
             <div class="absolute left-3 top-2.5">
                 <svg class="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -217,6 +217,7 @@
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.currentStock")</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.stockStatus")</th>
                         <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("inventory::modules.stock.cost")</th>
+                        <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang("app.action")</th>
                     </tr>
                 </thead>
                 <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -249,12 +250,26 @@
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm text-gray-900 dark:text-white">{{ currency_format($item->total_cost_value ?? 0, restaurant()->currency_id) }}</div>
                             </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right">
+                                <button
+                                    type="button"
+                                    wire:click="viewStockLocations({{ $item->id }})"
+                                    class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                                    title="@lang('inventory::modules.stock.viewByLocation')"
+                                >
+                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                    </svg>
+                                    @lang('app.view')
+                                </button>
+                            </td>
 
 
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
+                            <td colspan="6" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
                                 @lang("inventory::modules.stock.noStockItemsFound")
                             </td>
                         </tr>
@@ -278,4 +293,195 @@
             <livewire:inventory::stock.add-stock-entry />
         </x-slot>
     </x-right-modal>
+
+    {{-- Stock by Location modal --}}
+    <x-dialog-modal wire:model.live="showStockLocationsModal" maxWidth="4xl">
+        <x-slot name="title">
+            @if($selectedItem)
+                @lang('inventory::modules.stock.stockByLocationTitle')
+            @else
+                @lang('inventory::modules.stock.viewByLocation')
+            @endif
+        </x-slot>
+
+        <x-slot name="content">
+            @if($selectedItem)
+                <div class="mb-4 flex items-start justify-between gap-3">
+                    <div>
+                        <div class="text-base font-semibold text-gray-900 dark:text-white">
+                            {{ $selectedItem->name }}
+                        </div>
+                        <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                            @if(!empty($selectedItem->item_code))
+                                <span class="font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{{ $selectedItem->item_code }}</span>
+                            @endif
+                            @if($selectedItem->category)
+                                <span>{{ $selectedItem->category->name }}</span>
+                            @endif
+                            @if($selectedItem->unit)
+                                <span>&middot; {{ $selectedItem->unit->name }} ({{ $selectedItem->unit->symbol }})</span>
+                            @endif
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-xs text-gray-500 dark:text-gray-400">@lang('inventory::modules.stock.totalQuantity')</div>
+                        <div class="text-base font-semibold text-gray-900 dark:text-white">
+                            {{ number_format($locationBreakdown->sum('quantity'), 2) }} {{ optional($selectedItem->unit)->symbol }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-md">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-700/50">
+                            <tr>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.stock.location')</th>
+                                <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.inventoryMovement.type')</th>
+                                <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.stock.quantity')</th>
+                                <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.stock.cost')</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                            @forelse($locationBreakdown as $row)
+                                <tr class="{{ $row->quantity <= 0 ? 'opacity-60' : '' }}">
+                                    <td class="px-4 py-2 text-sm text-gray-900 dark:text-white">{{ $row->name }}</td>
+                                    <td class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">{{ $row->type }}</td>
+                                    <td class="px-4 py-2 text-sm text-right text-gray-900 dark:text-white">
+                                        {{ number_format($row->quantity, 2) }}
+                                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ optional($selectedItem->unit)->symbol }}</span>
+                                    </td>
+                                    <td class="px-4 py-2 text-sm text-right text-gray-900 dark:text-white">
+                                        {{ currency_format($row->cost_value, restaurant()->currency_id) }}
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="px-4 py-3 text-sm text-center text-gray-500 dark:text-gray-400">
+                                        @lang('inventory::modules.stock.noLocationsAvailable')
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                {{-- Recent Purchases ----------------------------------------- --}}
+                <div class="mt-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="text-sm font-semibold text-gray-800 dark:text-gray-200">
+                            @if($expandedPurchases)
+                                @lang('inventory::modules.stock.allPurchases') ({{ $itemPurchasesTotal }})
+                            @else
+                                @lang('inventory::modules.stock.recentPurchases')
+                            @endif
+                        </h4>
+                        @if($itemPurchasesTotal > \Modules\Inventory\Livewire\Stock\StockList::RECENT_PURCHASES_LIMIT)
+                            <button type="button"
+                                    wire:click="toggleExpandedPurchases"
+                                    class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+                                @if($expandedPurchases)
+                                    @lang('inventory::modules.stock.showRecentOnly')
+                                @else
+                                    @lang('inventory::modules.stock.viewAllPurchases', ['count' => $itemPurchasesTotal])
+                                @endif
+                            </button>
+                        @endif
+                    </div>
+
+                    <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-md">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-700/50">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.purchaseOrder.po_number')</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.purchaseOrder.order_date')</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.purchaseOrder.supplier')</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.stock.location')</th>
+                                    <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.stock.quantity')</th>
+                                    <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.purchaseOrder.unit_price')</th>
+                                    <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('app.action')</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                @php
+                                    $purchaseRows = $expandedPurchases ? $itemPurchases->items() : $itemPurchases;
+                                @endphp
+                                @forelse($purchaseRows as $purchase)
+                                    @php
+                                        $line = $purchase->items->first();
+                                        $locName = $purchase->location?->display_name
+                                            ?? $purchase->location?->name
+                                            ?? $purchase->branch?->name
+                                            ?? '--';
+                                    @endphp
+                                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                        <td class="px-4 py-2 text-sm font-medium text-indigo-600 dark:text-indigo-400">
+                                            {{ $purchase->po_number ?? ('#' . $purchase->id) }}
+                                        </td>
+                                        <td class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                                            {{ optional($purchase->order_date)->format('M d, Y') ?? optional($purchase->created_at)->format('M d, Y') }}
+                                        </td>
+                                        <td class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                                            {{ $purchase->supplier?->name ?? '--' }}
+                                        </td>
+                                        <td class="px-4 py-2 text-sm text-gray-700 dark:text-gray-300">
+                                            {{ $locName }}
+                                        </td>
+                                        <td class="px-4 py-2 text-sm text-right text-gray-900 dark:text-white">
+                                            @if($line)
+                                                {{ number_format((float) $line->quantity, 2) }}
+                                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ optional($selectedItem->unit)->symbol }}</span>
+                                            @else
+                                                --
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-2 text-sm text-right text-gray-900 dark:text-white">
+                                            @if($line)
+                                                {{ currency_format((float) $line->unit_price, restaurant()->currency_id) }}
+                                            @else
+                                                --
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-2 text-sm text-right">
+                                            <button type="button"
+                                                    wire:click="openPurchaseOrder({{ $purchase->id }})"
+                                                    class="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                                                    title="@lang('inventory::modules.purchaseOrder.view_details')">
+                                                <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                                </svg>
+                                                @lang('app.view')
+                                            </button>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="7" class="px-4 py-3 text-sm text-center text-gray-500 dark:text-gray-400">
+                                            @lang('inventory::modules.stock.noPurchasesForItem')
+                                        </td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+
+                        @if($expandedPurchases && $itemPurchases instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator && $itemPurchases->hasPages())
+                            <div class="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
+                                {{ $itemPurchases->links() }}
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            @endif
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-secondary-button wire:click="closeStockLocationsModal">
+                @lang('app.close')
+            </x-secondary-button>
+        </x-slot>
+    </x-dialog-modal>
+
+    {{-- Reuses the same Purchase Order detail modal that the Purchases page
+         uses; it listens for the `viewPurchaseOrder` event we dispatch above. --}}
+    <livewire:inventory::purchase-order.view-purchase-order />
 </div>
