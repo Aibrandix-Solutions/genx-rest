@@ -22,6 +22,7 @@ use Modules\Inventory\Livewire\StockTransfer\ReceiveStockTransfer;
 use Modules\Inventory\Livewire\Setting\LocationManager;
 use Modules\Inventory\Console\CreateAutoPurchaseOrder;
 use Modules\Inventory\Console\ActivateModuleCommand;
+use Modules\Inventory\Console\ReallocateOrphanSupplierPayments;
 use Illuminate\Console\Scheduling\Schedule;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Observers\InventoryItemObserver;
@@ -102,6 +103,7 @@ class InventoryServiceProvider extends ServiceProvider
         $this->commands([
             CreateAutoPurchaseOrder::class,
             ActivateModuleCommand::class,
+            ReallocateOrphanSupplierPayments::class,
         ]);
     }
 

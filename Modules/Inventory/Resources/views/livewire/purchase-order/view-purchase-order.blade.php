@@ -1,26 +1,49 @@
 <div>
     <x-modal wire:model="showModal" maxWidth="4xl">
         @if($purchaseOrder)
-        <div class="bg-white dark:bg-gray-800">
+        @php
+            // Pre-compute totals so the view stays clean and consistent across tabs
+            $itemsSubtotal = $purchaseOrder->items->sum(function ($item) {
+                $line = (float) $item->quantity * (float) $item->unit_price;
+                $lineDiscount = ($item->discount_type ?? 'fixed') === 'percentage'
+                    ? $line * (((float) ($item->discount ?? 0)) / 100)
+                    : (float) ($item->discount ?? 0);
+                return max(0, $line - $lineDiscount);
+            });
+            $orderDiscountAmount = $purchaseOrder->discount_type === 'percentage'
+                ? ($itemsSubtotal * (float) ($purchaseOrder->discount ?? 0) / 100)
+                : (float) ($purchaseOrder->discount ?? 0);
+            $finalTotal = max(0, $itemsSubtotal - $orderDiscountAmount);
+        @endphp
+        <div class="bg-white dark:bg-gray-800" id="purchase-view-printable">
             <!-- Header -->
             <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                 <div class="flex items-center justify-between">
                     <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
                         {{ trans('inventory::modules.purchaseOrder.view_title') }}
                     </h3>
+                    @php
+                        $headerStatusKey = 'inventory::modules.purchaseOrder.status.' . $purchaseOrder->status;
+                        $headerStatusLabel = trans($headerStatusKey);
+                        if ($headerStatusLabel === $headerStatusKey) {
+                            $headerStatusLabel = ucfirst(str_replace('_', ' ', (string) $purchaseOrder->status));
+                        }
+                    @endphp
                     <span class="px-3 py-1 text-xs font-medium rounded-full
                         {{ $purchaseOrder->status === 'draft' ? 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300' : '' }}
                         {{ $purchaseOrder->status === 'sent' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300' : '' }}
+                        {{ $purchaseOrder->status === 'ordered' ? 'bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-300' : '' }}
+                        {{ $purchaseOrder->status === 'pending' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
                         {{ $purchaseOrder->status === 'received' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300' : '' }}
                         {{ $purchaseOrder->status === 'partially_received' ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300' : '' }}
                         {{ $purchaseOrder->status === 'cancelled' ? 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-300' : '' }}">
-                        {{ trans('inventory::modules.purchaseOrder.status.' . $purchaseOrder->status) }}
+                        {{ $headerStatusLabel }}
                     </span>
                 </div>
             </div>
 
             <!-- Tabs -->
-            <div class="border-b border-gray-200 dark:border-gray-700">
+            <div class="border-b border-gray-200 dark:border-gray-700 no-print">
                 <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
                     <button wire:click="setTab('details')" 
                             class="{{ $activeTab === 'details' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300' }} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm">
@@ -50,76 +73,52 @@
             <!-- Content -->
             <div class="px-6 py-4">
                 @if($activeTab === 'details')
-                <!-- Order Details -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <!-- Order meta details -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 mb-6">
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{{ trans('inventory::modules.purchaseOrder.po_number') }}</h4>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.po_number') }}</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->po_number }}</p>
                     </div>
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{{ trans('inventory::modules.purchaseOrder.supplier') }}</h4>
-                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->supplier->name }}</p>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.supplier') }}</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->supplier->name ?? '-' }}</p>
                     </div>
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Location</h4>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Location</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">
                             {{ $purchaseOrder->location?->display_name ?? '-' }}
                         </p>
                     </div>
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{{ trans('inventory::modules.purchaseOrder.order_date') }}</h4>
-                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->order_date->translatedFormat('M d, Y') }}</p>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.order_date') }}</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->order_date?->translatedFormat('M d, Y') ?? '-' }}</p>
                     </div>
                     <div>
-                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{{ trans('inventory::modules.purchaseOrder.expected_delivery_date') }}</h4>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.expected_delivery_date') }}</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">
                             {{ $purchaseOrder->expected_delivery_date?->translatedFormat('M d, Y') ?? '-' }}
                         </p>
                     </div>
-                </div>
-
-                <!-- Items Table -->
-                <div class="mb-6">
-                    <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-4">{{ trans('inventory::modules.purchaseOrder.items') }}</h4>
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead class="bg-gray-50 dark:bg-gray-700">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.inventoryItem.name') }}</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.unit_price') }}</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.ordered_quantity') }}</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                                @foreach($purchaseOrder->items as $item)
-                                    <tr>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                            {{ $item->inventoryItem->name ?? 'Item Deleted' }}
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                            {{ currency_format($item->unit_price, restaurant()->currency_id) }}
-
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                            {{ number_format($item->quantity, 2) }}
-                                            <span class="text-gray-500 dark:text-gray-400">
-                                                ({{ optional($item->inventoryItem?->unit)->symbol ?? '-' }})
-                                            </span>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                            <tfoot>
-                                <tr>
-                                    <td colspan="2" class="px-6 py-4 whitespace-nowrap text-lg text-gray-900 dark:text-white font-bold text-right">
-                                        {{ trans('modules.billing.total') }}
-                                    </td>
-                                    <td colspan="1" class="px-6 py-4 whitespace-nowrap text-lg text-gray-900 dark:text-white font-bold">
-                                        {{ currency_format($purchaseOrder->total_amount, restaurant()->currency_id) }}
-                                    </td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.status_label') }}</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white capitalize">
+                            @php
+                                $statusKey = 'inventory::modules.purchaseOrder.status.' . $purchaseOrder->status;
+                                $statusLabel = trans($statusKey);
+                                if ($statusLabel === $statusKey) {
+                                    $statusLabel = ucfirst(str_replace('_', ' ', (string) $purchaseOrder->status));
+                                }
+                            @endphp
+                            {{ $statusLabel }}
+                        </p>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.created_by') }}</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->creator->name ?? '-' }}</p>
+                    </div>
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.created_at') }}</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->created_at?->translatedFormat('M d, Y H:i') ?? '-' }}</p>
                     </div>
                 </div>
 
@@ -127,8 +126,139 @@
                 @if($purchaseOrder->notes)
                     <div class="mb-6">
                         <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{{ trans('inventory::modules.purchaseOrder.notes') }}</h4>
-                        <p class="text-sm text-gray-900 dark:text-white whitespace-pre-line">{{ $purchaseOrder->notes }}</p>
+                        <div class="rounded-md bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700 p-3">
+                            <p class="text-sm text-gray-900 dark:text-white whitespace-pre-line">{{ $purchaseOrder->notes }}</p>
+                        </div>
                     </div>
+                @endif
+
+                <!-- Items Table -->
+                <div class="mb-6">
+                    <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">{{ trans('inventory::modules.purchaseOrder.items') }}</h4>
+                    <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg">
+                        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-700">
+                                <tr>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">#</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.inventoryItem.name') }}</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.unit_price') }}</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.ordered_quantity') }}</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Discount</th>
+                                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.subtotal') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                @foreach($purchaseOrder->items as $idx => $item)
+                                    @php
+                                        $line = (float) $item->quantity * (float) $item->unit_price;
+                                        $lineDiscount = ($item->discount_type ?? 'fixed') === 'percentage'
+                                            ? $line * (((float) ($item->discount ?? 0)) / 100)
+                                            : (float) ($item->discount ?? 0);
+                                        $lineSubtotal = max(0, $line - $lineDiscount);
+                                    @endphp
+                                    <tr>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">{{ $idx + 1 }}</td>
+                                        <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
+                                            <div>{{ $item->inventoryItem->name ?? 'Item Deleted' }}</div>
+                                            @if(optional($item->inventoryItem)->category)
+                                                <div class="text-xs text-gray-500 dark:text-gray-400">{{ $item->inventoryItem->category->name }}</div>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
+                                            {{ currency_format($item->unit_price, restaurant()->currency_id) }}
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
+                                            {{ number_format($item->quantity, 2) }}
+                                            <span class="text-gray-500 dark:text-gray-400">
+                                                ({{ optional(optional($item->inventoryItem)->unit)->symbol ?? '-' }})
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
+                                            @if((float) ($item->discount ?? 0) > 0)
+                                                @if(($item->discount_type ?? 'fixed') === 'percentage')
+                                                    {{ number_format((float) $item->discount, 2) }}%
+                                                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                                                        -{{ currency_format($lineDiscount, restaurant()->currency_id) }}
+                                                    </div>
+                                                @else
+                                                    -{{ currency_format($item->discount, restaurant()->currency_id) }}
+                                                @endif
+                                            @else
+                                                <span class="text-gray-400">-</span>
+                                            @endif
+                                        </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-right font-semibold text-gray-900 dark:text-white">
+                                            {{ currency_format($lineSubtotal, restaurant()->currency_id) }}
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Totals breakdown -->
+                <div class="flex justify-end mb-6">
+                    <div class="w-full md:w-1/2 lg:w-2/5 bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-2">
+                        <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300">
+                            <span>Items Subtotal</span>
+                            <span>{{ currency_format($itemsSubtotal, restaurant()->currency_id) }}</span>
+                        </div>
+                        <div class="flex justify-between text-sm text-gray-600 dark:text-gray-300">
+                            <span>
+                                Order Discount
+                                @if((float) ($purchaseOrder->discount ?? 0) > 0)
+                                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                                        ({{ ($purchaseOrder->discount_type ?? 'fixed') === 'percentage'
+                                            ? number_format((float) $purchaseOrder->discount, 2) . '%'
+                                            : 'Fixed' }})
+                                    </span>
+                                @endif
+                            </span>
+                            <span>-{{ currency_format($orderDiscountAmount, restaurant()->currency_id) }}</span>
+                        </div>
+                        <div class="border-t border-gray-200 dark:border-gray-600 pt-2 flex justify-between text-base font-semibold text-gray-900 dark:text-white">
+                            <span>Final Total</span>
+                            <span>{{ currency_format($finalTotal, restaurant()->currency_id) }}</span>
+                        </div>
+                        <div class="flex justify-between text-sm text-green-600 dark:text-green-400">
+                            <span>Paid</span>
+                            <span>{{ currency_format($purchaseOrder->paid_amount, restaurant()->currency_id) }}</span>
+                        </div>
+                        <div class="flex justify-between text-sm font-semibold {{ $purchaseOrder->due_amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-300' }}">
+                            <span>Due</span>
+                            <span>{{ currency_format($purchaseOrder->due_amount, restaurant()->currency_id) }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Attachments inline preview (so the printed view contains everything) -->
+                @if(isset($purchaseOrder->attachments) && $purchaseOrder->attachments->count() > 0)
+                <div class="mb-2">
+                    <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3">Attachments ({{ $purchaseOrder->attachments->count() }})</h4>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                        @foreach($purchaseOrder->attachments as $att)
+                            <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-gray-50 dark:bg-gray-800 flex flex-col items-center justify-center p-2 text-center">
+                                @if($att->is_image && $att->url)
+                                    <a href="{{ $att->url }}" target="_blank" class="block w-full" title="{{ $att->original_name }}">
+                                        <img src="{{ $att->url }}" alt="{{ $att->original_name }}"
+                                             class="w-full h-24 object-cover rounded">
+                                    </a>
+                                @else
+                                    <a href="{{ $att->url }}" target="_blank"
+                                       class="flex flex-col items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 transition"
+                                       title="{{ $att->original_name }}">
+                                        <svg class="w-10 h-10" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                        </svg>
+                                        <span class="text-xs font-medium">Open</span>
+                                    </a>
+                                @endif
+                                <p class="text-xs text-gray-600 dark:text-gray-400 mt-1 w-full truncate">{{ $att->original_name }}</p>
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
                 @endif
                 @endif
 
@@ -164,7 +294,7 @@
                 </div>
 
                 <!-- Add Payment Button -->
-                @if($purchaseOrder->due_amount > 0 && in_array($purchaseOrder->status, ['sent', 'partially_received', 'received']))
+                @if($purchaseOrder->due_amount > 0 && in_array($purchaseOrder->status, ['sent', 'partially_received', 'received', 'ordered', 'pending']))
                 <div class="mb-4 flex justify-end">
                     <x-button wire:click="$dispatch('showPurchaseOrderPaymentModal', { purchaseOrder: {{ $purchaseOrder->id }} })">
                         <svg class="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -291,9 +421,16 @@
             </div>
 
             <!-- Footer -->
-            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-700 flex justify-end">
-                <div class="flex space-x-3">
-                    <x-button wire:click="downloadPdf" wire:loading.attr="disabled" class="mr-3 inline-flex items-center">
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-700 flex justify-end no-print">
+                <div class="flex flex-wrap gap-3">
+                    <x-button type="button" onclick="printPurchaseView()" class="inline-flex items-center bg-indigo-600 hover:bg-indigo-700">
+                        <svg class="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        Print
+                    </x-button>
+
+                    <x-button wire:click="downloadPdf" wire:loading.attr="disabled" class="inline-flex items-center">
                         <svg class="w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
@@ -308,4 +445,74 @@
         </div>
         @endif
     </x-modal>
-</div> 
+
+    {{-- Print-only styles + helper to print the modal contents in an isolated window --}}
+    <script>
+        if (typeof window.printPurchaseView !== 'function') {
+            window.printPurchaseView = function () {
+                const source = document.getElementById('purchase-view-printable');
+                if (!source) {
+                    window.alert('Nothing to print.');
+                    return;
+                }
+
+                // Collect stylesheets so the printed window matches the app styling.
+                const styleNodes = Array.from(document.querySelectorAll('link[rel="stylesheet"], style'))
+                    .map(node => node.outerHTML)
+                    .join('');
+
+                const title = (document.title || 'Purchase') + ' - Print';
+                const printWindow = window.open('', '_blank', 'width=900,height=700');
+                if (!printWindow) {
+                    window.alert('Please allow popups for this site to print.');
+                    return;
+                }
+
+                printWindow.document.open();
+                printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>${title}</title>
+    ${styleNodes}
+    <style>
+        @page { margin: 14mm; }
+        html, body {
+            background: #ffffff !important;
+            color: #111827 !important;
+            margin: 0;
+            padding: 0;
+            font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+        .no-print { display: none !important; }
+        /* Force light mode so dark utility classes do not produce black backgrounds */
+        .dark\\:bg-gray-700, .dark\\:bg-gray-800, .dark\\:bg-gray-700\\/40, .dark\\:bg-gray-900,
+        .bg-gray-700, .bg-gray-800, .bg-gray-900 { background-color: #ffffff !important; }
+        .dark\\:text-gray-100, .dark\\:text-gray-200, .dark\\:text-gray-300, .dark\\:text-gray-400,
+        .dark\\:text-white { color: #111827 !important; }
+        .border-gray-700, .dark\\:border-gray-700, .dark\\:border-gray-600 { border-color: #e5e7eb !important; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px 10px; }
+        thead { background-color: #f9fafb !important; }
+        img { max-width: 100%; }
+    </style>
+</head>
+<body>
+    <div class="p-4">${source.innerHTML}</div>
+    <script>
+        window.addEventListener('load', function () {
+            // Give the browser a tick to apply styles before opening the print dialog.
+            setTimeout(function () {
+                window.focus();
+                window.print();
+            }, 250);
+        });
+        window.addEventListener('afterprint', function () { window.close(); });
+    <\/script>
+</body>
+</html>`);
+                printWindow.document.close();
+            };
+        }
+    </script>
+</div>

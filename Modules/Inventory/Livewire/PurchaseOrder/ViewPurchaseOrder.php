@@ -23,9 +23,11 @@ class ViewPurchaseOrder extends Component
             'supplier',
             'location.branch',
             'items.inventoryItem.unit',
+            'items.inventoryItem.category',
             'payments.account',
             'payments.addedBy',
             'attachments',
+            'creator',
         ]);
         $this->activeTab = 'details';
         $this->showModal = true;
@@ -44,11 +46,15 @@ class ViewPurchaseOrder extends Component
 
     public function downloadPdf()
     {
-        // Reload with withoutGlobalScopes just in case
+        // Reload with all relationships needed by the PDF view
         $this->purchaseOrder->load([
             'supplier',
             'location.branch',
             'items.inventoryItem.unit',
+            'items.inventoryItem.category',
+            'creator',
+            'payments.account',
+            'attachments',
         ]);
 
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [
