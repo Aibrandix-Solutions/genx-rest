@@ -20,6 +20,8 @@
         </div>
     </div>
 
+    <x-inventory::stock.tabs />
+
     <!-- Stats Cards -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <!-- Available Items -->
@@ -251,18 +253,34 @@
                                 <div class="text-sm text-gray-900 dark:text-white">{{ currency_format($item->total_cost_value ?? 0, restaurant()->currency_id) }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right">
-                                <button
-                                    type="button"
-                                    wire:click="viewStockLocations({{ $item->id }})"
-                                    class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
-                                    title="@lang('inventory::modules.stock.viewByLocation')"
-                                >
-                                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
-                                    </svg>
-                                    @lang('app.view')
-                                </button>
+                                <div class="inline-flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        wire:click="viewStockLocations({{ $item->id }})"
+                                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 transition"
+                                        title="@lang('inventory::modules.stock.viewByLocation')"
+                                    >
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                                        </svg>
+                                        @lang('app.view')
+                                    </button>
+
+                                    @if(user_can('Create Inventory Movement'))
+                                        <button
+                                            type="button"
+                                            wire:click="$dispatch('openRecordConsumption', { itemId: {{ $item->id }} })"
+                                            class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition"
+                                            title="@lang('inventory::modules.consumption.recordConsumption')"
+                                        >
+                                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-6a2 2 0 012-2h2a2 2 0 012 2v6m-7 4h12a2 2 0 002-2V7a2 2 0 00-2-2h-3l-2-2H8L6 5H3a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                            </svg>
+                                            @lang('inventory::modules.consumption.consumption')
+                                        </button>
+                                    @endif
+                                </div>
                             </td>
 
 
@@ -484,4 +502,7 @@
     {{-- Reuses the same Purchase Order detail modal that the Purchases page
          uses; it listens for the `viewPurchaseOrder` event we dispatch above. --}}
     <livewire:inventory::purchase-order.view-purchase-order />
+
+    {{-- Record Consumption modal (listens for `openRecordConsumption` event) --}}
+    <livewire:inventory::stock.record-consumption />
 </div>
