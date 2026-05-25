@@ -2,8 +2,10 @@
 
 namespace Modules\Inventory\Livewire\InventoryItem;
 
+use Illuminate\Database\QueryException;
 use Livewire\Component;
 use Modules\Inventory\Entities\InventoryItemCategory;
+use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\Unit;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Inventory\Entities\Supplier;
@@ -15,6 +17,7 @@ class EditInventoryItem extends Component
     
     public $inventoryItem;
     public $name;
+    public $itemCode;
     public $itemCategory;
     public $unit;
     public $thresholdQuantity = 0;
@@ -33,6 +36,7 @@ class EditInventoryItem extends Component
     {
         $this->inventoryItem = $inventoryItem;
         $this->name = $inventoryItem->name;
+        $this->itemCode = $inventoryItem->item_code;
         $this->itemCategory = $inventoryItem->inventory_item_category_id;
         $this->unit = $inventoryItem->unit_id;
         $this->thresholdQuantity = $inventoryItem->threshold_quantity;
@@ -55,6 +59,14 @@ class EditInventoryItem extends Component
                     ->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))
                     ->ignore($this->inventoryItem->id),
             ],
+            'itemCode' => [
+                'nullable',
+                'string',
+                'max:50',
+                Rule::unique('inventory_items', 'item_code')
+                    ->where(fn ($q) => $q->where('restaurant_id', restaurant()->id))
+                    ->ignore($this->inventoryItem->id),
+            ],
             'itemCategory' => 'required|exists:inventory_item_categories,id',
             'unit' => 'required|exists:units,id',
             'thresholdQuantity' => 'required|numeric|min:0',
@@ -68,6 +80,7 @@ class EditInventoryItem extends Component
     {
         return [
             'name.unique' => 'An inventory item with this name already exists. Please use a different name.',
+            'itemCode.unique' => 'This item code is already in use. Please choose a different one.',
         ];
     }
 
@@ -75,16 +88,42 @@ class EditInventoryItem extends Component
     {
         $this->validate();
 
-        $this->inventoryItem->update([
+        $restaurantId = (int) ($this->inventoryItem->restaurant_id ?? restaurant()->id);
+        $userSuppliedCode = trim((string) $this->itemCode) !== '';
+
+        if (!$userSuppliedCode) {
+            $this->itemCode = InventoryItem::generateNextItemCodeForRestaurant($restaurantId);
+        } else {
+            $this->itemCode = trim((string) $this->itemCode);
+        }
+
+        $payload = [
             'name' => $this->name,
-            'restaurant_id' => $this->inventoryItem->restaurant_id ?? restaurant()->id,
+            'restaurant_id' => $restaurantId,
+            'item_code' => $this->itemCode,
             'inventory_item_category_id' => $this->itemCategory,
             'unit_id' => $this->unit,
             'threshold_quantity' => $this->thresholdQuantity,
             'preferred_supplier_id' => $this->preferredSupplier,
-
             'unit_purchase_price' => $this->unitPurchasePrice,
-        ]);
+        ];
+
+        $maxAttempts = 15;
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                $this->inventoryItem->update($payload);
+                break;
+            } catch (QueryException $e) {
+                if ($userSuppliedCode || !InventoryItem::isDuplicateRestaurantItemCodeException($e)) {
+                    throw $e;
+                }
+                if ($attempt === $maxAttempts) {
+                    throw $e;
+                }
+                $payload['item_code'] = InventoryItem::generateNextItemCodeForRestaurant($restaurantId);
+                $this->itemCode = $payload['item_code'];
+            }
+        }
 
         $this->dispatch('hideEditInventoryItemModal');
 

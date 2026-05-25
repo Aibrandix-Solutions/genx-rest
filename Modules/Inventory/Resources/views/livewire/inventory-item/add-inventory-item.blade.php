@@ -19,6 +19,17 @@
                     </div>
 
                     <div>
+                        <x-label for="itemCode" value="{{ __('inventory::modules.inventoryItem.itemCode') }}" />
+                        <x-input id="itemCode" class="block mt-1 w-full" type="text"
+                            placeholder="{{ __('inventory::placeholders.itemCodePlaceholder') }}"
+                            name="itemCode" wire:model='itemCode' />
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                            {{ __('inventory::modules.inventoryItem.itemCodeHelp') }}
+                        </p>
+                        <x-input-error for="itemCode" class="mt-2" />
+                    </div>
+
+                    <div>
                         <x-label for="itemCategory" value="{{ __('inventory::modules.inventoryItem.category') }}" />
                         <x-select id="itemCategory" class="block mt-1 w-full" 
                             name="itemCategory" wire:model='itemCategory'>

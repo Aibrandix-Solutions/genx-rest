@@ -432,6 +432,9 @@
                 <tr>
                     <td>{{ $index + 1 }}</td>
                     <td>
+                        @if(!empty(optional($item->inventoryItem)->item_code))
+                            <span class="muted" style="font-family: monospace;">[{{ $item->inventoryItem->item_code }}]</span>
+                        @endif
                         {{ $item->inventoryItem->name ?? 'Item Deleted' }}
                         @if(optional(optional($item->inventoryItem)->unit)->symbol)
                             <span class="muted">({{ $item->inventoryItem->unit->symbol }})</span>

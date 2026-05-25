@@ -186,6 +186,9 @@
                 <tr>
                     <td>{{ $index + 1 }}</td>
                     <td>
+                        @if(!empty($item->inventoryItem->item_code))
+                            <span style="font-family: monospace; font-size: 0.85em; color: var(--text-secondary);">[{{ $item->inventoryItem->item_code }}]</span>
+                        @endif
                         {{ $item->inventoryItem->name }}
                     </td>
                     <td>{{ number_format($item->quantity, 2) }} 

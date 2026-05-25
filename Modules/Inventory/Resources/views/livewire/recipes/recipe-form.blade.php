@@ -139,7 +139,7 @@
                     >
                         <option value="">{{ __('inventory::modules.recipe.select_ingredient') }}</option>
                         @foreach($inventoryItemsWithUnits as $item)
-                            <option value="{{ $item['id'] }}">{{ $item['name'] }} ({{ $item['unit_symbol'] }})</option>
+                            <option value="{{ $item['id'] }}">{{ !empty($item['item_code']) ? '['.$item['item_code'].'] ' : '' }}{{ $item['name'] }} ({{ $item['unit_symbol'] }})</option>
                         @endforeach
                     </select>
                     @error("ingredients.{$index}.inventory_item_id") 

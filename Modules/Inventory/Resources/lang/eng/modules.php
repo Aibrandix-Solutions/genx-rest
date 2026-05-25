@@ -59,6 +59,8 @@ return [
     'inventoryItem' => [
         'addInventoryItem' => 'Add Inventory Item',
         'name' => 'Item Name',
+        'itemCode' => 'Item Code',
+        'itemCodeHelp' => 'Leave empty to auto-generate (e.g. INV0001).',
         'category' => 'Category',
         'unit' => 'Unit',
         'thresholdQuantity' => 'Threshold Quantity',
