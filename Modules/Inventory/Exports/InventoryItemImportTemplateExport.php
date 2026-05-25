@@ -11,6 +11,7 @@ class InventoryItemImportTemplateExport implements FromArray, WithHeadings
     {
         return [
             'name',
+            'item_code',
             'category_name',
             'unit_name',
             'threshold_quantity',
@@ -22,8 +23,9 @@ class InventoryItemImportTemplateExport implements FromArray, WithHeadings
     public function array(): array
     {
         return [
-            ['Tomato', 'Vegetables', 'Kg', 5, 120, 'Fresh Farm Suppliers'],
-            ['Chicken Breast', 'Meat', 'Kg', 10, 950, ''],
+            // item_code is optional; leave blank to auto-generate (e.g. INV0001)
+            ['Tomato', '', 'Vegetables', 'Kg', 5, 120, 'Fresh Farm Suppliers'],
+            ['Chicken Breast', 'INV1001', 'Meat', 'Kg', 10, 950, ''],
         ];
     }
 }
