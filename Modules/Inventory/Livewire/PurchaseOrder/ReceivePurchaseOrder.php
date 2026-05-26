@@ -25,6 +25,7 @@ class ReceivePurchaseOrder extends Component
             return [
                 'id' => $item->id,
                 'name' => $item->inventoryItem->name,
+                'item_code' => $item->inventoryItem->item_code,
                 'quantity' => $item->quantity,
                 'received_quantity' => $item->received_quantity,
                 'receiving_quantity' => 0,

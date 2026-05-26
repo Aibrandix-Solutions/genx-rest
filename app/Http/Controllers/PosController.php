@@ -234,7 +234,7 @@ class PosController extends Controller
             'current_user' => [
                 'id' => (int) (auth()->id() ?? 0),
                 'name' => (string) (auth()->user()?->name ?? ''),
-                'is_waiter' => (bool) auth()->user()?->hasRole('waiter_' . (restaurant()?->id ?? 0)),
+                'is_waiter' => (bool) auth()->user()?->hasRole(\App\Models\User::waiterRoleName(restaurant()?->id)),
                 'can_update_order' => (bool) user_can('Update Order'),
             ],
             'waiters' => collect($data['waiters'] ?? [])->map(function ($waiter) {

@@ -16,12 +16,18 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('inventory_items', function (Blueprint $table) {
-            $table->decimal('unit_purchase_price', 16, 2)->default(0);
+            if (!Schema::hasColumn('inventory_items', 'unit_purchase_price')) {
+                $table->decimal('unit_purchase_price', 16, 2)->default(0);
+            }
         });
 
         Schema::table('inventory_movements', function (Blueprint $table) {
-            $table->decimal('unit_purchase_price', 16, 2)->default(0);
-            $table->date('expiration_date')->nullable();
+            if (!Schema::hasColumn('inventory_movements', 'unit_purchase_price')) {
+                $table->decimal('unit_purchase_price', 16, 2)->default(0);
+            }
+            if (!Schema::hasColumn('inventory_movements', 'expiration_date')) {
+                $table->date('expiration_date')->nullable();
+            }
         });
 
         $inventoryModule = Module::firstOrCreate(['name' => 'Inventory']);
@@ -60,7 +66,12 @@ return new class extends Migration
             ['guard_name' => 'web', 'name' => 'Update Inventory Settings', 'module_id' => $inventoryModule->id],
         ];
 
-        Permission::insert($permissions);
+        foreach ($permissions as $permission) {
+            Permission::firstOrCreate(
+                ['name' => $permission['name'], 'guard_name' => $permission['guard_name']],
+                $permission
+            );
+        }
 
         $allPermissions = Permission::where('module_id', $inventoryModule->id)->get()->pluck('name')->toArray();
 

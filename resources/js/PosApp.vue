@@ -42,7 +42,7 @@
 
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
-                :waiters="waiters" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
+                :waiters="waiters" :assigned-waiter-name="assignedWaiterName" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
                 :saving-action="savingAction" :extra-charges="extraCharges" :discount-amount="discountAmount"
                 :discount-type="discountType" :discount-value="discountValue" :is-online="isOnline"
                 :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
@@ -285,6 +285,7 @@ const orderType = ref("Dine In");
 const orderNumber = ref("");
 const pax = ref(1);
 const waiterId = ref(null);
+const assignedWaiterName = ref("");
 const waiters = ref([]);
 const currentUser = ref(null);
 const canEditWaiter = ref(true);
@@ -1661,36 +1662,64 @@ const openBillPrintWindow = (id) => {
         return;
     }
 
-    const url = `/orders/print/${id}`;
-    const printWindow = window.open(url, "_blank");
+    openPrintUrl(`/orders/print/${id}`);
+};
 
-    if (printWindow) {
-        setTimeout(() => {
-            printWindow.print();
-        }, 1000);
+/**
+ * Open a print URL. Uses anchor.click (legacy print_location parity) because
+ * window.open after await is often blocked as a popup.
+ *
+ * Do not call print() from the parent window: kot/print and orders/print blades
+ * already invoke window.print() on load — a parent print() causes a second dialog
+ * (often seen in production when the pre-opened placeholder tab is used).
+ */
+const openPrintUrl = (url, existingWindow = null) => {
+    if (!url) {
+        return false;
     }
+
+    if (existingWindow && !existingWindow.closed) {
+        existingWindow.location.href = url;
+
+        return true;
+    }
+
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.target = "_blank";
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    return true;
+};
+
+const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
+    const printUrls = (resultPayload?.links?.kot_print_urls || []).filter(Boolean);
+
+    if (printUrls.length === 0) {
+        if (placeholderWindow && !placeholderWindow.closed) {
+            placeholderWindow.close();
+        }
+        showPosAlert(
+            "warning",
+            "Order saved, but no KOT ticket could be printed. Check kitchen / KOT place setup."
+        );
+
+        return false;
+    }
+
+    openPrintUrl(printUrls[0], placeholderWindow);
+    printUrls.slice(1).forEach((url, index) => {
+        setTimeout(() => openPrintUrl(url), (index + 1) * 650);
+    });
+
+    return true;
 };
 
 const openKotPrintWindows = (urls = []) => {
-    const printUrls = Array.isArray(urls)
-        ? urls.filter(Boolean)
-        : [];
-
-    if (printUrls.length === 0) {
-        return;
-    }
-
-    printUrls.forEach((url, index) => {
-        setTimeout(() => {
-            const printWindow = window.open(url, "_blank");
-
-            if (printWindow) {
-                setTimeout(() => {
-                    printWindow.print();
-                }, 1000);
-            }
-        }, index * 650);
-    });
+    triggerKotPrint({ links: { kot_print_urls: urls } });
 };
 
 const clearCartAfterSave = () => {
@@ -1737,22 +1766,37 @@ const handleSaveOrder = async (...actions) => {
     // Create action key for tracking which button is being pressed
     const actionKey = actions.join("_") || "kot"; // e.g., "kot", "bill", "kot_print", "bill_payment", etc.
     savingAction.value = actionKey;
+    const actionList = Array.isArray(actions) ? actions : [];
+    const wantsKotPrint =
+        actionList.includes("kot") &&
+        actionList.includes("print") &&
+        !actionList.includes("bill");
+    // Open a tab synchronously on click so print is not blocked after await.
+    let kotPrintPlaceholder = wantsKotPrint ? window.open("about:blank", "_blank") : null;
     try {
         // Validate cart has items
         // In linked-order mode, existing items are on the server — cart may be empty if no NEW items are added
         if (!isLinkedOrderMode.value && (!cartItems.value || cartItems.value.length === 0)) {
+            kotPrintPlaceholder?.close();
             showPosAlert("error", "Cart is empty. Please add items before saving.");
             savingAction.value = null;
             return;
         }
-
-        const actionList = Array.isArray(actions) ? actions : [];
         const routeLinkedOrderId = params.orderId ? Number(params.orderId) : null;
         const effectiveOrderId = orderId.value
             ? Number(orderId.value)
             : routeLinkedOrderId;
         const isExistingOrder = !!effectiveOrderId;
-        const action = actionList.includes("bill") ? "bill" : "kot";
+        // Legacy saveOrder('kot', 'bill', 'payment'): primary action is kot; bill + payment follow.
+        const isKotBillPayment =
+            actionList.includes("kot") &&
+            actionList.includes("bill") &&
+            actionList.includes("payment");
+        const action = isKotBillPayment
+            ? "kot"
+            : actionList.includes("bill")
+                ? "bill"
+                : "kot";
         const secondaryAction = actionList.includes("payment")
             ? "payment"
             : actionList.includes("print")
@@ -1798,6 +1842,7 @@ const handleSaveOrder = async (...actions) => {
         const orderData = {
             order_id: effectiveOrderId || null,
             action,
+            bill_after_kot: isKotBillPayment,
             open_payment: openPayment,
             secondary_action: secondaryAction,
             order_type_id: selectedOrderType?.id || null,
@@ -1877,6 +1922,7 @@ const handleSaveOrder = async (...actions) => {
         );
 
         if (result.offline) {
+            kotPrintPlaceholder?.close();
             console.log("Order queued for sync:", result.operationId);
 
             if (isExistingOrder) {
@@ -1901,12 +1947,24 @@ const handleSaveOrder = async (...actions) => {
             const shouldOpenPayment = Boolean(
                 nextAction.open_payment ?? openPayment
             );
+            const shouldPrintKot = Boolean(
+                nextAction.print_kot ??
+                    (action === "kot" && actionList.includes("print") && !actionList.includes("bill"))
+            );
             const shouldPrintReceipt = Boolean(
-                nextAction.print_receipt ?? actionList.includes("print")
+                nextAction.print_receipt ??
+                    (actionList.includes("bill") && actionList.includes("print"))
             );
             const shouldShowOrderDetail = Boolean(
                 nextAction.show_order_detail ?? (actionList.includes("bill") && !shouldOpenPayment && !shouldPrintReceipt)
             );
+
+            if (shouldPrintKot) {
+                triggerKotPrint(resultPayload, kotPrintPlaceholder);
+                kotPrintPlaceholder = null;
+            } else {
+                kotPrintPlaceholder?.close();
+            }
 
             console.log("[POS DEBUG] saveOrder decoded response", {
                 rawResult: result?.data,
@@ -1916,6 +1974,7 @@ const handleSaveOrder = async (...actions) => {
                 links: resultPayload.links || null,
                 nextAction,
                 shouldOpenPayment,
+                shouldPrintKot,
                 shouldPrintReceipt,
                 shouldShowOrderDetail,
             });
@@ -1938,10 +1997,6 @@ const handleSaveOrder = async (...actions) => {
                 // freshly appended KOT instead of an empty "New KOT" screen. KOT+print
                 // fires the kitchen print windows first, then redirects.
                 if (isNewKotMode.value && action === "kot" && !shouldOpenPayment) {
-                    if (actionList.includes("print")) {
-                        const kotPrintUrls = resultPayload.links?.kot_print_urls || [];
-                        openKotPrintWindows(kotPrintUrls);
-                    }
                     navigateToLinkedOrderDetail(resolvedOrderId);
                     return;
                 }
@@ -2022,54 +2077,22 @@ const handleSaveOrder = async (...actions) => {
                 }
             }
 
-            // Handle print action
-            if (shouldPrintReceipt) {
-                const kotPrintUrls = resultPayload.links?.kot_print_urls || [];
-                const printUrl = actionList.includes("bill")
-                    ? (resultPayload.links?.bill || `/orders/print/${orderIdToOpen}`)
-                    : kotPrintUrls[0] || resultPayload.links?.kot;
+            // Bill receipt print (KOT print handled above via triggerKotPrint)
+            if (shouldPrintReceipt && actionList.includes("bill")) {
+                const printUrl =
+                    resultPayload.links?.bill ||
+                    (orderIdToOpen ? `/orders/print/${orderIdToOpen}` : null);
 
-                console.log("[POS DEBUG] print decision", {
+                console.log("[POS DEBUG] bill print decision", {
                     actionList,
                     orderIdToOpen,
                     printUrl,
-                    kotPrintUrls,
                 });
 
-                if (actionList.includes("bill")) {
-                    if (printUrl) {
-                        setTimeout(() => {
-                            const printWindow = window.open(printUrl, '_blank');
-                            setTimeout(() => {
-                                if (printWindow) {
-                                    printWindow.print();
-                                }
-                            }, 1000);
-                        }, 500);
-                    } else {
-                        console.warn("[POS DEBUG] Print URL not available in response", {
-                            actionList,
-                            orderIdToOpen,
-                            resultPayload,
-                        });
-                    }
-                } else if (kotPrintUrls.length > 0) {
-                    openKotPrintWindows(kotPrintUrls);
-                } else if (printUrl) {
-                    // Open print window
-                    setTimeout(() => {
-                        const printWindow = window.open(printUrl, '_blank');
-                        // Trigger print after a short delay to ensure document loads
-                        setTimeout(() => {
-                            if (printWindow) {
-                                printWindow.print();
-                                // Optionally close window after user finishes or clicks close
-                                // printWindow.close();
-                            }
-                        }, 1000);
-                    }, 500);
+                if (printUrl) {
+                    setTimeout(() => openPrintUrl(printUrl), 500);
                 } else {
-                    console.warn("[POS DEBUG] Print URL not available in response", {
+                    console.warn("[POS DEBUG] Bill print URL not available in response", {
                         actionList,
                         orderIdToOpen,
                         resultPayload,
@@ -2093,6 +2116,7 @@ const handleSaveOrder = async (...actions) => {
             }
         }
     } catch (error) {
+        kotPrintPlaceholder?.close();
         const errorMessage = error?.response?.data?.message || error?.message || "Failed to save order";
         const errors = error?.response?.data?.errors || {};
         console.error("Error saving order:", {
@@ -2230,6 +2254,9 @@ const handleRemoveCustomer = async () => {
 
 const handleWaiterUpdate = async (newWaiterId) => {
     waiterId.value = newWaiterId ? Number(newWaiterId) : "";
+    if (!newWaiterId) {
+        assignedWaiterName.value = "";
+    }
 
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     if (!activeOrderId) {
@@ -2748,6 +2775,7 @@ const applyOrderPayload = (payload, activeOrderId) => {
 
     // Load order details
     waiterId.value = payload.waiter_id || "";
+    assignedWaiterName.value = payload.waiter_name ? String(payload.waiter_name) : "";
     orderNote.value = payload.note || "";
     tipAmount.value = Number(payload.tip_amount || 0);
     extraCharges.value = Array.isArray(payload.extra_charges) ? payload.extra_charges : [];

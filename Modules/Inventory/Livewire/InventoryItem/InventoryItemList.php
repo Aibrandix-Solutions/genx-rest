@@ -72,6 +72,7 @@ class InventoryItemList extends Component
         }
 
         $indexMap = array_flip($headers);
+        $hasItemCodeColumn = isset($indexMap['item_code']);
         $restaurantId = restaurant()->id;
         $createdCount = 0;
         $updatedCount = 0;
@@ -85,6 +86,9 @@ class InventoryItemList extends Component
 
             $excelRow = $i + 1;
             $name = trim((string) ($row[$indexMap['name']] ?? ''));
+            $itemCode = $hasItemCodeColumn
+                ? trim((string) ($row[$indexMap['item_code']] ?? ''))
+                : '';
             $categoryName = trim((string) ($row[$indexMap['category_name']] ?? ''));
             $unitName = trim((string) ($row[$indexMap['unit_name']] ?? ''));
             $supplierName = trim((string) ($row[$indexMap['preferred_supplier_name']] ?? ''));
@@ -136,6 +140,18 @@ class InventoryItemList extends Component
                 ->whereRaw('LOWER(name) = ?', [mb_strtolower($name)])
                 ->first();
 
+            // Validate item_code uniqueness (if provided) within the restaurant.
+            if ($itemCode !== '') {
+                $codeOwner = InventoryItem::query()
+                    ->where('restaurant_id', $restaurantId)
+                    ->where('item_code', $itemCode)
+                    ->first();
+                if ($codeOwner && (!$existing || $codeOwner->id !== $existing->id)) {
+                    $errors[] = "Row {$excelRow}: item_code '{$itemCode}' already exists.";
+                    continue;
+                }
+            }
+
             $payload = [
                 'inventory_item_category_id' => $category->id,
                 'unit_id' => $unit->id,
@@ -144,10 +160,17 @@ class InventoryItemList extends Component
                 'preferred_supplier_id' => $supplierId,
             ];
 
+            if ($itemCode !== '') {
+                $payload['item_code'] = $itemCode;
+            }
+
             if ($existing) {
                 $existing->update($payload);
                 $updatedCount++;
             } else {
+                if ($itemCode === '') {
+                    $payload['item_code'] = InventoryItem::generateNextItemCodeForRestaurant((int) $restaurantId);
+                }
                 InventoryItem::create([
                     ...$payload,
                     'restaurant_id' => $restaurantId,
