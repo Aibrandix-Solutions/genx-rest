@@ -34,6 +34,7 @@
             <MenuPanel class="w-full lg:basis-[70%] lg:max-w-[70%] min-w-0" :search="search" :menu-id="menuId"
                 :filter-categories="filterCategories" :menus="menus" :categories="categories" :items="contextualMenuItems"
                 :combo-packs="comboPacks" :hide-menu-item-image-on-pos="hideMenuItemImageOnPos"
+                :menu-adds-blocked="isLinkedOrderMode"
                 :currency-symbol="currencySymbol" :contextual-price-resolver="resolveContextualPrice"
                 @update:search="search = $event"
                 @update:menuId="menuId = $event"
@@ -130,6 +131,7 @@ import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import CancelOrderModal from "./components/pos/CancelOrderModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
+import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
 
 // Generate unique tab ID to avoid concurrent increment collisions
 const tabId = ref('tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
@@ -443,6 +445,9 @@ const nextComboInstanceIndex = (packId) => {
 };
 
 const handleAddComboToCart = async (comboPackId) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
     const pid = Number(comboPackId);
     if (!pid) {
         return;
@@ -548,6 +553,10 @@ const handleAddToCart = async (
     modifierId = 0,
     modifierOptionQuantities = {}
 ) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
+
     const normalizedItemId = Number(itemId);
     const normalizedVariantId = Number(variantId || 0);
     const normalizedModifierId = Number(modifierId || 0);
@@ -1068,6 +1077,10 @@ const handleSaveNote = (note) => {
 };
 
 const handleIncreaseQuantity = (itemId) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
+
     const item = findCartLine(itemId);
     if (item && item.combo_pack_id) {
         return;
@@ -1099,6 +1112,10 @@ const handleDecreaseQuantity = (itemId) => {
 };
 
 const handleUpdateQuantity = (quantityData) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
+
     const item = findCartLine(
         quantityData.line_key || quantityData.id,
         quantityData.variant_id,
@@ -1984,7 +2001,9 @@ const handleSaveOrder = async (...actions) => {
 
                 // Keep linked footer state in sync immediately after billing.
                 if (actionList.includes("bill")) {
-                    orderLifecycleStatus.value = "billed";
+                    orderLifecycleStatus.value = resultPayload?.status
+                        ? String(resultPayload.status).toLowerCase()
+                        : "billed";
                     showOrderDetailMode.value = true;
                     mode.value = "kot";
                 }
@@ -2740,6 +2759,77 @@ const loadOrderData = async (targetOrderId = null) => {
     }
 };
 
+const resolveLivewireEventOrderId = (payload) => {
+    if (payload == null) {
+        return null;
+    }
+
+    if (typeof payload === "number" || typeof payload === "string") {
+        return payload;
+    }
+
+    if (typeof payload === "object") {
+        if (payload.id != null) {
+            return payload.id;
+        }
+        if (payload.orderId != null) {
+            return payload.orderId;
+        }
+        if (Array.isArray(payload) && payload.length > 0) {
+            return resolveLivewireEventOrderId(payload[0]);
+        }
+    }
+
+    return null;
+};
+
+let linkedOrderRefreshTimer = null;
+let posLivewireListenersRegistered = false;
+
+const scheduleLinkedOrderRefresh = (targetId = null) => {
+    const id = targetId ?? orderId.value;
+    if (!id || !isLinkedOrderMode.value) {
+        return;
+    }
+
+    if (linkedOrderRefreshTimer) {
+        clearTimeout(linkedOrderRefreshTimer);
+    }
+
+    linkedOrderRefreshTimer = setTimeout(() => {
+        linkedOrderRefreshTimer = null;
+        loadOrderData(id);
+    }, 150);
+};
+
+const handleShowOrderDetailSync = (payload) => {
+    const detailId = resolveLivewireEventOrderId(payload);
+    if (!detailId || !orderId.value) {
+        return;
+    }
+
+    if (String(detailId) !== String(orderId.value)) {
+        return;
+    }
+
+    scheduleLinkedOrderRefresh(detailId);
+};
+
+const handleRefreshOrdersSync = () => {
+    scheduleLinkedOrderRefresh();
+};
+
+const registerPosLivewireOrderSync = () => {
+    const livewire = typeof window !== "undefined" ? window.Livewire : null;
+    if (!livewire || typeof livewire.on !== "function" || posLivewireListenersRegistered) {
+        return;
+    }
+
+    livewire.on("showOrderDetail", handleShowOrderDetailSync);
+    livewire.on("refreshOrders", handleRefreshOrdersSync);
+    posLivewireListenersRegistered = true;
+};
+
 const applyOrderPayload = (payload, activeOrderId) => {
     if (!payload) {
         return;
@@ -3055,6 +3145,13 @@ onMounted(async () => {
 
     // Sync reward points state after initial load
     syncRewardState();
+
+    // Livewire drawer (AddPayment / OrderDetail) updates after pay; rehydrate Vue footer badge.
+    if (typeof window !== "undefined" && window.Livewire?.on) {
+        registerPosLivewireOrderSync();
+    } else if (typeof document !== "undefined") {
+        document.addEventListener("livewire:init", registerPosLivewireOrderSync, { once: true });
+    }
 });
 
 // Reload menu data when coming back online

@@ -22,6 +22,10 @@
             <div :class="showMenu ? 'fixed inset-0 z-40 flex' : 'hidden md:flex'"
                 class="md:flex flex-col bg-gray-50 lg:h-full w-full py-4 px-3 dark:bg-gray-900 transition-transform duration-300 md:static md:inset-auto md:z-auto md:translate-x-0 overflow-y-auto md:overflow-visible md:max-h-none"
                 style="backdrop-filter: blur(2px)">
+                <div v-if="menuAddsBlocked"
+                    class="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
+                    {{ linkedOrderNewKotMessage }}
+                </div>
                 <!-- Search and Reset -->
                 <div class="flex items-center justify-between gap-3">
                     <div class="flex-1">
@@ -195,6 +199,12 @@ import { ref, computed, watch } from "vue";
 import MenuItem from "./MenuItem.vue";
 import ItemVariationsModal from "./ItemVariationsModal.vue";
 import ItemModifiersModal from "./ItemModifiersModal.vue";
+import {
+    LINKED_ORDER_NEW_KOT_MESSAGE,
+    blockLinkedOrderItemAdds,
+} from "../../utils/linkedOrderGuards.js";
+
+const linkedOrderNewKotMessage = LINKED_ORDER_NEW_KOT_MESSAGE;
 
 const props = defineProps({
     search: {
@@ -234,6 +244,10 @@ const props = defineProps({
         default: () => [],
     },
     hideMenuItemImageOnPos: {
+        type: Boolean,
+        default: false,
+    },
+    menuAddsBlocked: {
         type: Boolean,
         default: false,
     },
@@ -389,6 +403,9 @@ const comboPackDiscountCaption = (combo) => {
 };
 
 const handleAddCombo = (comboId) => {
+    if (blockLinkedOrderItemAdds(props.menuAddsBlocked)) {
+        return;
+    }
     emit("add-combo-to-cart", comboId);
     closeMenuAfterAdd();
 };
@@ -589,6 +606,13 @@ const openModifierModal = (item, variationId, variationName, done) => {
 };
 
 const handleAddToCart = (itemId, variantId, modifierId, done) => {
+    if (blockLinkedOrderItemAdds(props.menuAddsBlocked)) {
+        if (typeof done === "function") {
+            done();
+        }
+        return;
+    }
+
     // MenuItem may pass `{}` for the 3rd arg when there are no configurable
     // options. Coerce to a numeric so older callers stay compatible.
     const numericVariantId = Number(variantId || 0);
@@ -612,6 +636,10 @@ const handleAddToCart = (itemId, variantId, modifierId, done) => {
 };
 
 const handleShowVariations = (item) => {
+    if (blockLinkedOrderItemAdds(props.menuAddsBlocked)) {
+        return;
+    }
+
     selectedItem.value = item;
     showVariationsModal.value = true;
 };
@@ -622,6 +650,14 @@ const handleSelectVariation = (variation) => {
 
 // Update the event handler signature to handle the done callback
 const handleSelectVariationWithCallback = (variation, done) => {
+    if (blockLinkedOrderItemAdds(props.menuAddsBlocked)) {
+        showVariationsModal.value = false;
+        if (typeof done === "function") {
+            done();
+        }
+        return;
+    }
+
     const item = selectedItem.value;
     if (!item) {
         showVariationsModal.value = false;
@@ -646,6 +682,14 @@ const handleSelectVariationWithCallback = (variation, done) => {
 };
 
 const handleModifiersSave = (payload, done) => {
+    if (blockLinkedOrderItemAdds(props.menuAddsBlocked)) {
+        showModifiersModal.value = false;
+        if (typeof done === "function") {
+            done();
+        }
+        return;
+    }
+
     const item = modifierItem.value;
     if (!item) {
         showModifiersModal.value = false;
