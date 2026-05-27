@@ -17,7 +17,7 @@ class RestaurantSettingSeeder extends Seeder
      */
     public function run(): void
     {
-        $country = Country::where('countries_code', 'US')->first();
+        $country = Country::where('countries_code', 'LK')->first();
 
         $count = 1;
 
@@ -58,7 +58,7 @@ class RestaurantSettingSeeder extends Seeder
             $setting->name = $companyName;
             $setting->address = fake()->address();
             $setting->phone_number = fake()->e164PhoneNumber;
-            $setting->timezone = 'America/New_York';
+            $setting->timezone = 'Asia/Colombo';
             $setting->theme_hex = '#A78BFA';
             $setting->theme_rgb = '167, 139, 250';
             $setting->email = str()->slug($companyName, '.') . '@example.com';

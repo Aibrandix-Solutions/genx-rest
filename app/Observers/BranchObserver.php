@@ -187,15 +187,17 @@ class BranchObserver
             ]);
         }
 
-        // Auto-create purchase location for this branch
-        \Modules\Inventory\Entities\PurchaseLocation::create([
-            'restaurant_id' => $branch->restaurant_id,
-            'branch_id' => $branch->id,
-            'name' => $branch->name,
-            'address' => $branch->address,
-            'type' => 'branch',
-            'is_active' => $branch->is_active ?? true,
-        ]);
+        // Auto-create purchase location for this branch (only if Inventory module table exists)
+        if (\Illuminate\Support\Facades\Schema::hasTable('purchase_locations')) {
+            \Modules\Inventory\Entities\PurchaseLocation::create([
+                'restaurant_id' => $branch->restaurant_id,
+                'branch_id' => $branch->id,
+                'name' => $branch->name,
+                'address' => $branch->address,
+                'type' => 'branch',
+                'is_active' => $branch->is_active ?? true,
+            ]);
+        }
     }
 
     /**
@@ -204,13 +206,15 @@ class BranchObserver
     public function updated(Branch $branch)
     {
         // Sync branch changes to its purchase location
-        \Modules\Inventory\Entities\PurchaseLocation::where('branch_id', $branch->id)
-            ->where('type', 'branch')
-            ->update([
-                'name' => $branch->name,
-                'address' => $branch->address,
-                'is_active' => $branch->is_active ?? true,
-            ]);
+        if (\Illuminate\Support\Facades\Schema::hasTable('purchase_locations')) {
+            \Modules\Inventory\Entities\PurchaseLocation::where('branch_id', $branch->id)
+                ->where('type', 'branch')
+                ->update([
+                    'name' => $branch->name,
+                    'address' => $branch->address,
+                    'is_active' => $branch->is_active ?? true,
+                ]);
+        }
     }
 
     /**
@@ -219,8 +223,10 @@ class BranchObserver
     public function deleted(Branch $branch)
     {
         // Deactivate the purchase location when branch is deleted
-        \Modules\Inventory\Entities\PurchaseLocation::where('branch_id', $branch->id)
-            ->where('type', 'branch')
-            ->update(['is_active' => false]);
+        if (\Illuminate\Support\Facades\Schema::hasTable('purchase_locations')) {
+            \Modules\Inventory\Entities\PurchaseLocation::where('branch_id', $branch->id)
+                ->where('type', 'branch')
+                ->update(['is_active' => false]);
+        }
     }
 }

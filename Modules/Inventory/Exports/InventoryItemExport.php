@@ -21,6 +21,7 @@ class InventoryItemExport implements WithMapping, FromCollection, WithHeadings, 
     public function headings(): array
     {
         return [
+            __('inventory::modules.inventoryItem.itemCode'),
             __('inventory::modules.inventoryItem.name'),
             __('inventory::modules.inventoryItem.category'),
             __('inventory::modules.inventoryItem.unit'),
@@ -33,6 +34,7 @@ class InventoryItemExport implements WithMapping, FromCollection, WithHeadings, 
     public function map($item): array
     {
         return [
+            $item->item_code ?? '--',
             $item->name,
             $item->category->name ?? '--',
             $item->unit->name ?? '--',

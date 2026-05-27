@@ -101,7 +101,12 @@
                                     wire:click="selectItem({{ $item->id }})"
                                     class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-700 last:border-b-0 transition"
                                 >
-                                    <div class="font-medium text-gray-900 dark:text-white">{{ $item->name }}</div>
+                                    <div class="font-medium text-gray-900 dark:text-white">
+                                        @if(!empty($item->item_code))
+                                            <span class="font-mono text-xs bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded mr-1">{{ $item->item_code }}</span>
+                                        @endif
+                                        {{ $item->name }}
+                                    </div>
                                     <div class="text-xs text-gray-500 dark:text-gray-400">Default price: {{ currency_format($item->unit_purchase_price, restaurant()->currency_id) }}</div>
                                     @if($item->last_purchase_price !== null)
                                         <div class="text-xs text-blue-600 dark:text-blue-400">Last purchased: {{ currency_format($item->last_purchase_price, restaurant()->currency_id) }}</div>
@@ -139,7 +144,7 @@
                                     <x-select wire:key="purchase-item-select-mobile-{{ $item['_key'] ?? $index }}-{{ count($inventoryItems) }}" wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
                                         <option value="">Select item...</option>
                                         @foreach($inventoryItems as $inventoryItem)
-                                            <option value="{{ $inventoryItem->id }}">{{ $inventoryItem->name }}</option>
+                                            <option value="{{ $inventoryItem->id }}">{{ !empty($inventoryItem->item_code) ? '['.$inventoryItem->item_code.'] ' : '' }}{{ $inventoryItem->name }}</option>
                                         @endforeach
                                     </x-select>
                                     @if(!empty($item['last_purchase_price']))
@@ -221,7 +226,7 @@
                                         <x-select wire:key="purchase-item-select-desktop-{{ $item['_key'] ?? $index }}-{{ count($inventoryItems) }}" wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
                                             <option value="">Select item...</option>
                                             @foreach($inventoryItems as $inventoryItem)
-                                                <option value="{{ $inventoryItem->id }}">{{ $inventoryItem->name }}</option>
+                                                <option value="{{ $inventoryItem->id }}">{{ !empty($inventoryItem->item_code) ? '['.$inventoryItem->item_code.'] ' : '' }}{{ $inventoryItem->name }}</option>
                                             @endforeach
                                         </x-select>
                                         @if(!empty($item['last_purchase_price']))

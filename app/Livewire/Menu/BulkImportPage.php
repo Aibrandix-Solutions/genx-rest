@@ -46,7 +46,7 @@ class BulkImportPage extends Component
     public $availableCategories = [];
     public $availableMenus = [];
     public $availableKitchens;
-    public $selectedKitchenId = null;
+    public array $selectedKitchenTypes = [];
 
     // CSV Preview properties
     public $csvData = [];
@@ -88,15 +88,41 @@ class BulkImportPage extends Component
             $this->availableMenus = Menu::where('branch_id', $branch->id)->get()->pluck('menu_name')->toArray();
             $this->availableKitchens = \App\Models\KotPlace::where('branch_id', $branch->id)->where('is_active', true)->get();
 
-            // Auto-select kitchen if only one exists
             if ($this->availableKitchens->count() === 1) {
-                $this->selectedKitchenId = $this->availableKitchens->first()->id;
+                $this->selectedKitchenTypes = [(string) $this->availableKitchens->first()->id];
             }
         } catch (\Exception $e) {
             $this->availableCategories = [];
             $this->availableMenus = [];
             $this->availableKitchens = collect();
         }
+    }
+
+    public function isKitchenSelectionRequired(): bool
+    {
+        return in_array('Kitchen', restaurant_modules(), true)
+            && $this->availableKitchens->count() > 0;
+    }
+
+    public function isKitchenSelectionValid(): bool
+    {
+        if (! $this->isKitchenSelectionRequired()) {
+            return true;
+        }
+
+        return count($this->selectedKitchenTypes) > 0;
+    }
+
+    public function getSelectedKitchenNamesProperty(): string
+    {
+        if ($this->selectedKitchenTypes === []) {
+            return '';
+        }
+
+        return $this->availableKitchens
+            ->whereIn('id', array_map('intval', $this->selectedKitchenTypes))
+            ->pluck('name')
+            ->implode(', ');
     }
 
     public function resetUploadState()
@@ -117,7 +143,7 @@ class BulkImportPage extends Component
         ];
         $this->currentStage = '';
         $this->stageProgress = 0;
-        $this->selectedKitchenId = null;
+        $this->selectedKitchenTypes = [];
 
         // Reset CSV preview data
         $this->csvData = [];
@@ -135,7 +161,7 @@ class BulkImportPage extends Component
 
     public function goToPreview()
     {
-        if (!$this->uploadFile || ($this->availableKitchens->count() > 1 && !$this->selectedKitchenId)) {
+        if (! $this->uploadFile || ! $this->isKitchenSelectionValid()) {
             $this->alert('error', __('app.pleaseCompleteAllSteps'));
             return;
         }
@@ -679,7 +705,12 @@ class BulkImportPage extends Component
             }
 
             // Create import instance and process items sheet
-            $import = new MenuItemImport($restaurantId, $branchId, $this->selectedKitchenId, $itemsColumnMapping);
+            $import = new MenuItemImport(
+                $restaurantId,
+                $branchId,
+                array_map('intval', $this->selectedKitchenTypes),
+                $itemsColumnMapping
+            );
             $this->currentStage = __('modules.menu.importingData') . '...';
             $this->uploadProgress = 40;
 

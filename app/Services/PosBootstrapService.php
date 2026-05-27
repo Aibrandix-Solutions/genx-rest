@@ -8,7 +8,6 @@ use App\Models\ItemCategory;
 use App\Models\OrderType;
 use App\Models\Tax;
 use App\Models\User;
-use App\Scopes\BranchScope;
 use Illuminate\Support\Facades\Cache;
 
 class PosBootstrapService
@@ -28,6 +27,7 @@ class PosBootstrapService
             });
 
         $data = array_merge($stableData, [
+            'waiters' => $this->freshWaiters(),
             'delivery_executives' => $this->freshDeliveryExecutives(),
             'pos_preferences' => [
                 'default_order_type_id' => auth()->user()?->default_order_type_id,
@@ -43,12 +43,25 @@ class PosBootstrapService
 
     public function clearCache(?int $restaurantId = null, ?int $branchId = null): void
     {
-        if (!$restaurantId) {
+        if (! $restaurantId) {
             return;
         }
 
         $normalizedBranchId = $branchId ?? '0';
         Cache::forget('pos.bootstrap.v2.' . $restaurantId . '.' . $normalizedBranchId);
+    }
+
+    /**
+     * Invalidate POS bootstrap for every branch (waiters with null branch_id appear on all branches).
+     */
+    public function clearCacheForRestaurant(int $restaurantId): void
+    {
+        $this->clearCache($restaurantId, 0);
+
+        \App\Models\Branch::query()
+            ->where('restaurant_id', $restaurantId)
+            ->pluck('id')
+            ->each(fn ($branchId) => $this->clearCache($restaurantId, (int) $branchId));
     }
 
     public function cacheKey(): string
@@ -78,18 +91,6 @@ class PosBootstrapService
                 ->select('id', 'name', 'commission_type', 'commission_value')
                 ->orderBy('name')
                 ->get(),
-
-            'waiters' => $restaurant && $branch
-                ? User::withoutGlobalScope(BranchScope::class)
-                    ->where(function ($q) use ($branch) {
-                        return $q->where('branch_id', $branch->id)
-                            ->orWhereNull('branch_id');
-                    })
-                    ->role('waiter_' . $restaurant->id)
-                    ->where('restaurant_id', $restaurant->id)
-                    ->select('id', 'name')
-                    ->get()
-                : collect(),
 
             'taxes' => Tax::select('id', 'tax_name', 'tax_percent')
                 ->get(),
@@ -132,6 +133,18 @@ class PosBootstrapService
         return DeliveryExecutive::where('status', 'available')
             ->select('id', 'name', 'phone', 'status')
             ->get();
+    }
+
+    public function freshWaiters()
+    {
+        $restaurant = $this->restaurantContext();
+        $branch = $this->branchContext();
+
+        if (! $restaurant || ! $branch) {
+            return collect();
+        }
+
+        return User::assignableWaitersQuery((int) $restaurant->id, (int) $branch->id)->get();
     }
 
     private function restaurantContext(): mixed

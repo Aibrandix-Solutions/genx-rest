@@ -191,15 +191,7 @@ class PosSupportController extends Controller
         }
 
         return response()->json(
-            User::withoutGlobalScope(BranchScope::class)
-                ->where(function ($query) use ($branch) {
-                    $query->where('branch_id', $branch->id)
-                        ->orWhereNull('branch_id');
-                })
-                ->role('waiter_'.$restaurant->id)
-                ->where('restaurant_id', $restaurant->id)
-                ->select('id', 'name')
-                ->orderBy('name')
+            User::assignableWaitersQuery((int) $restaurant->id, (int) $branch->id)
                 ->get()
                 ->map(fn ($waiter) => [
                     'id' => (int) $waiter->id,
@@ -457,19 +449,12 @@ class PosSupportController extends Controller
         $restaurant = restaurant();
         abort_if(! $restaurant, 422, 'Restaurant context is required');
 
-        // Constrain assignment to branch-scoped waiters of this restaurant
-        // (mirrors PosBootstrapService::freshDeliveryExecutives/waiters loader).
         if (! empty($validated['waiter_id'])) {
-            $isValidWaiter = User::query()
-                ->where('id', (int) $validated['waiter_id'])
-                ->where('restaurant_id', $restaurant->id)
-                ->where(function ($q) use ($branch) {
-                    $q->where('branch_id', $branch->id)->orWhereNull('branch_id');
-                })
-                ->role('waiter_'.$restaurant->id)
-                ->exists();
-
-            abort_if(! $isValidWaiter, 422, 'Selected waiter is not assignable to this branch.');
+            abort_unless(
+                User::isAssignableWaiter((int) $validated['waiter_id'], (int) $restaurant->id, (int) $branch->id),
+                422,
+                'Selected waiter is not assignable to this branch.'
+            );
         }
 
         $order = Order::query()

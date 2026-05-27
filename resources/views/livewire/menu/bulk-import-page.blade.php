@@ -189,38 +189,36 @@
             </div>
 
             <!-- Step 3: Kitchen Selection -->
-            @if($availableKitchens->count() > 1)
+            @if(in_array('Kitchen', restaurant_modules()) && $availableKitchens->count() > 1)
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
                 <div class="flex items-center space-x-2 mb-3">
                     <div class="flex-shrink-0 w-6 h-6 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
                         <span class="text-blue-600 dark:text-blue-400 font-semibold text-xs">3</span>
                     </div>
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('modules.menu.selectKitchen') }}</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ __('modules.menu.kitchenType') }}</h3>
                 </div>
 
                 <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">{{ __('modules.menu.selectKitchenDescription') }}</p>
 
-                <div class="space-y-2">
+                <div class="mt-1 space-y-2 max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md p-2 bg-white dark:bg-gray-800">
                     @foreach($availableKitchens as $kitchen)
-                    <label class="flex items-center space-x-2 p-2 border border-gray-200 dark:border-gray-700 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors {{ $selectedKitchenId == $kitchen->id ? 'border-blue-400 bg-blue-50 dark:bg-blue-900/20' : '' }}">
-                        <input type="radio" wire:model.live="selectedKitchenId" value="{{ $kitchen->id }}" class="text-blue-600 focus:ring-blue-500">
-                        <div class="flex-1">
-                            <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $kitchen->name }}</div>
-                            @if($kitchen->type)
-                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ ucfirst($kitchen->type) }}</div>
-                            @endif
-                        </div>
-                        @if($selectedKitchenId == $kitchen->id)
-                        <svg class="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                        </svg>
+                    <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 px-2 py-1 rounded {{ in_array((string) $kitchen->id, $selectedKitchenTypes, true) ? 'bg-blue-50 dark:bg-blue-900/20' : '' }}">
+                        <input type="checkbox" value="{{ $kitchen->id }}" wire:model.live="selectedKitchenTypes" class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 flex-1">{{ $kitchen->name }}</span>
+                        @if($kitchen->type)
+                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ ucfirst($kitchen->type) }}</span>
                         @endif
                     </label>
                     @endforeach
                 </div>
-                <x-input-error for="selectedKitchenId" class="mt-1" />
+                @if(count($selectedKitchenTypes) > 1)
+                <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                    @lang('modules.menu.multiKitchenNote')
+                </p>
+                @endif
+                <x-input-error for="selectedKitchenTypes" class="mt-1" />
             </div>
-            @elseif($availableKitchens->count() === 1)
+            @elseif(in_array('Kitchen', restaurant_modules()) && $availableKitchens->count() === 1)
             <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-4">
                 <div class="flex items-center space-x-2 mb-3">
                     <div class="flex-shrink-0 w-6 h-6 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
@@ -275,9 +273,9 @@
                         </span>
                     </div>
 
-                    <div class="flex items-center space-x-2 p-2 rounded {{ ($availableKitchens->count() === 1 || $selectedKitchenId) ? 'bg-green-50 dark:bg-green-900/20' : 'bg-gray-50 dark:bg-gray-700' }}">
-                        <div class="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center {{ ($availableKitchens->count() === 1 || $selectedKitchenId) ? 'bg-green-100 dark:bg-green-800' : 'bg-gray-200 dark:bg-gray-600' }}">
-                            @if($availableKitchens->count() === 1 || $selectedKitchenId)
+                    <div class="flex items-center space-x-2 p-2 rounded {{ ($this->isKitchenSelectionValid()) ? 'bg-green-50 dark:bg-green-900/20' : 'bg-gray-50 dark:bg-gray-700' }}">
+                        <div class="flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center {{ ($this->isKitchenSelectionValid()) ? 'bg-green-100 dark:bg-green-800' : 'bg-gray-200 dark:bg-gray-600' }}">
+                            @if($this->isKitchenSelectionValid())
                             <svg class="w-3 h-3 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
                             </svg>
@@ -287,8 +285,8 @@
                             </svg>
                             @endif
                         </div>
-                        <span class="text-xs {{ ($availableKitchens->count() === 1 || $selectedKitchenId) ? 'text-green-800 dark:text-green-200' : 'text-gray-600 dark:text-gray-400' }}">
-                            {{ $availableKitchens->count() === 1 ? __('modules.menu.kitchenSelected') : ($selectedKitchenId ? __('modules.menu.kitchenSelected') : __('modules.menu.selectKitchen')) }}
+                        <span class="text-xs {{ ($this->isKitchenSelectionValid()) ? 'text-green-800 dark:text-green-200' : 'text-gray-600 dark:text-gray-400' }}">
+                            {{ $availableKitchens->count() === 1 ? __('modules.menu.kitchenSelected') : (count($selectedKitchenTypes) > 0 ? __('modules.menu.kitchenSelected') : __('modules.menu.selectKitchen')) }}
                         </span>
                     </div>
                 </div>
@@ -296,8 +294,8 @@
                 <x-button
                     wire:click="goToPreview"
                     wire:loading.attr="disabled"
-                    :disabled="!$uploadFile || ($availableKitchens->count() > 1 && !$selectedKitchenId)"
-                    class="w-full flex items-center justify-center space-x-1 text-sm py-2 {{ (!$uploadFile || ($availableKitchens->count() > 1 && !$selectedKitchenId)) ? 'opacity-50 cursor-not-allowed' : '' }}"
+                    :disabled="!$uploadFile || (!$this->isKitchenSelectionValid())"
+                    class="w-full flex items-center justify-center space-x-1 text-sm py-2 {{ (!$uploadFile || (!$this->isKitchenSelectionValid())) ? 'opacity-50 cursor-not-allowed' : '' }}"
                 >
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6" />
@@ -305,7 +303,7 @@
                     <span>{{ __('app.next') }}</span>
                 </x-button>
 
-                @if(!$uploadFile || ($availableKitchens->count() > 1 && !$selectedKitchenId))
+                @if(!$uploadFile || (!$this->isKitchenSelectionValid()))
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1 text-center">
                     {{ __('app.completeAllSteps') }} {{ __('app.to') }} {{ __('modules.menu.startImport') }}
                 </p>
@@ -545,9 +543,9 @@
             <div>
                 <h3 class="text-2xl font-bold text-green-600 dark:text-green-400 mb-2">{{ __('modules.menu.importCompleted') }}!</h3>
                 <p class="text-gray-600 dark:text-gray-400">{{ __('app.importSuccessful') }}</p>
-                @if($selectedKitchenId && $availableKitchens->where('id', $selectedKitchenId)->first())
+                @if($this->selectedKitchenNames)
                 <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    {{ __('modules.menu.kitchens') }}: <span class="font-medium">{{ $availableKitchens->where('id', $selectedKitchenId)->first()->name }}</span>
+                    {{ __('modules.menu.kitchens') }}: <span class="font-medium">{{ $this->selectedKitchenNames }}</span>
                 </p>
                 @endif
             </div>

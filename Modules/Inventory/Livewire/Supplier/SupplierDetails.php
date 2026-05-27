@@ -14,7 +14,9 @@ use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PurchaseLocation;
+use Modules\Inventory\Entities\AccountTransaction;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class SupplierDetails extends Component
@@ -56,6 +58,20 @@ class SupplierDetails extends Component
     // Purchase Actions
     public $confirmingDeletion = false;
     public $purchaseOrderToDelete;
+
+    protected $listeners = [
+        'paymentRecorded' => 'onSupplierPaymentRecorded',
+        'refreshPurchaseList' => 'onSupplierPaymentRecorded',
+        'purchaseOrderPaymentSaved' => 'onSupplierPaymentRecorded',
+    ];
+
+    public function onSupplierPaymentRecorded()
+    {
+        $this->supplier->refresh();
+        if ($this->activeTab === 'ledger') {
+            $this->loadLedger();
+        }
+    }
 
     protected $rules = [
         'paymentAmount' => 'required|numeric|min:0.01',
@@ -115,13 +131,13 @@ class SupplierDetails extends Component
             $purchasesQuery->where('location_id', $this->locationId);
         }
 
-        $purchases = $purchasesQuery->get()
+        $purchases = $purchasesQuery->with('items')->get()
             ->map(function ($po) {
                 return [
                     'date' => $po->order_date,
                     'type' => 'purchase',
                     'description' => 'Purchase #' . $po->po_number,
-                    'debit' => $po->total_amount,
+                    'debit' => (float) $po->final_total,
                     'credit' => 0,
                     'reference_id' => $po->id
                 ];
@@ -287,7 +303,8 @@ class SupplierDetails extends Component
     public function openPaymentModal()
     {
         $this->resetValidation();
-        $this->paymentAmount = '';
+        $this->supplier->refresh();
+        $this->paymentAmount = number_format(max(0, (float) $this->supplier->balance), 2, '.', '');
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentMethod = 'cash';
         $this->paymentAccount = null;
@@ -305,30 +322,81 @@ class SupplierDetails extends Component
             $path = $this->paymentDocument->store('supplier-payments', 'public');
         }
 
-        $payment = SupplierPayment::create([
-            'supplier_id' => $this->supplier->id,
-            'payment_account_id' => $this->paymentAccount,
-            'amount' => $this->paymentAmount,
-            'paid_on' => $this->paymentDate,
-            'payment_method' => $this->paymentMethod,
-            'note' => $this->paymentNote,
-            'document_path' => $path,
-            'added_by' => Auth::id(),
-        ]);
+        $remaining = (float) $this->paymentAmount;
 
-        // Update Payment Account Balance if selected and log transaction
+        // FIFO: oldest received & still-due purchases first
+        $duePurchases = $this->supplier->orders()
+            ->where('status', 'received')
+            ->with('payments')
+            ->orderBy('order_date', 'asc')
+            ->orderBy('id', 'asc')
+            ->get()
+            ->filter(fn ($po) => $po->due_amount > 0);
+
+        try {
+            $createdPayments = DB::transaction(function () use (&$remaining, $duePurchases, $path) {
+                $payments = [];
+
+                foreach ($duePurchases as $po) {
+                    if ($remaining <= 0) {
+                        break;
+                    }
+
+                    $allocate = min($remaining, (float) $po->due_amount);
+                    if ($allocate <= 0) {
+                        continue;
+                    }
+
+                    $payments[] = SupplierPayment::create([
+                        'supplier_id' => $this->supplier->id,
+                        'purchase_order_id' => $po->id,
+                        'payment_account_id' => $this->paymentAccount,
+                        'amount' => $allocate,
+                        'paid_on' => $this->paymentDate,
+                        'payment_method' => $this->paymentMethod,
+                        'note' => $this->paymentNote,
+                        'document_path' => $path,
+                        'added_by' => Auth::id(),
+                    ]);
+
+                    $remaining = round($remaining - $allocate, 2);
+                }
+
+                // If anything is left over (overpayment or no due PO), store as advance/credit
+                if ($remaining > 0) {
+                    $payments[] = SupplierPayment::create([
+                        'supplier_id' => $this->supplier->id,
+                        'purchase_order_id' => null,
+                        'payment_account_id' => $this->paymentAccount,
+                        'amount' => $remaining,
+                        'paid_on' => $this->paymentDate,
+                        'payment_method' => $this->paymentMethod,
+                        'note' => trim(($this->paymentNote ? $this->paymentNote . ' | ' : '') . 'Advance / unallocated credit'),
+                        'document_path' => $path,
+                        'added_by' => Auth::id(),
+                    ]);
+                    $remaining = 0;
+                }
+
+                return $payments;
+            });
+        } catch (\Throwable $e) {
+            $this->alert('error', 'Failed to record payment: ' . $e->getMessage());
+            return;
+        }
+
+        // Update Payment Account Balance once for the full amount and log a single transaction
         if ($this->paymentAccount) {
             $account = PaymentAccount::find($this->paymentAccount);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 
-                // Log Transaction
-                \Modules\Inventory\Entities\AccountTransaction::create([
+                AccountTransaction::create([
                     'payment_account_id' => $account->id,
                     'amount' => $this->paymentAmount,
                     'type' => 'credit', // Money Out
-                    'reference_type' => get_class($payment),
-                    'reference_id' => $payment->id,
+                    'reference_type' => SupplierPayment::class,
+                    'reference_id' => optional($createdPayments[0] ?? null)->id,
                     'description' => 'Payment to Supplier: ' . $this->supplier->name . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
                     'transaction_date' => $this->paymentDate,
                 ]);
@@ -339,6 +407,11 @@ class SupplierDetails extends Component
         $this->showPaymentModal = false;
         $this->loadLedger();
         $this->supplier->refresh(); // Update overview stats
+
+        // Notify the purchases list (and any other listening components) to refresh
+        $this->dispatch('paymentRecorded');
+        $this->dispatch('refreshPurchaseList');
+        $this->dispatch('purchaseOrderPaymentSaved');
     }
 
     public function uploadDocument()
