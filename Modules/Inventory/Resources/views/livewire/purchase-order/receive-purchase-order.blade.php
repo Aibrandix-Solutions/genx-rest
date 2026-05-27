@@ -31,6 +31,9 @@
                             @foreach($items as $index => $item)
                                 <tr>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                        @if(!empty($item['item_code']))
+                                            <span class="font-mono text-xs bg-gray-100 px-1.5 py-0.5 rounded mr-1">{{ $item['item_code'] }}</span>
+                                        @endif
                                         {{ $item['name'] }}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

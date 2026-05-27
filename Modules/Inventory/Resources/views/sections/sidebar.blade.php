@@ -38,6 +38,7 @@
     
     @if(user_can('Show Inventory Stock'))
     @livewire('sidebar-dropdown-menu', ['name' => __('inventory::modules.menu.inventoryStocks'), 'link' => route('inventory-stocks.index'), 'active' => request()->routeIs('inventory-stocks.index')])
+    @livewire('sidebar-dropdown-menu', ['name' => __('inventory::modules.consumption.title'), 'link' => route('inventory.consumption.index'), 'active' => request()->routeIs('inventory.consumption.*')])
     @endif
     
     @if(user_can('Show Inventory Movement'))

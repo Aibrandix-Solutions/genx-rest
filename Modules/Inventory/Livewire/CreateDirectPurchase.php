@@ -377,9 +377,12 @@ class CreateDirectPurchase extends Component
         }
 
         $this->filteredItems = InventoryItem::query()
-            ->select(['id', 'name', 'unit_purchase_price'])
+            ->select(['id', 'name', 'item_code', 'unit_purchase_price'])
             ->where('restaurant_id', restaurant()->id)
-            ->where('name', 'like', '%' . $term . '%')
+            ->where(function ($q) use ($term) {
+                $q->where('name', 'like', '%' . $term . '%')
+                  ->orWhere('item_code', 'like', '%' . $term . '%');
+            })
             ->limit(10)
             ->get()
             ->map(function ($item) {

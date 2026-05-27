@@ -12,6 +12,10 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (!Schema::hasTable('inventory_item_categories')) {
+            return;
+        }
+
         Schema::table('inventory_item_categories', function (Blueprint $table) {
             // Add restaurant_id column
             if (!Schema::hasColumn('inventory_item_categories', 'restaurant_id')) {
