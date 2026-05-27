@@ -457,6 +457,7 @@ class RecipeForm extends Component
                 return [
                     'id' => $item->id,
                     'name' => $item->name,
+                    'item_code' => $item->item_code,
                     'unit_symbol' => $item->unit->symbol
                 ];
             })
