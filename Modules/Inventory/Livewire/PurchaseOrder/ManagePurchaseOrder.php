@@ -195,7 +195,8 @@ class ManagePurchaseOrder extends Component
             ->map(function ($item) {
                 $categoryName = $item->category ? $item->category->name : 'No Category';
                 $unitSymbol = $item->unit ? $item->unit->symbol : '';
-                $item->display_name = "{$item->name} ({$categoryName} - {$unitSymbol})";
+                $codePrefix = !empty($item->item_code) ? "[{$item->item_code}] " : '';
+                $item->display_name = "{$codePrefix}{$item->name} ({$categoryName} - {$unitSymbol})";
                 return $item;
             });
 

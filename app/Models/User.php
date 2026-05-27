@@ -5,7 +5,10 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 
 use App\Helper\Files;
+use App\Scopes\BranchScope;
+use App\Services\PosBootstrapService;
 use App\Traits\HasBranch;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -267,5 +270,43 @@ class User extends Authenticatable
     public function sendPasswordResetNotification($token)
     {
         $this->notify(new ResetPasswordNotification($token));
+    }
+
+    /**
+     * Spatie role name for restaurant waiters (must match roles.name in DB).
+     */
+    public static function waiterRoleName(?int $restaurantId = null): string
+    {
+        $id = (int) ($restaurantId ?? restaurant()?->id ?? 0);
+
+        return 'Waiter_' . $id;
+    }
+
+    public static function assignableWaitersQuery(int $restaurantId, int $branchId): Builder
+    {
+        return static::withoutGlobalScope(BranchScope::class)
+            ->where('restaurant_id', $restaurantId)
+            ->where(function ($q) use ($branchId) {
+                $q->where('branch_id', $branchId)->orWhereNull('branch_id');
+            })
+            ->role(static::waiterRoleName($restaurantId))
+            ->select('id', 'name')
+            ->orderBy('name');
+    }
+
+    public static function isAssignableWaiter(int $userId, int $restaurantId, int $branchId): bool
+    {
+        return static::assignableWaitersQuery($restaurantId, $branchId)
+            ->where('id', $userId)
+            ->exists();
+    }
+
+    public static function clearPosBootstrapCacheFor(User $user): void
+    {
+        if (! $user->restaurant_id) {
+            return;
+        }
+
+        app(PosBootstrapService::class)->clearCacheForRestaurant((int) $user->restaurant_id);
     }
 }

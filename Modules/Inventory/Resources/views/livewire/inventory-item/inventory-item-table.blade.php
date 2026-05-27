@@ -6,6 +6,9 @@
                     <thead class="bg-gray-100 dark:bg-gray-700">
                         <tr>
                             <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                @lang('inventory::modules.inventoryItem.itemCode')
+                            </th>
+                            <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                                 @lang('inventory::modules.inventoryItem.name')
                             </th>
                             <th scope="col" class="p-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
@@ -31,6 +34,13 @@
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
                         @forelse($inventoryItems as $item)
                             <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    @if(!empty($item->item_code))
+                                        <span class="font-mono text-sm bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">{{ $item->item_code }}</span>
+                                    @else
+                                        <span class="text-gray-400">--</span>
+                                    @endif
+                                </td>
                                 <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ $item->name }}
                                 </td>
@@ -79,7 +89,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
+                                <td colspan="8" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
                                     @lang('inventory::modules.inventoryItem.noInventoryItemFound')
                                 </td>
                             </tr>

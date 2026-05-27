@@ -464,14 +464,7 @@ class Pos extends Component
             ->get(['id', 'name'])
             ->toArray();
 
-        $this->users = User::withoutGlobalScope(BranchScope::class)
-            ->where(function ($q) {
-                return $q->where('branch_id', branch()->id)
-                    ->orWhereNull('branch_id');
-            })
-            ->role('waiter_'.restaurant()->id)
-            ->where('restaurant_id', restaurant()->id)
-            ->get();
+        $this->users = User::assignableWaitersQuery((int) restaurant()->id, (int) branch()->id)->get();
 
         $this->taxMode = restaurant()->tax_mode;
         $this->taxes = Tax::all();

@@ -36,7 +36,7 @@ class HomeController extends Controller
         }
 
         if (!session()->has('customer_is_rtl')) {
-            session(['customer_is_rtl' => $languageSetting->is_rtl == 1]);
+            session(['customer_is_rtl' => $languageSetting ? $languageSetting->is_rtl == 1 : false]);
         }
 
         app()->setLocale($locale);

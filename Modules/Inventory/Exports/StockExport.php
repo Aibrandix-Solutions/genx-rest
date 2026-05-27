@@ -35,6 +35,7 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
     public function headings(): array
     {
         return [
+            __('inventory::modules.inventoryItem.itemCode'),
             __('inventory::modules.inventoryItem.name'),
             __('inventory::modules.inventoryItem.category'),
             __('inventory::modules.stock.location'),
@@ -51,6 +52,7 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
         $locationName = $stock && $stock->location ? $stock->location->name : '--';
 
         return [
+            $item->item_code ?? '--',
             $item->name,
             $item->category->name ?? '--',
             $locationName,
@@ -100,9 +102,13 @@ class StockExport implements WithMapping, FromCollection, WithHeadings, WithStyl
              ->selectRaw('COALESCE(SUM(inventory_stocks.quantity * inventory_items.unit_purchase_price), 0) as total_cost_value')
              ->groupBy('inventory_items.id');
  
-         // Apply search filter
+         // Apply search filter (name OR item_code)
          if ($this->search) {
-             $query->where('inventory_items.name', 'like', '%' . $this->search . '%');
+             $term = '%' . $this->search . '%';
+             $query->where(function ($q) use ($term) {
+                 $q->where('inventory_items.name', 'like', $term)
+                   ->orWhere('inventory_items.item_code', 'like', $term);
+             });
          }
  
          // Apply category filter

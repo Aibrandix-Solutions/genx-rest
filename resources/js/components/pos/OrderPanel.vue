@@ -1,6 +1,10 @@
 <template>
     <div
         class="w-full min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto px-3 py-4 dark:bg-gray-800 overflow-x-hidden overflow-y-auto">
+        <div v-if="isLinkedOrderMode"
+            class="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
+            {{ linkedOrderNewKotMessage }}
+        </div>
         <!-- Order Type (Hidden in Linked Mode) -->
         <div v-if="!isLinkedOrderMode" class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
             <div class="flex items-center justify-between">
@@ -609,20 +613,15 @@
                                                     stroke-width="2" d="M1 1h16"></path>
                                             </svg>
                                         </button>
-                                        <input type="text" v-model.lazy="item.quantity" @change="
-                                            $emit('update-quantity', {
-                                                line_key: item.line_key || item.id,
-                                                id: item.id,
-                                                quantity: item.quantity,
-                                                variant_id: item.variant_id || 0,
-                                                modifier_id: item.modifier_id || 0,
-                                            })
-                                            "
-                                            :readonly="!canManageLineItems || item._isCombo"
-                                            class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                        <input type="text" v-model.lazy="item.quantity"
+                                            :readonly="true"
+                                            :title="linkedOrderNewKotMessage"
+                                            @click="notifyLinkedOrderUseNewKot"
+                                            class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
                                             min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
-                                        <button type="button" @click="$emit('increase-quantity', item.line_key || item.id)"
-                                            :disabled="!canManageLineItems || item._isCombo"
+                                        <button type="button" @click="handleLinkedIncreaseBlocked"
+                                            :disabled="item._isCombo"
+                                            :title="linkedOrderNewKotMessage"
                                             class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
@@ -1423,6 +1422,17 @@ import DiscountModal from "./DiscountModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
 import RemovalReasonModal from "./RemovalReasonModal.vue";
 import { showPosAlert } from "../../utils/posAlerts.js";
+import {
+    LINKED_ORDER_NEW_KOT_MESSAGE,
+    notifyLinkedOrderUseNewKot,
+    blockLinkedOrderItemAdds,
+} from "../../utils/linkedOrderGuards.js";
+
+const linkedOrderNewKotMessage = LINKED_ORDER_NEW_KOT_MESSAGE;
+
+const handleLinkedIncreaseBlocked = () => {
+    blockLinkedOrderItemAdds(props.isLinkedOrderMode);
+};
 
 const props = defineProps({
     orderType: {
@@ -1456,6 +1466,10 @@ const props = defineProps({
     waiters: {
         type: Array,
         default: () => [],
+    },
+    assignedWaiterName: {
+        type: String,
+        default: "",
     },
     cartItems: {
         type: Array,
@@ -2341,9 +2355,9 @@ watch(linkedKotGroups, (groups) => {
 }, { flush: "post" });
 
 const availableWaiters = computed(() => {
-    const source = Array.isArray(props.waiters) && props.waiters.length > 0
-        ? props.waiters
-        : fallbackWaiters.value;
+    const source = fallbackWaiters.value.length > 0
+        ? fallbackWaiters.value
+        : (Array.isArray(props.waiters) ? props.waiters : []);
 
     if (!Array.isArray(source)) {
         return [];
@@ -2371,6 +2385,10 @@ const selectedWaiterName = computed(() => {
 
     if (selected?.name) {
         return selected.name;
+    }
+
+    if (props.assignedWaiterName) {
+        return String(props.assignedWaiterName);
     }
 
     if (props.currentUser?.id && Number(props.currentUser.id) === selectedId) {
@@ -2407,10 +2425,6 @@ const fetchOrderTypes = async () => {
 };
 
 const fetchWaiters = async () => {
-    if (availableWaiters.value.length > 0) {
-        return;
-    }
-
     try {
         const response = await axios.get("/api/pos/waiters");
         if (Array.isArray(response.data)) {

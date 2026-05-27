@@ -127,7 +127,12 @@
             @foreach($purchaseOrder->items as $index => $item)
                 <tr>
                     <td>{{ $index + 1 }}</td>
-                    <td>{{ $item->inventoryItem->name }}</td>
+                    <td>
+                        @if(!empty($item->inventoryItem->item_code))
+                            <span style="font-family: monospace; font-size: 0.85em; color: #555;">[{{ $item->inventoryItem->item_code }}]</span>
+                        @endif
+                        {{ $item->inventoryItem->name }}
+                    </td>
                     <td>{{ $item->inventoryItem->unit->symbol }}</td>
                     <td>{{ number_format($item->quantity, 2) }}</td>
                     <td>{{ number_format($item->unit_price, 2) }}</td>

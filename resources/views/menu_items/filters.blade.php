@@ -62,21 +62,21 @@
                 </div>
 
                 <x-dropdown-link class="flex items-center">
-                    <input id="type-veg" type="checkbox" value="veg" wire:model.live='filterTypes' wire:key='item-type-input-{{ $item->id . microtime() }}'
+                    <input id="type-veg" type="checkbox" value="veg" wire:model.live='filterTypes' wire:key="item-type-input-veg"
                     class="w-4 h-4 bg-gray-100 border-gray-300 rounded text-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 dark:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500" />
                     <label for="type-veg" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-100 inline-flex">
                         <img src="{{ asset('img/veg.svg')}}" class="h-5 mr-1" alt="" /> @lang('modules.menu.typeVeg')
                     </label>
                 </x-dropdown-link>
                 <x-dropdown-link class="flex items-center">
-                    <input id="type-non-veg" type="checkbox" value="non-veg" wire:model.live='filterTypes' wire:key='item-type-input-{{ $item->id . microtime() }}'
+                    <input id="type-non-veg" type="checkbox" value="non-veg" wire:model.live='filterTypes' wire:key="item-type-input-non-veg"
                     class="w-4 h-4 bg-gray-100 border-gray-300 rounded text-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 dark:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500" />
                     <label for="type-non-veg" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-100 inline-flex">
                         <img src="{{ asset('img/non-veg.svg')}}" class="h-5 mr-1" /> @lang('modules.menu.typeNonVeg')
                     </label>
                 </x-dropdown-link>
                 <x-dropdown-link class="flex items-center">
-                    <input id="type-egg" type="checkbox" value="egg" wire:model.live='filterTypes' wire:key='item-type-input-{{ $item->id . microtime() }}'
+                    <input id="type-egg" type="checkbox" value="egg" wire:model.live='filterTypes' wire:key="item-type-input-egg"
                     class="w-4 h-4 bg-gray-100 border-gray-300 rounded text-gray-600 focus:ring-gray-500 dark:focus:ring-gray-600 dark:ring-offset-gray-700 focus:ring-2 dark:bg-gray-600 dark:border-gray-500" />
                     <label for="type-egg" class="ml-2 text-sm font-medium text-gray-900 dark:text-gray-100 inline-flex">
                         <img src="{{ asset('img/egg.svg')}}" class="h-5 mr-1" /> @lang('modules.menu.typeEgg')

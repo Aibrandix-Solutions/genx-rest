@@ -211,7 +211,15 @@
                     @forelse($purchaseOrders as $purchaseOrder)
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                {{ $purchaseOrder->po_number }}
+                                @if(user_can('Show Purchase Order'))
+                                    <button type="button"
+                                            wire:click="$dispatch('viewPurchaseOrder', { purchaseOrder: {{ $purchaseOrder->id }} })"
+                                            class="text-indigo-600 dark:text-indigo-400 hover:underline focus:outline-none font-medium">
+                                        {{ $purchaseOrder->po_number }}
+                                    </button>
+                                @else
+                                    {{ $purchaseOrder->po_number }}
+                                @endif
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 <a href="{{ route('suppliers.show', $purchaseOrder->supplier->id) }}" class="underline underline-offset-1" wire:navigate>
