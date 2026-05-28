@@ -327,6 +327,9 @@ class PosVueOrderController extends Controller
                     'note' => (string) ($order->note ?? ''),
                     'sub_total' => (float) ($order->sub_total ?? 0),
                     'total' => (float) ($order->total ?? 0),
+            'discount_type' => $order->discount_type ? (string) $order->discount_type : null,
+            'discount_value' => $order->discount_value !== null ? (float) $order->discount_value : 0.0,
+            'discount_amount' => (float) ($order->discount_amount ?? 0),
                     'reward_point_discount' => (float) ($order->reward_point_discount ?? 0),
                     'reward_points_redeemed' => (int) ($order->reward_points_redeemed ?? 0),
                     'reward_points_earned' => (int) ($order->reward_points_earned ?? 0),
@@ -392,6 +395,9 @@ class PosVueOrderController extends Controller
             'custom_extras' => ['nullable', 'array'],
             'custom_extras.*.amount' => ['nullable', 'numeric', 'min:0'],
             'custom_extras.*.note' => ['nullable', 'string'],
+            // Discount fields persisted on the order.
+            'discount_type' => ['nullable', 'string', Rule::in(['fixed', 'percent'])],
+            'discount_value' => ['nullable', 'numeric', 'min:0'],
             // Reward points redemption fields
             'reward_points_redeemed' => ['nullable', 'integer', 'min:0'],
             'reward_point_discount' => ['nullable', 'numeric', 'min:0'],
@@ -869,7 +875,18 @@ class PosVueOrderController extends Controller
                 : 0.0;
 
             $order->refresh();
-            $discountAmount = (float) ($order->discount_amount ?? 0);
+            $discountType = isset($validated['discount_type']) ? (string) $validated['discount_type'] : null;
+            $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
+            if ($discountType === null || $discountValue <= 0) {
+                $discountType = null;
+                $discountValue = 0.0;
+                $discountAmount = 0.0;
+            } elseif ($discountType === 'percent') {
+                $discountValue = min($discountValue, 100.0);
+                $discountAmount = round(($subtotal * $discountValue) / 100, 2);
+            } else {
+                $discountAmount = min(round($discountValue, 2), round($subtotal, 2));
+            }
 
             $rewardPointDiscount = 0.0;
             $rewardPointsRedeemed = 0;
@@ -923,6 +940,9 @@ class PosVueOrderController extends Controller
                 'sub_total' => round($subtotal, 2),
                 'total' => $total,
                 'total_tax_amount' => round($totalTax, 2),
+                'discount_type' => $discountType,
+                'discount_value' => $discountType ? round($discountValue, 2) : null,
+                'discount_amount' => $discountAmount > 0 ? $discountAmount : null,
                 'reward_point_discount' => $rewardPointDiscount > 0 ? $rewardPointDiscount : null,
                 'reward_points_redeemed' => $rewardPointsRedeemed > 0 ? $rewardPointsRedeemed : null,
             ]);
