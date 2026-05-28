@@ -1293,6 +1293,7 @@ const handleApplyDiscount = (discountData) => {
                 discountAmount.value = persisted.discount_amount !== undefined
                     ? Number(persisted.discount_amount || 0)
                     : discountAmount.value;
+                showPosAlert("success", response.data?.message || "Discount applied successfully");
             })
             .catch((error) => {
                 discountType.value = previousType;
@@ -1393,6 +1394,9 @@ const handleRemoveDiscount = () => {
     if (activeOrderId) {
         axios
             .delete(`/api/pos/orders/${activeOrderId}/discount`)
+            .then((response) => {
+                showPosAlert("success", response.data?.message || "Discount removed successfully");
+            })
             .catch((error) => {
                 discountType.value = previousType;
                 discountValue.value = previousValue;
