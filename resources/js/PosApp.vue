@@ -1267,9 +1267,43 @@ const handleReduceKotItem = async ({ kotItemId, newQuantity, reason }) => {
 };
 
 const handleApplyDiscount = (discountData) => {
+    const previousType = discountType.value;
+    const previousValue = discountValue.value;
+    const previousAmount = discountAmount.value;
+
     discountType.value = discountData.type;
     discountValue.value = discountData.value;
     calculateDiscountAmount();
+
+    const activeOrderId = orderId.value;
+    if (activeOrderId) {
+        axios
+            .post(`/api/pos/orders/${activeOrderId}/discount`, {
+                discount_type: discountType.value,
+                discount_value: Number(discountValue.value || 0),
+            })
+            .then((response) => {
+                const persisted = response.data?.data || {};
+                discountType.value = persisted.discount_type
+                    ? String(persisted.discount_type)
+                    : discountType.value;
+                discountValue.value = persisted.discount_value !== undefined
+                    ? Number(persisted.discount_value || 0)
+                    : discountValue.value;
+                discountAmount.value = persisted.discount_amount !== undefined
+                    ? Number(persisted.discount_amount || 0)
+                    : discountAmount.value;
+            })
+            .catch((error) => {
+                discountType.value = previousType;
+                discountValue.value = previousValue;
+                discountAmount.value = previousAmount;
+                const message = error.response?.data?.message
+                    || error.response?.data?.errors?.discount_value?.[0]
+                    || "Failed to update discount";
+                showPosAlert("error", message);
+            });
+    }
 };
 
 const calculateDiscountAmount = () => {
@@ -1347,9 +1381,27 @@ watch(
 );
 
 const handleRemoveDiscount = () => {
+    const previousType = discountType.value;
+    const previousValue = discountValue.value;
+    const previousAmount = discountAmount.value;
+
     discountAmount.value = 0;
     discountType.value = "";
     discountValue.value = 0;
+
+    const activeOrderId = orderId.value;
+    if (activeOrderId) {
+        axios
+            .delete(`/api/pos/orders/${activeOrderId}/discount`)
+            .catch((error) => {
+                discountType.value = previousType;
+                discountValue.value = previousValue;
+                discountAmount.value = previousAmount;
+                const message = error.response?.data?.message
+                    || "Failed to remove discount";
+                showPosAlert("error", message);
+            });
+    }
 };
 
 // Reward Points handlers
