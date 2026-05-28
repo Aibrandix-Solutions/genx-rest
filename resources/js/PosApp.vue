@@ -1911,6 +1911,14 @@ const handleSaveOrder = async (...actions) => {
                     note: String(row?.note || ""),
                 }))
                 : [],
+            discount_type:
+                discountType.value && Number(discountValue.value) > 0
+                    ? String(discountType.value)
+                    : null,
+            discount_value:
+                discountType.value && Number(discountValue.value) > 0
+                    ? Number(discountValue.value)
+                    : null,
             // Reward points redemption — sent to server for persistence;
             // actual balance deduction happens at billing time in PosVueOrderController::store.
             reward_points_redeemed: rewardPointsRedeemed.value > 0 ? rewardPointsRedeemed.value : null,
@@ -2848,6 +2856,11 @@ const applyOrderPayload = (payload, activeOrderId) => {
         can_delete_kot_item: !!payload.permissions?.can_delete_kot_item,
         can_redeem_reward_points: payload.permissions?.can_redeem_reward_points !== false,
     };
+
+    // Restore discount state from server order data
+    discountType.value = payload.discount_type ? String(payload.discount_type) : "";
+    discountValue.value = Number(payload.discount_value || 0);
+    discountAmount.value = Number(payload.discount_amount || 0);
 
     // Restore reward state from server order data
     rewardPointDiscount.value = Number(payload.reward_point_discount || 0);
