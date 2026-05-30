@@ -16,7 +16,7 @@
 
             <x-select class="w-full" wire:model.live="branchFilterId">
                 <option value="">All branches</option>
-                <option value="0">Global (All branches)</option>
+                <option value="0">Global shifts only</option>
                 @foreach($branches as $b)
                     <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                 @endforeach
@@ -156,7 +156,7 @@
                     <x-select class="w-full" wire:model="assign_employee_id">
                         <option value="">Select employee</option>
                         @foreach($assignEmployees as $e)
-                            <option value="{{ $e->id }}">{{ $e->name }}{{ $e->staff_code ? ' (' . $e->staff_code . ')' : '' }}</option>
+                            <option value="{{ $e->id }}">{{ $e->name }}{{ $e->staff_code ? ' (' . $e->staff_code . ')' : '' }}{{ $e->branch_id && $e->branch_id != $assign_branch_id ? ' [' . ($branches[array_search($e->branch_id, array_column($branches, 'id'))]['name'] ?? 'Other') . ']' : '' }}</option>
                         @endforeach
                     </x-select>
                     @error('assign_employee_id') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror

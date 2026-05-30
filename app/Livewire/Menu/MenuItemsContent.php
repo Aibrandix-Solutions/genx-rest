@@ -10,6 +10,7 @@ class MenuItemsContent extends Component
     public $showAddMenuItem = false;
     public $showFilterButton = true;
     public $search = '';
+    public $perPage = 10;
 
     #[On('hideAddMenuItem')]
     public function hideAddMenuItem()
@@ -22,6 +23,7 @@ class MenuItemsContent extends Component
     {
         $this->showFilterButton = false;
         $this->search = '';
+        $this->perPage = 10;
     }
 
     #[On('hideMenuItemFilters')]

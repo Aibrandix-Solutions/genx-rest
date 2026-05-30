@@ -16,6 +16,7 @@
 
             <x-select class="w-full" wire:model.live="branchId">
                 <option value="">All branches</option>
+                <option value="0">— Company Level —</option>
                 @foreach($branches as $b)
                     <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                 @endforeach
@@ -51,7 +52,16 @@
                                 @endif
                             </td>
                             <td class="py-2 pr-4">{{ $e->staff_code ?? '—' }}</td>
-                            <td class="py-2 pr-4">{{ $e->branch?->name ?? '—' }}</td>
+                            <td class="py-2 pr-4">
+                                @if($e->branch)
+                                    {{ $e->branch->name }}
+                                    @if($e->extraBranches->isNotEmpty())
+                                        <span class="ml-1 text-xs font-medium px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300">Shared</span>
+                                    @endif
+                                @else
+                                    <span class="text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">Company Level</span>
+                                @endif
+                            </td>
                             <td class="py-2 pr-4">{{ $e->department?->name ?? '—' }}</td>
                             <td class="py-2 pr-4">{{ $e->designation?->name ?? '—' }}</td>
                             <td class="py-2 pr-4">
@@ -95,9 +105,9 @@
         <x-slot name="content">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
-                    <x-label value="Branch" />
+                    <x-label value="Branch (leave blank for Company Level staff)" />
                     <x-select class="w-full" wire:model="branch_id">
-                        <option value="">Select branch</option>
+                        <option value="">Company Level (no branch)</option>
                         @foreach($branches as $b)
                             <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                         @endforeach
@@ -193,7 +203,7 @@
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div>
                             <x-label value="Daily Basic Salary" />
-                            <x-input type="number" step="0.01" min="0" class="w-full" wire:model.live="basic_salary_per_day" />
+                            <x-input type="number" step="0.01" min="0" class="w-full" wire:model.blur="basic_salary_per_day" />
                             @error('basic_salary_per_day') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Used to calculate monthly salary based on worked days</p>
                         </div>
@@ -204,7 +214,7 @@
                                 step="0.01" 
                                 min="0" 
                                 class="w-full bg-gray-100 dark:bg-gray-700" 
-                                wire:model.live="basic_salary_per_month" 
+                                wire:model.blur="basic_salary_per_month" 
                             />
                             @error('basic_salary_per_month') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
                             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Reference only - payroll uses daily rate × worked days</p>
@@ -225,6 +235,28 @@
                         </div>
                     </label>
                 </div>
+
+                @if($branch_id)
+                <div class="lg:col-span-2 border border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/30 rounded-lg p-4">
+                    <x-label value="Also Works At (other branches — optional)" />
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Select additional branches where this employee works. Their home branch above is always included.</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        @foreach($branches as $b)
+                            @if((int)$b['id'] !== (int)$branch_id)
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        wire:model="extraBranchIds"
+                                        value="{{ $b['id'] }}"
+                                        class="w-4 h-4 text-purple-600 rounded focus:ring-2 focus:ring-purple-500"
+                                    />
+                                    <span class="text-sm text-gray-800 dark:text-gray-200">{{ $b['name'] }}</span>
+                                </label>
+                            @endif
+                        @endforeach
+                    </div>
+                </div>
+                @endif
 
                 <div class="lg:col-span-2">
                     <x-label value="Note (optional)" />

@@ -1,5 +1,24 @@
 <div>
+    @php
+        $rewardColumnVisible = in_array('Reward Point', restaurant_modules())
+            && $rewardSettings
+            && $rewardSettings->enable_reward_point;
+        $customerTableEmptyColspan = 7 + ($rewardColumnVisible ? 1 : 0);
+    @endphp
     <div class="flex flex-col">
+        <div class="flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600 dark:text-gray-400">@lang('app.perPage'):</span>
+                <select wire:model.live="perPage"
+                    class="text-sm border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring-indigo-500 py-1 pl-2 pr-6">
+                    <option value="10">10</option>
+                    <option value="20">20</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="200">200</option>
+                </select>
+            </div>
+        </div>
         <div class="overflow-x-auto">
             <div class="inline-block min-w-full align-middle">
                 <div class="overflow-hidden shadow">
@@ -30,6 +49,12 @@
                                     class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
                                     @lang('modules.customer.total_sales')
                                 </th>
+                                @if($rewardColumnVisible)
+                                <th scope="col"
+                                    class="py-2.5 px-4 text-xs font-medium text-left text-gray-500 uppercase dark:text-gray-400">
+                                    {{ optional($rewardSettings)->reward_point_display_name ?? __('modules.reward.rewardPointDisplayName') }}
+                                </th>
+                                @endif
                                 <th scope="col"
                                     class="py-2.5 px-4 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-right">
                                     @lang('app.action')
@@ -75,6 +100,19 @@
                                 <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ currency_format($item->total_sales, restaurant()->currency_id) }}
                                 </td>
+                                @if($rewardColumnVisible)
+                                <td class="py-2.5 px-4 text-base text-gray-900 whitespace-nowrap dark:text-white">
+                                    @php
+                                        $balance = $item->rewardBalance->first();
+                                    @endphp
+                                    <button wire:click="showCustomerRewardPoints({{ $item->id }})" class="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-full text-xs font-medium bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-500 dark:hover:bg-amber-900/50 transition-colors">
+                                        <svg class="w-3.5 h-3.5" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                        </svg>
+                                        {{ $balance ? $balance->available_points : 0 }}
+                                    </button>
+                                </td>
+                                @endif
 
                                 <td class="py-2.5 px-4 space-x-2 whitespace-nowrap text-right rtl:space-x-reverse">
                                     @if(user_can('Create Payment') || user_can('Update Order'))
@@ -141,7 +179,7 @@
                             </tr>
                             @empty
                             <tr class="hover:bg-gray-100 dark:hover:bg-gray-700">
-                                <td class="py-2.5 px-4 space-x-6 text-gray-500" colspan="7">
+                                <td class="py-2.5 px-4 space-x-6 text-gray-500" colspan="{{ $customerTableEmptyColspan }}">
                                     @lang('messages.noCustomerFound')
                                 </td>
                             </tr>
@@ -278,5 +316,22 @@
         </x-slot>
     </x-right-modal>
 
+    <x-right-modal wire:model.live="showRewardPointsModal" maxWidth="3xl">
+        <x-slot name="title">
+            {{ optional($rewardSettings)->reward_point_display_name ?? 'Reward Points' }}: {{ $customer->name ?? '' }}
+        </x-slot>
+
+        <x-slot name="content">
+            @if ($customer)
+                @livewire('customer.customer-reward-points', ['customer' => $customer], key('customer-reward-' . $customer->id))
+            @endif
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-secondary-button wire:click="$set('showRewardPointsModal', false)" wire:loading.attr="disabled">
+                {{ __('app.close') }}
+            </x-secondary-button>
+        </x-slot>
+    </x-right-modal>
 
 </div>

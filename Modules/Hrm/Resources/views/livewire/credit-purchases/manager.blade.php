@@ -52,6 +52,48 @@
         </div>
     </div>
 
+    <!-- POS Due Summary (Read-only) -->
+    @php
+        $posDueByEmployee = $posDueByEmployee ?? [];
+        $posDueRows = collect($employees ?? [])->map(function ($e) use ($posDueByEmployee) {
+            $due = (float) ($posDueByEmployee[$e->id] ?? 0);
+            return [
+                'id' => $e->id,
+                'name' => $e->name,
+                'due' => $due,
+            ];
+        })->filter(fn($row) => $row['due'] > 0)->sortByDesc('due')->values();
+    @endphp
+    @if($posDueRows->count() > 0)
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 p-4 mb-6">
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">POS Due (Employee Customers)</h3>
+                    <p class="text-xs text-gray-600 dark:text-gray-400">Read-only: calculated from POS orders with payment due</p>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead class="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                        <tr>
+                            <th class="px-4 py-2 text-left font-semibold text-gray-700 dark:text-gray-300">Employee</th>
+                            <th class="px-4 py-2 text-right font-semibold text-gray-700 dark:text-gray-300">Due</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                        @foreach($posDueRows as $r)
+                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition">
+                                <td class="px-4 py-2 text-gray-900 dark:text-white">{{ $r['name'] }}</td>
+                                <td class="px-4 py-2 text-right font-medium text-gray-900 dark:text-white">{{ number_format($r['due'], 2) }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    @endif
+
     <!-- Credit Purchases Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div class="overflow-x-auto">
@@ -163,7 +205,7 @@
 
     <!-- New/Edit Credit Purchase Modal -->
     @if($showForm)
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 sm:p-6">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 sm:p-6">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
                 <div class="sticky top-0 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 px-4 sm:px-6 py-4 flex items-center justify-between">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -289,7 +331,7 @@
 
     <!-- Payment Recording Modal -->
     @if($showPaymentForm)
-        <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 sm:p-6">
+        <div class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 sm:p-6">
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
                 <div class="bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600 px-4 sm:px-6 py-4 flex items-center justify-between">
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Record Payment</h3>

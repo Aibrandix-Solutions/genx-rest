@@ -2,6 +2,7 @@
 
 namespace Modules\Hrm\Livewire\Employees;
 
+use App\Models\Customer;
 use App\Models\User;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\DB;
@@ -33,11 +34,14 @@ class EmployeesList extends Component
     public ?string $phone = null;
     public ?string $hire_date = null;
     public string $employment_type = 'full_time';
-    public float $basic_salary_per_day = 0;
-    public float $basic_salary_per_month = 0;
+    public string $basic_salary_per_day = '0';
+    public string $basic_salary_per_month = '0';
     public string $status = 'active';
     public bool $is_epf_eligible = true;
     public ?string $note = null;
+
+    /** IDs of extra branches where this employee also works (not the home branch) */
+    public array $extraBranchIds = [];
 
     public bool $showDeleteModal = false;
     public ?int $deleteId = null;
@@ -79,7 +83,9 @@ class EmployeesList extends Component
     {
         $this->authorize('Update Employee');
 
-        $employee = Employee::query()->findOrFail($id);
+        $employee = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $employee->id;
         $this->branch_id = $employee->branch_id;
@@ -92,11 +98,12 @@ class EmployeesList extends Component
         $this->phone = $employee->phone;
         $this->hire_date = $employee->hire_date?->toDateString();
         $this->employment_type = (string) $employee->employment_type;
-        $this->basic_salary_per_day = (float) ($employee->basic_salary_per_day ?? 0);
-        $this->basic_salary_per_month = (float) ($employee->basic_salary_per_month ?? 0);
+        $this->basic_salary_per_day = (string) ($employee->basic_salary_per_day ?? '0');
+        $this->basic_salary_per_month = (string) ($employee->basic_salary_per_month ?? '0');
         $this->status = (string) $employee->status;
         $this->is_epf_eligible = (bool) ($employee->is_epf_eligible ?? true);
         $this->note = $employee->note;
+        $this->extraBranchIds = $employee->extraBranches()->pluck('branches.id')->map(fn($id) => (string) $id)->all();
 
         $this->showModal = true;
     }
@@ -115,10 +122,12 @@ class EmployeesList extends Component
         }
 
         $this->validate([
-            'branch_id' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')],
-            'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')],
+            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'extraBranchIds' => ['nullable', 'array'],
+            'extraBranchIds.*' => ['integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'staff_code' => [
                 'required',
                 'string',
@@ -139,11 +148,11 @@ class EmployeesList extends Component
         ]);
 
         $employee = $this->editingId
-            ? Employee::query()->findOrFail($this->editingId)
+            ? Employee::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new Employee();
 
         $employee->restaurant_id = restaurant()->id;
-        $employee->branch_id = (int) $this->branch_id;
+        $employee->branch_id = $this->branch_id ? (int) $this->branch_id : null;
         $employee->user_id = $this->user_id;
         $employee->department_id = $this->department_id;
         $employee->designation_id = $this->designation_id;
@@ -159,6 +168,15 @@ class EmployeesList extends Component
         $employee->is_epf_eligible = $this->is_epf_eligible;
         $employee->note = $this->note;
         $employee->save();
+
+        // Sync extra branches (exclude home branch to avoid confusion)
+        $extraIds = array_filter(
+            array_map('intval', $this->extraBranchIds),
+            fn ($id) => $id > 0 && $id !== (int) $this->branch_id
+        );
+        $employee->extraBranches()->sync($extraIds);
+
+        $this->syncCustomerForEmployee($employee);
 
         $this->showModal = false;
         $this->resetForm();
@@ -181,7 +199,17 @@ class EmployeesList extends Component
             return;
         }
 
-        $employee = Employee::query()->findOrFail($this->deleteId);
+        $employee = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->deleteId);
+
+        Customer::query()
+            ->where('employee_id', $employee->id)
+            ->update([
+                'employee_id' => null,
+                'is_employee' => false,
+            ]);
+
         $employee->delete();
 
         $this->showDeleteModal = false;
@@ -207,17 +235,71 @@ class EmployeesList extends Component
         $this->phone = null;
         $this->hire_date = null;
         $this->employment_type = 'full_time';
-        $this->basic_salary_per_day = 0;
-        $this->basic_salary_per_month = 0;
+        $this->basic_salary_per_day = '0';
+        $this->basic_salary_per_month = '0';
         $this->status = 'active';
         $this->is_epf_eligible = true;
         $this->note = null;
+        $this->extraBranchIds = [];
+    }
+
+    private function syncCustomerForEmployee(Employee $employee): void
+    {
+        $customer = Customer::query()
+            ->where('employee_id', $employee->id)
+            ->first();
+
+        if (!$customer && $employee->email) {
+            $customer = Customer::query()
+                ->where('restaurant_id', $employee->restaurant_id)
+                ->where('email', $employee->email)
+                ->whereNull('employee_id')
+                ->first();
+        }
+
+        if (!$customer && $employee->phone) {
+            $matches = Customer::query()
+                ->where('restaurant_id', $employee->restaurant_id)
+                ->where('phone', $employee->phone)
+                ->whereNull('employee_id')
+                ->limit(2)
+                ->get();
+
+            if ($matches->count() === 1) {
+                $customer = $matches->first();
+            }
+        }
+
+        if (!$customer) {
+            $customer = new Customer();
+            $customer->restaurant_id = $employee->restaurant_id;
+        }
+
+        $customer->name = $employee->name;
+
+        if ($employee->phone) {
+            $customer->phone = $employee->phone;
+        }
+
+        if ($employee->email) {
+            $customer->email = $employee->email;
+        }
+
+        $customer->is_employee = true;
+        $customer->employee_id = $employee->id;
+        $customer->save();
     }
 
     public function render()
     {
-        $departments = Department::query()->orderBy('name')->get(['id', 'name']);
-        $designations = Designation::query()->orderBy('name')->get(['id', 'name']);
+        $departments = Department::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+        $designations = Designation::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->orderBy('name')
+            ->get(['id', 'name']);
 
         $users = User::query()
             ->where('restaurant_id', restaurant()->id)
@@ -226,13 +308,15 @@ class EmployeesList extends Component
             ->get(['id', 'name', 'email']);
 
         $employees = Employee::query()
+            ->where('restaurant_id', restaurant()->id)
             ->with([
                 'branch:id,name',
+                'extraBranches:id,name',
                 'department:id,name',
                 'designation:id,name',
                 'user:id,name,email',
             ])
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId !== null, fn($q) => $q->availableAtBranch($this->branchId))
             ->when($this->search, function ($q) {
                 $q->where(function ($q2) {
                     $q2->where('name', 'like', "%{$this->search}%")

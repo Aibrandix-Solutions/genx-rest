@@ -413,7 +413,15 @@
                                     @lang('modules.order.amount')
                                 </th>
 
-                                @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                @php
+                                    $canManageItems = $order->status !== 'canceled'
+                                        && user_can('Delete KOT Item')
+                                        && (
+                                            !in_array($order->status, ['billed', 'paid', 'payment_due'], true)
+                                            || user_can('Edit Billed Order')
+                                        );
+                                @endphp
+                                @if ($canManageItems)
                                     <th scope="col"
                                         class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
                                         @lang('app.action')
@@ -425,16 +433,80 @@
                         <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
                             wire:key='menu-item-list-{{ microtime() }}'>
 
+                            @php $renderedComboGroups = []; @endphp
                             @forelse ($order->items as $key => $item)
                             @php
                                 $displayPrice = $this->getItemDisplayPrice($key);
+                                $isComboItem = !empty($item->combo_pack_id);
+                                $comboGroupId = $item->combo_pack_id ?? null;
+                                $comboInstanceKey = null;
+                                if ($isComboItem && !empty($item->note) && preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $item->note, $comboMatches)) {
+                                    $comboInstanceKey = trim((string) ($comboMatches[1] ?? ''));
+                                }
+                                $comboGroupKey = $isComboItem
+                                    ? ($comboInstanceKey ? 'instance:' . $comboInstanceKey : 'pack:' . (int) $comboGroupId)
+                                    : null;
+                                $showComboHeader = $comboGroupKey && !in_array($comboGroupKey, $renderedComboGroups, true);
+
+                                if ($showComboHeader) {
+                                    $renderedComboGroups[] = $comboGroupKey;
+                                    $comboGroupSavings = $order->items->filter(function ($groupItem) use ($comboGroupKey, $comboGroupId) {
+                                        if (str_starts_with($comboGroupKey, 'instance:')) {
+                                            if (empty($groupItem->note)) {
+                                                return false;
+                                            }
+                                            if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $groupItem->note, $groupMatches)) {
+                                                return ('instance:' . trim((string) ($groupMatches[1] ?? ''))) === $comboGroupKey;
+                                            }
+                                            return false;
+                                        }
+
+                                        return (int) ($groupItem->combo_pack_id ?? 0) === (int) $comboGroupId;
+                                    })->sum('combo_discount_amount');
+                                }
                             @endphp
+                                @if ($showComboHeader)
+                                    <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                        <td colspan="{{ $canManageItems ? 5 : 4 }}" class="px-2 py-1.5">
+                                            <div class="flex items-center justify-between">
+                                                <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                                    </svg>
+                                                    {{ optional($item->comboPack)->name ?? 'Combo Pack' }}
+                                                </span>
+                                                <div class="flex items-center gap-2">
+                                                    @if ((float) $comboGroupSavings > 0)
+                                                        <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                            Save {{ currency_format($comboGroupSavings, $currencyId) }}
+                                                        </span>
+                                                    @endif
+                                                    @if ($canManageItems)
+                                                        <button type="button"
+                                                            wire:click="removeComboGroupByOrderItem({{ (int) $item->id }})"
+                                                            wire:loading.attr="disabled"
+                                                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                            title="Remove whole combo">
+                                                            <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                                <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"></path>
+                                                            </svg>
+                                                            Remove
+                                                        </button>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endif
                                 <tr class="hover:bg-gray-100 dark:hover:bg-gray-700"
                                     wire:key='menu-item-{{ $key . microtime() }}'
                                     wire:loading.class.delay='opacity-10'>
                                     <td class="flex flex-col p-2 mr-12 lg:min-w-28">
                                         <div class="inline-flex items-center text-xs text-gray-900 dark:text-white">
                                             {{ $item->menuItem ? $item->menuItem->item_name : '--' }}
+                                            @if($isComboItem)
+                                                <span class="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">COMBO</span>
+                                            @endif
                                         </div>
 
                                         <div class="inline-flex items-center text-xs text-gray-600 dark:text-white">
@@ -475,7 +547,7 @@
                                         {{ currency_format($item->amount, $currencyId) }}
                                     </td>
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']) && user_can('Delete Order'))
+                                    @if ($canManageItems && !$isComboItem)
                                         <td class="p-2 text-right whitespace-nowrap">
                                             <button class="p-2 text-gray-800 border rounded dark:text-gray-400 dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20"
                                                 wire:click="promptOrderItemRemoval({{ $item->id }})">
@@ -552,6 +624,20 @@
                             </div>
                         @endif
 
+                        @if ($order->reward_point_discount > 0 && in_array('Reward Point', restaurant_modules()))
+                            <div class="flex justify-between text-sm text-amber-500 dark:text-amber-400">
+                                <div class="inline-flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                    </svg>
+                                    @lang('modules.reward.discountFromPoints') ({{ $order->reward_points_redeemed }} pts)
+                                </div>
+                                <div>
+                                    -{{ currency_format($order->reward_point_discount, $currencyId) }}
+                                </div>
+                            </div>
+                        @endif
+
                         @foreach ($order->charges as $item)
                             <div class="flex justify-between text-sm text-gray-500 dark:text-gray-400">
                                 <div class="inline-flex items-center gap-x-1">
@@ -560,7 +646,7 @@
                                         ({{ $item->charge->charge_value }}%)
                                     @endif
 
-                                    @if (!in_array($order->status, ['paid', 'payment_due', 'canceled']))
+                                    @if ($order->status !== 'canceled' && (!in_array($order->status, ['paid', 'payment_due']) || user_can('Edit Billed Order')))
                                         <span class="text-red-500 cursor-pointer hover:scale-110 active:scale-100"
                                             wire:click="removeCharge('{{ $item->id }}')">
                                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"
@@ -663,6 +749,20 @@
                             </div>
                         </div>
 
+                        @if ($order->reward_points_earned > 0 && in_array('Reward Point', restaurant_modules()))
+                            <div class="flex justify-between font-medium text-amber-500 dark:text-amber-400 mt-2 pt-2 border-t border-dashed border-gray-200 dark:border-gray-600">
+                                <div class="inline-flex items-center gap-1.5">
+                                    <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+                                    </svg>
+                                    @lang('modules.reward.pointsAwarded')
+                                </div>
+                                <div>
+                                    +{{ $order->reward_points_earned }} pts
+                                </div>
+                            </div>
+                        @endif
+
 
                         <div class="flex justify-between font-medium dark:text-gray-400">
                             <div>
@@ -718,7 +818,50 @@
                                     @lang('modules.order.addPayment')
                                 </button>
                             @endif
+
+                            @if (in_array($order->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
+                                <a href="{{ route('pos.kot', ['id' => $order->id]) }}"
+                                    class="min-h-[60px] col-span-2 rounded-xl bg-gray-700 hover:bg-gray-800 text-white p-4 inline-flex items-center justify-center gap-3 transition-colors shadow-sm text-lg font-medium">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none"
+                                        viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    @lang('modules.order.newKot')
+                                </a>
+                            @endif
                         </div>
+
+                        {{-- Discount section for billed / paid orders --}}
+                        @if (in_array($order->status, ['billed', 'paid', 'payment_due']) && user_can('Edit Billed Order'))
+                            <div class="mb-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-xl border border-gray-200 dark:border-gray-600">
+                                @if (!is_null($order->discount_amount))
+                                    <div class="flex items-center justify-between text-sm text-green-600 dark:text-green-400 mb-2">
+                                        <span class="inline-flex items-center gap-1">
+                                            @lang('modules.order.discount')
+                                            @if ($order->discount_type == 'percent')
+                                                ({{ rtrim(rtrim(number_format($order->discount_value, 2), '0'), '.') }}%)
+                                            @endif
+                                            <button wire:click="removeDiscount"
+                                                title="@lang('app.remove')"
+                                                class="text-red-500 hover:scale-110 active:scale-100 transition-transform">
+                                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </span>
+                                        <span>-{{ currency_format($order->discount_amount, $currencyId) }}</span>
+                                    </div>
+                                @endif
+                                <button wire:click="showAddDiscount"
+                                    class="w-full p-2 text-sm text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-500 inline-flex items-center justify-center gap-2 transition-colors">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14L15 8M9 9h.01M15 14h.01M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0z" />
+                                    </svg>
+                                    @lang('modules.order.addDiscount')
+                                </button>
+                            </div>
+                        @endif
 
                         <!-- Secondary Actions - Utility buttons in a grid -->
                         <div class="grid grid-cols-4 gap-2">
@@ -1088,6 +1231,62 @@
         <x-slot name="footer">
             <x-button-cancel wire:click="cancelOrderItemRemoval" wire:loading.attr="disabled" />
             <x-button class="ms-2" wire:click="confirmOrderItemRemoval" wire:loading.attr="disabled">
+                @lang('app.save')
+            </x-button>
+        </x-slot>
+    </x-dialog-modal>
+
+    <x-dialog-modal wire:model.live="showDiscountModal" maxWidth="md">
+        <x-slot name="title">
+            @lang('modules.order.addDiscount')
+        </x-slot>
+
+        <x-slot name="content">
+            <div class="space-y-4">
+                <div>
+                    <x-label for="discountType" :value="__('modules.order.discountType')" />
+                    <div class="flex gap-4 mt-2">
+                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                            <input type="radio" wire:model.live="discountType" value="fixed" class="text-skin-base">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">@lang('modules.order.fixed')</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2 cursor-pointer">
+                            <input type="radio" wire:model.live="discountType" value="percent" class="text-skin-base">
+                            <span class="text-sm text-gray-700 dark:text-gray-300">@lang('modules.order.percent') (%)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div>
+                    <x-label for="discountValue" :value="__('modules.order.discountValue')" />
+                    <div class="relative mt-1">
+                        <x-input id="discountValue" type="number" step="0.01" min="0"
+                            class="block w-full pr-10"
+                            wire:model.defer="discountValue"
+                            :placeholder="__('modules.order.enterDiscountValue')" />
+                        <span class="absolute inset-y-0 right-3 flex items-center text-gray-500 dark:text-gray-400 pointer-events-none">
+                            {{ $discountType === 'percent' ? '%' : '' }}
+                        </span>
+                    </div>
+                    <x-input-error for="discountValue" class="mt-1" />
+                </div>
+
+                @if (!is_null($discountValue) && $discountValue > 0 && $order)
+                    <div class="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg text-sm text-green-700 dark:text-green-400">
+                        @lang('modules.order.calculatedDiscount'):
+                        @if ($discountType === 'percent')
+                            {{ currency_format(round(($order->sub_total * $discountValue) / 100, 2), $currencyId) }}
+                        @else
+                            {{ currency_format($discountValue, $currencyId) }}
+                        @endif
+                    </div>
+                @endif
+            </div>
+        </x-slot>
+
+        <x-slot name="footer">
+            <x-button-cancel wire:click="$set('showDiscountModal', false)" wire:loading.attr="disabled" />
+            <x-button class="ms-2" wire:click="applyDiscount" wire:loading.attr="disabled">
                 @lang('app.save')
             </x-button>
         </x-slot>

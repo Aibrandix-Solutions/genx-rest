@@ -3,6 +3,10 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\PrintJobController;
+use App\Http\Controllers\Api\PosBootstrapController;
+use App\Http\Controllers\Api\PosCartBatchSyncController;
+use App\Http\Controllers\Api\PosSupportController;
+use App\Http\Controllers\Api\PosVueOrderController;
 use App\Http\Middleware\DesktopUniqueKeyMiddleware;
 use App\Http\Middleware\CorsMiddleware;
 
@@ -15,6 +19,10 @@ Route::middleware(DesktopUniqueKeyMiddleware::class)->group(function () {
 
     //Multiple job pull
     Route::get('/print-jobs/pull-multiple', [PrintJobController::class, 'pullMultiple']);
+
+    Route::get('/print-jobs/{printJob}/image', [PrintJobController::class, 'image']);
+    Route::get('/print-jobs/{printJob}/{filename}', [PrintJobController::class, 'image'])
+        ->where('filename', '[a-zA-Z0-9._-]+\\.png');
 
     Route::get('/printer-details', [PrintJobController::class, 'printerDetails']);
     // mark a job done/failed
@@ -64,4 +72,39 @@ Route::post('/force-disconnect-pusher', function (Request $request) {
         'status' => 'disconnected',
         'message' => 'All connections should be disconnected. Reload pages to reconnect.'
     ]);
+});
+
+// POS Bootstrap API - Cache-first endpoint for POS initialization
+Route::middleware(['auth', 'web'])->group(function () {
+    Route::get('/pos/bootstrap', [PosBootstrapController::class, 'bootstrap']);
+    Route::get('/pos/get-order-number', [PosSupportController::class, 'getOrderNumber']);
+    Route::get('/pos/order-types', [PosSupportController::class, 'orderTypes']);
+    Route::get('/pos/combo-packs/{id}/preview', [PosSupportController::class, 'previewComboPack']);
+    Route::get('/pos/delivery-platforms', [PosSupportController::class, 'deliveryPlatforms']);
+    Route::get('/pos/waiters', [PosSupportController::class, 'waiters']);
+    Route::post('/pos/order-preferences', [PosSupportController::class, 'saveOrderPreferences']);
+    Route::get('/pos/phone-codes', [PosSupportController::class, 'phoneCodes']);
+    Route::get('/pos/customers', [PosSupportController::class, 'customers']);
+    Route::post('/pos/customers', [PosSupportController::class, 'storeCustomer']);
+    Route::get('/pos/extra-charges/{orderType}', [PosSupportController::class, 'extraCharges']);
+    Route::get('/pos/tables', [PosSupportController::class, 'tables']);
+    Route::get('/pos/reservations/today', [PosSupportController::class, 'reservationsToday']);
+    Route::post('/pos/tables/{id}/unlock', [PosSupportController::class, 'unlockTable']);
+    Route::post('/pos/tables/{id}/lock', [PosSupportController::class, 'lockTable']);
+    Route::get('/pos/orders/{id}', [PosVueOrderController::class, 'show']);
+    Route::get('/pos/cancel-reasons', [PosSupportController::class, 'cancelReasons']);
+    Route::post('/pos/bootstrap/clear-cache', [PosBootstrapController::class, 'clearCache']);
+    Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
+    Route::get('/pos/customer-reward-balance', [PosSupportController::class, 'customerRewardBalance']);
+    Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
+    Route::post('/pos/orders/{id}/waiter', [PosSupportController::class, 'updateOrderWaiter']);
+    Route::post('/pos/orders/{id}/customer', [PosSupportController::class, 'updateOrderCustomer']);
+    Route::post('/pos/orders/{id}/items/note', [PosSupportController::class, 'updateOrderItemNote']);
+    Route::post('/pos/orders/{id}/table', [PosSupportController::class, 'updateOrderTable']);
+    Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
+    Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
+    Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
+    Route::delete('/pos/orders/{id}', [PosSupportController::class, 'deleteOrder']);
+    Route::delete('/pos/orders/{orderId}/kot-items/{kotItemId}', [PosSupportController::class, 'removeKotItem']);
+    Route::patch('/pos/orders/{orderId}/kot-items/{kotItemId}/quantity', [PosSupportController::class, 'reduceKotItem']);
 });

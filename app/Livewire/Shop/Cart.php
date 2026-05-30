@@ -1180,30 +1180,91 @@ class Cart extends Component
         session(['transaction_id' => $transactionId]);
 
         $kot = null;
+        $kotIds = [];
         if (!$requiresStaffConfirmationBeforeKitchen) {
-            $kot = Kot::create([
-                'branch_id' => $this->shopBranch->id,
-                'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
-                'order_id' => $order->id,
-                'order_type_id' => $order->order_type_id,
-                'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
-                'note' => $this->orderNote,
-                'transaction_id' => $transactionId
-            ]);
+            // Group items by kitchen — each item goes to ONE kitchen only
+            // For multi-kitchen items, use the primary (first) kitchen
+            $kitchenGroups = []; // kitchenId => [itemKeys]
+            $noKitchenItems = [];
 
             foreach ($this->orderItemList ?? [] as $key => $value) {
+                $menuItemId = $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id;
+                $menuItem = \App\Models\MenuItem::find($menuItemId);
+                $kitchenPlaceIds = $menuItem ? $menuItem->getKitchenPlaceIds() : [];
 
-                $kotItem = KotItem::create([
-                    'kot_id' => $kot->id,
-                    'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id,
-                    'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
-                    'quantity' => $this->orderItemQty[$key],
+                if (empty($kitchenPlaceIds)) {
+                    $noKitchenItems[] = $key;
+                } else {
+                    // Use the first (primary) kitchen — item goes to ONE KOT only
+                    $primaryKitchenId = $kitchenPlaceIds[0];
+                    $kitchenGroups[$primaryKitchenId][] = $key;
+                }
+            }
+
+            // Create a KOT per kitchen
+            foreach ($kitchenGroups as $kitchenId => $itemKeys) {
+                $kotObj = Kot::create([
+                    'branch_id' => $this->shopBranch->id,
+                    'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
+                    'order_id' => $order->id,
+                    'order_type_id' => $order->order_type_id,
+                    'kitchen_place_id' => $kitchenId,
+                    'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
+                    'note' => $this->orderNote,
                     'transaction_id' => $transactionId,
-                    'note' => $this->itemNotes[$key] ?? null,
                 ]);
+                $kotIds[] = $kotObj->id;
+                if (!$kot) $kot = $kotObj;
 
-                $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
-                $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+                foreach ($itemKeys as $key) {
+                    $menuItemId = $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id;
+                    $menuItem = \App\Models\MenuItem::find($menuItemId);
+                    $isMultiKitchen = $menuItem && $menuItem->isMultiKitchen();
+
+                    $kotItem = KotItem::create([
+                        'kot_id' => $kotObj->id,
+                        'menu_item_id' => $menuItemId,
+                        'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                        'quantity' => $this->orderItemQty[$key],
+                        'transaction_id' => $transactionId,
+                        'note' => $this->itemNotes[$key] ?? null,
+                        'is_multi_kitchen' => $isMultiKitchen,
+                    ]);
+
+                    $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
+                    $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+                }
+            }
+
+            // Items without a kitchen go into a default KOT
+            if (!empty($noKitchenItems)) {
+                $defaultKitchen = \App\Models\KotPlace::where('is_default', true)->first();
+                $kotObj = Kot::create([
+                    'branch_id' => $this->shopBranch->id,
+                    'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
+                    'order_id' => $order->id,
+                    'order_type_id' => $order->order_type_id,
+                    'kitchen_place_id' => $defaultKitchen?->id,
+                    'token_number' => Kot::generateTokenNumber($this->shopBranch->id, $order->order_type_id),
+                    'note' => $this->orderNote,
+                    'transaction_id' => $transactionId,
+                ]);
+                $kotIds[] = $kotObj->id;
+                if (!$kot) $kot = $kotObj;
+
+                foreach ($noKitchenItems as $key) {
+                    $kotItem = KotItem::create([
+                        'kot_id' => $kotObj->id,
+                        'menu_item_id' => $this->orderItemVariation[$key]->menu_item_id ?? $this->orderItemList[$key]->id,
+                        'menu_item_variation_id' => (isset($this->orderItemVariation[$key]) ? $this->orderItemVariation[$key]->id : null),
+                        'quantity' => $this->orderItemQty[$key],
+                        'transaction_id' => $transactionId,
+                        'note' => $this->itemNotes[$key] ?? null,
+                    ]);
+
+                    $this->itemModifiersSelected[$key] = $this->itemModifiersSelected[$key] ?? [];
+                    $kotItem->modifierOptions()->sync($this->buildModifierSyncData($this->itemModifiersSelected[$key]));
+                }
             }
         }
 
@@ -1288,7 +1349,7 @@ class Cart extends Component
         ]);
 
         if ($kot) {
-            $this->printKot($order, $kot);
+            $this->printKot($order, $kot, $kotIds);
         }
 
         event(new OrderUpdated($order, 'updated'));
@@ -2010,53 +2071,46 @@ class Cart extends Component
             }
 
             foreach ($kots as $kot) {
-                $kotPlaceItems = [];
-
-                foreach ($kot->items as $kotItem) {
-                    if ($kotItem->menuItem && $kotItem->menuItem->kot_place_id) {
-                        $kotPlaceId = $kotItem->menuItem->kot_place_id;
-
-                        if (!isset($kotPlaceItems[$kotPlaceId])) {
-                            $kotPlaceItems[$kotPlaceId] = [];
-                        }
-
-                        $kotPlaceItems[$kotPlaceId][] = $kotItem;
-                    }
+                // Each KOT now has kitchen_place_id set directly (multi-kitchen routing)
+                $kotPlaceId = $kot->kitchen_place_id;
+                if (!$kotPlaceId) {
+                    // Fallback for legacy KOTs: derive from first item
+                    $firstItem = $kot->items->first();
+                    $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
                 }
 
-                // Get the kot places and their printer settings
-                $kotPlaceIds = array_keys($kotPlaceItems);
-                $kotPlaces = KotPlace::with('printerSetting')->whereIn('id', $kotPlaceIds)->get();
+                if (!$kotPlaceId) continue;
 
-                foreach ($kotPlaces as $kotPlace) {
-                    $printerSetting = $kotPlace->printerSetting;
+                $kotPlace = KotPlace::with('printerSetting')->find($kotPlaceId);
+                if (!$kotPlace) continue;
 
-                    if ($printerSetting && $printerSetting->is_active == 0) {
-                        $printerSetting = Printer::where('is_default', true)->first();
+                $printerSetting = $kotPlace->printerSetting;
+
+                if ($printerSetting && $printerSetting->is_active == 0) {
+                    $printerSetting = Printer::where('is_default', true)->first();
+                }
+
+                // If no printer is set, fallback to print URL dispatch
+                if (!$printerSetting) {
+                    $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+                    $this->dispatch('print_location', $url);
+                    continue;
+                }
+
+                try {
+                    switch ($printerSetting->printing_choice) {
+                        case 'directPrint':
+                            $this->handleKotPrint($kot->id, $kotPlace->id);
+                            break;
+                        default:
                     }
-
-                    // If no printer is set, fallback to print URL dispatch
-                    if (!$printerSetting) {
-                        $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                        $this->dispatch('print_location', $url);
-                        continue;
-                    }
-
-                    try {
-                        switch ($printerSetting->printing_choice) {
-                            case 'directPrint':
-                                $this->handleKotPrint($kot->id, $kotPlace->id);
-                                break;
-                            default:
-                        }
-                    } catch (\Throwable $e) {
-                        $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
-                            'toast' => true,
-                            'position' => 'top-end',
-                            'showCancelButton' => false,
-                            'cancelButtonText' => __('app.close')
-                        ]);
-                    }
+                } catch (\Throwable $e) {
+                    $this->alert('error', __('messages.printerNotConnected') . ' ' . $e->getMessage(), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                        'showCancelButton' => false,
+                        'cancelButtonText' => __('app.close')
+                    ]);
                 }
             }
         } else {

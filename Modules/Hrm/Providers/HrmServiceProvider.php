@@ -23,9 +23,6 @@ class HrmServiceProvider extends ServiceProvider
         $this->registerViews();
         $this->loadMigrationsFrom(module_path($this->name, 'Database/Migrations'));
 
-        // Ensure the module appears in custom_module_plugins() cache
-        cache()->forget('custom_module_plugins');
-
         $this->registerBladeComponents();
     }
 
@@ -68,9 +65,16 @@ class HrmServiceProvider extends ServiceProvider
             $sourcePath => $viewPath,
         ], 'views');
 
-        $this->loadViewsFrom(array_merge(array_map(function ($path) {
+        $moduleViewPaths = array_map(function ($path) {
             return $path . '/modules/' . $this->nameLower;
-        }, \Config::get('view.paths')), [$sourcePath]), $this->nameLower);
+        }, \Config::get('view.paths'));
+
+        $existingViewPaths = array_values(array_filter(
+            array_merge($moduleViewPaths, [$sourcePath]),
+            fn ($path) => is_dir($path)
+        ));
+
+        $this->loadViewsFrom($existingViewPaths, $this->nameLower);
     }
 
     protected function registerBladeComponents(): void

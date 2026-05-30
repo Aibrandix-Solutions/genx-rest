@@ -34,7 +34,7 @@ class CustomerRewardPoints extends Component
         $this->settings = RewardSetting::getForRestaurant(restaurant()->id);
     }
 
-    public function adjustPoints()
+    public function saveAdjustment()
     {
         $this->validate([
             'adjustPoints' => 'required|integer',
@@ -67,9 +67,21 @@ class CustomerRewardPoints extends Component
 
     public function render()
     {
-        $transactions = RewardTransaction::where('customer_id', $this->customer->id)
-            ->where('restaurant_id', restaurant()->id)
-            ->orderBy('created_at', 'desc')
+        $restaurantId = restaurant()->id;
+        $customerId = $this->customer->id;
+
+        // Running balance per row (chronological cumulative sum); list is newest-first.
+        $transactions = RewardTransaction::query()
+            ->where('reward_transactions.customer_id', $customerId)
+            ->where('reward_transactions.restaurant_id', $restaurantId)
+            ->selectRaw(
+                'reward_transactions.*, SUM(reward_transactions.points) OVER ('.
+                'PARTITION BY reward_transactions.customer_id, reward_transactions.restaurant_id '.
+                'ORDER BY reward_transactions.created_at ASC, reward_transactions.id ASC'.
+                ') AS balance_after'
+            )
+            ->orderBy('reward_transactions.created_at', 'desc')
+            ->orderBy('reward_transactions.id', 'desc')
             ->paginate(20);
 
         return view('livewire.customer.customer-reward-points', [

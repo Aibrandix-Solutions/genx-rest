@@ -264,14 +264,23 @@
 
                         @if (in_array('Kitchen', restaurant_modules()))
                         <div>
-                            <x-label for="kitchenType" :value="__('modules.menu.kitchenType')" />
-                            <x-select id="kitchenType" class="mt-1 block w-full" wire:model="kitchenType">
-                                <option value="">@lang('modules.menu.SelectKitchenType')</option>
+                            <x-label for="kitchenTypes" :value="__('modules.menu.kitchenType')" />
+                            <div class="mt-1 space-y-2 max-h-40 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
                                 @foreach($kitchenTypes as $type)
-                                <option value="{{ $type->id }}">{{ $type->name }}</option>
+                                <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 px-2 py-1 rounded">
+                                    <input type="checkbox" value="{{ $type->id }}" wire:model="selectedKitchenTypes"
+                                        class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700">
+                                    <span class="text-sm text-gray-700 dark:text-gray-300">{{ $type->name }}</span>
+                                </label>
                                 @endforeach
-                            </x-select>
-                            <x-input-error for="kitchenType" class="mt-2" />
+                            </div>
+                            @if(count($selectedKitchenTypes ?? []) > 1)
+                                <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
+                                    @lang('modules.menu.multiKitchenNote')
+                                </p>
+                            @endif
+                            <x-input-error for="selectedKitchenTypes" class="mt-2" />
                         </div>
                         @endif
 
@@ -514,7 +523,18 @@
                                 <!-- Order Types Pricing -->
                                 @if($orderTypes->isNotEmpty())
                                 <div>
-                                    <x-label value="Order Types Pricing" class="mb-3 text-base font-semibold" />
+                                    <div class="flex items-center justify-between mb-3">
+                                        <x-label value="Order Types Pricing" class="!mb-0 text-base font-semibold" />
+                                        @if(!empty($variationPrice[$key]))
+                                        <button type="button"
+                                            wire:click="syncVariationPriceToAll({{ $key }})"
+                                            title="Set Dine In, Pickup, and Base Delivery Price to {{ restaurant()->currency->currency_symbol }}{{ $variationPrice[$key] }}"
+                                            class="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                            Copy price to all
+                                        </button>
+                                        @endif
+                                    </div>
                                     <div class="space-y-2">
                                         @foreach($orderTypes->reject(fn($type) => strtolower($type->slug ?? $type->name) === 'delivery') as $orderType)
                                         <div wire:key="variation-order-type-{{ $key }}-{{ $orderType->id }}">
@@ -537,12 +557,11 @@
                                 </div>
                                 @endif
 
-                                <!-- Delivery Platforms -->
-                                @if($deliveryApps->isNotEmpty())
+                                <!-- Delivery Pricing -->
                                 <div>
-                                    <x-label value="Delivery Platforms" class="mb-3 text-base font-semibold" />
+                                    <x-label value="Delivery Pricing" class="mb-3 text-base font-semibold" />
                                     <div class="space-y-2">
-                                        <!-- Base Delivery Price -->
+                                        <!-- Base Delivery Price — always shown so it feeds the delivery order type -->
                                         <div>
                                             <div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600">
                                                 <div class="flex items-center space-x-2">
@@ -562,7 +581,7 @@
                                             <x-input-error for="variationBaseDeliveryPrice.{{ $key }}" class="mt-2" />
                                         </div>
 
-                                        <!-- Delivery Apps -->
+                                        <!-- Per-platform rows — only when delivery apps are configured -->
                                         @foreach($deliveryApps as $app)
                                         <div class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-600" wire:key="delivery-app-{{ $key }}-{{ $app->id }}">
                                             <div class="flex items-center space-x-3">
@@ -582,7 +601,12 @@
                                                 <div>
                                                     <span class="font-medium text-gray-900 dark:text-white text-sm">{{ $app->name }}</span>
                                                     <div class="text-xs text-gray-500">
-                                                        Commission: {{ $app->commission_value ?? 0 }}%
+                                                        Commission:
+                                                        @if($app->commission_type === 'percent')
+                                                            {{ $app->commission_value ?? 0 }}%
+                                                        @else
+                                                            {{ restaurant()->currency->currency_symbol }}{{ $app->commission_value ?? 0 }}
+                                                        @endif
                                                     </div>
                                                 </div>
                                             </div>
@@ -604,7 +628,6 @@
                                         @endforeach
                                     </div>
                                 </div>
-                                @endif
 
                                 <!-- Tax Breakdown -->
                                 @if($isTaxModeItem && !empty($variationBreakdowns[$key]['breakdown']))

@@ -147,7 +147,13 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
 
     Route::get('pos/order/{id}', [PosController::class, 'order'])->name('pos.order');
     Route::get('pos/kot/{id}', [PosController::class, 'kot'])->name('pos.kot');
+    Route::get('pos/vue', [PosController::class, 'vue'])->name('pos.vue');
     Route::resource('pos', PosController::class);
+
+    Route::prefix('ajax/pos')->group(function () {
+        Route::get('/bootstrap', [PosController::class, 'bootstrap'])->name('ajax.pos.bootstrap');
+        Route::post('/client-ops', [PosController::class, 'clientOps'])->name('ajax.pos.client-ops');
+    });
 
     Route::resource('kots', KotController::class);
     Route::get('kot/print/{id}/{kotPlaceid?}', [KotController::class, 'printkot'])->name('kot.print');

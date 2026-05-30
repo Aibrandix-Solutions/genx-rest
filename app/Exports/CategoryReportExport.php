@@ -15,7 +15,7 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class CategoryReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
-    protected string $startDateTime, $endDateTime, $startTime, $endTime, $timezone, $offset;
+    protected string $startDateTime, $endDateTime, $startTime, $endTime, $timezone;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
 
     public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone)

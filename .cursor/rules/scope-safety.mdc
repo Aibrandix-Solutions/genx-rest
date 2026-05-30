@@ -1,0 +1,29 @@
+---
+description: Minimize regressions—touch only what the user asked for
+alwaysApply: true
+---
+
+# Scope and safety
+
+## Default behavior
+
+- Change **only** what is required to satisfy the current request. No drive-by refactors, renames, formatting sweeps, or “while we’re here” edits in unrelated files.
+- **Do not** remove or rewrite existing behavior unless the user explicitly asked to change it. Prefer the smallest diff that fixes the issue.
+- **Do not** add new permissions, routes, migrations, or env vars unless the user asked for them.
+- Match **existing** naming, types, patterns, and import style in the file you edit. Extend existing helpers instead of duplicating logic.
+
+## Before editing
+
+- Read enough surrounding code to understand how the feature works today; do not assume from memory.
+- If the request is ambiguous, state assumptions briefly and implement the narrowest interpretation—or ask one clarifying question instead of guessing a large redesign.
+
+## Laravel / Livewire / Blade
+
+- Respect **Spatie** roles/permissions: changing `user_can(...)` or gates changes production access—only do so when requested.
+- Livewire: avoid renaming public properties or events used by Blade without updating **all** references.
+- Do not create or edit markdown docs (README, deployment notes, etc.) unless the user asked.
+
+## Verification
+
+- After substantive changes, run relevant checks if available (e.g. `php artisan test`, pint) and fix introduced failures.
+- List which files were changed and what behavior was intentionally preserved.

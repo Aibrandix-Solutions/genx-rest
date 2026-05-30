@@ -386,13 +386,16 @@ class ManagePurchaseReturn extends Component
         $this->showModal = false;
         $this->isEditing = false;
         $this->dispatch('purchaseReturnSaved');
-        $this->alert('success', 'Purchase return saved successfully');
     }
 
     protected function processReturnLogic($return)
     {
         $po = PurchaseOrder::find($return->purchase_order_id);
         $locationId = $po ? $po->location_id : null;
+        $location = $locationId ? \Modules\Inventory\Entities\PurchaseLocation::find($locationId) : null;
+        $targetBranchId = ($location && $location->type === 'branch' && $location->branch_id)
+            ? (int) $location->branch_id
+            : ($po ? (int) $po->branch_id : (int) branch()->id);
         
         foreach ($return->items as $item) {
             $quantity = (float)$item->quantity;
@@ -410,7 +413,8 @@ class ManagePurchaseReturn extends Component
             
             // Create movement record
             InventoryMovement::create([
-                'branch_id' => branch()->id,
+                'branch_id' => $targetBranchId,
+                'location_id' => $locationId,
                 'inventory_item_id' => $item->inventory_item_id,
                 'quantity' => $quantity,
                 'transaction_type' => 'out',
@@ -450,13 +454,10 @@ class ManagePurchaseReturn extends Component
                 // Reload items to ensure we have fresh data
                 $return->load('items');
 
-                                // Reload items to ensure we have fresh data
-                $return->load('items');
-
                 // Process the return using shared logic
                 $this->processReturnLogic($return);
-                $return->update(['status' => 'completed']);
-                // Mark return as completed - do this LAST inside transaction to prevent double processing
+
+                // Mark return as completed LAST inside transaction to prevent double processing
                 $return->update(['status' => 'completed']);
                 
                 // Refresh the instance
@@ -488,7 +489,8 @@ class ManagePurchaseReturn extends Component
             ->map(function ($item) {
                 $categoryName = $item->category ? $item->category->name : 'No Category';
                 $unitSymbol = $item->unit ? $item->unit->symbol : '';
-                $item->display_name = "{$item->name} ({$categoryName} - {$unitSymbol})";
+                $codePrefix = !empty($item->item_code) ? "[{$item->item_code}] " : '';
+                $item->display_name = "{$codePrefix}{$item->name} ({$categoryName} - {$unitSymbol})";
                 return $item;
             });
 

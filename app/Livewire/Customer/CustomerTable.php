@@ -17,13 +17,15 @@ class CustomerTable extends Component
 
     public $search;
     public $customer;
+    public $filterCustomer = 'all';
+    public $perPage = 10;
     public $showEditCustomerModal = false;
     public $confirmDeleteCustomerModal = false;
     public $showCustomerOrderModal = false;
     public $showPaymentModal = false;
     public $showLedgerModal = false;
     public $showSalesModal = false;
-
+    public $showRewardPointsModal = false;
     protected $listeners = ['refreshCustomers' => '$refresh', 'reloadPage' => '$refresh'];
 
     #[On('refreshCustomers')]
@@ -58,10 +60,27 @@ class CustomerTable extends Component
         $this->showPaymentModal = true;
     }
 
+    public function showCustomerRewardPoints($id)
+    {
+        $this->customer = Customer::findOrFail($id);
+        $this->showRewardPointsModal = true;
+    }
+
     public function showCustomerLedger($id)
     {
         $this->customer = Customer::findOrFail($id);
         $this->showLedgerModal = true;
+    }
+
+    /**
+     * Close the ledger modal and open the order detail panel.
+     * Called by CustomerLedger when an order reference is clicked.
+     */
+    #[On('viewOrderFromLedger')]
+    public function viewOrderFromLedger($orderId)
+    {
+        $this->showLedgerModal = false;
+        $this->dispatch('showOrderDetail', id: $orderId);
     }
 
     public function showCustomerSales($id)
@@ -90,6 +109,11 @@ class CustomerTable extends Component
         ]);
     }
 
+    public function updatedPerPage()
+    {
+        $this->resetPage();
+    }
+
     #[On('hideEditCustomer')]
     public function hideEditCustomer()
     {
@@ -99,20 +123,42 @@ class CustomerTable extends Component
     public function render()
     {
         $query = Customer::withCount('orders')
-            ->with(['orders' => function($q) {
-                $q->where('status', 'payment_due')
-                  ->select('id', 'customer_id', 'total', 'amount_paid', 'status', 'date_time');
-            }])
             ->where(function($q) {
                 $q->where('name', 'like', '%' . $this->search . '%')
                   ->orWhere('email', 'like', '%' . $this->search . '%')
                   ->orWhere('phone', 'like', '%' . $this->search . '%');
-            })
-            ->orderBy('id', 'desc')
-            ->paginate(10);
+            });
+
+        // Apply outstanding balance filter
+        if ($this->filterCustomer === 'with_outstanding') {
+            $query->whereHas('orders', function($q) {
+                $q->whereIn('status', ['payment_due', 'paid', 'billed']);
+            });
+        } elseif ($this->filterCustomer === 'no_outstanding') {
+            $query->whereDoesntHave('orders', function($q) {
+                $q->whereIn('status', ['payment_due', 'paid', 'billed']);
+            });
+        }
+
+        $perPage = in_array((int)$this->perPage, [10, 20, 50, 100, 200]) ? (int)$this->perPage : 10;
+
+        $restaurant = restaurant();
+
+        if (in_array('Reward Point', restaurant_modules()) && $restaurant) {
+            $query->with(['rewardBalance' => function ($q) use ($restaurant) {
+                $q->where('restaurant_id', $restaurant->id);
+            }]);
+        }
+
+        $customers = $query->orderBy('id', 'desc')->paginate($perPage);
+
+        $rewardSettings = $restaurant
+            ? \App\Models\RewardSetting::getForRestaurant($restaurant->id)
+            : null;
 
         return view('livewire.customer.customer-table', [
-            'customers' => $query
+            'customers' => $customers,
+            'rewardSettings' => $rewardSettings
         ]);
     }
 }

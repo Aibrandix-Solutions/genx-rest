@@ -56,7 +56,11 @@ class InventoryItemTable extends Component
     {
         $inventoryItems = InventoryItem::with(['category', 'unit', 'supplier'])
             ->when($this->search, function ($query) {
-                $query->where('name', 'like', '%' . $this->search . '%');
+                $term = '%' . $this->search . '%';
+                $query->where(function ($q) use ($term) {
+                    $q->where('name', 'like', $term)
+                      ->orWhere('item_code', 'like', $term);
+                });
             })
             ->orderBy('created_at', 'desc')
             ->paginate($this->perPage);

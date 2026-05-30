@@ -41,4 +41,14 @@ class KotPlace extends Model
            return $this->hasMany(MenuItem::class, 'kot_place_id');
     }
 
+    /**
+     * Many-to-many: all menu items that can be prepared in this kitchen.
+     */
+    public function menuItemsMany()
+    {
+        return $this->belongsToMany(MenuItem::class, 'menu_item_kot_place', 'kot_place_id', 'menu_item_id')
+            ->withPivot('is_primary')
+            ->withTimestamps();
+    }
+
 }

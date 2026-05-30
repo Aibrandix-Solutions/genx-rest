@@ -34,7 +34,19 @@ class OrderController extends Controller
         $payment = Payment::where('order_id', $id)->first();
         $restaurant = restaurant();
         $taxDetails = RestaurantTax::where('restaurant_id', $restaurant->id)->get();
-        $order = Order::find($id);
+        $order = Order::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'items.comboPack',
+            'charges.charge',
+            'taxes.tax',
+            'payments',
+            'kot',
+            'table',
+            'waiter',
+            'customer',
+        ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
         $taxMode = $order?->tax_mode ?? ($restaurant->tax_mode ?? 'order');
         $totalTaxAmount = 0;
@@ -60,7 +72,19 @@ class OrderController extends Controller
         $payment = Payment::where('order_id', $id)->first();
         $restaurant = restaurant();
         $taxDetails = RestaurantTax::where('restaurant_id', $restaurant->id)->get();
-        $order = Order::find($id);
+        $order = Order::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'items.comboPack',
+            'charges.charge',
+            'taxes.tax',
+            'payments',
+            'kot',
+            'table',
+            'waiter',
+            'customer',
+        ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
         $taxMode = $restaurant->tax_mode ?? 'order';
         $totalTaxAmount = 0;
@@ -86,7 +110,19 @@ class OrderController extends Controller
         $payment = Payment::where('order_id', $id)->first();
         $restaurant = restaurant();
         $taxDetails = RestaurantTax::where('restaurant_id', $restaurant->id)->get();
-        $order = Order::find($id);
+        $order = Order::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'items.comboPack',
+            'charges.charge',
+            'taxes.tax',
+            'payments',
+            'kot',
+            'table',
+            'waiter',
+            'customer',
+        ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
         $taxMode = $restaurant->tax_mode ?? 'order';
         $totalTaxAmount = 0;

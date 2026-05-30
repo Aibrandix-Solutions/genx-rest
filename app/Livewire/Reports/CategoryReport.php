@@ -23,10 +23,9 @@ class CategoryReport extends Component
         abort_if(!in_array('Report', restaurant_modules()), 403);
         abort_if((!user_can('Show Reports')), 403);
 
-        // Load date range type from cookie
+        // Load date range type from cookie and derive dates from it
         $this->dateRangeType = request()->cookie('category_report_date_range_type', 'currentWeek');
-        $this->startDate = now()->startOfWeek()->format('m/d/Y');
-        $this->endDate = now()->endOfWeek()->format('m/d/Y');
+        $this->setDateRange();
     }
 
     public function updatedDateRangeType($value)

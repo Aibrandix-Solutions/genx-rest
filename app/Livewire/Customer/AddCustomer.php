@@ -22,6 +22,9 @@ class AddCustomer extends Component
     public $customerAddress;
     public $showAddCustomerModal = false;
     public $fromPos;
+    /** When true, payment modal may re-select Due after customer is saved (POS). */
+    public bool $forDuePayment = false;
+    public bool $preferDueAfterAttach = false;
     public $selectedCustomerId = null;
     public $customerPhoneCode;
     public $phoneCodeSearch = '';
@@ -61,6 +64,14 @@ class AddCustomer extends Component
         })->values();
     }
 
+    public function updatedShowAddCustomerModal($value): void
+    {
+        if (!$value) {
+            $this->forDuePayment = false;
+            $this->preferDueAfterAttach = false;
+        }
+    }
+
     public function selectPhoneCode($phonecode)
     {
         $this->customerPhoneCode = $phonecode;
@@ -70,7 +81,7 @@ class AddCustomer extends Component
     }
     
     #[On('showAddCustomerModal')]
-    public function showAddCustomer($id = null, $customerId = null, $fromPos = false)
+    public function showAddCustomer($id = null, $customerId = null, $fromPos = false, $forDuePayment = false, $preferDueAfterAttach = false)
     {
         if (!is_null($id)) {
             $this->order = Order::find($id);
@@ -87,6 +98,8 @@ class AddCustomer extends Component
             }
         }
         $this->fromPos = $fromPos ?? false;
+        $this->forDuePayment = filter_var($forDuePayment, FILTER_VALIDATE_BOOLEAN);
+        $this->preferDueAfterAttach = filter_var($preferDueAfterAttach, FILTER_VALIDATE_BOOLEAN);
         $this->showAddCustomerModal = true;
     }
 
@@ -152,6 +165,49 @@ class AddCustomer extends Component
                 'address' => false
             ];
         }
+    }
+
+    /**
+     * POS due flow: one tap on a search result attaches the customer and continues payment.
+     */
+    public function selectOrAttachSearchResult(int $customerId): void
+    {
+        if ($this->forDuePayment && $this->preferDueAfterAttach && $this->order) {
+            $this->quickAttachExistingCustomer($customerId);
+
+            return;
+        }
+
+        $this->selectCustomer($customerId);
+    }
+
+    protected function quickAttachExistingCustomer(int $customerId): void
+    {
+        $customer = Customer::where('restaurant_id', restaurant()->id)->find($customerId);
+
+        if (!$customer || !$this->order) {
+            return;
+        }
+
+        $this->order->customer_id = $customer->id;
+        if (!empty($customer->delivery_address)) {
+            $this->order->delivery_address = $customer->delivery_address;
+        }
+        $this->order->save();
+
+        if ($this->forDuePayment && $this->preferDueAfterAttach) {
+            $this->dispatch('customerReadyForDuePayment', orderId: $this->order->id)
+                ->to(\App\Livewire\Order\AddPayment::class);
+        }
+
+        if (!$this->fromPos) {
+            $this->dispatch('showOrderDetail', id: $this->order->id);
+        }
+
+        $this->dispatch('refreshOrders');
+        $this->dispatch('refreshPos');
+
+        $this->resetForm();
     }
 
     public function createNewCustomer()
@@ -261,6 +317,11 @@ class AddCustomer extends Component
             $this->order->delivery_address = $this->customerAddress;
             $this->order->save();
 
+            if ($this->forDuePayment && $this->preferDueAfterAttach) {
+                $this->dispatch('customerReadyForDuePayment', orderId: $this->order->id)
+                    ->to(\App\Livewire\Order\AddPayment::class);
+            }
+
             if (!$this->fromPos) {
                 $this->dispatch('showOrderDetail', id: $this->order->id);
             }
@@ -298,6 +359,8 @@ class AddCustomer extends Component
             'address' => false
         ];
         $this->showAddCustomerModal = false;
+        $this->forDuePayment = false;
+        $this->preferDueAfterAttach = false;
     }
 
     public function render()

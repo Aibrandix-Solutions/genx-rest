@@ -16,11 +16,13 @@ use Modules\Inventory\Livewire\Reports\UsageReport;
 use Modules\Inventory\Livewire\Reports\TurnoverReport;
 use Modules\Inventory\Livewire\Reports\ForecastingReport;
 use Modules\Inventory\Livewire\StockTransfer\CreateStockTransfer;
+use Modules\Inventory\Livewire\StockTransfer\EditStockTransfer;
 use Modules\Inventory\Livewire\StockTransfer\StockTransferList;
 use Modules\Inventory\Livewire\StockTransfer\ReceiveStockTransfer;
 use Modules\Inventory\Livewire\Setting\LocationManager;
 use Modules\Inventory\Console\CreateAutoPurchaseOrder;
 use Modules\Inventory\Console\ActivateModuleCommand;
+use Modules\Inventory\Console\ReallocateOrphanSupplierPayments;
 use Illuminate\Console\Scheduling\Schedule;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Observers\InventoryItemObserver;
@@ -70,6 +72,7 @@ class InventoryServiceProvider extends ServiceProvider
         Livewire::component('inventory::reports.forecasting-report', ForecastingReport::class);
         
         Livewire::component('inventory::stock-transfer.create-stock-transfer', CreateStockTransfer::class);
+        Livewire::component('inventory::stock-transfer.edit-stock-transfer', EditStockTransfer::class);
         Livewire::component('inventory::stock-transfer.stock-transfer-list', StockTransferList::class);
         Livewire::component('inventory::stock-transfer.receive-stock-transfer', ReceiveStockTransfer::class);
 
@@ -100,6 +103,7 @@ class InventoryServiceProvider extends ServiceProvider
         $this->commands([
             CreateAutoPurchaseOrder::class,
             ActivateModuleCommand::class,
+            ReallocateOrphanSupplierPayments::class,
         ]);
     }
 
@@ -152,9 +156,16 @@ class InventoryServiceProvider extends ServiceProvider
             $sourcePath => $viewPath
         ], 'views');
 
-        $this->loadViewsFrom(array_merge(array_map(function ($path) {
+        $moduleViewPaths = array_map(function ($path) {
             return $path . '/modules/inventory';
-        }, \Config::get('view.paths')), [$sourcePath]), 'inventory');
+        }, \Config::get('view.paths'));
+
+        $existingViewPaths = array_values(array_filter(
+            array_merge($moduleViewPaths, [$sourcePath]),
+            fn ($path) => is_dir($path)
+        ));
+
+        $this->loadViewsFrom($existingViewPaths, 'inventory');
     }
 
 

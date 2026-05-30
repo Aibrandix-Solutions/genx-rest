@@ -10,6 +10,7 @@ Schedule::command('cleanup:print-files')->hourly();
 
 Schedule::command('app:trial-expire')->daily();
 Schedule::command('app:license-expire')->daily();
+Schedule::command('app:expire-reward-points')->daily();
 Schedule::command('app:hide-cron-job-message')->everyMinute();
 
 Schedule::command('queue:flush')->weekly();

@@ -59,8 +59,8 @@ class UpdateMenuItem extends Component
     #[Validate('required|boolean')]
     public bool $isAvailable = true;
 
-    #[Validate('nullable|string')]
-    public ?string $kitchenType = null;
+    #[Validate('nullable|array')]
+    public array $selectedKitchenTypes = [];
 
     #[Validate('required|boolean')]
     public bool $showOnCustomerSite = true;
@@ -171,7 +171,13 @@ class UpdateMenuItem extends Component
         $this->itemType = $this->menuItem->type;
         $this->isAvailable = (bool)$this->menuItem->is_available;
         $this->inStock = (bool)$this->menuItem->in_stock;
-        $this->kitchenType = $this->menuItem->kot_place_id ? (string)$this->menuItem->kot_place_id : null;
+        // Load selected kitchens from pivot table, fallback to legacy kot_place_id
+        $pivotIds = $this->menuItem->kotPlaces()->pluck('kot_places.id')->toArray();
+        if (!empty($pivotIds)) {
+            $this->selectedKitchenTypes = array_map('strval', $pivotIds);
+        } elseif ($this->menuItem->kot_place_id) {
+            $this->selectedKitchenTypes = [(string) $this->menuItem->kot_place_id];
+        }
         $this->showOnCustomerSite = (bool)$this->menuItem->show_on_customer_site;
         $this->itemImage = $this->menuItem->image;
 
@@ -429,8 +435,10 @@ class UpdateMenuItem extends Component
         $this->variationDeliveryPrices[$index] = [];
 
         foreach ($this->deliveryApps as $app) {
-            $commission = $app->commission_value ?? 0;
-            $finalPrice = $basePrice + ($basePrice * $commission / 100);
+            $commission = (float)($app->commission_value ?? 0);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $basePrice + ($basePrice * $commission / 100)
+                : $basePrice + $commission;
             $this->variationDeliveryPrices[$index][$app->id] = number_format($finalPrice, 2);
         }
     }
@@ -439,6 +447,29 @@ class UpdateMenuItem extends Component
     {
         $this->calculateVariationDeliveryPrices($key);
         $this->recalculateTaxBreakdowns();
+    }
+
+    /**
+     * Copy the variation's standard price into all non-delivery order type fields
+     * AND into the base delivery price field, then recalculate platform prices.
+     * Always overwrites so the user gets a full sync when they click the button.
+     */
+    public function syncVariationPriceToAll(int $index): void
+    {
+        $price = $this->variationPrice[$index] ?? '';
+        if ($price === '' || $price === null) {
+            return;
+        }
+
+        foreach ($this->orderTypes as $orderType) {
+            if (strtolower($orderType->slug ?? $orderType->name) === 'delivery') {
+                continue;
+            }
+            $this->variationOrderTypePrices[$index][$orderType->id] = $price;
+        }
+
+        $this->variationBaseDeliveryPrice[$index] = $price;
+        $this->calculateVariationDeliveryPrices($index);
     }
 
     public function updatedVariationBaseDeliveryPrice($value, $key): void
@@ -513,11 +544,8 @@ class UpdateMenuItem extends Component
         $this->showItemPrice = true;
         $this->taxInclusivePriceDetails = $this->getTaxInclusivePriceDetailsProperty();
         $this->variationBreakdowns = [];
-
-        // If variations are now disabled, delete all old variations
-        if ($this->menuItem->variations->count() > 0) {
-            MenuItemVariation::where('menu_item_id', $this->menuItem->id)->delete();
-        }
+        // Do NOT delete variations here — the user may still cancel or re-enable.
+        // Deletion is deferred to handleVariationsOrPricing() on confirmed submit.
     }
 
     // FORM SUBMISSION AND VALIDATION
@@ -543,6 +571,18 @@ class UpdateMenuItem extends Component
 
             $this->validateForm();
             $this->updateMenuItem();
+
+            // Sync multi-kitchen pivot table
+            if (!empty($this->selectedKitchenTypes)) {
+                $pivotData = [];
+                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
+                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
+                }
+                $this->menuItem->kotPlaces()->sync($pivotData);
+            } else {
+                $this->menuItem->kotPlaces()->detach();
+            }
+
             $this->handleTranslations($this->menuItem);
             $this->handleImageUpload($this->menuItem);
             $this->handleVariationsOrPricing($this->menuItem);
@@ -569,31 +609,26 @@ class UpdateMenuItem extends Component
             $this->itemCode = null;
         }
 
+        $branch = branch();
+        $itemCodeRule = Rule::unique('menu_items', 'item_code')
+            ->ignore($this->menuItem->id)
+            ->when($branch, fn($rule) => $rule->where('branch_id', $branch->id));
+
         $rules = [
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
-            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code,' . $this->menuItem->id,
+            'itemCode' => ['nullable', 'string', 'max:50', $itemCodeRule],
             'isAvailable' => 'required|boolean',
             'showOnCustomerSite' => 'required|boolean',
             'platformAvailability.*' => 'nullable|boolean',
         ];
 
-        // If Kitchen module is enabled, a kitchen type is mandatory.
+        // If Kitchen module is enabled, at least one kitchen type is mandatory.
         if (in_array('Kitchen', restaurant_modules(), true)) {
-            $branchId = branch()->id ?? null;
-
-            $rules['kitchenType'] = [
-                'required',
-                Rule::exists('kot_places', 'id')->where(function ($query) use ($branchId) {
-                    $query->where('is_active', true);
-
-                    if (!empty($branchId)) {
-                        $query->where('branch_id', $branchId);
-                    }
-                }),
-            ];
+            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
+            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
         }
 
         // Add validation for variations if hasVariations is true
@@ -653,8 +688,8 @@ class UpdateMenuItem extends Component
             'showOnCustomerSite.required' => __('validation.showOnCustomerSiteRequired'),
             'showOnCustomerSite.boolean' => __('validation.showOnCustomerSiteMustBeBoolean'),
 
-            'kitchenType.required' => __('validation.kitchenTypeRequired'),
-            'kitchenType.exists' => __('validation.kitchenTypeInvalid'),
+            'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
+            'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
         ];
 
         // Add validation messages for order type prices (non-variation)
@@ -700,7 +735,7 @@ class UpdateMenuItem extends Component
             'preparation_time' => $this->preparationTime,
             'menu_id' => $this->menu,
             'is_available' => $this->isAvailable,
-            'kot_place_id' => $this->kitchenType,
+            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
             'show_on_customer_site' => $this->showOnCustomerSite,
             'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
         ];
@@ -1099,8 +1134,10 @@ class UpdateMenuItem extends Component
             : (!empty($this->itemPrice) ? (float)$this->itemPrice : 0);
 
         foreach ($this->deliveryApps as $app) {
-            $commission = $app->commission_value ?? 0;
-            $finalPrice = $basePrice + ($basePrice * $commission / 100);
+            $commission = (float)($app->commission_value ?? 0);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $basePrice + ($basePrice * $commission / 100)
+                : $basePrice + $commission;
             $this->deliveryPrices[$app->id] = number_format($finalPrice, 2);
         }
     }
@@ -1208,9 +1245,10 @@ class UpdateMenuItem extends Component
                 }
             }
 
-            // Calculate final price with commission
             $commission = (float)($app->commission_value ?? 0);
-            $calculatedPrice = $deliveryBase + ($deliveryBase * $commission / 100);
+            $calculatedPrice = ($app->commission_type === 'percent')
+                ? $deliveryBase + ($deliveryBase * $commission / 100)
+                : $deliveryBase + $commission;
 
             MenuItemPrices::create([
                 'menu_item_id' => $menuItemId,
@@ -1220,7 +1258,7 @@ class UpdateMenuItem extends Component
                 'calculated_price' => $deliveryBase,
                 'override_price' => null,
                 'final_price' => $calculatedPrice,
-                'status' => $isAvailable, // Save the toggle state
+                'status' => $isAvailable,
             ]);
         }
     }

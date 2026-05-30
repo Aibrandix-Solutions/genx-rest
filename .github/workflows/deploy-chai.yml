@@ -2,13 +2,17 @@ name: Deploy Genx Restaurant (genx-rest.digipartner.lk via SFTP)
 
 on:
   push:
+<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
     branches: [hotel] # Manual merge to this branch triggers deploy
+========
+    branches: [old-himan]
+>>>>>>>> demo:.github/workflows/deploy-chai.yml
   workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
@@ -117,7 +121,12 @@ jobs:
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
           local_path: "deploy_app/*"
+<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
           remote_path: "domains/digipartner.lk/public_html/genx-rest/laravel/"
+========
+          # UPDATE THIS PATH
+          remote_path: "domains/aibrandix.com/public_html/laravel/"
+>>>>>>>> demo:.github/workflows/deploy-chai.yml
           delete_remote_files: false
           sftp_only: true
 
@@ -129,7 +138,12 @@ jobs:
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
           local_path: "deploy_public/*"
+<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
           remote_path: "domains/digipartner.lk/public_html/genx-rest/"
+========
+          # UPDATE THIS PATH
+          remote_path: "domains/aibrandix.com/public_html/"
+>>>>>>>> demo:.github/workflows/deploy-chai.yml
           delete_remote_files: false
           sftp_only: true
 
@@ -143,6 +157,7 @@ jobs:
           key: ${{ secrets.GENX_SSH_KEY }}
           script: |
             set -e
+<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
 
             # Target genx-rest.digipartner.lk Laravel app dir
             cd /home/u158663215/domains/digipartner.lk/public_html/genx-rest/laravel
@@ -153,6 +168,10 @@ jobs:
               echo "Create it with separate DB credentials (DB_DATABASE/DB_USERNAME/DB_PASSWORD) and correct APP_URL."
               exit 1
             fi
+========
+            # UPDATE THIS PATH
+            cd /home/u158663215/domains/aibrandix.com/public_html/laravel
+>>>>>>>> demo:.github/workflows/deploy-chai.yml
 
             # Ensure runtime dirs
             mkdir -p storage/framework/{cache,sessions,views}
@@ -181,6 +200,7 @@ jobs:
             # Clear & rebuild caches
             php artisan optimize:clear || true
 
+<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
             # Publish module assets and migrations
             php artisan module:publish || true
             php artisan module:publish-migration Inventory || true
@@ -195,4 +215,17 @@ jobs:
             cd /home/u158663215/domains/digipartner.lk/public_html/genx-rest
             rm -rf user-uploads 2>/dev/null || true
             ln -sf /home/u158663215/domains/digipartner.lk/public_html/genx-rest/laravel/public/user-uploads user-uploads
+========
+            # Run migrations (optional, uncomment if needed)
+            php artisan migrate --force
+
+            # Storage link
+            php artisan storage:link || true
+
+            # Create symlink for user-uploads (from public_html to laravel/public/user-uploads)
+            cd /home/u158663215/domains/aibrandix.com/public_html
+            rm -rf user-uploads 2>/dev/null || true
+            ln -sf /home/u158663215/domains/aibrandix.com/public_html/laravel/public/user-uploads user-uploads
+            echo "✅ user-uploads symlink created"
+>>>>>>>> demo:.github/workflows/deploy-chai.yml
             ls -la user-uploads

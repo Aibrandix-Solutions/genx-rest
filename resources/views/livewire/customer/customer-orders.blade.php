@@ -4,12 +4,12 @@
             <h1 class="text-xl font-semibold text-gray-900 sm:text-2xl dark:text-white">{{ $customer->name }}</h1>
 
             <span class='text-xs h-fit font-medium px-2 py-1 rounded uppercase tracking-wide whitespace-nowrap bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-400 border border-gray-400'>
-                    {{ $customer->orders->count() }} @lang('menu.orders')
+                    {{ $totalOrderCount }} @lang('menu.orders')
             </span>
         </div>
 
         <div class="text-lg font-medium text-gray-800">
-           @lang('modules.order.total'): {{ currency_format($customer->orders->sum('total'), restaurant()->currency_id) }}
+           @lang('modules.order.total'): {{ currency_format($totalAmount, restaurant()->currency_id) }}
         </div>
 
     </div>
@@ -19,13 +19,18 @@
         <!-- Card Section -->
         <div class="space-y-4">
             <div class="grid sm:grid-cols-2 gap-3 sm:gap-4">
-                @foreach ($customer->orders as $item)
+                @foreach ($orders as $item)
                     <x-order.order-card :order='$item' wire:key='order-{{ $item->id . microtime() }}' />
                 @endforeach
             </div>
         </div>
         <!-- End Card Section -->
 
+        @if($orders->hasPages())
+            <div class="mt-4">
+                {{ $orders->links() }}
+            </div>
+        @endif
 
     </div>
 </div>

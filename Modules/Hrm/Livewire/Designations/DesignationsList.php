@@ -45,7 +45,9 @@ class DesignationsList extends Component
     {
         $this->authorize('Update Designation');
 
-        $designation = Designation::query()->findOrFail($id);
+        $designation = Designation::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($id);
 
         $this->editingId = $designation->id;
         $this->department_id = $designation->department_id;
@@ -65,7 +67,7 @@ class DesignationsList extends Component
         }
 
         $this->validate([
-            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')],
+            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'name' => [
                 'required',
                 'string',
@@ -79,7 +81,7 @@ class DesignationsList extends Component
         ]);
 
         $designation = $this->editingId
-            ? Designation::query()->findOrFail($this->editingId)
+            ? Designation::query()->where('restaurant_id', restaurant()->id)->findOrFail($this->editingId)
             : new Designation();
 
         $designation->restaurant_id = restaurant()->id;
@@ -110,7 +112,9 @@ class DesignationsList extends Component
             return;
         }
 
-        $designation = Designation::query()->findOrFail($this->deleteId);
+        $designation = Designation::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->deleteId);
         $designation->delete();
 
         $this->showDeleteModal = false;
@@ -135,10 +139,12 @@ class DesignationsList extends Component
     public function render()
     {
         $departments = Department::query()
+            ->where('restaurant_id', restaurant()->id)
             ->orderBy('name')
             ->get(['id', 'name']);
 
         $designations = Designation::query()
+            ->where('restaurant_id', restaurant()->id)
             ->with(['department:id,name'])
             ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
             ->orderBy('name')

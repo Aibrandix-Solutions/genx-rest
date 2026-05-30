@@ -144,7 +144,7 @@ class DailyAttendance extends Component
                 $this->toDate = now()->subWeek()->endOfWeek()->toDateString();
                 break;
             case 'last7Days':
-                $this->fromDate = now()->subDays(7)->toDateString();
+                $this->fromDate = now()->subDays(6)->toDateString();
                 $this->toDate = now()->toDateString();
                 break;
             case 'currentMonth':
@@ -170,6 +170,24 @@ class DailyAttendance extends Component
     private function isAbsentStatus(?string $status): bool
     {
         return in_array((string) $status, ['absent', 'leave'], true);
+    }
+
+    private function isCompanyLevel(): bool
+    {
+        return $this->branchId === 0;
+    }
+
+    /** Apply the selected branch filter to any query builder. */
+    private function branchFilter(): \Closure
+    {
+        return $this->isCompanyLevel()
+            ? fn ($q) => $q->whereNull('branch_id')
+            : fn ($q) => $q->where('branch_id', $this->branchId);
+    }
+
+    private function effectiveBranchId(): ?int
+    {
+        return $this->isCompanyLevel() ? null : (int) $this->branchId;
     }
 
     private function formatDuration(?Carbon $clockIn, ?Carbon $clockOut): ?string
@@ -205,7 +223,7 @@ class DailyAttendance extends Component
         $log = AttendanceLog::query()
             ->where('employee_id', $employeeId)
             ->where('date', $this->date)
-            ->when($this->branchId, fn($q) => $q->where('branch_id', $this->branchId))
+            ->when($this->branchId !== null, fn($q) => $q->tap($this->branchFilter()))
             ->first();
 
         if ($log) {
@@ -228,9 +246,21 @@ class DailyAttendance extends Component
 
         $this->validate([
             'date' => ['required', 'date'],
-            'branchId' => ['required', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'branchId' => [
+                'required',
+                function ($attribute, $value, $fail) {
+                    if ($value === null) {
+                        $fail('Select a branch or Company Level.');
+                    } elseif ($value !== 0 && !\Illuminate\Support\Facades\DB::table('branches')
+                        ->where('id', $value)
+                        ->where('restaurant_id', restaurant()->id)
+                        ->exists()) {
+                        $fail('Invalid branch selected.');
+                    }
+                },
+            ],
             'editingEmployeeId' => ['required', 'integer', Rule::exists('hrm_employees', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'shift_id' => ['nullable', 'integer', Rule::exists('hrm_shifts', 'id')],
+            'shift_id' => ['nullable', 'integer', Rule::exists('hrm_shifts', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'status' => ['required', 'string', 'max:50'],
             'clock_in_at' => ['nullable', 'date'],
             'clock_out_at' => ['nullable', 'date', 'after:clock_in_at'],
@@ -247,7 +277,7 @@ class DailyAttendance extends Component
                 'date' => $this->date,
             ],
             [
-                'branch_id' => (int) $this->branchId,
+                'branch_id' => $this->effectiveBranchId(),
                 'shift_id' => $this->shift_id,
                 'clock_in_at' => $this->clock_in_at ? Carbon::parse($this->clock_in_at) : null,
                 'clock_out_at' => $this->clock_out_at ? Carbon::parse($this->clock_out_at) : null,
@@ -265,24 +295,24 @@ class DailyAttendance extends Component
     {
         $this->authorize('Manage Attendance');
 
-        if (!$this->branchId) {
+        if ($this->branchId === null) {
             return null;
         }
 
-        $branchName = DB::table('branches')
-            ->where('id', $this->branchId)
-            ->value('name');
+        $branchName = $this->isCompanyLevel()
+            ? 'Company Level'
+            : DB::table('branches')->where('id', $this->branchId)->value('name');
 
         $employees = Employee::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', $this->branchId)
+            ->availableAtBranch($this->branchId)
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code']);
 
         $logsByEmployee = AttendanceLog::query()
             ->with('shift:id,name')
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', $this->branchId)
+            ->tap($this->branchFilter())
             ->where('date', $this->date)
             ->get()
             ->keyBy('employee_id');
@@ -318,21 +348,21 @@ class DailyAttendance extends Component
     {
         $this->authorize('Manage Attendance');
 
-        if (!$this->branchId) {
+        if ($this->branchId === null) {
             return null;
         }
 
         $from = $this->fromDate ?: $this->date;
         $to = $this->toDate ?: $this->date;
 
-        $branchName = DB::table('branches')
-            ->where('id', $this->branchId)
-            ->value('name');
+        $branchName = $this->isCompanyLevel()
+            ? 'Company Level'
+            : DB::table('branches')->where('id', $this->branchId)->value('name');
 
         $logs = AttendanceLog::query()
             ->with(['employee:id,name,staff_code', 'shift:id,name'])
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', $this->branchId)
+            ->tap($this->branchFilter())
             ->whereBetween('date', [$from, $to])
             ->when($this->shiftId, fn($q) => $q->where('shift_id', $this->shiftId))
             ->when($this->search, function ($q) {
@@ -369,7 +399,7 @@ class DailyAttendance extends Component
     {
         $this->authorize('Manage Attendance');
 
-        if (!$this->branchId) {
+        if ($this->branchId === null) {
             return null;
         }
 
@@ -381,19 +411,19 @@ class DailyAttendance extends Component
             return null;
         }
 
-        $branchName = DB::table('branches')
-            ->where('id', $this->branchId)
-            ->value('name');
+        $branchName = $this->isCompanyLevel()
+            ? 'Company Level'
+            : DB::table('branches')->where('id', $this->branchId)->value('name');
 
         $employees = Employee::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', $this->branchId)
+            ->availableAtBranch($this->branchId)
             ->orderBy('name')
             ->get(['id', 'name', 'staff_code']);
 
         $logs = AttendanceLog::query()
             ->where('restaurant_id', restaurant()->id)
-            ->where('branch_id', $this->branchId)
+            ->tap($this->branchFilter())
             ->whereBetween('date', [$from->toDateString(), $to->toDateString()])
             ->get(['employee_id', 'date', 'status']);
 
@@ -515,7 +545,7 @@ class DailyAttendance extends Component
     {
         $this->authorize('Manage Attendance');
 
-        if (!$this->clearEmployeeId || !$this->branchId) {
+        if (!$this->clearEmployeeId || $this->branchId === null) {
             $this->showClearModal = false;
             return;
         }
@@ -523,7 +553,7 @@ class DailyAttendance extends Component
         AttendanceLog::query()
             ->where('restaurant_id', restaurant()->id)
             ->where('employee_id', $this->clearEmployeeId)
-            ->where('branch_id', $this->branchId)
+            ->tap($this->branchFilter())
             ->where('date', $this->date)
             ->delete();
 
@@ -550,12 +580,17 @@ class DailyAttendance extends Component
     public function render()
     {
         $shifts = Shift::query()
+            ->where('restaurant_id', restaurant()->id)
             ->where('is_active', true)
-            ->when($this->branchId, function ($q) {
-                $q->where(function ($q2) {
-                    $q2->whereNull('branch_id')
-                        ->orWhere('branch_id', $this->branchId);
-                });
+            ->when($this->branchId !== null, function ($q) {
+                if ($this->isCompanyLevel()) {
+                    $q->whereNull('branch_id');
+                } else {
+                    $q->where(function ($q2) {
+                        $q2->whereNull('branch_id')
+                            ->orWhere('branch_id', $this->branchId);
+                    });
+                }
             })
             ->orderBy('name')
             ->get(['id', 'name', 'branch_id']);
@@ -576,10 +611,10 @@ class DailyAttendance extends Component
 
         $byDateSummary = [];
 
-        if ($this->branchId) {
+        if ($this->branchId !== null) {
             $employees = Employee::query()
                 ->where('restaurant_id', restaurant()->id)
-                ->where('branch_id', $this->branchId)
+                ->availableAtBranch($this->branchId)
                 ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
                 ->orderBy('name')
                 ->paginate(25);
@@ -587,7 +622,7 @@ class DailyAttendance extends Component
             $attendanceByEmployee = AttendanceLog::query()
                 ->with('shift:id,name')
                 ->where('restaurant_id', restaurant()->id)
-                ->where('branch_id', $this->branchId)
+                ->tap($this->branchFilter())
                 ->where('date', $this->date)
                 ->get()
                 ->keyBy('employee_id');
@@ -602,7 +637,7 @@ class DailyAttendance extends Component
                 $logs = AttendanceLog::query()
                     ->with('employee:id,name')
                     ->where('restaurant_id', restaurant()->id)
-                    ->where('branch_id', $this->branchId)
+                    ->tap($this->branchFilter())
                     ->where('date', $this->date)
                     ->where('shift_id', $this->summaryShiftId)
                     ->get();
@@ -620,7 +655,7 @@ class DailyAttendance extends Component
                 $logs = AttendanceLog::query()
                     ->with('employee:id,name')
                     ->where('restaurant_id', restaurant()->id)
-                    ->where('branch_id', $this->branchId)
+                    ->tap($this->branchFilter())
                     ->whereBetween('date', [$from, $to])
                     ->orderBy('date')
                     ->get();
@@ -664,7 +699,7 @@ class DailyAttendance extends Component
 
                     $employeesAll = Employee::query()
                         ->where('restaurant_id', restaurant()->id)
-                        ->where('branch_id', $this->branchId)
+                        ->availableAtBranch($this->branchId)
                         ->when($this->search, function ($q) {
                             $q->where('name', 'like', "%{$this->search}%")
                                 ->orWhere('staff_code', 'like', "%{$this->search}%");
@@ -674,7 +709,7 @@ class DailyAttendance extends Component
 
                     $logs = AttendanceLog::query()
                         ->where('restaurant_id', restaurant()->id)
-                        ->where('branch_id', $this->branchId)
+                        ->tap($this->branchFilter())
                         ->whereBetween('date', [$fromC->toDateString(), $toC->toDateString()])
                         ->when($this->shiftId, fn($q) => $q->where('shift_id', $this->shiftId))
                         ->get(['employee_id', 'date', 'status']);
@@ -718,7 +753,7 @@ class DailyAttendance extends Component
                     $rangeLogs = AttendanceLog::query()
                         ->with(['employee:id,name,staff_code', 'shift:id,name'])
                         ->where('restaurant_id', restaurant()->id)
-                        ->where('branch_id', $this->branchId)
+                        ->tap($this->branchFilter())
                         ->whereBetween('date', [$from, $to])
                         ->when($this->shiftId, fn($q) => $q->where('shift_id', $this->shiftId))
                         ->when($this->search, function ($q) {

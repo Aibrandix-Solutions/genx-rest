@@ -181,6 +181,9 @@
                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ __('inventory::modules.movements.table.quantity_unit') }}</span>
                         </th>
                         <th class="px-6 py-3 text-left">
+                            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</span>
+                        </th>
+                        <th class="px-6 py-3 text-left">
                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 {{ __('inventory::modules.movements.table.supplier') }}
                             </span>
@@ -203,7 +206,12 @@
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->created_at->timezone(timezone())->translatedFormat('h:i A') }}</div>
                             </td>
                             <td class="px-6 py-4">
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $movement->item->name ?? '--' }}</div>
+                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                    @if($movement->item && !empty($movement->item->item_code))
+                                        <span class="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded mr-1">{{ $movement->item->item_code }}</span>
+                                    @endif
+                                    {{ $movement->item->name ?? '--' }}
+                                </div>
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->item->category->name ?? '' }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
@@ -225,6 +233,11 @@
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
                                     {{ $movement->quantity }} {{ $movement->item && $movement->item->unit ? $movement->item->unit->symbol : '' }}
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900 dark:text-gray-100">
+                                    {{ $movement->location?->display_name ?? '-' }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">

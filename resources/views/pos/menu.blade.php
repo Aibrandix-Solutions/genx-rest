@@ -35,7 +35,7 @@
                     </form>
                 </div>
 
-                <x-primary-link href="{{ route('pos.index') }}" wire:navigate
+                <x-primary-link href="{{ route('pos.index') }}"
                     class="inline-flex items-center px-3 py-2 gap-1 text-sm">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor"
                         class="bi bi-arrow-clockwise" viewBox="0 0 16 16">
@@ -108,14 +108,12 @@
                     @forelse ($menuItems as $item)
                         <li class="group relative">
                             <input type="checkbox" id="item-{{ $item->id }}" value="{{ $item->id }}"
-                                wire:click='addCartItems({{ $item->id }}, {{ $item->variations_count }}, {{ $item->modifier_groups_count }})'
-                                wire:key='item-input-{{ $item->id . microtime() }}'
-                                wire:loading.attr="disabled"
+                                wire:key='item-input-{{ $item->id }}'
                                 class="hidden peer">
                             <label for="item-{{ $item->id }}"
+                                onclick='window.posClient?.queueAddItem({ id: {{ $item->id }}, variationCount: {{ $item->variations_count }}, modifierCount: {{ $item->modifier_groups_count }} });'
                                 @class([
                                     "block w-full rounded-lg shadow-sm transition-all duration-100 dark:shadow-gray-700 dark:hover:bg-gray-700/30 cursor-pointer relative hover:shadow-md dark:bg-gray-800 dark:border-gray-700
-                        peer-checked:ring-2 peer-checked:ring-skin-base
                         active:scale-95 focus-visible:scale-95 focus-visible:ring-2 focus-visible:ring-skin-base outline-none",
                                     "bg-gray-100 dark:bg-gray-800" => !$item->in_stock,
                                     "bg-white dark:bg-gray-900" => $item->in_stock,
@@ -123,16 +121,6 @@
 
                                 tabindex="0"
                     >
-
-                                {{-- Loading Overlay --}}
-                                <div wire:loading.flex wire:target="addCartItems({{ $item->id }}, {{ $item->variations_count }}, {{ $item->modifier_groups_count }})"
-                                    class="absolute inset-0 bg-white/80 dark:bg-gray-800/80 rounded-lg z-10 items-center justify-center">
-                                    <svg class="animate-spin h-6 w-6 text-skin-base" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                </div>
-
                                 {{-- Image Section --}}
                                 @if (restaurant() && !restaurant()->hide_menu_item_image_on_pos)
                                 <div class="relative aspect-square hidden md:block">
@@ -170,9 +158,9 @@
                                             </span>
                                         @endif
                                     </div>
+                                    @endif
                                 </div>
-                            @endif
-                        </label>
+                            </label>
                     </li>
                 @empty
                     <li class="col-span-full text-center py-8 text-gray-500 dark:text-gray-400">
@@ -195,22 +183,12 @@
                         @if($combo->is_active && $combo->isAvailable())
                             <li class="group relative">
                                 <input type="checkbox" id="combo-{{ $combo->id }}" value="combo-{{ $combo->id }}"
-                                    wire:click='addComboToCart({{ $combo->id }})'
-                                    wire:key='combo-input-{{ $combo->id . microtime() }}'
-                                    wire:loading.attr="disabled"
+                                    wire:key='combo-input-{{ $combo->id }}'
                                     class="hidden peer">
                                 <label for="combo-{{ $combo->id }}"
-                                    class="block w-full rounded-lg shadow-sm transition-all duration-100 dark:shadow-gray-700 dark:hover:bg-gray-700/30 cursor-pointer relative hover:shadow-md bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 dark:bg-gray-800 dark:border-gray-700 peer-checked:ring-2 peer-checked:ring-skin-base active:scale-95 focus-visible:scale-95 focus-visible:ring-2 focus-visible:ring-skin-base outline-none border border-blue-200 dark:border-blue-700"
+                                    onclick='window.posClient?.queueAddCombo({{ $combo->id }});'
+                                    class="block w-full rounded-lg shadow-sm transition-all duration-100 dark:shadow-gray-700 dark:hover:bg-gray-700/30 cursor-pointer relative hover:shadow-md bg-gradient-to-br from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 dark:bg-gray-800 dark:border-gray-700 active:scale-95 focus-visible:scale-95 focus-visible:ring-2 focus-visible:ring-skin-base outline-none border border-blue-200 dark:border-blue-700"
                                     tabindex="0">
-                                    {{-- Loading Overlay --}}
-                                    <div wire:loading.flex wire:target="addComboToCart({{ $combo->id }})"
-                                        class="absolute inset-0 bg-white/80 dark:bg-gray-800/80 rounded-lg z-10 items-center justify-center">
-                                        <svg class="animate-spin h-6 w-6 text-skin-base" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                    </div>
-
                                     {{-- Image Section --}}
                                     @if (restaurant() && !restaurant()->hide_menu_item_image_on_pos)
                                     <div class="relative aspect-square hidden md:block">
@@ -232,16 +210,16 @@
                                     @endif
 
                                     {{-- Content Section --}}
-                                    <div class="p-2">
-                                        <h5 class="text-sm font-medium text-gray-900 dark:text-white min-h-[2.5rem]">
+                                    <div class="p-2 min-w-0">
+                                        <h5 class="text-sm font-medium text-gray-900 dark:text-white line-clamp-2">
                                             {{ $combo->getTranslation('name', app()->getLocale()) }}
                                         </h5>
-                                        <div class="mt-1 flex items-center justify-between gap-2">
-                                            <div class="flex flex-col">
-                                                <span class="text-xs text-gray-500 dark:text-gray-400 line-through">
-                                                    {{ currency_format($combo->regular_price, restaurant()->currency_id) }}
-                                                </span>
-                                                <span class="text-base font-semibold text-green-600 dark:text-green-400">
+                                        <div class="mt-1">
+                                            <div class="text-xs text-gray-500 dark:text-gray-400 line-through">
+                                                {{ currency_format($combo->regular_price, restaurant()->currency_id) }}
+                                            </div>
+                                            <div class="flex items-center gap-1 flex-wrap">
+                                                <span class="text-sm font-semibold text-green-600 dark:text-green-400">
                                                     {{ currency_format($combo->discounted_price, restaurant()->currency_id) }}
                                                 </span>
                                                 @if($combo->discount_percent > 0)
@@ -251,8 +229,13 @@
                                                 @endif
                                             </div>
                                         </div>
-                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                            {{ $combo->comboPackItems->count() }} items
+                                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400 overflow-hidden">
+                                            @foreach($combo->comboPackItems->take(3) as $cItem)
+                                                <div class="truncate">{{ $cItem->quantity }}× {{ $cItem->menuItem?->item_name ?? '?' }}</div>
+                                            @endforeach
+                                            @if($combo->comboPackItems->count() > 3)
+                                                <div class="text-gray-400">+{{ $combo->comboPackItems->count() - 3 }} more</div>
+                                            @endif
                                         </div>
                                     </div>
                                 </label>

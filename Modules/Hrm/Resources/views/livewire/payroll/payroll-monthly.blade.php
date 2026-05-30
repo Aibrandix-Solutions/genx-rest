@@ -1,16 +1,17 @@
 <div class="w-full px-4 sm:px-6 lg:px-8 py-6">
-    <div class="flex items-start justify-between mb-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between mb-6">
         <div class="space-y-1">
             <h2 class="text-2xl font-semibold tracking-tight leading-tight text-gray-900 dark:text-white">HRM - Payroll</h2>
             <p class="text-sm text-gray-500 dark:text-gray-400">Monthly payroll based on attendance + adjustments</p>
         </div>
 
         @can('Manage Payroll')
-            <div class="flex items-center gap-2">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:flex lg:flex-wrap items-stretch gap-2 w-full lg:w-auto">
                 <x-secondary-button type="button" wire:click="downloadImportTemplate">Download Template</x-secondary-button>
                 <x-secondary-button type="button" wire:click="exportExcel">Export Excel</x-secondary-button>
                 <x-secondary-button type="button" wire:click="exportPdf">Export PDF</x-secondary-button>
-                <a href="{{ route('hrm.settings.epf-etf') }}" class="inline-flex items-center px-4 py-2 bg-gray-800 dark:bg-gray-200 border border-transparent rounded-md font-semibold text-xs text-white dark:text-gray-800 uppercase tracking-widest hover:bg-gray-700 dark:hover:bg-white focus:bg-gray-700 dark:focus:bg-white active:bg-gray-900 dark:active:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 transition ease-in-out duration-150">
+                <x-secondary-button type="button" wire:click="exportPayslips">Export Payslips</x-secondary-button>
+                <a href="{{ route('hrm.settings.epf-etf') }}" class="inline-flex items-center justify-center text-center px-4 py-2 bg-gray-800 dark:bg-gray-200 border border-transparent rounded-md font-semibold text-xs text-white dark:text-gray-800 uppercase tracking-widest hover:bg-gray-700 dark:hover:bg-white focus:bg-gray-700 dark:focus:bg-white active:bg-gray-900 dark:active:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-gray-800 disabled:opacity-50 transition ease-in-out duration-150">
                     EPF/ETF Settings
                 </a>
             </div>
@@ -21,6 +22,7 @@
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-3 mb-3">
             <x-select class="w-full" wire:model.live="branchId">
                 <option value="">Select branch</option>
+                <option value="0">— Company Level —</option>
                 @foreach($branches as $b)
                     <option value="{{ $b['id'] }}">{{ $b['name'] }}</option>
                 @endforeach
@@ -109,6 +111,7 @@
                             <td class="py-2">
                                 <div class="flex items-center gap-2">
                                     <x-secondary-button type="button" wire:click="openAdjustModal({{ (int) $r['employee_id'] }})">Adjust</x-secondary-button>
+                                    <x-secondary-button type="button" wire:click="downloadEmployeePayslip({{ (int) $r['employee_id'] }})">Payslip</x-secondary-button>
                                 </div>
                             </td>
                         </tr>

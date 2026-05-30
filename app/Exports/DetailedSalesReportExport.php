@@ -14,19 +14,22 @@ use Maatwebsite\Excel\Concerns\{FromCollection, ShouldAutoSize, WithHeadings, Wi
 class DetailedSalesReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
-    protected string $startTime, $endTime, $timezone, $offset;
+    protected string $startTime, $endTime, $timezone;
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
+    protected string $filterByWaiter;
+    protected string $filterPaymentMethod;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $offset)
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $filterByWaiter = '', string $filterPaymentMethod = '')
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
-        $this->offset = $offset;
+        $this->filterByWaiter = $filterByWaiter;
+        $this->filterPaymentMethod = $filterPaymentMethod;
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -54,6 +57,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
             [
                 __('modules.order.orderNumber'),
                 __('app.date'),
+                __('modules.customer.customerName'),
                 __('modules.table.staff'),
                 __('modules.order.subTotal'),
             ],
@@ -76,6 +80,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $mappedItem = [
             $order->order_number,
             $order->date_time->format('M d, Y h:i A'),
+            $order->customer->name ?? '--',
             $order->waiter->name ?? '--',
             currency_format($order->sub_total, $this->currencyId),
         ];
@@ -116,7 +121,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $charges = RestaurantCharge::all();
         $taxes = Tax::all();
 
-        $orders = Order::with(['payments', 'items', 'items.menuItem', 'waiter'])
+        $orders = Order::with(['payments', 'items', 'items.menuItem', 'waiter', 'customer'])
             ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
             ->whereIn('orders.status', ['paid', 'payment_due'])
             ->where(function ($q) {
@@ -130,8 +135,26 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
                             ->orWhereRaw('TIME(orders.date_time) <= ?', [$this->endTime]);
                     });
                 }
-            })
-            ->orderBy('orders.date_time', 'desc')
+            });
+
+        // Filter by waiter if selected
+        if ($this->filterByWaiter) {
+            $orders->where('orders.waiter_id', $this->filterByWaiter);
+        }
+
+        // Filter by payment method if selected
+        if ($this->filterPaymentMethod !== '') {
+            if ($this->filterPaymentMethod === 'due') {
+                $orders->where('orders.status', 'payment_due')
+                    ->whereDoesntHave('payments');
+            } else {
+                $orders->whereHas('payments', function($q) {
+                    $q->where('payment_method', $this->filterPaymentMethod);
+                });
+            }
+        }
+
+        $orders = $orders->orderBy('orders.date_time', 'desc')
             ->get();
 
         // Pre-calculate charges and taxes for each order to avoid N+1 queries during mapping

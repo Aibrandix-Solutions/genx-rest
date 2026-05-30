@@ -5,9 +5,11 @@ namespace Modules\Hrm\Entities;
 use App\Models\Branch;
 use App\Models\User;
 use App\Traits\HasRestaurant;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -52,6 +54,31 @@ class Employee extends Model
     public function branch(): BelongsTo
     {
         return $this->belongsTo(Branch::class, 'branch_id');
+    }
+
+    /**
+     * Additional branches where this employee also works.
+     * Home branch (branch_id) is NOT included here.
+     */
+    public function extraBranches(): BelongsToMany
+    {
+        return $this->belongsToMany(Branch::class, 'hrm_employee_branch_access', 'employee_id', 'branch_id');
+    }
+
+    /**
+     * Scope: employees whose home branch OR any extra branch matches $branchId.
+     * Pass 0 to get company-level employees (branch_id IS NULL).
+     */
+    public function scopeAvailableAtBranch(Builder $query, int $branchId): Builder
+    {
+        if ($branchId === 0) {
+            return $query->whereNull('branch_id');
+        }
+
+        return $query->where(function ($q) use ($branchId) {
+            $q->where('branch_id', $branchId)
+              ->orWhereHas('extraBranches', fn ($b) => $b->where('branches.id', $branchId));
+        });
     }
 
     public function user(): BelongsTo

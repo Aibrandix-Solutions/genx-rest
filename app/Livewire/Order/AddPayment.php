@@ -14,6 +14,9 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
+use App\Livewire\Customer\AddCustomer;
+use App\Livewire\Order\OrderDetail;
+use Illuminate\Support\Facades\DB;
 
 class AddPayment extends Component
 {
@@ -44,14 +47,13 @@ class AddPayment extends Component
     public $canAddTip;
     public $predefinedAmounts = [];
 
-    // Room charge properties
-    public $showRoomCharge = false;
-    public $roomChargeReservationId = null;
-    public $inHouseReservations = [];
+    /** When split bill "due" is chosen without a customer, we re-apply due to this split after attach. */
+    public ?int $pendingDueSplitIdForCustomerModal = null;
 
     #[On('showPaymentModal')]
     public function showPaymentModal($id)
     {
+        $this->pendingDueSplitIdForCustomerModal = null;
         $this->order = Order::with([
             'items',
             'items.menuItem',
@@ -96,19 +98,6 @@ class AddPayment extends Component
         $this->refreshAvailableItems();
 
         $this->initializeSplits();
-
-        // Hotel room charge availability
-        $this->showRoomCharge = function_exists('hotel_business_mode')
-            && in_array(hotel_business_mode(), ['hotel_primary', 'equal'])
-            && in_array('hotel', array_map('strtolower', custom_module_plugins()));
-
-        if ($this->showRoomCharge) {
-            // Pre-select reservation if order already linked
-            $this->roomChargeReservationId = $this->order->hotel_reservation_id;
-            if ($this->order->hotel_reservation_id) {
-                $this->paymentMethod = 'room_charge';
-            }
-        }
     }
 
     private function refreshAvailableItems()
@@ -295,36 +284,132 @@ class AddPayment extends Component
 
     public function setPaymentMethod($method)
     {
-        $this->paymentMethod = $method;
+        // Full payment: clear any split-bill due latch so customer attach targets the correct UI.
+        $this->pendingDueSplitIdForCustomerModal = null;
 
-        // Auto-load in-house reservations for room charge
-        if ($method === 'room_charge' && $this->showRoomCharge) {
-            $this->loadInHouseReservations();
+        if ($method === 'due' && $this->order) {
+            $this->order->refresh();
+            if (!$this->order->canRecordDueBalance()) {
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: true,
+                    forDuePayment: true,
+                    preferDueAfterAttach: true
+                )->to(AddCustomer::class);
+
+                return;
+            }
         }
 
+        $this->paymentMethod = $method;
         $this->updatedPaymentAmount();
     }
 
-    public function loadInHouseReservations()
+    #[On('customerReadyForDuePayment')]
+    public function onCustomerReadyForDuePayment(mixed $orderId = null): void
     {
-        if (!class_exists(\Modules\Hotel\Entities\Reservation::class)) {
+        if (is_array($orderId)) {
+            $orderId = $orderId['orderId'] ?? $orderId['id'] ?? null;
+        }
+
+        if ($orderId === null || !$this->showAddPaymentModal || !$this->order || (int) $this->order->id !== (int) $orderId) {
             return;
         }
 
-        $branchId = $this->order->branch_id ?? (auth()->user()->branch_id ?? 1);
+        $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
-        $this->inHouseReservations = \Modules\Hotel\Entities\Reservation::with(['guest', 'room'])
-            ->where('branch_id', $branchId)
-            ->where('status', \Modules\Hotel\Entities\Reservation::STATUS_CHECKED_IN)
-            ->orderBy('room_id')
-            ->get()
-            ->map(fn($r) => [
-                'id' => $r->id,
-                'label' => 'Room ' . ($r->room->room_number ?? '?') . ' — ' . ($r->guest->full_name ?? 'Guest'),
-                'room_number' => $r->room->room_number ?? '',
-                'guest_name' => $r->guest->full_name ?? 'Guest',
-            ])
-            ->toArray();
+        if (!$this->order->customer_id) {
+            return;
+        }
+
+        if ($this->pendingDueSplitIdForCustomerModal !== null) {
+            $splitId = $this->pendingDueSplitIdForCustomerModal;
+            $this->pendingDueSplitIdForCustomerModal = null;
+
+            if (isset($this->splits[$splitId])) {
+                $this->splits[$splitId]['paymentMethod'] = 'due';
+                $this->splits = $this->splits;
+            }
+
+            return;
+        }
+
+        $this->paymentMethod = 'due';
+        $this->updatedPaymentAmount();
+    }
+
+    protected function requiresRegisteredCustomerForSubmission(): bool
+    {
+        $this->order?->refresh();
+
+        if (!$this->order || $this->order->customer_id) {
+            return false;
+        }
+
+        return $this->submissionUsesDuePaymentMethod() || $this->submissionLeavesOutstandingBalance();
+    }
+
+    protected function submissionUsesDuePaymentMethod(): bool
+    {
+        if ($this->showSplitOptions && $this->splitType) {
+            foreach ($this->splits as $split) {
+                if (($split['paymentMethod'] ?? '') === 'due') {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return $this->paymentMethod === 'due';
+    }
+
+    protected function submissionLeavesOutstandingBalance(): bool
+    {
+        if ($this->showSplitOptions && $this->splitType) {
+            return $this->splitSubmissionLeavesOutstanding();
+        }
+
+        $paying = max(0, (float) $this->paymentAmount - (float) $this->returnAmount);
+
+        return $paying < $this->dueAmount - 0.0001;
+    }
+
+    protected function splitSubmissionLeavesOutstanding(): bool
+    {
+        if ($this->splitType === 'items') {
+            $total = 0.0;
+            foreach ($this->splits as $split) {
+                $total += (float) ($split['total'] ?? 0);
+            }
+
+            return $total < $this->dueAmount - 0.0001;
+        }
+
+        $total = 0.0;
+        foreach ($this->splits as $i => $split) {
+            if ($this->splitType === 'equal' && (int) $i === 0) {
+                continue;
+            }
+            $total += (float) ($split['amount'] ?? 0);
+        }
+
+        return $total < $this->dueAmount - 0.0001;
+    }
+
+    protected function promptCustomerForDuePayment(bool $preferDueAfterAttach = false): void
+    {
+        $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), ['toast' => true, 'position' => 'top-end']);
+        $this->dispatch(
+            'showAddCustomerModal',
+            id: $this->order->id,
+            customerId: null,
+            fromPos: true,
+            forDuePayment: true,
+            preferDueAfterAttach: $preferDueAfterAttach
+        )->to(AddCustomer::class);
     }
 
     public function quickAmount($amount)
@@ -468,71 +553,90 @@ class AddPayment extends Component
 
     public function submitForm()
     {
-        if ($this->showSplitOptions && $this->splitType) {
-            // Validate split by items
-            if ($this->splitType === 'items') {
-                $hasItemsInSplits = false;
-                foreach ($this->splits as $split) {
-                    if (!empty($split['items']) && count($split['items']) > 0) {
-                        $hasItemsInSplits = true;
-                        break;
+        $this->order?->refresh();
+
+        if ($this->requiresRegisteredCustomerForSubmission()) {
+            $this->promptCustomerForDuePayment(false);
+
+            return;
+        }
+
+        $epsilon = 0.0001;
+
+        try {
+            DB::beginTransaction();
+
+            if ($this->showSplitOptions && $this->splitType) {
+                if ($this->splitType === 'items') {
+                    $hasItemsInSplits = false;
+                    foreach ($this->splits as $split) {
+                        if (!empty($split['items']) && count($split['items']) > 0) {
+                            $hasItemsInSplits = true;
+                            break;
+                        }
+                    }
+
+                    if (!$hasItemsInSplits) {
+                        DB::rollBack();
+                        $this->alert('error', __('Please select items for payment'), ['toast' => true]);
+
+                        return;
                     }
                 }
 
-                if (!$hasItemsInSplits) {
-                    $this->alert('error', __('Please select items for payment'), ['toast' => true]);
-                    return;
+                $this->processSplitPayment();
+            } else {
+                if ($this->paymentAmount >= 0) {
+                    Payment::create([
+                        'order_id' => $this->order->id,
+                        'payment_method' => $this->paymentMethod,
+                        'amount' => $this->paymentAmount - $this->returnAmount,
+                        'balance' => $this->returnAmount,
+                        'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod),
+                    ]);
                 }
             }
 
-            $this->processSplitPayment();
+            $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
-        } else {
-            if ($this->paymentAmount >= 0) {
+            if ($this->order->split_type === 'items') {
+                $orderPaidAmount = $this->order->splitOrders()
+                    ->where('status', 'paid')
+                    ->sum('amount');
+            } else {
+                $orderPaidAmount = Payment::where('order_id', $this->order->id)
+                    ->where('payment_method', '!=', 'due')
+                    ->sum('amount');
+            }
 
-                // Room charge — link order to reservation if not already linked
-                if ($this->paymentMethod === 'room_charge' && $this->roomChargeReservationId) {
-                    $this->order->update(['hotel_reservation_id' => $this->roomChargeReservationId]);
-                }
+            $outstanding = (float) $this->order->total - (float) $orderPaidAmount;
 
+            if ($outstanding > $epsilon && !$this->order->canRecordDueBalance()) {
+                DB::rollBack();
+                $this->promptCustomerForDuePayment(false);
+
+                return;
+            }
+
+            $this->order->amount_paid = $orderPaidAmount;
+            $this->order->status = $orderPaidAmount >= $this->order->total - $epsilon ? 'paid' : 'payment_due';
+            $this->order->save();
+
+            Payment::where('order_id', $this->order->id)->where('payment_method', 'due')->delete();
+
+            if ($outstanding > $epsilon) {
                 Payment::create([
-                'order_id' => $this->order->id,
-                'payment_method' => $this->paymentMethod === 'room_charge' ? 'due' : $this->paymentMethod,
-                'amount' => $this->paymentAmount - $this->returnAmount,
-                'balance' => $this->returnAmount,
-                'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod === 'room_charge' ? 'due' : $this->paymentMethod)
+                    'order_id' => $this->order->id,
+                    'payment_method' => 'due',
+                    'amount' => $outstanding,
+                    'payment_account_id' => $this->getDefaultPaymentAccountId('due'),
                 ]);
             }
-        }
 
-        // Refresh the order data to get latest payment information
-        $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
-
-        // Calculate total paid amount based on payment type
-        if ($this->order->split_type === 'items') {
-            $orderPaidAmount = $this->order->splitOrders()
-                ->where('status', 'paid')
-                ->sum('amount');
-        } else {
-            $orderPaidAmount = Payment::where('order_id', $this->order->id)
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount');
-        }
-
-        $this->order->amount_paid = $orderPaidAmount;
-        $this->order->status = $orderPaidAmount >= $this->order->total ? 'paid' : 'payment_due';
-        $this->order->save();
-
-        // Handle due payments - always delete existing due payments first
-        Payment::where('order_id', $this->order->id)->where('payment_method', 'due')->delete();
-
-        if ($orderPaidAmount < $this->order->total) {
-            Payment::create([
-                'order_id' => $this->order->id,
-                'payment_method' => 'due',
-                'amount' => $this->order->total - $orderPaidAmount,
-                'payment_account_id' => $this->getDefaultPaymentAccountId('due')
-            ]);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
         }
 
         // Update table status
@@ -559,7 +663,16 @@ class AddPayment extends Component
             }
         }
 
-        $this->dispatch('showOrderDetail', id: $this->order->id);
+        $receipt = restaurant()->receiptSetting;
+        $directPrint = $receipt
+            && (bool)($receipt->direct_print_after_payment ?? false)
+            && $this->order->status === 'paid';
+
+        if ($directPrint) {
+            $this->dispatch('receiptPrintFromPayment', id: $this->order->id)->to(OrderDetail::class);
+        } else {
+            $this->dispatch('showOrderDetail', id: $this->order->id);
+        }
         $this->dispatch('refreshOrders');
         $this->dispatch('resetPos');
         $this->dispatch('refreshPayments');
@@ -571,11 +684,39 @@ class AddPayment extends Component
         return view('livewire.order.add-payment');
     }
 
+    public function updatedShowAddPaymentModal($value): void
+    {
+        if (! $value) {
+            $this->pendingDueSplitIdForCustomerModal = null;
+        }
+    }
+
     public function updateSplitPaymentMethod($splitId, $method)
     {
+        if ($method === 'due' && $this->order) {
+            $this->order->refresh();
+            if (!$this->order->canRecordDueBalance()) {
+                $this->pendingDueSplitIdForCustomerModal = (int) $splitId;
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: true,
+                    forDuePayment: true,
+                    preferDueAfterAttach: true
+                )->to(AddCustomer::class);
+
+                return;
+            }
+        }
+
+        $this->pendingDueSplitIdForCustomerModal = null;
+
         if (isset($this->splits[$splitId])) {
-            $this->splits[$splitId]['paymentMethod'] = $method;
-            $this->splits = $this->splits; // Trigger Livewire update
+            if (($this->splits[$splitId]['paymentMethod'] ?? null) !== $method) {
+                $this->splits[$splitId]['paymentMethod'] = $method;
+                $this->splits = $this->splits;
+            }
         }
     }
 
@@ -740,6 +881,12 @@ class AddPayment extends Component
     {
         // Update balance calculations whenever splits change
         $this->updateBalanceAmount();
+
+        // If payment method changed, run due-customer gating / modal flow.
+        if (is_string($key) && preg_match('/(?:^|\.)(\d+)\.paymentMethod$/', $key, $matches)) {
+            $splitId = (int) $matches[1];
+            $this->updateSplitPaymentMethod($splitId, (string) $value);
+        }
     }
 
     public function addNewSplit()

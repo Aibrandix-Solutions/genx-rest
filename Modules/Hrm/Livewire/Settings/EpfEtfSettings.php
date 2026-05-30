@@ -3,11 +3,9 @@
 namespace Modules\Hrm\Livewire\Settings;
 
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
-use Livewire\Attributes\Locked;
 use Livewire\Component;
 use Modules\Hrm\Entities\HrmSetting;
 
-#[Locked]
 class EpfEtfSettings extends Component
 {
     use AuthorizesRequests;

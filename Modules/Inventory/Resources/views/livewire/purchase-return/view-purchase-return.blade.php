@@ -107,6 +107,9 @@
                                 @foreach($purchaseReturn->items as $item)
                                     <tr>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                            @if(optional($item->inventoryItem)->item_code)
+                                                <span class="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded mr-1">{{ $item->inventoryItem->item_code }}</span>
+                                            @endif
                                             {{ $item->inventoryItem->name ?? 'Item Deleted' }}
                                             @if($item->inventoryItem?->unit)
                                                 <span class="text-gray-500 dark:text-gray-400">
