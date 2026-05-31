@@ -97,16 +97,17 @@ return new class extends Migration
 
         if (Schema::hasColumn('hotel_settings', 'branch_id')) {
             $this->dropForeignIfExists('hotel_settings', 'branch_id');
-            Schema::table('hotel_settings', function (Blueprint $table) {
-                if (Schema::hasColumn('hotel_settings', 'branch_id')) {
-                    try {
-                        $table->dropUnique(['branch_id']);
-                    } catch (\Throwable) {
-                        // Unique may already be removed.
+            $this->dropIndexesReferencingColumn('hotel_settings', 'branch_id');
+
+            try {
+                Schema::table('hotel_settings', function (Blueprint $table) {
+                    if (Schema::hasColumn('hotel_settings', 'branch_id')) {
+                        $table->dropColumn('branch_id');
                     }
-                    $table->dropColumn('branch_id');
-                }
-            });
+                });
+            } catch (\Throwable) {
+                // Column may already be removed on a partially migrated database.
+            }
         }
 
         $this->ensureHotelSettingsRestaurantIdUnique();
@@ -162,15 +163,19 @@ return new class extends Migration
             if ($mode !== 'simple_no_fk') {
                 $this->dropForeignIfExists($table, 'branch_id');
             }
-            if ($mode === 'compound') {
-                $this->dropIndexIfExists($table, ['branch_id', 'status']);
-            } else {
-                $this->dropIndexIfExists($table, ['branch_id']);
-            }
 
-            Schema::table($table, function (Blueprint $t) {
-                $t->dropColumn('branch_id');
-            });
+            // Drop every index/unique that references branch_id (e.g. hotel_rooms unique on branch_id+room_number).
+            $this->dropIndexesReferencingColumn($table, 'branch_id');
+
+            try {
+                Schema::table($table, function (Blueprint $t) {
+                    if (Schema::hasColumn($table, 'branch_id')) {
+                        $t->dropColumn('branch_id');
+                    }
+                });
+            } catch (\Throwable) {
+                // Column may already be removed on a partially migrated database.
+            }
 
             // Add compound index for restaurant_id + status if applicable
             if ($mode === 'compound' && !$this->indexExists($table, ['restaurant_id', 'status'])) {
@@ -189,6 +194,32 @@ return new class extends Migration
             });
         } catch (\Throwable) {
             // FK may already be removed on a partially migrated database.
+        }
+    }
+
+    private function dropIndexesReferencingColumn(string $table, string $column): void
+    {
+        if (!Schema::hasTable($table) || !Schema::hasColumn($table, $column)) {
+            return;
+        }
+
+        $database = DB::getDatabaseName();
+        $indexes = DB::select(
+            'SELECT DISTINCT index_name
+             FROM information_schema.statistics
+             WHERE table_schema = ? AND table_name = ? AND column_name = ?
+               AND index_name != ?',
+            [$database, $table, $column, 'PRIMARY']
+        );
+
+        foreach ($indexes as $index) {
+            try {
+                Schema::table($table, function (Blueprint $t) use ($index) {
+                    $t->dropIndex($index->index_name);
+                });
+            } catch (\Throwable) {
+                // Index may already be dropped.
+            }
         }
     }
 
