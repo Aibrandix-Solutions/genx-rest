@@ -12,7 +12,20 @@ class Module extends BaseModel
 {
     use HasFactory;
 
+    /**
+     * Legacy TableTrack package rows — not real product modules (use Expense instead).
+     */
+    public const DEPRECATED_PACKAGE_MODULE_NAMES = [
+        'Vendor',
+        'Expense Category',
+    ];
+
     protected $guarded = ['id'];
+
+    public function scopeExcludeDeprecated($query)
+    {
+        return $query->whereNotIn('name', self::DEPRECATED_PACKAGE_MODULE_NAMES);
+    }
 
     public function permissions()
     {

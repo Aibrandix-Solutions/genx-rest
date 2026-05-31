@@ -135,7 +135,8 @@ class EditPackage extends Component
      */
     private function getAvailableModules()
     {
-        return Module::all()
+        return Module::excludeDeprecated()
+            ->get()
             ->filter(fn ($module) => $module->name !== 'Sms' || module_enabled('Sms'));
     }
 

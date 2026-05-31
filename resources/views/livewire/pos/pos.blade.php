@@ -486,4 +486,6 @@
 
     @endscript
 
+    @include('livewire.pos.room-selection-modal')
+
 </div>
