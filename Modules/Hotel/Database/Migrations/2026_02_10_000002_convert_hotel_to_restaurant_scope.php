@@ -13,35 +13,88 @@ return new class extends Migration
 {
     public function up()
     {
-        // Single-restaurant deployments only: assigns one restaurant_id to all legacy branch rows.
-        // Multi-tenant installs must map branch_id → restaurant_id per row before running this.
-        $restaurantId = (int) (DB::table('restaurants')->orderBy('id')->value('id') ?? 1);
+        // Fallback restaurant_id only when the database has a single tenant (see backfillNullRestaurantId).
+        $fallbackRestaurantId = $this->singleRestaurantFallbackId();
 
-        $this->convertTable('hotel_room_types', $restaurantId, 'simple');
-        $this->convertTable('hotel_rooms', $restaurantId, 'compound');
-        $this->convertTable('hotel_guests', $restaurantId, 'simple_no_fk');
-        $this->convertTable('hotel_reservations', $restaurantId, 'compound');
-        $this->convertTable('hotel_housekeeping_tasks', $restaurantId, 'compound');
-        $this->convertTable('hotel_payments', $restaurantId, 'simple');
+        // Convert settings first — dashboard and sidebar query this table early.
+        $this->convertHotelSettings($fallbackRestaurantId);
 
-        // hotel_settings needs unique constraint instead of simple index
+        $this->convertTable('hotel_room_types', $fallbackRestaurantId, 'simple');
+        $this->convertTable('hotel_rooms', $fallbackRestaurantId, 'compound');
+        $this->convertTable('hotel_guests', $fallbackRestaurantId, 'simple_no_fk');
+        $this->convertTable('hotel_reservations', $fallbackRestaurantId, 'compound');
+        $this->convertTable('hotel_housekeeping_tasks', $fallbackRestaurantId, 'compound');
+        $this->convertTable('hotel_payments', $fallbackRestaurantId, 'simple');
+    }
+
+    /**
+     * Only used to back-fill rows with no branch_id on single-restaurant databases.
+     */
+    private function singleRestaurantFallbackId(): int
+    {
+        if (DB::table('restaurants')->count() !== 1) {
+            return 0;
+        }
+
+        return (int) (DB::table('restaurants')->value('id') ?? 0);
+    }
+
+    private function backfillRestaurantIdFromBranch(string $table): void
+    {
+        if (!Schema::hasTable($table)
+            || !Schema::hasColumn($table, 'branch_id')
+            || !Schema::hasColumn($table, 'restaurant_id')
+            || !Schema::hasTable('branches')) {
+            return;
+        }
+
+        DB::statement("
+            UPDATE {$table} t
+            INNER JOIN branches b ON b.id = t.branch_id
+            SET t.restaurant_id = b.restaurant_id
+            WHERE t.restaurant_id IS NULL AND t.branch_id IS NOT NULL
+        ");
+    }
+
+    private function backfillNullRestaurantId(string $table, int $fallbackRestaurantId): void
+    {
+        if ($fallbackRestaurantId <= 0 || !Schema::hasTable($table) || !Schema::hasColumn($table, 'restaurant_id')) {
+            return;
+        }
+
+        DB::table($table)
+            ->whereNull('restaurant_id')
+            ->update(['restaurant_id' => $fallbackRestaurantId]);
+    }
+
+    private function convertHotelSettings(int $fallbackRestaurantId): void
+    {
+        if (!Schema::hasTable('hotel_settings')) {
+            return;
+        }
+
         if (!Schema::hasColumn('hotel_settings', 'restaurant_id')) {
             Schema::table('hotel_settings', function (Blueprint $table) {
                 $table->unsignedBigInteger('restaurant_id')->nullable()->after('id');
             });
-            DB::table('hotel_settings')->update(['restaurant_id' => $restaurantId]);
         }
-        // Deduplicate: keep one settings row per restaurant
+
+        $this->backfillRestaurantIdFromBranch('hotel_settings');
+        $this->backfillNullRestaurantId('hotel_settings', $fallbackRestaurantId);
+
         $dupSettings = DB::table('hotel_settings')
+            ->whereNotNull('restaurant_id')
             ->select('restaurant_id', DB::raw('MIN(id) as keep_id'))
             ->groupBy('restaurant_id')
             ->get();
+
         foreach ($dupSettings as $row) {
             DB::table('hotel_settings')
                 ->where('restaurant_id', $row->restaurant_id)
                 ->where('id', '!=', $row->keep_id)
                 ->delete();
         }
+
         if (Schema::hasColumn('hotel_settings', 'branch_id')) {
             $this->dropForeignIfExists('hotel_settings', 'branch_id');
             Schema::table('hotel_settings', function (Blueprint $table) {
@@ -54,27 +107,55 @@ return new class extends Migration
                     $table->dropColumn('branch_id');
                 }
             });
-            Schema::table('hotel_settings', function (Blueprint $table) {
-                $table->unique('restaurant_id');
-            });
         }
+
+        $this->ensureHotelSettingsRestaurantIdUnique();
+    }
+
+    private function ensureHotelSettingsRestaurantIdUnique(): void
+    {
+        if (!Schema::hasTable('hotel_settings') || !Schema::hasColumn('hotel_settings', 'restaurant_id')) {
+            return;
+        }
+
+        $database = DB::getDatabaseName();
+        $hasUnique = DB::select(
+            'SELECT 1 FROM information_schema.statistics
+             WHERE table_schema = ? AND table_name = ? AND column_name = ? AND non_unique = 0
+             LIMIT 1',
+            [$database, 'hotel_settings', 'restaurant_id']
+        );
+
+        if (!empty($hasUnique)) {
+            return;
+        }
+
+        Schema::table('hotel_settings', function (Blueprint $table) {
+            $table->unique('restaurant_id');
+        });
     }
 
     /**
      * @param string $table
-     * @param int $restaurantId
+     * @param int $fallbackRestaurantId Only applied when restaurants.count() === 1
      * @param string $mode  'simple' | 'compound' | 'simple_no_fk'
      */
-    private function convertTable(string $table, int $restaurantId, string $mode): void
+    private function convertTable(string $table, int $fallbackRestaurantId, string $mode): void
     {
-        // Step 1: Add restaurant_id if not present
+        if (!Schema::hasTable($table)) {
+            return;
+        }
+
+        // Step 1: Add restaurant_id and map branch_id → branches.restaurant_id per row
         if (!Schema::hasColumn($table, 'restaurant_id')) {
             Schema::table($table, function (Blueprint $t) {
                 $t->unsignedBigInteger('restaurant_id')->nullable()->after('id');
                 $t->index('restaurant_id');
             });
-            DB::table($table)->update(['restaurant_id' => $restaurantId]);
         }
+
+        $this->backfillRestaurantIdFromBranch($table);
+        $this->backfillNullRestaurantId($table, $fallbackRestaurantId);
 
         // Step 2: Remove branch_id if still present
         if (Schema::hasColumn($table, 'branch_id')) {
