@@ -21,6 +21,7 @@ use App\Models\RestaurantCharge;
 use App\Models\Table;
 use App\Models\User;
 use App\Scopes\BranchScope;
+use App\Services\Pos\PosHotelSupport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -44,13 +45,29 @@ class PosSupportController extends Controller
 
     public function orderTypes()
     {
+        $types = OrderType::query()
+            ->where('is_active', true)
+            ->select('id', 'order_type_name', 'slug')
+            ->orderBy('order_type_name')
+            ->get();
+
         return response()->json(
-            OrderType::query()
-                ->where('is_active', true)
-                ->select('id', 'order_type_name', 'slug')
-                ->orderBy('order_type_name')
-                ->get()
+            collect(PosHotelSupport::filterOrderTypesForPos($types))->map(fn ($type) => [
+                'id' => (int) $type->id,
+                'order_type_name' => (string) $type->order_type_name,
+                'slug' => (string) $type->slug,
+            ])->values()
         );
+    }
+
+    public function hotelInHouseReservations()
+    {
+        abort_if(! PosHotelSupport::isRoomServiceEnabled(), 403);
+
+        return response()->json([
+            'success' => true,
+            'data' => PosHotelSupport::checkedInReservationsForPos()->values(),
+        ]);
     }
 
     /**

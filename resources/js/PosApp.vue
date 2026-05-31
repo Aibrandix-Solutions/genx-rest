@@ -99,6 +99,11 @@
                 @update-custom-extra="handleUpdateCustomExtra"
                 @apply-reward-redemption="handleApplyRewardRedemption"
                 @remove-reward-redemption="handleRemoveRewardRedemption"
+                :room-service-enabled="roomServiceEnabled"
+                :hotel-reservation-id="hotelReservationId"
+                :hotel-reservation="hotelReservation"
+                @select-room-service="handleSelectRoomService"
+                @clear-room-service="handleClearRoomService"
                 :order="order" />
         </div>
 
@@ -116,6 +121,10 @@
 
         <CancelOrderModal :show="showCancelOrderModal" :reasons="cancelReasons" @close="showCancelOrderModal = false"
             @save="handleSaveCancelOrder" />
+
+        <RoomServiceSelectorModal :show="showRoomServiceModal" :reservations="roomServiceReservations"
+            :selected-id="hotelReservationId" @close="showRoomServiceModal = false" @select="handleRoomServiceSelected"
+            @update:reservations="roomServiceReservations = $event" />
     </div>
 </template>
 
@@ -129,6 +138,7 @@ import TableChangeModal from "./components/pos/TableChangeModal.vue";
 import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import CancelOrderModal from "./components/pos/CancelOrderModal.vue";
+import RoomServiceSelectorModal from "./components/pos/RoomServiceSelectorModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
@@ -281,6 +291,14 @@ const currencySymbol = ref(
 );
 const kotModuleEnabled = ref(true); // Gated by KOT module subscription
 const modifierOptions = ref({}); // Flat map: { [optionId]: { name, price } }
+const hotelCapabilities = ref(null);
+const hotelReservationId = ref(null);
+const hotelReservation = ref(null);
+const showRoomServiceModal = ref(false);
+const roomServiceReservations = ref([]);
+const roomServiceEnabled = computed(
+    () => !!hotelCapabilities.value?.room_service_enabled
+);
 
 // Order data
 const orderType = ref("Dine In");
@@ -784,7 +802,48 @@ const normalizeOrderTypeSlug = (value) => {
         return "delivery";
     }
 
-    return "dine_in";
+    if (normalized === "room_service" || normalized === "room service") {
+        return "room_service";
+    }
+
+    return normalized || "dine_in";
+};
+
+const slugToDisplayOrderType = (slug) => {
+    const normalized = normalizeOrderTypeSlug(slug);
+    if (normalized === "dine_in") return "Dine In";
+    if (normalized === "pickup") return "Pickup";
+    if (normalized === "delivery") return "Delivery";
+    if (normalized === "room_service") return "Room Service";
+    return String(slug || "Dine In");
+};
+
+const handleSelectRoomService = () => {
+    if (!roomServiceEnabled.value) {
+        return;
+    }
+    showRoomServiceModal.value = true;
+};
+
+const handleRoomServiceSelected = (reservation) => {
+    if (!reservation?.id) {
+        return;
+    }
+    hotelReservationId.value = Number(reservation.id);
+    hotelReservation.value = {
+        id: Number(reservation.id),
+        room_number: reservation.room_number || "",
+        guest_name: reservation.guest_name || "",
+        label: reservation.label || "",
+        room_type_name: reservation.room_type_name || null,
+    };
+    customerId.value = null;
+    customer.value = null;
+};
+
+const handleClearRoomService = () => {
+    hotelReservationId.value = null;
+    hotelReservation.value = null;
 };
 
 const resolveOrderType = (value) => {
@@ -1775,6 +1834,8 @@ const clearCartAfterSave = () => {
     customerLng.value = null;
     currentTable.value = "";
     currentTableId.value = null;
+    hotelReservationId.value = null;
+    hotelReservation.value = null;
     calculateTaxes();
     resetRewardState();
 };
@@ -1821,6 +1882,23 @@ const handleSaveOrder = async (...actions) => {
                 : null;
         const openPayment = secondaryAction === "payment";
         const selectedOrderType = resolveOrderType(orderType.value);
+        const selectedSlug = normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value);
+
+        if (selectedSlug === "room_service") {
+            if (!roomServiceEnabled.value) {
+                kotPrintPlaceholder?.close();
+                showPosAlert("error", "Room service is not available.");
+                savingAction.value = null;
+                return;
+            }
+            if (!hotelReservationId.value) {
+                kotPrintPlaceholder?.close();
+                showPosAlert("error", "Please select a room for room service.");
+                showRoomServiceModal.value = true;
+                savingAction.value = null;
+                return;
+            }
+        }
 
         console.log("[POS DEBUG] saveOrder start", {
             actionList,
@@ -1915,6 +1993,10 @@ const handleSaveOrder = async (...actions) => {
             // actual balance deduction happens at billing time in PosVueOrderController::store.
             reward_points_redeemed: rewardPointsRedeemed.value > 0 ? rewardPointsRedeemed.value : null,
             reward_point_discount: rewardPointDiscount.value > 0 ? rewardPointDiscount.value : null,
+            hotel_reservation_id:
+                selectedSlug === "room_service" && hotelReservationId.value
+                    ? Number(hotelReservationId.value)
+                    : null,
         };
 
         console.log("Order data being sent:", {
@@ -2675,6 +2757,13 @@ const loadMenuData = () => {
             console.log("Loaded order types:", orderTypes.value);
         }
 
+        if (bootstrap.hotel && typeof bootstrap.hotel === "object") {
+            hotelCapabilities.value = bootstrap.hotel;
+            if (Array.isArray(bootstrap.hotel.checked_in_reservations)) {
+                roomServiceReservations.value = bootstrap.hotel.checked_in_reservations;
+            }
+        }
+
         if (bootstrap.current_user) {
             currentUser.value = bootstrap.current_user;
             canEditWaiter.value = !!bootstrap.current_user.can_update_order;
@@ -2692,12 +2781,7 @@ const loadMenuData = () => {
                 );
 
                 if (preferredType) {
-                    orderType.value =
-                        preferredType.slug === "dine_in"
-                            ? "Dine In"
-                            : preferredType.slug === "pickup"
-                                ? "Pickup"
-                                : "Delivery";
+                    orderType.value = slugToDisplayOrderType(preferredType.slug);
                 }
             }
             const activeOrderType = orderTypes.value.find(
@@ -2890,23 +2974,15 @@ const applyOrderPayload = (payload, activeOrderId) => {
 
     if (selectedType) {
         orderTypeId.value = selectedType.id;
-        orderType.value =
-            selectedType.slug === "dine_in"
-                ? "Dine In"
-                : selectedType.slug === "pickup"
-                    ? "Pickup"
-                    : "Delivery";
+        orderType.value = slugToDisplayOrderType(selectedType.slug);
     } else if (payload.order_type) {
-        const fallbackType = String(payload.order_type || "").toLowerCase();
-        orderType.value =
-            fallbackType === "dine_in"
-                ? "Dine In"
-                : fallbackType === "pickup"
-                    ? "Pickup"
-                    : fallbackType === "delivery"
-                        ? "Delivery"
-                        : orderType.value;
+        orderType.value = slugToDisplayOrderType(payload.order_type);
     }
+
+    hotelReservationId.value = payload.hotel_reservation_id
+        ? Number(payload.hotel_reservation_id)
+        : null;
+    hotelReservation.value = payload.hotel_reservation || null;
 
     selectedDeliveryApp.value = payload.delivery_app_id
         ? String(payload.delivery_app_id)
