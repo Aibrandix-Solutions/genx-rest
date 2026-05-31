@@ -16,7 +16,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $restaurantId = DB::table('restaurants')->value('id') ?? 1;
+        $fallbackRestaurantId = DB::table('restaurants')->count() === 1
+            ? (int) (DB::table('restaurants')->value('id') ?? 0)
+            : 0;
 
         // ── 1. hotel_room_prices ──────────────────────────────────────────────
         if (!Schema::hasColumn('hotel_room_prices', 'restaurant_id')) {
@@ -44,18 +46,42 @@ return new class extends Migration
         ];
 
         foreach ($tables as $table) {
-            if (Schema::hasColumn($table, 'restaurant_id')) {
+            if (!Schema::hasTable($table) || !Schema::hasColumn($table, 'restaurant_id')) {
+                continue;
+            }
+
+            if (Schema::hasColumn($table, 'branch_id') && Schema::hasTable('branches')) {
+                DB::statement("
+                    UPDATE {$table} t
+                    INNER JOIN branches b ON b.id = t.branch_id
+                    SET t.restaurant_id = b.restaurant_id
+                    WHERE t.restaurant_id IS NULL AND t.branch_id IS NOT NULL
+                ");
+            }
+
+            if ($fallbackRestaurantId > 0) {
                 DB::table($table)
                     ->whereNull('restaurant_id')
-                    ->update(['restaurant_id' => $restaurantId]);
+                    ->update(['restaurant_id' => $fallbackRestaurantId]);
             }
         }
 
         // Reservations separately (uses reservation_number auto-gen)
-        if (Schema::hasColumn('hotel_reservations', 'restaurant_id')) {
-            DB::table('hotel_reservations')
-                ->whereNull('restaurant_id')
-                ->update(['restaurant_id' => $restaurantId]);
+        if (Schema::hasTable('hotel_reservations') && Schema::hasColumn('hotel_reservations', 'restaurant_id')) {
+            if (Schema::hasColumn('hotel_reservations', 'branch_id') && Schema::hasTable('branches')) {
+                DB::statement('
+                    UPDATE hotel_reservations t
+                    INNER JOIN branches b ON b.id = t.branch_id
+                    SET t.restaurant_id = b.restaurant_id
+                    WHERE t.restaurant_id IS NULL AND t.branch_id IS NOT NULL
+                ');
+            }
+
+            if ($fallbackRestaurantId > 0) {
+                DB::table('hotel_reservations')
+                    ->whereNull('restaurant_id')
+                    ->update(['restaurant_id' => $fallbackRestaurantId]);
+            }
         }
     }
 
