@@ -18,8 +18,9 @@
                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"
                         stroke-width="2" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M21 21l-4.35-4.35M11 18a7 7 0 1 0 0-14 7 7 0 0 1 14 7z" />
+                            d="M21 21l-4.35-4.35M15.5 10.5a5 5 0 1 0-10 0 5 5 0 0 0 10 0z" />
                     </svg>
+            
                     <input id="room-service-search" v-model.trim="searchQuery" type="search"
                         autocomplete="off" placeholder="Search by room number or guest name..."
                         class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-skin-base focus:outline-none focus:ring-1 focus:ring-skin-base dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500" />
