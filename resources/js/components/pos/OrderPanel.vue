@@ -7,8 +7,8 @@
         </div>
         <!-- Order Type (Hidden in Linked Mode) -->
         <div v-if="!isLinkedOrderMode" class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
                     <span class="text-xs text-gray-500 dark:text-gray-400">Order Type:</span>
                     <span class="text-sm font-semibold text-gray-900 dark:text-white">
                         {{ orderType }}
@@ -18,11 +18,50 @@
                         Default
                     </span>
                 </div>
-                <button type="button" @click="canChangeOrderType && (showOrderTypeDropdown = !showOrderTypeDropdown)"
-                    :disabled="!canChangeOrderType"
-                    class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
-                    {{ showOrderTypeDropdown ? "Close" : "Change" }}
-                </button>
+
+                <div class="flex shrink-0 flex-wrap items-center gap-2">
+                    <button type="button" @click="canChangeOrderType && (showOrderTypeDropdown = !showOrderTypeDropdown)"
+                        :disabled="!canChangeOrderType"
+                        class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
+                        {{ showOrderTypeDropdown ? "Close" : "Change" }}
+                    </button>
+
+                    <template v-if="selectedOrderTypeSlug === 'room_service' && roomServiceEnabled">
+                        <div v-if="hasRoomServiceSelection"
+                            class="flex max-w-[11rem] items-center gap-2 rounded-full border border-gray-300 bg-gray-100 px-3 py-1.5 dark:border-gray-600 dark:bg-gray-700">
+                            <div class="min-w-0 flex-1">
+                                <template v-if="hotelReservationDisplay">
+                                    <span class="block truncate text-xs font-semibold text-gray-700 dark:text-gray-300"
+                                        :title="'Room ' + hotelReservationDisplay.room_number">
+                                        Room {{ hotelReservationDisplay.room_number }}
+                                    </span>
+                                    <span class="block truncate text-[10px] text-gray-500 dark:text-gray-400"
+                                        :title="hotelReservationDisplay.guest_name">
+                                        {{ hotelReservationDisplay.guest_name }}
+                                    </span>
+                                </template>
+                                <span v-else class="block truncate text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    Room selected
+                                </span>
+                            </div>
+                            <button v-if="canChangeOrderType" type="button" @click="$emit('select-room-service')"
+                                class="shrink-0 text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                title="Change room">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor"
+                                    class="bi bi-pencil-square" viewBox="0 0 16 16" aria-hidden="true">
+                                    <path
+                                        d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z" />
+                                    <path fill-rule="evenodd"
+                                        d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <button v-else-if="canChangeOrderType" type="button" @click="$emit('select-room-service')"
+                            class="text-xs rounded-full bg-blue-100 px-3 py-2 text-blue-700 transition-all hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60">
+                            Select Room
+                        </button>
+                    </template>
+                </div>
             </div>
 
             <div v-if="showOrderTypeDropdown && canChangeOrderType" class="mt-3 grid grid-cols-1 gap-2">
@@ -123,7 +162,13 @@
         <!-- Order Header -->
         <div>
             <div class="mt-2 flex items-start justify-between gap-3">
-                <div v-if="customer?.id" class="min-w-0 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <div v-if="showRoomServiceSelectPrompt" class="min-w-0">
+                    <button type="button" @click="$emit('select-room-service')"
+                        class="text-sm font-medium text-blue-600 underline underline-offset-2 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                        Select a room for this order
+                    </button>
+                </div>
+                <div v-else-if="customer?.id" class="min-w-0 flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                     <div class="min-w-0">
                         <div class="font-semibold text-gray-900 dark:text-white truncate">
                             {{ customer.name }}
@@ -1679,6 +1724,18 @@ const props = defineProps({
         type: Boolean,
         default: false,
     },
+    roomServiceEnabled: {
+        type: Boolean,
+        default: false,
+    },
+    hotelReservationId: {
+        type: [Number, String, null],
+        default: null,
+    },
+    hotelReservation: {
+        type: Object,
+        default: null,
+    },
 });
 
 const emit = defineEmits([
@@ -1721,6 +1778,8 @@ const emit = defineEmits([
     "update-custom-extra",
     "apply-reward-redemption",
     "remove-reward-redemption",
+    "select-room-service",
+    "clear-room-service",
 ]);
 
 const localPax = ref(props.pax);
@@ -1789,15 +1848,41 @@ const normalizeOrderTypeSlug = (value) => {
         return "delivery";
     }
 
-    return "dine_in";
+    if (normalized === "room_service" || normalized === "room service") {
+        return "room_service";
+    }
+
+    return normalized || "dine_in";
 };
 
 const slugToDisplayType = (slug) => {
-    if (slug === "dine_in") return "Dine In";
-    if (slug === "pickup") return "Pickup";
-    if (slug === "delivery") return "Delivery";
+    const normalized = normalizeOrderTypeSlug(slug);
+    if (normalized === "dine_in") return "Dine In";
+    if (normalized === "pickup") return "Pickup";
+    if (normalized === "delivery") return "Delivery";
+    if (normalized === "room_service") return "Room Service";
     return slug;
 };
+
+const hotelReservationDisplay = computed(() => {
+    if (props.hotelReservation && typeof props.hotelReservation === "object") {
+        return props.hotelReservation;
+    }
+    return null;
+});
+
+const hasRoomServiceSelection = computed(() => {
+    return Boolean(hotelReservationDisplay.value || props.hotelReservationId);
+});
+
+const showRoomServiceSelectPrompt = computed(() => {
+    return (
+        selectedOrderTypeSlug.value === "room_service" &&
+        props.roomServiceEnabled &&
+        !hasRoomServiceSelection.value &&
+        !props.isLinkedOrderMode
+    );
+});
 
 const selectedOrderTypeSlug = computed(() => {
     const selectedId = Number(localOrderTypeId.value);
@@ -2800,8 +2885,16 @@ const handleOrderTypeChange = () => {
         return;
     }
 
-    if (normalizeOrderTypeSlug(selectedType.slug) !== "delivery") {
+    const nextSlug = normalizeOrderTypeSlug(selectedType.slug);
+
+    if (nextSlug !== "delivery") {
         localSelectedDeliveryApp.value = "default";
+    }
+
+    if (nextSlug === "room_service" && props.roomServiceEnabled && !props.hotelReservationId) {
+        emit("select-room-service");
+    } else if (nextSlug !== "room_service") {
+        emit("clear-room-service");
     }
 
     localSetAsDefaultOrderType.value =

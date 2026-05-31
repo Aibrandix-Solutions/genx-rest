@@ -10,6 +10,7 @@ use App\Models\ComboPack;
 use App\Models\Order;
 use App\Models\Table;
 use App\Services\PosBatchSyncService;
+use App\Services\Pos\PosHotelSupport;
 use App\Services\PosBootstrapService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -224,13 +225,14 @@ class PosController extends Controller
                 ];
             })->values(),
             'items' => $menuItems,
-            'order_types' => collect($data['order_types'] ?? [])->map(function ($orderType) {
+            'order_types' => collect(PosHotelSupport::filterOrderTypesForPos($data['order_types'] ?? []))->map(function ($orderType) {
                 return [
                     'id' => (int) ($orderType->id ?? 0),
                     'order_type_name' => (string) ($orderType->order_type_name ?? ''),
                     'slug' => (string) ($orderType->slug ?? ''),
                 ];
             })->values(),
+            'hotel' => PosHotelSupport::vueBootstrapCapabilities(),
             'current_user' => [
                 'id' => (int) (auth()->id() ?? 0),
                 'name' => (string) (auth()->user()?->name ?? ''),
@@ -407,6 +409,8 @@ class PosController extends Controller
                 'items.menuItem',
                 'items.menuItemVariation',
                 'table:id,table_code',
+                'hotelReservation.room.roomType',
+                'hotelReservation.guest',
             ])
             ->where('id', $orderId)
             ->where('branch_id', $branch->id)
@@ -488,6 +492,8 @@ class PosController extends Controller
                 'formatted_order_number' => (string) ($order->show_formatted_order_number ?? ''),
                 'table_id' => $order->table_id ? (int) $order->table_id : null,
                 'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
+                'hotel_reservation_id' => $order->hotel_reservation_id ? (int) $order->hotel_reservation_id : null,
+                'hotel_reservation' => PosHotelSupport::formatReservation($order->hotelReservation),
                 'lines' => $lines,
             ],
             'initial_order_id' => (int) $order->id,
