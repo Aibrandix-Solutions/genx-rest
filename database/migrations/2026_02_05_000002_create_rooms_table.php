@@ -17,7 +17,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('branch_id')->constrained('branches')->onDelete('cascade');
             $table->foreignId('room_type_id')->constrained('hotel_room_types')->onDelete('cascade');
-            $table->string('room_number')->unique();
+            $table->string('room_number');
             $table->string('floor')->nullable();
             $table->string('section')->nullable(); // Wing A, Wing B, etc.
             $table->enum('status', [
@@ -32,6 +32,7 @@ return new class extends Migration
             $table->timestamp('last_cleaned_at')->nullable();
             $table->timestamps();
 
+            $table->unique(['branch_id', 'room_number']);
             $table->index(['branch_id', 'status']);
             $table->index('room_type_id');
         });

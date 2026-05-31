@@ -76,7 +76,7 @@ class HousekeepingTask extends Model
         ]);
 
         // Update room status to available if it was cleaning
-        if ($this->task_type === self::TYPE_CLEANING) {
+        if ($this->task_type === self::TYPE_CLEANING && $this->room) {
             $this->room->update([
                 'status' => Room::STATUS_AVAILABLE,
                 'last_cleaned_at' => now(),

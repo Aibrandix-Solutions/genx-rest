@@ -51,7 +51,7 @@
                         <div @class([
                             'grid gap-3',
                             'grid-cols-2 sm:grid-cols-4' => !$canAddTip && !$showRoomCharge,
-                            'grid-cols-2 sm:grid-cols-5' => $canAddTip || $showRoomCharge,
+                            'grid-cols-2 sm:grid-cols-5' => ($canAddTip xor $showRoomCharge),
                             'grid-cols-2 sm:grid-cols-6' => $canAddTip && $showRoomCharge,
                         ])>
                             <button wire:click="setPaymentMethod('cash')"

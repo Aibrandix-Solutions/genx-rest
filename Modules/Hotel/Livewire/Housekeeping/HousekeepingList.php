@@ -142,13 +142,13 @@ class HousekeepingList extends Component
                 }
             }
         });
+        $isEditing = (bool) $this->editingTaskId;
 
         $this->showTaskModal = false;
         $this->resetForm();
         $this->loadTasks();
 
-        $this->alert('success', $this->editingTaskId ? 'Task updated successfully.' : 'Task created successfully.');
-    }
+        $this->alert('success', $isEditing ? 'Task updated successfully.' : 'Task created successfully.');    }
 
     public function startTask($id)
     {

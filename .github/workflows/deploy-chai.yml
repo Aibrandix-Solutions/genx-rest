@@ -1,12 +1,8 @@
-name: Deploy Genx Restaurant (genx-rest.digipartner.lk via SFTP)
+name: Deploy Genx Restaurant (via SFTP)
 
 on:
   push:
-<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
-    branches: [hotel] # Manual merge to this branch triggers deploy
-========
     branches: [old-himan]
->>>>>>>> demo:.github/workflows/deploy-chai.yml
   workflow_dispatch:
 
 jobs:
@@ -37,11 +33,11 @@ jobs:
               "echo SSH OK: \$(whoami) on \$(hostname)"
 
       # --- Build assets (NPM) ---
+      # Uncomment these lines if your public/build assets are not committed to the repo
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
       - name: Build Assets
         run: |
           npm ci
@@ -56,6 +52,7 @@ jobs:
           mkdir -p deploy_app deploy_public
 
           # Core app (NO vendor, NO public)
+          # Added 'Modules' to the list
           cp -r app bootstrap config database routes artisan composer.json composer.lock phpunit.xml .htaccess Modules deploy_app/ 2>/dev/null || true
 
           # Translations
@@ -73,16 +70,16 @@ jobs:
 
           # Public contents
           rsync -a public/ deploy_public/
-
-          # Ensure public/build is deployed and also available under deploy_app/public/build
-          mkdir -p deploy_app/public/build
+          # Add public/build to deploy_public
           if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
+          # Ensure public/build is also in deploy_app so backend can find manifest.json
+          mkdir -p deploy_app/public/build
           if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
 
-          # Ensure .htaccess is included explicitly
+          # ✅ Ensure .htaccess is included explicitly
           if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
 
-          # Write split-docroot index.php that points to ./laravel
+          # Write split-docroot index.php that points to /laravel
           cat > deploy_public/index.php <<'PHP'
           <?php
 
@@ -96,7 +93,7 @@ jobs:
               require $maintenance;
           }
 
-          // Point to the 'laravel' directory (relative to this docroot)
+          // Point to the 'laravel' directory (relative to public_html/)
           define('LARAVEL_BASE', __DIR__ . '/laravel');
 
           require LARAVEL_BASE . '/vendor/autoload.php';
@@ -113,7 +110,7 @@ jobs:
           PHP
 
       # --- SFTP uploads ---
-      - name: Upload app via SFTP (to /genx-rest/laravel)
+      - name: Upload app via SFTP (to /laravel)
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
           server: ${{ secrets.GENX_SSH_HOST }}
@@ -121,16 +118,12 @@ jobs:
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
           local_path: "deploy_app/*"
-<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
-          remote_path: "domains/digipartner.lk/public_html/genx-rest/laravel/"
-========
           # UPDATE THIS PATH
           remote_path: "domains/aibrandix.com/public_html/laravel/"
->>>>>>>> demo:.github/workflows/deploy-chai.yml
           delete_remote_files: false
           sftp_only: true
 
-      - name: Upload public via SFTP (to /genx-rest)
+      - name: Upload public via SFTP (to /)
         uses: wlixcc/SFTP-Deploy-Action@v1.2.4
         with:
           server: ${{ secrets.GENX_SSH_HOST }}
@@ -138,12 +131,8 @@ jobs:
           username: ${{ secrets.GENX_SSH_USER }}
           ssh_private_key: ${{ secrets.GENX_SSH_KEY }}
           local_path: "deploy_public/*"
-<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
-          remote_path: "domains/digipartner.lk/public_html/genx-rest/"
-========
           # UPDATE THIS PATH
           remote_path: "domains/aibrandix.com/public_html/"
->>>>>>>> demo:.github/workflows/deploy-chai.yml
           delete_remote_files: false
           sftp_only: true
 
@@ -157,21 +146,8 @@ jobs:
           key: ${{ secrets.GENX_SSH_KEY }}
           script: |
             set -e
-<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
-
-            # Target genx-rest.digipartner.lk Laravel app dir
-            cd /home/u158663215/domains/digipartner.lk/public_html/genx-rest/laravel
-
-            # Safety: do not run artisan/migrations until the subdomain has its own .env
-            if [ ! -f .env ]; then
-              echo "❌ Missing .env at /home/u158663215/domains/digipartner.lk/public_html/genx-rest/laravel/.env"
-              echo "Create it with separate DB credentials (DB_DATABASE/DB_USERNAME/DB_PASSWORD) and correct APP_URL."
-              exit 1
-            fi
-========
             # UPDATE THIS PATH
             cd /home/u158663215/domains/aibrandix.com/public_html/laravel
->>>>>>>> demo:.github/workflows/deploy-chai.yml
 
             # Ensure runtime dirs
             mkdir -p storage/framework/{cache,sessions,views}
@@ -183,7 +159,7 @@ jobs:
             MISSING=""
             for ext in $REQUIRED; do php -m | grep -qi "^$ext$" || MISSING="$MISSING $ext"; done
             if [ -n "$MISSING" ]; then
-              echo "Missing PHP extensions:$MISSING"
+              echo "❌ Missing PHP extensions:$MISSING"
               exit 1
             fi
 
@@ -197,25 +173,10 @@ jobs:
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
-            # Clear & rebuild caches
+            # Clear & rebuild caches (ensures Livewire routes are registered)
             php artisan optimize:clear || true
+            # php artisan optimize || true
 
-<<<<<<<< HEAD:.github/workflows/deploy-stage.yml
-            # Publish module assets and migrations
-            php artisan module:publish || true
-            php artisan module:publish-migration Inventory || true
-
-            # Run migrations
-            php artisan migrate --force
-
-            # Storage link inside genx-rest docroot (safe; does not touch main domain)
-            php artisan storage:link || true
-
-            # Symlink for user-uploads within genx-rest docroot only
-            cd /home/u158663215/domains/digipartner.lk/public_html/genx-rest
-            rm -rf user-uploads 2>/dev/null || true
-            ln -sf /home/u158663215/domains/digipartner.lk/public_html/genx-rest/laravel/public/user-uploads user-uploads
-========
             # Run migrations (optional, uncomment if needed)
             php artisan migrate --force
 
@@ -227,5 +188,4 @@ jobs:
             rm -rf user-uploads 2>/dev/null || true
             ln -sf /home/u158663215/domains/aibrandix.com/public_html/laravel/public/user-uploads user-uploads
             echo "✅ user-uploads symlink created"
->>>>>>>> demo:.github/workflows/deploy-chai.yml
             ls -la user-uploads

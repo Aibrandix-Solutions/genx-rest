@@ -5,6 +5,7 @@ namespace Modules\Hotel\Livewire\Reservation;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Modules\Hotel\Entities\Room;
 use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
@@ -426,6 +427,36 @@ class ReservationList extends Component
         }
     }
 
+    /**
+     * @param  object|null  $room  Room model (needs roomType for max_occupancy)
+     * @param  array<string, mixed>|null  $roomEntry
+     * @return array{max: int, total: int, is_over: bool, adults: int, children: int}
+     */
+    public function getRoomCapacityInfo($room, ?array $roomEntry = null): array
+    {
+        $max = (int) ($room->roomType->max_occupancy ?? 99);
+        $adults = (int) ($roomEntry['adults'] ?? $this->create_adults ?? 1);
+        $children = (int) ($roomEntry['children'] ?? $this->create_children ?? 0);
+        $total = $adults + $children;
+
+        return [
+            'max' => $max,
+            'total' => $total,
+            'is_over' => $total > $max,
+            'adults' => $adults,
+            'children' => $children,
+        ];
+    }
+
+    private function roomHasReservationConflict(Room $room, Carbon $checkIn, Carbon $checkOut): bool
+    {
+        return $room->reservations()
+            ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+            ->where('check_in_date', '<', $checkOut)
+            ->where('checkout_date', '>', $checkIn)
+            ->exists();
+    }
+
     public function saveReservation()
     {
         abort_unless(user_can('create_reservation'), 403);
@@ -446,11 +477,24 @@ class ReservationList extends Component
             ? Reservation::generateGroupBookingId()
             : null;
 
-        DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId, $settings) {
+        $createdCount = 0;
+
+        try {
+            DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId, $settings, &$createdCount) {
             foreach ($this->selected_rooms as $entry) {
-                $room = \Modules\Hotel\Entities\Room::with('roomType')->find($entry['room_id']);
+                $room = \Modules\Hotel\Entities\Room::with('roomType')
+                    ->where('id', $entry['room_id'])
+                    ->lockForUpdate()
+                    ->first();
+
                 if (!$room) {
-                    continue;
+                    throw new \RuntimeException('One or more selected rooms are no longer available.');
+                }
+
+                if ($this->roomHasReservationConflict($room, $checkIn, $checkOut)) {
+                    throw new \RuntimeException(
+                        "Room {$room->room_number} is no longer available for the selected dates."
+                    );
                 }
 
                 // Calculate total using dynamic pricing per night
@@ -485,10 +529,25 @@ class ReservationList extends Component
 
                 // Update room status to 'reserved' when reservation is created
                 $room->update(['status' => 'reserved']);
+                $createdCount++;
             }
-        });
+            });
+        } catch (\RuntimeException $e) {
+            $this->alert('error', $e->getMessage(), ['toast' => true, 'position' => 'top-end']);
 
-        $roomCount = count($this->selected_rooms);
+            return;
+        }
+
+        if ($createdCount === 0) {
+            $this->alert('error', 'No reservations could be created. Please refresh and try again.', [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        $roomCount = $createdCount;
         $message = $roomCount > 1
             ? "{$roomCount} room reservations created (Group: {$groupBookingId})"
             : 'Reservation created successfully';

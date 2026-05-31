@@ -807,7 +807,7 @@ if (!function_exists('hotel_business_mode')) {
                 'restaurant_id', restaurant() ? restaurant()->id : 0
             )->first();
 
-            return $settings->business_mode ?? 'restaurant_primary';
+            return $settings?->business_mode ?? 'restaurant_primary';
         });
     }
 }

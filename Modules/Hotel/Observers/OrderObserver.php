@@ -22,7 +22,7 @@ class OrderObserver
             // Let's rely on 'delivered' or a specific status for Room Service completion.
             // Ideally, we check if the status CHANGED to a completed state.
             
-            if ($order->isDirty('status') && in_array($order->status, ['delivered', 'completed', 'billed'])) {
+            if ($order->wasChanged('status') && in_array($order->status, ['delivered', 'completed', 'billed'])) {
                 $this->createRoomCharge($order);
             }
         }

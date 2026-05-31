@@ -92,7 +92,7 @@
                                     <td class="p-3 text-sm text-gray-500 dark:text-gray-400">{{ $payment->created_at?->format('d M Y') }}</td>
                                     <td class="p-3 text-sm font-semibold text-gray-900 dark:text-white">{{ $payment->reservation?->reservation_number ?? '-' }}</td>
                                     <td class="p-3 text-sm text-gray-900 dark:text-white">{{ currency_format($payment->amount, restaurant()->currency_id) }}</td>
-                                    <td class="p-3 text-sm text-gray-500 dark:text-gray-400">{{ strtoupper($payment->payment_method) }}</td>
+                                    <td class="p-3 text-sm text-gray-500 dark:text-gray-400">{{ $payment->payment_method ? strtoupper($payment->payment_method) : '-' }}</td>
                                 </tr>
                             @empty
                                 <tr>

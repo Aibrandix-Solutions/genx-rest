@@ -13,11 +13,6 @@
     || user_can('view_property_pnl')
     || user_can('manage_hotel_settings');
 
-  // Read feature flags from hotel settings
-  $_hotelSettingsPrimary = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
-  $housekeepingEnabledPrimary  = $_hotelSettingsPrimary ? (bool) $_hotelSettingsPrimary->enable_housekeeping_module : true;
-  $roomServiceEnabledPrimary   = $_hotelSettingsPrimary ? (bool) $_hotelSettingsPrimary->enable_room_service       : true;
-  $dynamicPricingEnabledPrimary = $_hotelSettingsPrimary ? (bool) $_hotelSettingsPrimary->enable_dynamic_pricing   : false;
 @endphp
 
 @if(in_array('Hotel', restaurant_modules()) && $canSeeHotelMenu)

@@ -234,12 +234,12 @@
                             <div class="grid grid-cols-3 gap-4 max-h-56 overflow-y-auto pr-1">
                                 @foreach($available_rooms as $room)
                                     @php
-                                        $maxOccupancy = $room->roomType->max_occupancy ?? 99;
                                         $isSelected = collect($selected_rooms)->contains('room_id', $room->id);
-                                        // Find per-room occupancy if selected
                                         $roomEntry = collect($selected_rooms)->firstWhere('room_id', $room->id);
-                                        $roomGuests = $roomEntry ? (int)($roomEntry['adults'] ?? 1) + (int)($roomEntry['children'] ?? 0) : (int)($create_adults ?? 1) + (int)($create_children ?? 0);
-                                        $isOverCapacity = $roomGuests > $maxOccupancy;
+                                        $capacityInfo = $this->getRoomCapacityInfo($room, $roomEntry);
+                                        $maxOccupancy = $capacityInfo['max'];
+                                        $roomGuests = $capacityInfo['total'];
+                                        $isOverCapacity = $capacityInfo['is_over'];
                                     @endphp
                                     <div
                                         wire:click="toggleRoom({{ $room->id }})"
@@ -341,9 +341,12 @@
                                 @foreach($selected_rooms as $index => $entry)
                                     @php
                                         $selectedRoom = collect($available_rooms)->firstWhere('id', $entry['room_id']);
-                                        $roomMaxOcc = $selectedRoom?->roomType?->max_occupancy ?? 99;
-                                        $entryTotal = (int)($entry['adults'] ?? 1) + (int)($entry['children'] ?? 0);
-                                        $entryOver = $entryTotal > $roomMaxOcc;
+                                        $capacityInfo = $selectedRoom
+                                            ? $this->getRoomCapacityInfo($selectedRoom, $entry)
+                                            : ['max' => 99, 'total' => 0, 'is_over' => false];
+                                        $roomMaxOcc = $capacityInfo['max'];
+                                        $entryTotal = $capacityInfo['total'];
+                                        $entryOver = $capacityInfo['is_over'];
                                     @endphp
                                     @if($selectedRoom)
                                         <div class="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-md px-2.5 py-2 border border-gray-200 dark:border-gray-600">

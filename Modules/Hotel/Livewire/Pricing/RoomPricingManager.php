@@ -25,7 +25,9 @@ class RoomPricingManager extends Component
     public $dateTo = '';
     public $price = 0;
     public $reason = '';
-    
+
+    public $pendingDeletePricingId = null;
+
     // Settings
     public $isDynamicPricingEnabled = false;
 
@@ -71,7 +73,8 @@ class RoomPricingManager extends Component
             return;
         }
 
-        $this->prices = RoomPrice::where('room_type_id', $this->selectedRoomTypeId)
+        $this->prices = RoomPrice::where('restaurant_id', restaurant()->id)
+            ->where('room_type_id', $this->selectedRoomTypeId)
             ->orderBy('date_from', 'asc')
             ->get();
     }
@@ -99,7 +102,7 @@ class RoomPricingManager extends Component
     {
         abort_unless(user_can('edit_room_pricing'), 403);
 
-        $pricing = RoomPrice::find($id);
+        $pricing = RoomPrice::where('restaurant_id', restaurant()->id)->find($id);
         if ($pricing) {
             $this->editingPricingId = $id;
             $this->dateFrom = $pricing->date_from->format('Y-m-d');
@@ -131,7 +134,10 @@ class RoomPricingManager extends Component
         ];
 
         if ($this->editingPricingId) {
-            $pricing = RoomPrice::find($this->editingPricingId);
+            $pricing = RoomPrice::where('restaurant_id', restaurant()->id)->find($this->editingPricingId);
+            if (!$pricing) {
+                abort(403);
+            }
             $pricing->update($data);
             $this->alert('success', 'Room pricing updated successfully');
         } else {
@@ -148,6 +154,7 @@ class RoomPricingManager extends Component
     {
         abort_unless(user_can('delete_room_pricing'), 403);
 
+        $this->pendingDeletePricingId = $id;
         $this->alert('warning', 'Are you sure you want to delete this pricing override?', [
             'showConfirmButton' => true,
             'showCancelButton' => true,
@@ -155,16 +162,19 @@ class RoomPricingManager extends Component
             'cancelButtonText' => 'Cancel',
             'onConfirmed' => 'deletePricingConfirmed',
             'onDismissed' => 'dismissAlert',
-            'data' => ['id' => $id],
         ]);
     }
 
     #[On('deletePricingConfirmed')]
-    public function deletePricing($id)
+    public function deletePricing($id = null)
     {
         abort_unless(user_can('delete_room_pricing'), 403);
 
-        RoomPrice::find($id)?->delete();
+        $id = $id ?? $this->pendingDeletePricingId;
+        RoomPrice::where('restaurant_id', restaurant()->id)
+            ->where('id', $id)
+            ->delete();
+        $this->pendingDeletePricingId = null;
         $this->alert('success', 'Pricing override deleted successfully');
         $this->loadPrices();
     }

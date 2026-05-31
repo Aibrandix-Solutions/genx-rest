@@ -121,7 +121,7 @@
                 <div class="border-t dark:border-gray-700 pt-2 mt-2 flex justify-between items-center">
                     <span class="text-xs font-semibold text-gray-600 dark:text-gray-300">Total Collected</span>
                     <span class="text-sm font-bold text-gray-900 dark:text-white">
-                        {{ currency_format($summary['hotelPaymentsReceived'] + $summary['restaurantPaymentsReceived'] - $summary['hotelRefunds'], $currencyId) }}
+                        {{ currency_format($summary['totalCollected'], $currencyId) }}
                     </span>
                 </div>
             </div>

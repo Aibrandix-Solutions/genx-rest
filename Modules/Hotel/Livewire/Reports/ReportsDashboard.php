@@ -36,7 +36,10 @@ class ReportsDashboard extends Component
 
         $this->dateFrom   = Carbon::now()->subDays(30)->toDateString();
         $this->dateTo     = Carbon::now()->toDateString();
-        $this->roomTypes  = RoomType::select('id', 'name')->get()->toArray();
+        $this->roomTypes  = RoomType::where('restaurant_id', restaurant()->id)
+            ->select('id', 'name')
+            ->get()
+            ->toArray();
 
         $this->loadAll();
     }
@@ -72,16 +75,18 @@ class ReportsDashboard extends Component
         $end   = Carbon::parse($this->dateTo)->endOfDay();
         $rid   = restaurant()->id;
 
-        $totalRooms       = Room::count();
-        $occupiedRooms    = Room::where('status', Room::STATUS_OCCUPIED)->count();
-        $reservedRooms    = Room::where('status', Room::STATUS_RESERVED)->count();
-        $cleaningRooms    = Room::where('status', Room::STATUS_CLEANING)->count();
-        $maintenanceRooms = Room::where('status', Room::STATUS_MAINTENANCE)->count();
-        $availableRooms   = Room::where('status', Room::STATUS_AVAILABLE)->count();
+        $totalRooms       = Room::where('restaurant_id', $rid)->count();
+        $occupiedRooms    = Room::where('restaurant_id', $rid)->where('status', Room::STATUS_OCCUPIED)->count();
+        $reservedRooms    = Room::where('restaurant_id', $rid)->where('status', Room::STATUS_RESERVED)->count();
+        $cleaningRooms    = Room::where('restaurant_id', $rid)->where('status', Room::STATUS_CLEANING)->count();
+        $maintenanceRooms = Room::where('restaurant_id', $rid)->where('status', Room::STATUS_MAINTENANCE)->count();
+        $availableRooms   = Room::where('restaurant_id', $rid)->where('status', Room::STATUS_AVAILABLE)->count();
         $occupancyRate    = $totalRooms > 0 ? round(($occupiedRooms / $totalRooms) * 100, 1) : 0;
 
-        $reservations = Reservation::whereBetween('check_in_date', [$start->toDateString(), $end->toDateString()]);
-        $payments     = HotelPayment::whereBetween('created_at', [$start, $end]);
+        $reservations = Reservation::where('restaurant_id', $rid)
+            ->whereBetween('check_in_date', [$start->toDateString(), $end->toDateString()]);
+        $payments     = HotelPayment::where('restaurant_id', $rid)
+            ->whereBetween('created_at', [$start, $end]);
 
         $reservationsInRange   = (clone $reservations)->count();
         $confirmedReservations = (clone $reservations)->where('status', Reservation::STATUS_CONFIRMED)->count();
@@ -90,14 +95,19 @@ class ReportsDashboard extends Component
         $cancelledCount        = (clone $reservations)->where('status', Reservation::STATUS_CANCELLED)->count();
         $noShowCount           = (clone $reservations)->where('status', Reservation::STATUS_NO_SHOW ?? 'no_show')->count();
 
-        $checkInsToday  = Reservation::whereDate('check_in_date', Carbon::today())->count();
-        $checkOutsToday = Reservation::whereDate('checkout_date', Carbon::today())->count();
+        $checkInsToday  = Reservation::where('restaurant_id', $rid)
+            ->whereDate('check_in_date', Carbon::today())
+            ->count();
+        $checkOutsToday = Reservation::where('restaurant_id', $rid)
+            ->whereDate('checkout_date', Carbon::today())
+            ->count();
 
         $totalRevenue  = (clone $payments)->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
         $totalRefunds  = (clone $payments)->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
         $netRevenue    = $totalRevenue - $totalRefunds;
 
-        $avgLengthOfStay = Reservation::whereBetween('check_in_date', [$start->toDateString(), $end->toDateString()])
+        $avgLengthOfStay = Reservation::where('restaurant_id', $rid)
+            ->whereBetween('check_in_date', [$start->toDateString(), $end->toDateString()])
             ->whereNotNull('checkout_date')
             ->selectRaw('AVG(DATEDIFF(checkout_date, check_in_date)) as avg_los')
             ->value('avg_los');
@@ -130,15 +140,19 @@ class ReportsDashboard extends Component
     {
         $start = Carbon::parse($this->dateFrom)->startOfDay();
         $end   = Carbon::parse($this->dateTo)->endOfDay();
+        $rid   = restaurant()->id;
 
         $query = Reservation::with(['guest', 'room.roomType'])
+            ->where('restaurant_id', $rid)
             ->whereBetween('check_in_date', [$start->toDateString(), $end->toDateString()]);
 
         if ($this->statusFilter) {
             $query->where('status', $this->statusFilter);
         }
         if ($this->roomTypeFilter) {
-            $query->whereHas('room', fn($q) => $q->where('room_type_id', $this->roomTypeFilter));
+            $query->whereHas('room', fn($q) => $q
+                ->where('restaurant_id', $rid)
+                ->where('room_type_id', $this->roomTypeFilter));
         }
 
         $rows = $query->orderByDesc('check_in_date')->get();
@@ -169,7 +183,8 @@ class ReportsDashboard extends Component
         $start = Carbon::parse($this->dateFrom)->startOfDay();
         $end   = Carbon::parse($this->dateTo)->endOfDay();
 
-        $query = RoomType::withCount(['rooms as room_count'])
+        $query = RoomType::where('restaurant_id', restaurant()->id)
+            ->withCount(['rooms as room_count'])
             ->withCount(['rooms as rooms_currently_occupied' => fn($q) => $q->where('status', Room::STATUS_OCCUPIED)]);
 
         if ($this->roomTypeFilter) {
@@ -177,12 +192,15 @@ class ReportsDashboard extends Component
         }
 
         $roomTypes = $query->get();
-        $totalRooms = Room::count() ?: 1;
+        $rid = restaurant()->id;
 
         $report = [];
         foreach ($roomTypes as $rt) {
             // All reservations for this room type in date range
-            $reservations = Reservation::whereHas('room', fn($q) => $q->where('room_type_id', $rt->id))
+            $reservations = Reservation::whereHas('room', fn($q) => $q
+                    ->where('restaurant_id', $rid)
+                    ->where('room_type_id', $rt->id))
+                ->where('restaurant_id', $rid)
                 ->whereBetween('check_in_date', [$start->toDateString(), $end->toDateString()])
                 ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW ?? 'no_show'])
                 ->get();
@@ -221,7 +239,8 @@ class ReportsDashboard extends Component
         $start = Carbon::parse($this->dateFrom)->startOfDay();
         $end   = Carbon::parse($this->dateTo)->endOfDay();
 
-        $rows = HousekeepingTask::whereBetween('created_at', [$start, $end])
+        $rows = HousekeepingTask::where('restaurant_id', restaurant()->id)
+            ->whereBetween('created_at', [$start, $end])
             ->select('task_type', 'status', 'priority', DB::raw('COUNT(*) as count'),
                 DB::raw('AVG(TIMESTAMPDIFF(MINUTE, started_at, completed_at)) as avg_completion_minutes'))
             ->groupBy('task_type', 'status', 'priority')

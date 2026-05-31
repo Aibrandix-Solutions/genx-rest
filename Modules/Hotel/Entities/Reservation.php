@@ -100,7 +100,11 @@ class Reservation extends Model
      */
     public static function generateGroupBookingId(): string
     {
-        return 'GRP' . now()->format('Ymd') . str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+        do {
+            $id = 'GRP' . now()->format('Ymd') . strtoupper(\Illuminate\Support\Str::random(6));
+        } while (static::where('group_booking_id', $id)->exists());
+
+        return $id;
     }
 
     public function orders(): HasMany
@@ -126,19 +130,22 @@ class Reservation extends Model
     /**
      * Generate unique reservation number
      */
-    public static function generateReservationNumber()
+    public static function generateReservationNumber(): string
     {
         $prefix = 'RES';
         $date = now()->format('Ymd');
         $pattern = $prefix . $date . '%';
 
-        $lastNumber = self::where('reservation_number', 'like', $pattern)
-            ->orderByRaw("CAST(SUBSTRING(reservation_number, -4) AS UNSIGNED) DESC")
-            ->value('reservation_number');
+        do {
+            $lastNumber = self::where('reservation_number', 'like', $pattern)
+                ->orderByRaw('CAST(SUBSTRING(reservation_number, -4) AS UNSIGNED) DESC')
+                ->value('reservation_number');
 
-        $sequence = $lastNumber ? (int) substr($lastNumber, -4) + 1 : 1;
+            $sequence = $lastNumber ? (int) substr($lastNumber, -4) + 1 : 1;
+            $candidate = $prefix . $date . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+        } while (self::where('reservation_number', $candidate)->exists());
 
-        return $prefix . $date . str_pad($sequence, 4, '0', STR_PAD_LEFT);
+        return $candidate;
     }
 
     /**

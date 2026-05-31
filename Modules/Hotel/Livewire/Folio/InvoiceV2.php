@@ -31,7 +31,9 @@ class InvoiceV2 extends Component
 
     public function loadData()
     {
-        $this->reservation = Reservation::with(['guest', 'room', 'room.roomType'])->findOrFail($this->reservationId);
+        $this->reservation = Reservation::with(['guest', 'room', 'room.roomType'])
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->reservationId);
 
         // Load hotel name from settings
         $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();

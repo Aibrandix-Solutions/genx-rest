@@ -838,7 +838,10 @@ const handleRoomServiceSelected = (reservation) => {
         room_type_name: reservation.room_type_name || null,
     };
     customerId.value = null;
-    customer.value = null;
+    customer.value = getEmptyCustomer();
+    customerPhone.value = "";
+    deliveryAddress.value = "";
+    resetRewardState();
 };
 
 const handleClearRoomService = () => {

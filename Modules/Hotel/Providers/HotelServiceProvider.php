@@ -4,6 +4,7 @@ namespace Modules\Hotel\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Database\Eloquent\Factory;
+use Modules\Hotel\Console\ActivateModuleCommand;
 
 class HotelServiceProvider extends ServiceProvider
 {
@@ -24,6 +25,10 @@ class HotelServiceProvider extends ServiceProvider
      */
     public function boot()
     {
+        $this->commands([
+            ActivateModuleCommand::class,
+        ]);
+
         $this->registerTranslations();
         $this->registerConfig();
         $this->registerViews();

@@ -66,28 +66,35 @@ class GuestList extends Component
         $this->showAddGuest = true;
     }
 
+    private function guestForTenant(int|string $id): ?Guest
+    {
+        return Guest::where('restaurant_id', restaurant()->id)->find($id);
+    }
+
     public function editGuest($id)
     {
         abort_unless(user_can('edit_guest'), 403);
         $this->resetForm();
         $this->editingGuestId = $id;
-        $guest = Guest::find($id);
-        
-        if ($guest) {
-            $this->first_name = $guest->first_name;
-            $this->last_name = $guest->last_name;
-            $this->email = $guest->email;
-            $this->phone = $guest->phone;
-            $this->id_type = $guest->id_type;
-            $this->id_number = $guest->id_number;
-            $this->address = $guest->address;
-            $this->city = $guest->city;
-            $this->country = $guest->country;
-            $this->notes = $guest->notes;
-            $this->preferencesInput = $guest->preferences ? implode(', ', $guest->preferences) : '';
-            
-            $this->showEditGuest = true;
+        $guest = $this->guestForTenant($id);
+
+        if (!$guest) {
+            abort(403);
         }
+
+        $this->first_name = $guest->first_name;
+        $this->last_name = $guest->last_name;
+        $this->email = $guest->email;
+        $this->phone = $guest->phone;
+        $this->id_type = $guest->id_type;
+        $this->id_number = $guest->id_number;
+        $this->address = $guest->address;
+        $this->city = $guest->city;
+        $this->country = $guest->country;
+        $this->notes = $guest->notes;
+        $this->preferencesInput = $guest->preferences ? implode(', ', $guest->preferences) : '';
+
+        $this->showEditGuest = true;
     }
 
     public function saveGuest()
@@ -114,7 +121,10 @@ class GuestList extends Component
         ];
 
         if ($this->editingGuestId) {
-            $guest = Guest::find($this->editingGuestId);
+            $guest = $this->guestForTenant($this->editingGuestId);
+            if (!$guest) {
+                abort(403);
+            }
             $guest->update($data);
             $message = 'Guest updated successfully';
         } else {
@@ -165,7 +175,7 @@ class GuestList extends Component
     {
         $id = $id ?? $this->pendingDeleteGuestId;
         abort_unless(user_can('delete_guest'), 403);
-        $guest = Guest::find($id);
+        $guest = Guest::where('restaurant_id', restaurant()->id)->find($id);
         if ($guest) {
             // Check if guest has active reservations
             if ($guest->reservations()->whereIn('status', ['confirmed', 'checked_in'])->count() > 0) {
@@ -180,6 +190,7 @@ class GuestList extends Component
     public function render()
     {
         $guests = Guest::with(['customer', 'reservations'])
+            ->where('restaurant_id', restaurant()->id)
             ->when($this->search, function ($query) {
                 $query->where(function ($q) {
                     $q->where('first_name', 'like', '%' . $this->search . '%')

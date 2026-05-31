@@ -52,7 +52,7 @@ class RoomList extends Component
             'room_number' => 'required|string|max:50',
             'floor' => 'nullable|string|max:50',
             'room_type_id' => 'required|exists:hotel_room_types,id',
-            'status' => 'required|in:available,occupied,cleaning,maintenance,blocked',
+            'status' => 'required|in:available,occupied,cleaning,maintenance,blocked,reserved',
         ];
     }
 
@@ -155,8 +155,10 @@ class RoomList extends Component
         $this->editingRoomId = null;
         $this->room_number = '';
         $this->floor = '';
+        $this->section = '';
         $this->room_type_id = '';
         $this->status = 'available';
+        $this->notes = '';
         $this->resetErrorBag();
     }
 
@@ -221,6 +223,22 @@ class RoomList extends Component
     public function updateRoomStatus($roomId, $newStatus)
     {
         abort_unless(user_can('edit_room'), 403);
+
+        $allowedStatuses = [
+            Room::STATUS_AVAILABLE,
+            Room::STATUS_OCCUPIED,
+            Room::STATUS_CLEANING,
+            Room::STATUS_MAINTENANCE,
+            Room::STATUS_RESERVED,
+            Room::STATUS_BLOCKED,
+        ];
+
+        if (!in_array($newStatus, $allowedStatuses, true)) {
+            $this->alert('error', 'Invalid room status.');
+
+            return;
+        }
+
         $room = Room::find($roomId);
         if ($room) {
             if ($room->status === 'occupied' && $newStatus !== 'occupied') {

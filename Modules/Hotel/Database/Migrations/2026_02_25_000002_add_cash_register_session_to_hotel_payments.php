@@ -26,9 +26,15 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (!Schema::hasColumn('hotel_payments', 'cash_register_session_id')) {
+            return;
+        }
+
         Schema::table('hotel_payments', function (Blueprint $table) {
-            if (Schema::hasTable('cash_register_sessions')) {
+            try {
                 $table->dropForeign(['cash_register_session_id']);
+            } catch (\Throwable) {
+                // FK may not exist if cash_register_sessions was absent when migrated up.
             }
             $table->dropColumn('cash_register_session_id');
         });

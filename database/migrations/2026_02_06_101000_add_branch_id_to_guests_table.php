@@ -15,8 +15,7 @@ return new class extends Migration
     {
         Schema::table('hotel_guests', function (Blueprint $table) {
             $table->unsignedBigInteger('branch_id')->nullable()->after('id');
-            // Assuming branches table exists, but we won't add constraint yet to avoid issues if table name differs
-            // Just adding index for performance
+            $table->foreign('branch_id')->references('id')->on('branches')->nullOnDelete();
             $table->index('branch_id');
         });
         
@@ -31,6 +30,7 @@ return new class extends Migration
     public function down()
     {
         Schema::table('hotel_guests', function (Blueprint $table) {
+            $table->dropForeign(['branch_id']);
             $table->dropColumn('branch_id');
         });
     }

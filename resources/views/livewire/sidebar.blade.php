@@ -241,7 +241,7 @@
                         @endif
 
                         @foreach ($customPlugins as $item)
-                            @if($businessMode !== 'restaurant_primary' && strtolower($item) === 'hotel')
+                            @if($businessMode === 'restaurant_primary' && strtolower($item) === 'hotel')
                                 @continue
                             @endif
                             @includeIf(strtolower($item) . '::sections.sidebar')

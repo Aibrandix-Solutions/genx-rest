@@ -125,6 +125,7 @@ class UnifiedFinanceReport extends Component
             ->sum('balance_due');
 
         $totalRevenue = $restaurantSales + $roomServiceSales + $roomNightRevenue + $hotelAddOns;
+        $totalCollected = $hotelPaymentsReceived + $restaurantPaymentsReceived - $hotelRefunds;
 
         return compact(
             'restaurantSales',
@@ -138,6 +139,7 @@ class UnifiedFinanceReport extends Component
             'hotelExpensesByDept',
             'hotelOutstanding',
             'totalRevenue',
+            'totalCollected',
         );
     }
 

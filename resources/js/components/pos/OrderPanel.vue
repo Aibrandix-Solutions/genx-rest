@@ -27,16 +27,21 @@
                     </button>
 
                     <template v-if="selectedOrderTypeSlug === 'room_service' && roomServiceEnabled">
-                        <div v-if="hotelReservationDisplay"
+                        <div v-if="hasRoomServiceSelection"
                             class="flex max-w-[11rem] items-center gap-2 rounded-full border border-gray-300 bg-gray-100 px-3 py-1.5 dark:border-gray-600 dark:bg-gray-700">
                             <div class="min-w-0 flex-1">
-                                <span class="block truncate text-xs font-semibold text-gray-700 dark:text-gray-300"
-                                    :title="'Room ' + hotelReservationDisplay.room_number">
-                                    Room {{ hotelReservationDisplay.room_number }}
-                                </span>
-                                <span class="block truncate text-[10px] text-gray-500 dark:text-gray-400"
-                                    :title="hotelReservationDisplay.guest_name">
-                                    {{ hotelReservationDisplay.guest_name }}
+                                <template v-if="hotelReservationDisplay">
+                                    <span class="block truncate text-xs font-semibold text-gray-700 dark:text-gray-300"
+                                        :title="'Room ' + hotelReservationDisplay.room_number">
+                                        Room {{ hotelReservationDisplay.room_number }}
+                                    </span>
+                                    <span class="block truncate text-[10px] text-gray-500 dark:text-gray-400"
+                                        :title="hotelReservationDisplay.guest_name">
+                                        {{ hotelReservationDisplay.guest_name }}
+                                    </span>
+                                </template>
+                                <span v-else class="block truncate text-xs font-semibold text-gray-700 dark:text-gray-300">
+                                    Room selected
                                 </span>
                             </div>
                             <button v-if="canChangeOrderType" type="button" @click="$emit('select-room-service')"
@@ -1866,11 +1871,15 @@ const hotelReservationDisplay = computed(() => {
     return null;
 });
 
+const hasRoomServiceSelection = computed(() => {
+    return Boolean(hotelReservationDisplay.value || props.hotelReservationId);
+});
+
 const showRoomServiceSelectPrompt = computed(() => {
     return (
         selectedOrderTypeSlug.value === "room_service" &&
         props.roomServiceEnabled &&
-        !hotelReservationDisplay.value &&
+        !hasRoomServiceSelection.value &&
         !props.isLinkedOrderMode
     );
 });

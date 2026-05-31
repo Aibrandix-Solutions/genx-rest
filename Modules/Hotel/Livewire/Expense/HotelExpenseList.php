@@ -113,8 +113,7 @@ class HotelExpenseList extends Component
         }
 
         $data = $this->validate();
-        $data['restaurant_id']      = restaurant()->id;
-        $data['created_by_user_id'] = auth()->id();
+        $data['restaurant_id'] = restaurant()->id;
 
         if ($this->editingId) {
             HotelExpense::where('restaurant_id', restaurant()->id)
@@ -122,7 +121,9 @@ class HotelExpenseList extends Component
                 ->update($data);
             $this->alert('success', 'Expense updated successfully.');
         } else {
-            HotelExpense::create($data);
+            HotelExpense::create(array_merge($data, [
+                'created_by_user_id' => auth()->id(),
+            ]));
             $this->alert('success', 'Expense added successfully.');
         }
 

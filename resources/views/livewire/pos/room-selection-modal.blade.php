@@ -14,11 +14,11 @@
                         class="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 w-full text-left">
                         <div>
                             <div class="font-bold text-gray-800 dark:text-gray-200">
-                                Room {{ $reservation->room->room_number }} 
-                                <span class="text-xs font-normal text-gray-500">({{ $reservation->room->roomType->name }})</span>
+                                Room {{ $reservation->room?->room_number ?? '--' }} 
+                                <span class="text-xs font-normal text-gray-500">({{ $reservation->room?->roomType?->name ?? '--' }})</span>
                             </div>
                             <div class="text-sm text-gray-600 dark:text-gray-400">
-                                Guest: {{ $reservation->guest->full_name ?? $reservation->guest->name ?? 'Guest' }}
+                                Guest: {{ $reservation->guest?->full_name ?? $reservation->guest?->name ?? 'Guest' }}
                             </div>
                         </div>
                         <div>
@@ -34,7 +34,7 @@
                 @endforelse
             </div>
             
-            @if(empty($roomServiceReservations))
+            @if(collect($roomServiceReservations)->isEmpty())
             <div class="mt-4 text-center">
                 <a href="{{ route('hotel.reservations') }}" class="text-blue-600 hover:underline">Create a Reservation</a>
             </div>

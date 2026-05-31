@@ -208,7 +208,7 @@
                     <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div>
                             <p class="font-medium text-gray-900 dark:text-gray-100">{{ $departure->guest->full_name }}</p>
-                            <p class="text-sm text-gray-500 dark:text-gray-400">Room {{ $departure->room->room_number }} - {{ $departure->room->roomType->name }}</p>
+                            <p class="text-sm text-gray-500 dark:text-gray-400">Room {{ $departure->room->room_number ?? 'TBA' }} - {{ $departure->room->roomType->name ?? '' }}</p>
                         </div>
                         <span class="text-sm font-medium text-purple-600 dark:text-purple-400">{{ $departure->checkout_time }}</span>
                     </div>

@@ -105,7 +105,7 @@ class PlanList extends Component
             $this->selectedCurrency = $currency->id;
         }
 
-        $this->modules = Module::pluck('name')->toArray();
+        $this->modules = Module::excludeDeprecated()->pluck('name')->toArray();
         $this->PackageFeatures = Package::ADDITIONAL_FEATURES;
 
         $this->AllModulesWithFeature = array_merge(

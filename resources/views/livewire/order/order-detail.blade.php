@@ -81,8 +81,8 @@
                                     @if($order->hotel_reservation_id && $order->hotelReservation)
                                         <div class="flex items-center gap-2">
                                             <div class="font-semibold text-gray-700 dark:text-gray-300">
-                                                @lang('hotel::modules.reservation.room') {{ $order->hotelReservation->room->room_number ?? '--' }}
-                                                <span class="text-sm font-normal text-gray-500">({{ $order->hotelReservation->guest->full_name ?? '--' }})</span>
+                                                @lang('hotel::modules.reservation.room') {{ $order->hotelReservation?->room?->room_number ?? '--' }}
+                                                <span class="text-sm font-normal text-gray-500">({{ $order->hotelReservation?->guest?->full_name ?? '--' }})</span>
                                             </div>
                                         </div>
                                     @elseif ($order->customer_id)

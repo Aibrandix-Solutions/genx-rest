@@ -9,7 +9,7 @@ class HotelController extends Controller
 {
     /**
      * Display hotel dashboard
-     * @return \Illuminate\View\View
+     * @return \Illuminate\Http\RedirectResponse
      */
     public function index()
     {
