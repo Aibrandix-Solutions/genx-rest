@@ -25,7 +25,9 @@ use App\Models\TableSession;
 use App\Models\Tax;
 use App\Models\User;
 use App\Services\Pos\BillSecondaryActionResolver;
+use App\Services\Pos\PosHotelSupport;
 use App\Services\RewardPointsService;
+use Modules\Hotel\Entities\Reservation as HotelReservation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -52,6 +54,8 @@ class PosVueOrderController extends Controller
                 'kot.items.menuItemVariation',
                 'table:id,table_code',
                 'waiter:id,name',
+                'hotelReservation.room.roomType',
+                'hotelReservation.guest',
             ])
             ->where('id', $id)
             ->where('branch_id', $branch->id)
@@ -322,11 +326,16 @@ class PosVueOrderController extends Controller
                     // "Table X" badge survives a reload of /pos/kot/{id}.
                     'table_id' => $order->table_id ? (int) $order->table_id : null,
                     'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
+                    'hotel_reservation_id' => $order->hotel_reservation_id ? (int) $order->hotel_reservation_id : null,
+                    'hotel_reservation' => PosHotelSupport::formatReservation($order->hotelReservation),
                     'customer_lat' => $order->customer_lat !== null ? (float) $order->customer_lat : null,
                     'customer_lng' => $order->customer_lng !== null ? (float) $order->customer_lng : null,
                     'note' => (string) ($order->note ?? ''),
                     'sub_total' => (float) ($order->sub_total ?? 0),
                     'total' => (float) ($order->total ?? 0),
+            'discount_type' => $order->discount_type ? (string) $order->discount_type : null,
+            'discount_value' => $order->discount_value !== null ? (float) $order->discount_value : 0.0,
+            'discount_amount' => (float) ($order->discount_amount ?? 0),
                     'reward_point_discount' => (float) ($order->reward_point_discount ?? 0),
                     'reward_points_redeemed' => (int) ($order->reward_points_redeemed ?? 0),
                     'reward_points_earned' => (int) ($order->reward_points_earned ?? 0),
@@ -392,6 +401,9 @@ class PosVueOrderController extends Controller
             'custom_extras' => ['nullable', 'array'],
             'custom_extras.*.amount' => ['nullable', 'numeric', 'min:0'],
             'custom_extras.*.note' => ['nullable', 'string'],
+            // Discount fields persisted on the order.
+            'discount_type' => ['nullable', 'string', Rule::in(['fixed', 'percent'])],
+            'discount_value' => ['nullable', 'numeric', 'min:0'],
             // Reward points redemption fields
             'reward_points_redeemed' => ['nullable', 'integer', 'min:0'],
             'reward_point_discount' => ['nullable', 'numeric', 'min:0'],
@@ -401,6 +413,7 @@ class PosVueOrderController extends Controller
             'append_kot' => ['nullable', 'boolean'],
             // Legacy saveOrder('kot', 'bill', 'payment'): KOT first, then bill + payment modal.
             'bill_after_kot' => ['nullable', 'boolean'],
+            'hotel_reservation_id' => ['nullable', 'integer'],
         ]);
 
         $editingOrderId = isset($validated['order_id']) ? (int) $validated['order_id'] : null;
@@ -471,8 +484,27 @@ class PosVueOrderController extends Controller
         $orderTypeValue = $orderType?->slug
             ?: ($orderType?->type ? strtolower((string) $orderType->type) : 'dine_in');
 
-        if (! in_array($orderTypeValue, ['dine_in', 'delivery', 'pickup'], true)) {
+        if (! in_array($orderTypeValue, ['dine_in', 'delivery', 'pickup', 'room_service'], true)) {
             $orderTypeValue = 'dine_in';
+        }
+
+        $hotelReservationId = isset($validated['hotel_reservation_id'])
+            ? (int) $validated['hotel_reservation_id']
+            : null;
+
+        if ($orderTypeValue === 'room_service') {
+            abort_if(! PosHotelSupport::isRoomServiceEnabled(), 422, 'Room service is not enabled.');
+            abort_if($hotelReservationId <= 0, 422, __('modules.order.selectRoom'));
+
+            $hotelReservation = HotelReservation::query()
+                ->where('id', $hotelReservationId)
+                ->where('restaurant_id', $restaurant->id)
+                ->where('status', HotelReservation::STATUS_CHECKED_IN)
+                ->first();
+
+            abort_if(! $hotelReservation, 422, __('modules.order.selectRoom'));
+        } else {
+            $hotelReservationId = null;
         }
 
         $deliveryAppId = null;
@@ -504,7 +536,7 @@ class PosVueOrderController extends Controller
         // valid table_ids on POS orders. Mirrors legacy Pos::setTable() which
         // drives Pos::saveOrder's `'table_id' => $this->tableId` write.
         $resolvedTableId = null;
-        if (array_key_exists('table_id', $validated) && $validated['table_id']) {
+        if ($orderTypeValue !== 'room_service' && array_key_exists('table_id', $validated) && $validated['table_id']) {
             $table = Table::query()
                 ->where('id', (int) $validated['table_id'])
                 ->where('branch_id', $branch->id)
@@ -514,7 +546,7 @@ class PosVueOrderController extends Controller
             $resolvedTableId = (int) $table->id;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -556,20 +588,21 @@ class PosVueOrderController extends Controller
                 $updatePayload = [
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
-                    'customer_id' => $validated['customer_id'] ?? null,
+                    'customer_id' => $orderTypeValue === 'room_service' ? null : ($validated['customer_id'] ?? null),
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,
                     'delivery_fee' => ($orderTypeValue === 'delivery') ? (float) ($validated['delivery_fee'] ?? 0) : 0,
                     // Legacy parity (Pos.php::saveOrder line 2913):
                     //   'table_id' => $this->tableId ?? $order->table_id
                     // — preserve the existing link if the UI didn't send a new one.
-                    'table_id' => $resolvedTableId ?? $order->table_id,
+                    'table_id' => $orderTypeValue === 'room_service' ? null : ($resolvedTableId ?? $order->table_id),
                     'order_type' => $orderTypeValue,
                     'order_type_id' => $orderType?->id,
                     'custom_order_type_name' => $orderType?->order_type_name,
                     'order_status' => 'confirmed',
                     'placed_via' => 'pos',
                     'tax_mode' => $restaurant->tax_mode ?? 'item',
+                    'hotel_reservation_id' => $hotelReservationId,
                 ];
 
                 if (! $appendKot) {
@@ -593,7 +626,7 @@ class PosVueOrderController extends Controller
                     'formatted_order_number' => $numberData['formatted_order_number'],
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
-                    'customer_id' => $validated['customer_id'] ?? null,
+                    'customer_id' => $orderTypeValue === 'room_service' ? null : ($validated['customer_id'] ?? null),
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,
                     'delivery_fee' => ($orderTypeValue === 'delivery') ? (float) ($validated['delivery_fee'] ?? 0) : 0,
@@ -601,7 +634,7 @@ class PosVueOrderController extends Controller
                     //   'table_id' => $this->tableId
                     // OrderObserver::created auto-locks the table via lockForOrder
                     // once this is set, matching legacy table-lock-on-order flow.
-                    'table_id' => $resolvedTableId,
+                    'table_id' => $orderTypeValue === 'room_service' ? null : $resolvedTableId,
                     'sub_total' => 0,
                     'total' => 0,
                     'reward_point_discount' => null,
@@ -613,6 +646,7 @@ class PosVueOrderController extends Controller
                     'order_status' => 'confirmed',
                     'placed_via' => 'pos',
                     'tax_mode' => $restaurant->tax_mode ?? 'item',
+                    'hotel_reservation_id' => $hotelReservationId,
                 ]);
             }
 
@@ -869,7 +903,18 @@ class PosVueOrderController extends Controller
                 : 0.0;
 
             $order->refresh();
-            $discountAmount = (float) ($order->discount_amount ?? 0);
+            $discountType = isset($validated['discount_type']) ? (string) $validated['discount_type'] : null;
+            $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
+            if ($discountType === null || $discountValue <= 0) {
+                $discountType = null;
+                $discountValue = 0.0;
+                $discountAmount = 0.0;
+            } elseif ($discountType === 'percent') {
+                $discountValue = min($discountValue, 100.0);
+                $discountAmount = round(($subtotal * $discountValue) / 100, 2);
+            } else {
+                $discountAmount = min(round($discountValue, 2), round($subtotal, 2));
+            }
 
             $rewardPointDiscount = 0.0;
             $rewardPointsRedeemed = 0;
@@ -923,6 +968,9 @@ class PosVueOrderController extends Controller
                 'sub_total' => round($subtotal, 2),
                 'total' => $total,
                 'total_tax_amount' => round($totalTax, 2),
+                'discount_type' => $discountType,
+                'discount_value' => $discountType ? round($discountValue, 2) : null,
+                'discount_amount' => $discountAmount > 0 ? $discountAmount : null,
                 'reward_point_discount' => $rewardPointDiscount > 0 ? $rewardPointDiscount : null,
                 'reward_points_redeemed' => $rewardPointsRedeemed > 0 ? $rewardPointsRedeemed : null,
             ]);

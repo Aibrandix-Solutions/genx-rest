@@ -2,6 +2,7 @@
 
 return array(
     'dashboard' => 'Dashboard',
+    'hotelDashboard' => 'Hotel Dashboard',
     'menu' => 'Menu',
     'menus' => 'Menus',
     'menuItem' => 'Menu Items',

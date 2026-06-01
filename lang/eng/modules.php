@@ -255,6 +255,7 @@ return [
         'preview' => 'Preview',
         'previewHelp' => 'This is a live preview of how your next order ID will be generated.',
         'select' => 'Select',
+        'selectRoom' => 'Select Room',
         'selectOrderType' => 'Select Order Type',
         'selectOrderTypeDescription' => 'Choose your order type to proceed',
         'selectDeliveryPlatform' => 'Select Delivery Platform',

@@ -21,6 +21,7 @@ use App\Models\RestaurantCharge;
 use App\Models\Table;
 use App\Models\User;
 use App\Scopes\BranchScope;
+use App\Services\Pos\PosHotelSupport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -44,13 +45,29 @@ class PosSupportController extends Controller
 
     public function orderTypes()
     {
+        $types = OrderType::query()
+            ->where('is_active', true)
+            ->select('id', 'order_type_name', 'slug')
+            ->orderBy('order_type_name')
+            ->get();
+
         return response()->json(
-            OrderType::query()
-                ->where('is_active', true)
-                ->select('id', 'order_type_name', 'slug')
-                ->orderBy('order_type_name')
-                ->get()
+            collect(PosHotelSupport::filterOrderTypesForPos($types))->map(fn ($type) => [
+                'id' => (int) $type->id,
+                'order_type_name' => (string) $type->order_type_name,
+                'slug' => (string) $type->slug,
+            ])->values()
         );
+    }
+
+    public function hotelInHouseReservations()
+    {
+        abort_if(! PosHotelSupport::isRoomServiceEnabled(), 403);
+
+        return response()->json([
+            'success' => true,
+            'data' => PosHotelSupport::checkedInReservationsForPos()->values(),
+        ]);
     }
 
     /**
@@ -859,6 +876,97 @@ class PosSupportController extends Controller
             'data' => [
                 'order_id' => (int) $order->id,
                 'delivery_fee' => (float) ($order->delivery_fee ?? 0),
+                'sub_total' => (float) ($order->sub_total ?? 0),
+                'total' => (float) ($order->total ?? 0),
+            ],
+        ]);
+    }
+
+    public function updateOrderDiscount(Request $request, int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'discount_type' => ['required', 'string', Rule::in(['fixed', 'percent'])],
+            'discount_value' => ['required', 'numeric', 'min:0'],
+        ]);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        DB::transaction(function () use ($order, $validated) {
+            $itemsSubTotalForDiscount = (float) $order->items()->sum('amount');
+            $discountType = (string) $validated['discount_type'];
+            $discountValue = (float) $validated['discount_value'];
+
+            if ($discountType === 'percent') {
+                $discountValue = min(max($discountValue, 0), 100);
+                $discountAmount = round(($itemsSubTotalForDiscount * $discountValue) / 100, 2);
+            } else {
+                $discountAmount = min(round($discountValue, 2), round($itemsSubTotalForDiscount, 2));
+            }
+
+            $order->update([
+                'discount_type' => $discountType,
+                'discount_value' => round($discountValue, 2),
+                'discount_amount' => $discountAmount > 0 ? $discountAmount : null,
+            ]);
+
+            $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+        });
+
+        $order->refresh();
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.updateSuccess'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'discount_type' => $order->discount_type ? (string) $order->discount_type : null,
+                'discount_value' => $order->discount_value !== null ? (float) $order->discount_value : 0.0,
+                'discount_amount' => (float) ($order->discount_amount ?? 0),
+                'sub_total' => (float) ($order->sub_total ?? 0),
+                'total' => (float) ($order->total ?? 0),
+            ],
+        ]);
+    }
+
+    public function removeOrderDiscount(int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('Update Order'), 403);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        DB::transaction(function () use ($order) {
+            $order->update([
+                'discount_type' => null,
+                'discount_value' => null,
+                'discount_amount' => null,
+            ]);
+            $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+        });
+
+        $order->refresh();
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.updateSuccess'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'discount_type' => null,
+                'discount_value' => 0.0,
+                'discount_amount' => 0.0,
                 'sub_total' => (float) ($order->sub_total ?? 0),
                 'total' => (float) ($order->total ?? 0),
             ],
