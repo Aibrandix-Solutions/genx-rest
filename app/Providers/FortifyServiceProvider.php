@@ -57,8 +57,11 @@ class FortifyServiceProvider extends ServiceProvider
                     return redirect(url(RouteServiceProvider::SUPERADMIN_HOME));
                 }
 
-                return redirect(session()->has('url.intended') ? session()->get('url.intended') :
-url(RouteServiceProvider::HOME));
+                $fallback = (function_exists('hotel_business_mode') && hotel_business_mode() === 'hotel_primary')
+                    ? url('/hotel')
+                    : url(RouteServiceProvider::HOME);
+
+                return redirect()->intended($fallback);
             }
         });
     }

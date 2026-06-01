@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
 use App\Livewire\Customer\AddCustomer;
 use App\Livewire\Order\OrderDetail;
+use App\Services\Pos\PosHotelSupport;
 use Illuminate\Support\Facades\DB;
 
 class AddPayment extends Component
@@ -46,6 +47,13 @@ class AddPayment extends Component
     public $showTipModal = false;
     public $canAddTip;
     public $predefinedAmounts = [];
+
+    // Hotel room charge (folio) payment
+    public $showRoomCharge = false;
+
+    public $roomChargeReservationId = null;
+
+    public $inHouseReservations = [];
 
     /** When split bill "due" is chosen without a customer, we re-apply due to this split after attach. */
     public ?int $pendingDueSplitIdForCustomerModal = null;
@@ -98,6 +106,23 @@ class AddPayment extends Component
         $this->refreshAvailableItems();
 
         $this->initializeSplits();
+
+        $this->showRoomCharge = PosHotelSupport::showRoomChargePayment();
+        $this->inHouseReservations = [];
+        $this->roomChargeReservationId = null;
+
+        if ($this->showRoomCharge) {
+            $this->roomChargeReservationId = $this->order->hotel_reservation_id;
+            if ($this->order->hotel_reservation_id) {
+                $this->paymentMethod = 'room_charge';
+            }
+            $this->loadInHouseReservations();
+        }
+    }
+
+    public function loadInHouseReservations(): void
+    {
+        $this->inHouseReservations = PosHotelSupport::checkedInReservationsForPos()->values()->all();
     }
 
     private function refreshAvailableItems()
@@ -304,6 +329,11 @@ class AddPayment extends Component
         }
 
         $this->paymentMethod = $method;
+
+        if ($method === 'room_charge' && $this->showRoomCharge) {
+            $this->loadInHouseReservations();
+        }
+
         $this->updatedPaymentAmount();
     }
 
@@ -587,12 +617,30 @@ class AddPayment extends Component
                 $this->processSplitPayment();
             } else {
                 if ($this->paymentAmount >= 0) {
+                    if ($this->paymentMethod === 'room_charge' && $this->showRoomCharge) {
+                        if (! $this->roomChargeReservationId) {
+                            DB::rollBack();
+                            $this->alert('error', __('modules.order.selectRoom'), [
+                                'toast' => true,
+                                'position' => 'top-end',
+                            ]);
+
+                            return;
+                        }
+
+                        $this->order->update([
+                            'hotel_reservation_id' => (int) $this->roomChargeReservationId,
+                        ]);
+                    }
+
+                    $storedPaymentMethod = $this->paymentMethod === 'room_charge' ? 'due' : $this->paymentMethod;
+
                     Payment::create([
                         'order_id' => $this->order->id,
-                        'payment_method' => $this->paymentMethod,
+                        'payment_method' => $storedPaymentMethod,
                         'amount' => $this->paymentAmount - $this->returnAmount,
                         'balance' => $this->returnAmount,
-                        'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod),
+                        'payment_account_id' => $this->getDefaultPaymentAccountId($storedPaymentMethod),
                     ]);
                 }
             }

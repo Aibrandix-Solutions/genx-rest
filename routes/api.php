@@ -79,6 +79,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::get('/pos/bootstrap', [PosBootstrapController::class, 'bootstrap']);
     Route::get('/pos/get-order-number', [PosSupportController::class, 'getOrderNumber']);
     Route::get('/pos/order-types', [PosSupportController::class, 'orderTypes']);
+    Route::get('/pos/hotel/in-house-reservations', [PosSupportController::class, 'hotelInHouseReservations']);
     Route::get('/pos/combo-packs/{id}/preview', [PosSupportController::class, 'previewComboPack']);
     Route::get('/pos/delivery-platforms', [PosSupportController::class, 'deliveryPlatforms']);
     Route::get('/pos/waiters', [PosSupportController::class, 'waiters']);
@@ -103,7 +104,9 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/orders/{id}/table', [PosSupportController::class, 'updateOrderTable']);
     Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
     Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
+    Route::post('/pos/orders/{id}/discount', [PosSupportController::class, 'updateOrderDiscount']);
     Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
+    Route::delete('/pos/orders/{id}/discount', [PosSupportController::class, 'removeOrderDiscount']);
     Route::delete('/pos/orders/{id}', [PosSupportController::class, 'deleteOrder']);
     Route::delete('/pos/orders/{orderId}/kot-items/{kotItemId}', [PosSupportController::class, 'removeKotItem']);
     Route::patch('/pos/orders/{orderId}/kot-items/{kotItemId}/quantity', [PosSupportController::class, 'reduceKotItem']);

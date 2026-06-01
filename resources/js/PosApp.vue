@@ -34,6 +34,7 @@
             <MenuPanel class="w-full lg:basis-[70%] lg:max-w-[70%] min-w-0" :search="search" :menu-id="menuId"
                 :filter-categories="filterCategories" :menus="menus" :categories="categories" :items="contextualMenuItems"
                 :combo-packs="comboPacks" :hide-menu-item-image-on-pos="hideMenuItemImageOnPos"
+                :menu-adds-blocked="isLinkedOrderMode"
                 :currency-symbol="currencySymbol" :contextual-price-resolver="resolveContextualPrice"
                 @update:search="search = $event"
                 @update:menuId="menuId = $event"
@@ -98,6 +99,11 @@
                 @update-custom-extra="handleUpdateCustomExtra"
                 @apply-reward-redemption="handleApplyRewardRedemption"
                 @remove-reward-redemption="handleRemoveRewardRedemption"
+                :room-service-enabled="roomServiceEnabled"
+                :hotel-reservation-id="hotelReservationId"
+                :hotel-reservation="hotelReservation"
+                @select-room-service="handleSelectRoomService"
+                @clear-room-service="handleClearRoomService"
                 :order="order" />
         </div>
 
@@ -115,6 +121,10 @@
 
         <CancelOrderModal :show="showCancelOrderModal" :reasons="cancelReasons" @close="showCancelOrderModal = false"
             @save="handleSaveCancelOrder" />
+
+        <RoomServiceSelectorModal :show="showRoomServiceModal" :reservations="roomServiceReservations"
+            :selected-id="hotelReservationId" @close="showRoomServiceModal = false" @select="handleRoomServiceSelected"
+            @update:reservations="roomServiceReservations = $event" />
     </div>
 </template>
 
@@ -128,8 +138,10 @@ import TableChangeModal from "./components/pos/TableChangeModal.vue";
 import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import CancelOrderModal from "./components/pos/CancelOrderModal.vue";
+import RoomServiceSelectorModal from "./components/pos/RoomServiceSelectorModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
+import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
 
 // Generate unique tab ID to avoid concurrent increment collisions
 const tabId = ref('tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
@@ -279,6 +291,14 @@ const currencySymbol = ref(
 );
 const kotModuleEnabled = ref(true); // Gated by KOT module subscription
 const modifierOptions = ref({}); // Flat map: { [optionId]: { name, price } }
+const hotelCapabilities = ref(null);
+const hotelReservationId = ref(null);
+const hotelReservation = ref(null);
+const showRoomServiceModal = ref(false);
+const roomServiceReservations = ref([]);
+const roomServiceEnabled = computed(
+    () => !!hotelCapabilities.value?.room_service_enabled
+);
 
 // Order data
 const orderType = ref("Dine In");
@@ -443,6 +463,9 @@ const nextComboInstanceIndex = (packId) => {
 };
 
 const handleAddComboToCart = async (comboPackId) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
     const pid = Number(comboPackId);
     if (!pid) {
         return;
@@ -548,6 +571,10 @@ const handleAddToCart = async (
     modifierId = 0,
     modifierOptionQuantities = {}
 ) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
+
     const normalizedItemId = Number(itemId);
     const normalizedVariantId = Number(variantId || 0);
     const normalizedModifierId = Number(modifierId || 0);
@@ -775,7 +802,51 @@ const normalizeOrderTypeSlug = (value) => {
         return "delivery";
     }
 
-    return "dine_in";
+    if (normalized === "room_service" || normalized === "room service") {
+        return "room_service";
+    }
+
+    return normalized || "dine_in";
+};
+
+const slugToDisplayOrderType = (slug) => {
+    const normalized = normalizeOrderTypeSlug(slug);
+    if (normalized === "dine_in") return "Dine In";
+    if (normalized === "pickup") return "Pickup";
+    if (normalized === "delivery") return "Delivery";
+    if (normalized === "room_service") return "Room Service";
+    return String(slug || "Dine In");
+};
+
+const handleSelectRoomService = () => {
+    if (!roomServiceEnabled.value) {
+        return;
+    }
+    showRoomServiceModal.value = true;
+};
+
+const handleRoomServiceSelected = (reservation) => {
+    if (!reservation?.id) {
+        return;
+    }
+    hotelReservationId.value = Number(reservation.id);
+    hotelReservation.value = {
+        id: Number(reservation.id),
+        room_number: reservation.room_number || "",
+        guest_name: reservation.guest_name || "",
+        label: reservation.label || "",
+        room_type_name: reservation.room_type_name || null,
+    };
+    customerId.value = null;
+    customer.value = getEmptyCustomer();
+    customerPhone.value = "";
+    deliveryAddress.value = "";
+    resetRewardState();
+};
+
+const handleClearRoomService = () => {
+    hotelReservationId.value = null;
+    hotelReservation.value = null;
 };
 
 const resolveOrderType = (value) => {
@@ -1068,6 +1139,10 @@ const handleSaveNote = (note) => {
 };
 
 const handleIncreaseQuantity = (itemId) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
+
     const item = findCartLine(itemId);
     if (item && item.combo_pack_id) {
         return;
@@ -1099,6 +1174,10 @@ const handleDecreaseQuantity = (itemId) => {
 };
 
 const handleUpdateQuantity = (quantityData) => {
+    if (blockLinkedOrderItemAdds(isLinkedOrderMode.value)) {
+        return;
+    }
+
     const item = findCartLine(
         quantityData.line_key || quantityData.id,
         quantityData.variant_id,
@@ -1250,9 +1329,44 @@ const handleReduceKotItem = async ({ kotItemId, newQuantity, reason }) => {
 };
 
 const handleApplyDiscount = (discountData) => {
+    const previousType = discountType.value;
+    const previousValue = discountValue.value;
+    const previousAmount = discountAmount.value;
+
     discountType.value = discountData.type;
     discountValue.value = discountData.value;
     calculateDiscountAmount();
+
+    const activeOrderId = orderId.value;
+    if (activeOrderId) {
+        axios
+            .post(`/api/pos/orders/${activeOrderId}/discount`, {
+                discount_type: discountType.value,
+                discount_value: Number(discountValue.value || 0),
+            })
+            .then((response) => {
+                const persisted = response.data?.data || {};
+                discountType.value = persisted.discount_type
+                    ? String(persisted.discount_type)
+                    : discountType.value;
+                discountValue.value = persisted.discount_value !== undefined
+                    ? Number(persisted.discount_value || 0)
+                    : discountValue.value;
+                discountAmount.value = persisted.discount_amount !== undefined
+                    ? Number(persisted.discount_amount || 0)
+                    : discountAmount.value;
+                showPosAlert("success", response.data?.message || "Discount applied successfully");
+            })
+            .catch((error) => {
+                discountType.value = previousType;
+                discountValue.value = previousValue;
+                discountAmount.value = previousAmount;
+                const message = error.response?.data?.message
+                    || error.response?.data?.errors?.discount_value?.[0]
+                    || "Failed to update discount";
+                showPosAlert("error", message);
+            });
+    }
 };
 
 const calculateDiscountAmount = () => {
@@ -1330,9 +1444,30 @@ watch(
 );
 
 const handleRemoveDiscount = () => {
+    const previousType = discountType.value;
+    const previousValue = discountValue.value;
+    const previousAmount = discountAmount.value;
+
     discountAmount.value = 0;
     discountType.value = "";
     discountValue.value = 0;
+
+    const activeOrderId = orderId.value;
+    if (activeOrderId) {
+        axios
+            .delete(`/api/pos/orders/${activeOrderId}/discount`)
+            .then((response) => {
+                showPosAlert("success", response.data?.message || "Discount removed successfully");
+            })
+            .catch((error) => {
+                discountType.value = previousType;
+                discountValue.value = previousValue;
+                discountAmount.value = previousAmount;
+                const message = error.response?.data?.message
+                    || "Failed to remove discount";
+                showPosAlert("error", message);
+            });
+    }
 };
 
 // Reward Points handlers
@@ -1758,6 +1893,8 @@ const clearCartAfterSave = () => {
     customerLng.value = null;
     currentTable.value = "";
     currentTableId.value = null;
+    hotelReservationId.value = null;
+    hotelReservation.value = null;
     calculateTaxes();
     resetRewardState();
 };
@@ -1804,6 +1941,23 @@ const handleSaveOrder = async (...actions) => {
                 : null;
         const openPayment = secondaryAction === "payment";
         const selectedOrderType = resolveOrderType(orderType.value);
+        const selectedSlug = normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value);
+
+        if (selectedSlug === "room_service") {
+            if (!roomServiceEnabled.value) {
+                kotPrintPlaceholder?.close();
+                showPosAlert("error", "Room service is not available.");
+                savingAction.value = null;
+                return;
+            }
+            if (!hotelReservationId.value) {
+                kotPrintPlaceholder?.close();
+                showPosAlert("error", "Please select a room for room service.");
+                showRoomServiceModal.value = true;
+                savingAction.value = null;
+                return;
+            }
+        }
 
         console.log("[POS DEBUG] saveOrder start", {
             actionList,
@@ -1894,10 +2048,22 @@ const handleSaveOrder = async (...actions) => {
                     note: String(row?.note || ""),
                 }))
                 : [],
+            discount_type:
+                discountType.value && Number(discountValue.value) > 0
+                    ? String(discountType.value)
+                    : null,
+            discount_value:
+                discountType.value && Number(discountValue.value) > 0
+                    ? Number(discountValue.value)
+                    : null,
             // Reward points redemption — sent to server for persistence;
             // actual balance deduction happens at billing time in PosVueOrderController::store.
             reward_points_redeemed: rewardPointsRedeemed.value > 0 ? rewardPointsRedeemed.value : null,
             reward_point_discount: rewardPointDiscount.value > 0 ? rewardPointDiscount.value : null,
+            hotel_reservation_id:
+                selectedSlug === "room_service" && hotelReservationId.value
+                    ? Number(hotelReservationId.value)
+                    : null,
         };
 
         console.log("Order data being sent:", {
@@ -1984,7 +2150,9 @@ const handleSaveOrder = async (...actions) => {
 
                 // Keep linked footer state in sync immediately after billing.
                 if (actionList.includes("bill")) {
-                    orderLifecycleStatus.value = "billed";
+                    orderLifecycleStatus.value = resultPayload?.status
+                        ? String(resultPayload.status).toLowerCase()
+                        : "billed";
                     showOrderDetailMode.value = true;
                     mode.value = "kot";
                 }
@@ -2656,6 +2824,13 @@ const loadMenuData = () => {
             console.log("Loaded order types:", orderTypes.value);
         }
 
+        if (bootstrap.hotel && typeof bootstrap.hotel === "object") {
+            hotelCapabilities.value = bootstrap.hotel;
+            if (Array.isArray(bootstrap.hotel.checked_in_reservations)) {
+                roomServiceReservations.value = bootstrap.hotel.checked_in_reservations;
+            }
+        }
+
         if (bootstrap.current_user) {
             currentUser.value = bootstrap.current_user;
             canEditWaiter.value = !!bootstrap.current_user.can_update_order;
@@ -2673,12 +2848,7 @@ const loadMenuData = () => {
                 );
 
                 if (preferredType) {
-                    orderType.value =
-                        preferredType.slug === "dine_in"
-                            ? "Dine In"
-                            : preferredType.slug === "pickup"
-                                ? "Pickup"
-                                : "Delivery";
+                    orderType.value = slugToDisplayOrderType(preferredType.slug);
                 }
             }
             const activeOrderType = orderTypes.value.find(
@@ -2740,6 +2910,77 @@ const loadOrderData = async (targetOrderId = null) => {
     }
 };
 
+const resolveLivewireEventOrderId = (payload) => {
+    if (payload == null) {
+        return null;
+    }
+
+    if (typeof payload === "number" || typeof payload === "string") {
+        return payload;
+    }
+
+    if (typeof payload === "object") {
+        if (payload.id != null) {
+            return payload.id;
+        }
+        if (payload.orderId != null) {
+            return payload.orderId;
+        }
+        if (Array.isArray(payload) && payload.length > 0) {
+            return resolveLivewireEventOrderId(payload[0]);
+        }
+    }
+
+    return null;
+};
+
+let linkedOrderRefreshTimer = null;
+let posLivewireListenersRegistered = false;
+
+const scheduleLinkedOrderRefresh = (targetId = null) => {
+    const id = targetId ?? orderId.value;
+    if (!id || !isLinkedOrderMode.value) {
+        return;
+    }
+
+    if (linkedOrderRefreshTimer) {
+        clearTimeout(linkedOrderRefreshTimer);
+    }
+
+    linkedOrderRefreshTimer = setTimeout(() => {
+        linkedOrderRefreshTimer = null;
+        loadOrderData(id);
+    }, 150);
+};
+
+const handleShowOrderDetailSync = (payload) => {
+    const detailId = resolveLivewireEventOrderId(payload);
+    if (!detailId || !orderId.value) {
+        return;
+    }
+
+    if (String(detailId) !== String(orderId.value)) {
+        return;
+    }
+
+    scheduleLinkedOrderRefresh(detailId);
+};
+
+const handleRefreshOrdersSync = () => {
+    scheduleLinkedOrderRefresh();
+};
+
+const registerPosLivewireOrderSync = () => {
+    const livewire = typeof window !== "undefined" ? window.Livewire : null;
+    if (!livewire || typeof livewire.on !== "function" || posLivewireListenersRegistered) {
+        return;
+    }
+
+    livewire.on("showOrderDetail", handleShowOrderDetailSync);
+    livewire.on("refreshOrders", handleRefreshOrdersSync);
+    posLivewireListenersRegistered = true;
+};
+
 const applyOrderPayload = (payload, activeOrderId) => {
     if (!payload) {
         return;
@@ -2758,6 +2999,11 @@ const applyOrderPayload = (payload, activeOrderId) => {
         can_delete_kot_item: !!payload.permissions?.can_delete_kot_item,
         can_redeem_reward_points: payload.permissions?.can_redeem_reward_points !== false,
     };
+
+    // Restore discount state from server order data
+    discountType.value = payload.discount_type ? String(payload.discount_type) : "";
+    discountValue.value = Number(payload.discount_value || 0);
+    discountAmount.value = Number(payload.discount_amount || 0);
 
     // Restore reward state from server order data
     rewardPointDiscount.value = Number(payload.reward_point_discount || 0);
@@ -2800,23 +3046,15 @@ const applyOrderPayload = (payload, activeOrderId) => {
 
     if (selectedType) {
         orderTypeId.value = selectedType.id;
-        orderType.value =
-            selectedType.slug === "dine_in"
-                ? "Dine In"
-                : selectedType.slug === "pickup"
-                    ? "Pickup"
-                    : "Delivery";
+        orderType.value = slugToDisplayOrderType(selectedType.slug);
     } else if (payload.order_type) {
-        const fallbackType = String(payload.order_type || "").toLowerCase();
-        orderType.value =
-            fallbackType === "dine_in"
-                ? "Dine In"
-                : fallbackType === "pickup"
-                    ? "Pickup"
-                    : fallbackType === "delivery"
-                        ? "Delivery"
-                        : orderType.value;
+        orderType.value = slugToDisplayOrderType(payload.order_type);
     }
+
+    hotelReservationId.value = payload.hotel_reservation_id
+        ? Number(payload.hotel_reservation_id)
+        : null;
+    hotelReservation.value = payload.hotel_reservation || null;
 
     selectedDeliveryApp.value = payload.delivery_app_id
         ? String(payload.delivery_app_id)
@@ -3055,6 +3293,13 @@ onMounted(async () => {
 
     // Sync reward points state after initial load
     syncRewardState();
+
+    // Livewire drawer (AddPayment / OrderDetail) updates after pay; rehydrate Vue footer badge.
+    if (typeof window !== "undefined" && window.Livewire?.on) {
+        registerPosLivewireOrderSync();
+    } else if (typeof document !== "undefined") {
+        document.addEventListener("livewire:init", registerPosLivewireOrderSync, { once: true });
+    }
 });
 
 // Reload menu data when coming back online
