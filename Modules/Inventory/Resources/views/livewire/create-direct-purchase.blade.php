@@ -456,7 +456,7 @@
             </div>
 
             <div class="flex items-center justify-end gap-2">
-                <x-button type="submit" wire:loading.attr="disabled">Save Purchase</x-button>
+                <x-button type="submit" wire:loading.attr="disabled" wire:target="savePurchase" :disabled="$isSaving">Save Purchase</x-button>
             </div>
         </form>
     </div>
