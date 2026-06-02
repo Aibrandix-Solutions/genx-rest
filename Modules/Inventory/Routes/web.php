@@ -35,6 +35,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::get('consumption', [InventoryStockController::class, 'consumption'])->name('inventory.consumption.index');
     Route::get('consumption/report', [InventoryStockController::class, 'consumptionReport'])->name('inventory.consumption.report');
     Route::get('consumption/report/print', [InventoryStockController::class, 'consumptionReportPrint'])->name('inventory.consumption.report.print');
+    Route::get('disposal', [InventoryStockController::class, 'disposal'])->name('inventory.disposal.index');
     Route::get('inventory-movements/export', [InventoryMovementController::class, 'export'])->name('inventory-movements.export');
     Route::resource('inventory-movements', InventoryMovementController::class);
     Route::resource('recipes', InventoryRecipeController::class);
