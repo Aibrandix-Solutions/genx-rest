@@ -15,6 +15,7 @@ use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -307,15 +308,28 @@ class SupplierDetails extends Component
         $this->paymentAmount = number_format(max(0, (float) $this->supplier->balance), 2, '.', '');
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentMethod = 'cash';
-        $this->paymentAccount = null;
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentNote = '';
         $this->paymentDocument = null;
         $this->showPaymentModal = true;
     }
 
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
+    }
+
     public function savePayment()
     {
         $this->validate();
+
+        $paymentAccount = $this->paymentAccount
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
 
         $path = null;
         if ($this->paymentDocument) {
@@ -334,7 +348,7 @@ class SupplierDetails extends Component
             ->filter(fn ($po) => $po->due_amount > 0);
 
         try {
-            $createdPayments = DB::transaction(function () use (&$remaining, $duePurchases, $path) {
+            $createdPayments = DB::transaction(function () use (&$remaining, $duePurchases, $path, $paymentAccount) {
                 $payments = [];
 
                 foreach ($duePurchases as $po) {
@@ -350,7 +364,7 @@ class SupplierDetails extends Component
                     $payments[] = SupplierPayment::create([
                         'supplier_id' => $this->supplier->id,
                         'purchase_order_id' => $po->id,
-                        'payment_account_id' => $this->paymentAccount,
+                        'payment_account_id' => $paymentAccount,
                         'amount' => $allocate,
                         'paid_on' => $this->paymentDate,
                         'payment_method' => $this->paymentMethod,
@@ -367,7 +381,7 @@ class SupplierDetails extends Component
                     $payments[] = SupplierPayment::create([
                         'supplier_id' => $this->supplier->id,
                         'purchase_order_id' => null,
-                        'payment_account_id' => $this->paymentAccount,
+                        'payment_account_id' => $paymentAccount,
                         'amount' => $remaining,
                         'paid_on' => $this->paymentDate,
                         'payment_method' => $this->paymentMethod,
@@ -386,8 +400,8 @@ class SupplierDetails extends Component
         }
 
         // Update Payment Account Balance once for the full amount and log a single transaction
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
+        if ($paymentAccount) {
+            $account = PaymentAccount::find($paymentAccount);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 

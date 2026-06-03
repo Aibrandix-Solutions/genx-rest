@@ -225,12 +225,8 @@ class EditDirectPurchase extends Component
 
     public function updatedPaymentMethod($value)
     {
-        // Auto-select default payment account for this payment method
-        if ($value && !$this->paymentAccountId) {
-            $defaultAccount = BranchPaymentAccountSetting::getDefaultAccount(branch()->id, $value);
-            if ($defaultAccount) {
-                $this->paymentAccountId = $defaultAccount->id;
-            }
+        if ($value) {
+            $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
         }
     }
 
@@ -827,7 +823,8 @@ class EditDirectPurchase extends Component
             // Record payment if requested
             if ($this->recordPayment && $this->paymentAmount && $this->paymentAmount > 0) {
                 $paidOn = $this->paymentDate ?: now();
-                $paymentAccountId = $this->paymentAccountId ?: null;
+                $paymentAccountId = $this->paymentAccountId
+                    ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
 
                 if ($this->editingPaymentId) {
                     $payment = SupplierPayment::where('purchase_order_id', $this->purchase->id)
