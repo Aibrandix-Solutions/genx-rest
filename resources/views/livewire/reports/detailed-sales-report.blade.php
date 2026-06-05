@@ -159,6 +159,9 @@
                  <th class="p-4 text-xs font-medium tracking-wider text-center text-gray-600 uppercase dark:text-gray-300">
                 @lang('modules.order.paymentMethod')
                 </th>
+                <th class="p-4 text-xs font-medium tracking-wider text-center text-gray-600 uppercase dark:text-gray-300">
+                @lang('app.action')
+                </th>
             </tr>
             <tr>
                 <th></th>
@@ -177,6 +180,7 @@
                 <!-- Tax Subheader -->
                  <th class="bg-red-50 dark:bg-red-900/20"></th>
 
+                <th></th>
                 <th></th>
                 <th></th>
                 <th></th>
@@ -210,9 +214,7 @@
             @endphp
             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                 <td class="p-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                <a href="javascript:;" wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })" class="text-blue-600 hover:underline">
                     {{ $order->order_number }}
-                </a>
                 </td>
                 <td class="p-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">
                 {{ $order->date_time->format('M d, Y h:i A') }}
@@ -257,10 +259,24 @@
                         <span class="text-red-500">@lang('modules.order.due')</span>
                     @endif
                 </td>
+                <td class="p-4 text-center">
+                    <button
+                        type="button"
+                        wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })"
+                        title="{{ __('app.view') }}"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 rounded-lg transition"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                        @lang('app.view')
+                    </button>
+                </td>
             </tr>
             @empty
             <tr>
-                <td colspan="{{ 10 + count($charges) }}" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
+                <td colspan="{{ 11 + count($charges) }}" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
                 @lang('messages.noItemAdded')
                 </td>
             </tr>

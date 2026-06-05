@@ -47,6 +47,9 @@ class CreateDirectPurchase extends Component
     public $filteredItems = [];
     public $showSearchResults = false;
 
+    // Prevent double-submit
+    public bool $isSaving = false;
+
     // Quick-add new inventory item
     public $showQuickAddModal = false;
     public $quickAddName = '';
@@ -511,11 +514,19 @@ class CreateDirectPurchase extends Component
 
     public function savePurchase()
     {
+        if ($this->isSaving) {
+            return;
+        }
+
+        $this->isSaving = true;
+
+        try {
         // Validate payment amount doesn't exceed total before standard validation
         if ($this->recordPayment && $this->paymentAmount) {
             $total = $this->finalTotal;
             if ($this->paymentAmount > $total) {
                 $this->addError('paymentAmount', 'Payment amount cannot exceed the total amount (' . currency_format($total, restaurant()->currency_id) . ')');
+                $this->isSaving = false;
                 return;
             }
         }
@@ -587,6 +598,13 @@ class CreateDirectPurchase extends Component
 
         $this->alert('success', 'Purchase created successfully');
         return redirect()->route('purchases.index');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->isSaving = false;
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->isSaving = false;
+            throw $e;
+        }
     }
 
     private function createInventoryMovements(PurchaseOrder $purchase)
