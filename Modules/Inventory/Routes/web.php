@@ -43,10 +43,12 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
     Route::resource('stock-transfers', \Modules\Inventory\Http\Controllers\StockTransferController::class);
+    Route::get('stock-transfers/report/print', [\Modules\Inventory\Http\Controllers\StockTransferController::class, 'reportPrint'])->name('stock-transfers.report.print');
     Route::resource('inventory-settings', InventorySettingController::class);
     Route::get('locations', [PurchaseLocationController::class, 'index'])->name('inventory.locations.index');
     
     Route::controller(PurchaseOrderController::class)->group(function () {
+        Route::get('purchases/report/print', 'reportPrint')->name('purchases.report.print');
         Route::get('purchases/{purchase_order}/pdf', 'generatePdf')->name('purchases.pdf');
     });
 

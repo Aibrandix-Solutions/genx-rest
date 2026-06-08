@@ -3,7 +3,9 @@
 namespace Modules\Inventory\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\Branch;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use PDF;
@@ -19,6 +21,103 @@ class PurchaseOrderController extends Controller
         abort_if(!user_can('Show Purchase Order'), 403);
         
         return view('inventory::purchases.index');
+    }
+
+    /**
+     * Print-friendly purchases report. Uses the same filters as the purchases
+     * list but without pagination so all matching rows print on one page.
+     */
+    public function reportPrint(Request $request)
+    {
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('Show Purchase Order'), 403);
+
+        $showAdminView = user_can('View Admin Purchases');
+        $search = (string) $request->query('search', '');
+        $supplierId = $request->query('supplierId');
+        $supplierId = is_numeric($supplierId) ? (int) $supplierId : null;
+        $status = (string) $request->query('status', '');
+        $startDate = $request->query('startDate');
+        $endDate = $request->query('endDate');
+        $branchFilter = (string) $request->query('branchFilter', '');
+
+        $statsQuery = PurchaseOrder::query();
+        if (!$showAdminView) {
+            $statsQuery->where('branch_id', branch()->id);
+        } elseif ($branchFilter !== '') {
+            $statsQuery->where('branch_id', $branchFilter);
+        }
+
+        $stats = [
+            'total_orders' => (clone $statsQuery)->count(),
+            'pending_orders' => (clone $statsQuery)
+                ->whereIn('status', ['ordered', 'pending'])
+                ->count(),
+            'completed_orders' => (clone $statsQuery)
+                ->where('status', 'received')
+                ->count(),
+        ];
+
+        $purchaseOrders = PurchaseOrder::query()
+            ->with(['supplier', 'payments', 'branch'])
+            ->when(!$showAdminView, function ($query) {
+                $query->where('branch_id', branch()->id);
+            })
+            ->when($showAdminView && $branchFilter !== '', function ($query) use ($branchFilter) {
+                $query->where('branch_id', $branchFilter);
+            })
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($query) use ($search) {
+                    $query->where('po_number', 'like', '%' . $search . '%')
+                        ->orWhereHas('supplier', function ($query) use ($search) {
+                            $query->where('name', 'like', '%' . $search . '%');
+                        });
+                });
+            })
+            ->when($supplierId, function ($query) use ($supplierId) {
+                $query->where('supplier_id', $supplierId);
+            })
+            ->when($status !== '', function ($query) use ($status) {
+                $query->where('status', $status);
+            })
+            ->when($startDate && $endDate, function ($query) use ($startDate, $endDate) {
+                $query->whereBetween('order_date', [$startDate, $endDate]);
+            })
+            ->latest()
+            ->get();
+
+        $statuses = [
+            'ordered' => trans('inventory::modules.purchaseOrder.status.ordered'),
+            'pending' => trans('inventory::modules.purchaseOrder.status.pending'),
+            'received' => trans('inventory::modules.purchaseOrder.status.received'),
+            'cancelled' => trans('inventory::modules.purchaseOrder.status.cancelled'),
+        ];
+
+        $branchName = null;
+        if ($showAdminView) {
+            $branchName = $branchFilter !== ''
+                ? Branch::where('restaurant_id', restaurant()->id)->find($branchFilter)?->name
+                : trans('app.all');
+        } else {
+            $branchName = branch()->name;
+        }
+
+        $supplierName = $supplierId
+            ? Supplier::where('restaurant_id', restaurant()->id)->find($supplierId)?->name
+            : trans('inventory::modules.purchaseOrder.all_suppliers');
+
+        return view('inventory::purchases.report-print', [
+            'purchaseOrders' => $purchaseOrders,
+            'stats' => $stats,
+            'statuses' => $statuses,
+            'search' => $search,
+            'supplierName' => $supplierName,
+            'statusFilter' => $status !== '' ? ($statuses[$status] ?? ucfirst($status)) : trans('inventory::modules.purchaseOrder.all_status'),
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'branchName' => $branchName,
+            'showAdminView' => $showAdminView,
+        ]);
     }
 
     public function create()

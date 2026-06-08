@@ -208,7 +208,9 @@ class PurchaseOrderList extends Component
             })
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
-                    $query->where('po_number', 'like', '%' . $this->search . '%')
+                    $query->where('id', 'like', '%' . $this->search . '%')
+                        ->orWhere('invoice_no', 'like', '%' . $this->search . '%')
+                        ->orWhere('po_number', 'like', '%' . $this->search . '%')
                         ->orWhereHas('supplier', function ($query) {
                             $query->where('name', 'like', '%' . $this->search . '%');
                         });

@@ -538,7 +538,11 @@ class SupplierDetails extends Component
     {
         return $this->supplier->orders()
             ->when($this->search, function ($query) {
-                $query->where('po_number', 'like', '%' . $this->search . '%');
+                $query->where(function ($q) {
+                    $q->where('id', 'like', '%' . $this->search . '%')
+                        ->orWhere('po_number', 'like', '%' . $this->search . '%')
+                        ->orWhere('invoice_no', 'like', '%' . $this->search . '%');
+                });
             })
             ->when($this->locationId, function ($query) {
                 $query->where('location_id', $this->locationId);

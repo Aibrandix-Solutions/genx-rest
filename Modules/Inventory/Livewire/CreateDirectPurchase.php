@@ -30,6 +30,7 @@ class CreateDirectPurchase extends Component
 
     // Main form fields
     public $supplierId;
+    public $invoiceNo;
     public $orderDate;
     public $location_id;
     public $status = 'ordered';
@@ -78,6 +79,7 @@ class CreateDirectPurchase extends Component
 
     protected $rules = [
         'supplierId' => 'required|exists:suppliers,id',
+        'invoiceNo' => 'nullable|string|max:100',
         'orderDate' => 'required|date',
         'location_id' => 'required|exists:purchase_locations,id',
         'status' => 'required|in:ordered,pending,received,cancelled',
@@ -537,6 +539,7 @@ class CreateDirectPurchase extends Component
             // Create purchase
             $purchase = PurchaseOrder::create([
                 'po_number' => $this->generatePurchaseNumber(),
+                'invoice_no' => $this->invoiceNo ?: null,
                 'branch_id' => branch()->id,
                 'supplier_id' => $this->supplierId,
                 'location_id' => $this->location_id,

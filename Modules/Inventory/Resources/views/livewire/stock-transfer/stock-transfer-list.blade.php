@@ -10,6 +10,16 @@
 
     <!-- Content Card -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 md:p-6">
+        @php
+            $printQuery = array_filter([
+                'search' => $search,
+                'filterType' => $filterType !== 'all' ? $filterType : null,
+                'statusFilter' => $statusFilter !== 'all' ? $statusFilter : null,
+                'startDate' => $startDate,
+                'endDate' => $endDate,
+            ], fn ($value) => $value !== null && $value !== '');
+        @endphp
+
         <!-- Action Button -->
         <div class="flex flex-col sm:flex-row justify-end items-start sm:items-center gap-4 mb-6">
             <div class="flex gap-2">
@@ -17,6 +27,15 @@
                     <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
                     {{ __('app.export') }}
                 </x-secondary-button>
+                <a href="{{ route('stock-transfers.report.print', $printQuery) }}"
+                   target="_blank"
+                   rel="noopener"
+                   class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition">
+                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+                    </svg>
+                    {{ __('inventory::modules.transfers.print_report') }}
+                </a>
             @if(user_can('Create Stock Transfer'))
                 <x-button
                     wire:click="$set('showModal', true)"

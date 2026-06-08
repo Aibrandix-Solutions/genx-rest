@@ -159,11 +159,31 @@
        
     </div>
 
+    @php
+        $printQuery = array_filter([
+            'search' => $search,
+            'supplierId' => $supplierId,
+            'status' => $status,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'branchFilter' => $branchFilter,
+        ], fn ($value) => $value !== null && $value !== '');
+    @endphp
+
     <div class="mb-6 flex justify-end gap-2">
         <x-secondary-button wire:click="export" wire:loading.attr="disabled">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             {{ trans('app.export') }}
         </x-secondary-button>
+        <a href="{{ route('purchases.report.print', $printQuery) }}"
+           target="_blank"
+           rel="noopener"
+           class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            {{ trans('inventory::modules.purchaseOrder.print_report') }}
+        </a>
         @if(user_can('Create Purchase Order'))
             <a href="{{ route('purchases.create') }}" wire:navigate
                class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
@@ -180,6 +200,9 @@
                     <tr>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.po_number') }}
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.purchaseOrder.invoice_no') }}
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.supplier') }}
@@ -220,6 +243,9 @@
                                 @else
                                     {{ $purchaseOrder->po_number }}
                                 @endif
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $purchaseOrder->invoice_no ?: '-' }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 <a href="{{ route('suppliers.show', $purchaseOrder->supplier->id) }}" class="underline underline-offset-1" wire:navigate>
@@ -368,7 +394,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                            <td colspan="10" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
                                 {{ trans('inventory::modules.purchaseOrder.no_records') }}
                             </td>
                         </tr>

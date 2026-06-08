@@ -32,6 +32,7 @@ class EditDirectPurchase extends Component
     
     // Main form fields
     public $supplierId;
+    public $invoiceNo;
     public $orderDate;
     public $location_id;
     public $status = 'ordered';
@@ -81,6 +82,7 @@ class EditDirectPurchase extends Component
 
     protected $rules = [
         'supplierId' => 'required|exists:suppliers,id',
+        'invoiceNo' => 'nullable|string|max:100',
         'orderDate' => 'required|date',
         'location_id' => 'required|exists:purchase_locations,id',
         'status' => 'required|in:ordered,pending,received,cancelled',
@@ -113,6 +115,7 @@ class EditDirectPurchase extends Component
         $this->purchase = PurchaseOrder::with('items', 'attachments', 'payments.account')->findOrFail($this->purchaseId);
         
         $this->supplierId = $this->purchase->supplier_id;
+        $this->invoiceNo = $this->purchase->invoice_no;
         $this->orderDate = $this->purchase->order_date->format('Y-m-d');
         $this->location_id = $this->purchase->location_id;
         $this->status = $this->purchase->status;
@@ -781,6 +784,7 @@ class EditDirectPurchase extends Component
             // Update purchase
             $this->purchase->update([
                 'supplier_id' => $this->supplierId,
+                'invoice_no' => $this->invoiceNo ?: null,
                 'location_id' => $this->location_id,
                 'order_date' => $this->orderDate,
                 'total_amount' => $this->finalTotal,
