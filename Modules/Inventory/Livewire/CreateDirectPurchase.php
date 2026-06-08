@@ -30,6 +30,7 @@ class CreateDirectPurchase extends Component
 
     // Main form fields
     public $supplierId;
+    public $invoiceNo;
     public $orderDate;
     public $location_id;
     public $status = 'ordered';
@@ -78,6 +79,7 @@ class CreateDirectPurchase extends Component
 
     protected $rules = [
         'supplierId' => 'required|exists:suppliers,id',
+        'invoiceNo' => 'nullable|string|max:100',
         'orderDate' => 'required|date',
         'location_id' => 'required|exists:purchase_locations,id',
         'status' => 'required|in:ordered,pending,received,cancelled',
@@ -138,6 +140,10 @@ class CreateDirectPurchase extends Component
         $this->loadInventoryItems();
         $this->loadLocations();
         $this->loadPaymentAccounts();
+        $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->itemCategories = InventoryItemCategory::orderBy('name')->get();
         $this->units = Unit::orderBy('name')->get();
         
@@ -181,12 +187,8 @@ class CreateDirectPurchase extends Component
 
     public function updatedPaymentMethod($value)
     {
-        // Auto-select default payment account for this payment method
-        if ($value && !$this->paymentAccountId) {
-            $defaultAccount = BranchPaymentAccountSetting::getDefaultAccount(branch()->id, $value);
-            if ($defaultAccount) {
-                $this->paymentAccountId = $defaultAccount->id;
-            }
+        if ($value) {
+            $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
         }
     }
 
@@ -537,6 +539,7 @@ class CreateDirectPurchase extends Component
             // Create purchase
             $purchase = PurchaseOrder::create([
                 'po_number' => $this->generatePurchaseNumber(),
+                'invoice_no' => $this->invoiceNo ?: null,
                 'branch_id' => branch()->id,
                 'supplier_id' => $this->supplierId,
                 'location_id' => $this->location_id,
@@ -664,6 +667,9 @@ class CreateDirectPurchase extends Component
     private function recordPaymentForPurchase(PurchaseOrder $purchase)
     {
         $paidOn = $this->paymentDate ?: now();
+        $paymentAccountId = $this->paymentAccountId
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
         $paymentData = [
             'supplier_id' => $purchase->supplier_id,
             'purchase_order_id' => $purchase->id,
@@ -674,15 +680,15 @@ class CreateDirectPurchase extends Component
             'added_by' => user()->id,
         ];
 
-        if ($this->paymentAccountId) {
-            $paymentData['payment_account_id'] = $this->paymentAccountId;
+        if ($paymentAccountId) {
+            $paymentData['payment_account_id'] = $paymentAccountId;
         }
 
         $payment = SupplierPayment::create($paymentData);
 
         // Update Payment Account Balance and log transaction if account selected
-        if ($this->paymentAccountId) {
-            $account = PaymentAccount::find($this->paymentAccountId);
+        if ($paymentAccountId) {
+            $account = PaymentAccount::find($paymentAccountId);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 

@@ -8,6 +8,7 @@ use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -80,9 +81,21 @@ class PurchaseReturnPayment extends Component
 
     public function resetForm()
     {
-        $this->reset(['paymentAmount', 'paymentMethod', 'paymentAccount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->reset(['paymentAmount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->paymentMethod = 'cash';
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->resetValidation();
+    }
+
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
     }
 
     public function updatedPaymentAmount()
@@ -122,10 +135,13 @@ class PurchaseReturnPayment extends Component
             $path = $this->paymentDocument->store('supplier-payments', 'public');
         }
 
+        $paymentAccount = $this->paymentAccount
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
         $payment = SupplierPayment::create([
             'supplier_id' => $this->purchaseReturn->supplier_id,
             'purchase_return_id' => $this->purchaseReturn->id,
-            'payment_account_id' => $this->paymentAccount,
+            'payment_account_id' => $paymentAccount,
             'amount' => $this->paymentAmount,
             'paid_on' => $this->paymentDate,
             'payment_method' => $this->paymentMethod,
@@ -136,8 +152,8 @@ class PurchaseReturnPayment extends Component
         ]);
 
         // Update Payment Account Balance if selected (money comes IN for refund)
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
+        if ($paymentAccount) {
+            $account = PaymentAccount::find($paymentAccount);
             if ($account) {
                 $account->increment('current_balance', $this->paymentAmount);
 

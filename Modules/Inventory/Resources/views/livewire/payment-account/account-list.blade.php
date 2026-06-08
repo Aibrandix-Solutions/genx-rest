@@ -62,7 +62,7 @@
                         <p class="mt-1 truncate text-xs text-gray-400 capitalize">{{ $account->type }}</p>
                     </div>
                     <div class="text-right">
-                         <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format($account->current_balance, 2) }}</p>
+                         <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ number_format(($account->total_debit ?? 0) - ($account->total_credit ?? 0), 2) }}</p>
                          <p class="text-xs text-gray-500">Balance</p>
                     </div>
                 </div>
@@ -164,7 +164,7 @@
                                 <select wire:model="transferFromId" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600">
                                     <option value="">Select Account</option>
                                     @foreach($accounts as $acc)
-                                        <option value="{{ $acc->id }}">{{ $acc->name }} ({{ number_format($acc->current_balance, 2) }})</option>
+                                        <option value="{{ $acc->id }}">{{ $acc->name }} ({{ number_format(($acc->total_debit ?? 0) - ($acc->total_credit ?? 0), 2) }})</option>
                                     @endforeach
                                 </select>
                                 @error('transferFromId') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
