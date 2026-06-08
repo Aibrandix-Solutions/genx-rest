@@ -375,8 +375,8 @@
                                                      })"
                                                      :style="style">
                                                     <div class="py-1 flex flex-col gap-1">
-                                                        @if(!in_array($order->status, ['received', 'cancelled']) && user_can('Update Purchase Order'))
-                                                            <a href="{{ route('purchases.edit', $order->id) }}" wire:navigate @click="open = false"
+                                                        @if(!in_array($order->status, ['cancelled']) && user_can('Update Purchase Order') && ($order->status !== 'received' || user_can('Edit Received Purchase')))
+                                                            <a href="{{ route('purchases.edit', ['purchase' => $order->id, 'return' => 'supplier']) }}" wire:navigate @click="open = false"
                                                                     class="w-full flex items-center px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/50">
                                                                 <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -394,7 +394,7 @@
                                                             </a>
                                                         @endif
 
-                                                        @if(!in_array($order->status, ['received', 'cancelled']) && user_can('Delete Purchase Order'))
+                                                        @if(!in_array($order->status, ['cancelled']) && user_can('Delete Purchase Order'))
                                                             <button wire:click="confirmDeletePurchase({{ $order->id }})" @click="open = false"
                                                                     class="w-full flex items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50">
                                                                 <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

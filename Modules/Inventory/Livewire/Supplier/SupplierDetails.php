@@ -19,6 +19,7 @@ use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Modules\Inventory\Services\PurchaseOrderService;
 
 class SupplierDetails extends Component
 {
@@ -138,7 +139,7 @@ class SupplierDetails extends Component
                     'date' => $po->order_date,
                     'type' => 'purchase',
                     'description' => 'Purchase #' . $po->po_number,
-                    'debit' => (float) $po->final_total,
+                    'debit' => (float) $po->effective_total,
                     'credit' => 0,
                     'reference_id' => $po->id
                 ];
@@ -459,18 +460,27 @@ class SupplierDetails extends Component
     public function confirmDeletePurchase($purchaseOrderId)
     {
         $purchaseOrder = PurchaseOrder::find($purchaseOrderId);
-        if ($purchaseOrder && !in_array($purchaseOrder->status, ['received', 'cancelled'], true)) {
+        if ($purchaseOrder && !in_array($purchaseOrder->status, ['cancelled'], true)) {
             $this->purchaseOrderToDelete = $purchaseOrder;
             $this->confirmingDeletion = true;
         }
     }
 
-    public function deletePurchase()
+    public function deletePurchase(PurchaseOrderService $purchaseOrderService)
     {
+        abort_if(!user_can('Delete Purchase Order'), 403);
+
         if ($this->purchaseOrderToDelete) {
-            $this->purchaseOrderToDelete->delete();
-            $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
-            $this->supplier->refresh();
+            try {
+                $purchaseOrderService->deletePurchaseOrder($this->purchaseOrderToDelete);
+                $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
+                $this->supplier->refresh();
+                if ($this->activeTab === 'ledger') {
+                    $this->loadLedger();
+                }
+            } catch (\Throwable $e) {
+                $this->alert('error', $e->getMessage());
+            }
         }
         $this->confirmingDeletion = false;
         $this->purchaseOrderToDelete = null;

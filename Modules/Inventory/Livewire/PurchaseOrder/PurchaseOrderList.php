@@ -11,6 +11,7 @@ use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
 use Modules\Inventory\Notifications\SendPurchaseOrder;
+use Modules\Inventory\Services\PurchaseOrderService;
 
 class PurchaseOrderList extends Component
 {
@@ -75,18 +76,17 @@ class PurchaseOrderList extends Component
         $this->confirmingDeletion = true;
     }
 
-    public function delete()
+    public function delete(PurchaseOrderService $purchaseOrderService)
     {
         abort_if(!user_can('Delete Purchase Order'), 403);
 
         if ($this->purchaseOrderToDelete) {
-            abort_if(
-                in_array($this->purchaseOrderToDelete->status, ['received', 'cancelled']),
-                403,
-                'Cannot delete a received or cancelled purchase order.'
-            );
-            $this->purchaseOrderToDelete->delete();
-            $this->dispatch('notify-success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
+            try {
+                $purchaseOrderService->deletePurchaseOrder($this->purchaseOrderToDelete);
+                $this->dispatch('notify-success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
+            } catch (\Throwable $e) {
+                $this->dispatch('notify-error', $e->getMessage());
+            }
         }
 
         $this->confirmingDeletion = false;

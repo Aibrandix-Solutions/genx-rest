@@ -378,7 +378,7 @@
                                             @endif
 
 
-                                            @if(!in_array($purchaseOrder->status, ['received', 'cancelled']) && user_can('Delete Purchase Order'))
+                                            @if(!in_array($purchaseOrder->status, ['cancelled']) && user_can('Delete Purchase Order'))
                                                 <button wire:click="confirmDelete({{ $purchaseOrder->id }})"
                                                         class="inline-flex items-center px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-lg">
                                                     <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">

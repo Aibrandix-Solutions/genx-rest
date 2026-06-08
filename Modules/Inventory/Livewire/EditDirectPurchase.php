@@ -23,12 +23,14 @@ use Illuminate\Support\Str;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Inventory\Exports\PurchaseItemsImportTemplateExport;
 use Modules\Inventory\Entities\PurchaseAttachment;
+use Modules\Inventory\Services\PurchaseOrderService;
 
 class EditDirectPurchase extends Component
 {
     use WithFileUploads, LivewireAlert;
 
     public $purchaseId;
+    public $returnTo = null;
     
     // Main form fields
     public $supplierId;
@@ -103,9 +105,10 @@ class EditDirectPurchase extends Component
         'itemImportFile' => 'nullable|file|mimes:xlsx,xls,csv,txt|max:5120',
     ];
 
-    public function mount($purchaseId)
+    public function mount($purchaseId, $returnTo = null)
     {
         $this->purchaseId = $purchaseId;
+        $this->returnTo = $returnTo;
         $this->loadPurchase();
         $this->loadData();
     }
@@ -763,12 +766,18 @@ class EditDirectPurchase extends Component
             return;
         }
 
+        if ($this->finalTotal < (float) $this->purchase->paid_amount) {
+            $this->addError('items', trans('inventory::modules.purchaseOrder.total_below_paid'));
+            return;
+        }
+
         $this->validate();
 
         try {
         DB::transaction(function () {
             $previousStatus = $this->purchase->status;
             $oldLocationId  = (int) $this->purchase->location_id;
+            $oldTotalAmount = app(PurchaseOrderService::class)->effectiveTotal($this->purchase);
 
             // Snapshot existing items BEFORE deletion — needed for stock delta calculation.
             $oldItemsSnap = [];
@@ -932,6 +941,14 @@ class EditDirectPurchase extends Component
                     ]);
                 }
             }
+
+            app(PurchaseOrderService::class)->logAmountChange(
+                $this->purchase->fresh(),
+                $oldTotalAmount,
+                $this->finalTotal,
+                trans('inventory::modules.purchaseOrder.audit_amount_updated_note'),
+                ['status' => $this->status]
+            );
         });
         } catch (\RuntimeException $e) {
             $this->alert('error', $e->getMessage());
@@ -939,6 +956,15 @@ class EditDirectPurchase extends Component
         }
 
         $this->alert('success', 'Purchase updated successfully!');
+
+        if ($this->returnTo === 'suppliers') {
+            return redirect()->route('suppliers.index');
+        }
+
+        if ($this->returnTo === 'supplier') {
+            return redirect()->route('suppliers.show', $this->supplierId);
+        }
+
         return redirect()->route('purchases.index');
     }
 

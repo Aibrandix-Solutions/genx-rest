@@ -189,7 +189,7 @@ class PurchaseOrderController extends Controller
         return $pdf->download("PURCHASE-{$purchaseOrder->po_number}.pdf");
     }
 
-    public function edit(PurchaseOrder $purchase)
+    public function edit(Request $request, PurchaseOrder $purchase)
     {
         abort_if(!in_array('Inventory', restaurant_modules()), 403);
         abort_if(!(user_can('Update Purchase Order') || user_can('Edit Purchase Order')), 403);
@@ -200,7 +200,10 @@ class PurchaseOrderController extends Controller
             abort_if(!user_can('Edit Received Purchase'), 403);
         }
 
-        return view('inventory::purchases.edit', ['purchase' => $purchase]);
+        return view('inventory::purchases.edit', [
+            'purchase' => $purchase,
+            'returnTo' => $request->query('return'),
+        ]);
     }
 
     public function update(Request $request, PurchaseOrder $purchase)
