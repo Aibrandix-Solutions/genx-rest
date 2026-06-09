@@ -204,6 +204,78 @@
                 {{ $summaryPaginator->links() }}
             </div>
         </div>
+
+        {{-- Disposal summary section --}}
+        <div class="mt-8">
+            <div class="flex items-center gap-2 mb-3">
+                <svg class="w-5 h-5 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+                <h3 class="text-base font-semibold text-gray-800 dark:text-gray-200">
+                    @lang('inventory::modules.disposal.reportSection')
+                </h3>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ml-1">
+                    {{ number_format($disposalTotals['disposed'], 2) }} @lang('inventory::modules.disposal.totalDisposedUnit')
+                    &nbsp;&bull;&nbsp; {{ $disposalTotals['entries'] }} @lang('inventory::modules.disposal.entries')
+                </span>
+            </div>
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-red-50 dark:bg-red-900/20">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    @lang('inventory::modules.disposal.item')
+                                </th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    @lang('inventory::modules.disposal.totalDisposed')
+                                </th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    @lang('inventory::modules.disposal.entries')
+                                </th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                                    @lang('inventory::modules.consumption.report.dateRange')
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                            @forelse($disposalSummaryRows as $row)
+                                <tr class="hover:bg-red-50 dark:hover:bg-red-900/10">
+                                    <td class="px-4 py-3 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $row->item_name }}</div>
+                                        @if(!empty($row->item_code))
+                                            <div class="text-xs font-mono text-gray-500 dark:text-gray-400">{{ $row->item_code }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-right">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                                            - {{ number_format($row->disposed, 2) }} {{ $row->unit_symbol }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-700 dark:text-gray-300">
+                                        {{ number_format($row->entries) }}
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
+                                        {{ optional($row->first_date)->format('M d, Y') }} - {{ optional($row->last_date)->format('M d, Y') }}
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="4" class="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                                        @lang('inventory::modules.disposal.noEntries')
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-white dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                    {{ $disposalSummaryPaginator->links() }}
+                </div>
+            </div>
+        </div>
+
     @else
         {{-- Detailed entry view --}}
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
@@ -279,6 +351,81 @@
 
             <div class="bg-white dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
                 {{ $detailRows->links() }}
+            </div>
+        </div>
+    @endif
+
+        {{-- Disposal detail section (shown in detail mode) --}}
+    @if($viewMode === 'detail')
+        <div class="mt-8">
+            <div class="flex items-center gap-2 mb-3">
+                <svg class="w-5 h-5 text-red-500 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+                <h3 class="text-base font-semibold text-gray-800 dark:text-gray-200">
+                    @lang('inventory::modules.disposal.reportSection')
+                </h3>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 ml-1">
+                    {{ number_format($disposalTotals['disposed'], 2) }} @lang('inventory::modules.disposal.totalDisposedUnit')
+                    &nbsp;&bull;&nbsp; {{ $disposalTotals['entries'] }} @lang('inventory::modules.disposal.entries')
+                </span>
+            </div>
+
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-red-50 dark:bg-red-900/20">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.disposal.date')</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.disposal.item')</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.disposal.branch')</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.disposal.quantity')</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.disposal.reason')</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.disposal.recordedBy')</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                            @forelse($disposalDetailRows as $row)
+                                <tr class="hover:bg-red-50 dark:hover:bg-red-900/10">
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                                        {{ optional($row->disposal_date)->format('M d, Y') }}
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $row->item->name ?? '--' }}</div>
+                                        @if(!empty($row->item?->item_code))
+                                            <div class="text-xs font-mono text-gray-500 dark:text-gray-400">{{ $row->item->item_code }}</div>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                                        {{ $row->branch->name ?? '--' }}
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-right">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                                            - {{ number_format((float) $row->quantity, 2) }} {{ optional($row->item?->unit)->symbol }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400 max-w-xs">
+                                        <span title="{{ $row->reason }}">
+                                            {{ \Illuminate\Support\Str::limit($row->reason, 60) ?: '--' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                                        {{ $row->addedBy->name ?? '--' }}
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="6" class="px-4 py-6 text-center text-gray-500 dark:text-gray-400">
+                                        @lang('inventory::modules.disposal.noEntries')
+                                    </td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+                <div class="bg-white dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+                    {{ $disposalDetailRows->links() }}
+                </div>
             </div>
         </div>
     @endif

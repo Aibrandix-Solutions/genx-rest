@@ -71,7 +71,7 @@ class HomeController extends Controller
             return response(file_get_contents($global->landing_site_url));
         }
 
-        $this->modules = Module::pluck('name')->toArray();
+        $this->modules = Module::excludeDeprecated()->pluck('name')->toArray();
         $this->PackageFeatures = Package::ADDITIONAL_FEATURES;
 
         $AllModulesWithFeature = array_merge(

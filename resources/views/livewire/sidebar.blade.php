@@ -28,9 +28,49 @@
                         </div>
                     @endif
 
+                    @php($businessMode = function_exists('hotel_business_mode') ? hotel_business_mode() : 'restaurant_primary')
+
                     <ul class="py-2 space-y-2">
 
-                        @livewire('sidebar-menu-item', ['name' => __('menu.dashboard'), 'icon' => 'dashboard', 'link' => route('dashboard'), 'active' => request()->routeIs('dashboard')])
+                        {{-- Dashboard link: context-aware --}}
+                        @if($businessMode === 'hotel_primary')
+                            @livewire('sidebar-menu-item', [
+                                'name' => __('menu.dashboard'),
+                                'icon' => 'dashboard',
+                                'link' => route('hotel.dashboard'),
+                                'active' => request()->routeIs('hotel.dashboard'),
+                                'customIcon' => '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 transition duration-75 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3H21m-3.75 3H21"/></svg>',
+                            ])
+                        @else
+                            @livewire('sidebar-menu-item', ['name' => __('menu.dashboard'), 'icon' => 'dashboard', 'link' => route('dashboard'), 'active' => request()->routeIs('dashboard')])
+                        @endif
+
+                        {{-- ═══ HOTEL-FIRST: Hotel top-level items, then restaurant in dropdown ═══ --}}
+                        @if($businessMode === 'hotel_primary')
+
+                            @includeIf('hotel::sections.sidebar-primary')
+
+                            {{-- Divider --}}
+                            <li class="pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
+                                <span class="px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Restaurant</span>
+                            </li>
+
+                        @elseif($businessMode === 'equal')
+
+                            {{-- Equal mode: Hotel as dropdown at the top --}}
+                            @foreach ($customPlugins as $item)
+                                @if(strtolower($item) === 'hotel')
+                                    @includeIf('hotel::sections.sidebar')
+                                @endif
+                            @endforeach
+
+                        @endif
+
+                        {{-- ═══ CORE RESTAURANT ITEMS (always shown) ═══ --}}
+
+                        @if($businessMode === 'hotel_primary')
+                            @livewire('sidebar-menu-item', ['name' => 'Restaurant Dashboard', 'icon' => 'dashboard', 'link' => route('dashboard'), 'active' => request()->routeIs('dashboard')])
+                        @endif
 
                         @if ($this->hasModule('Menu') || $this->hasModule('Menu Item') || $this->hasModule('Item Category'))
                             @if (user_can('Show Menu') || user_can('Show Menu Item') || user_can('Show Item Category'))
@@ -192,6 +232,7 @@
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.categoryReport'), 'link' => route('reports.category'), 'active' => request()->routeIs('reports.category')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.deliveryAppReport'), 'link' => route('reports.delivery'), 'active' => request()->routeIs('reports.delivery')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.kotAdjustmentLog'), 'link' => route('reports.kotAdjustments'), 'active' => request()->routeIs('reports.kotAdjustments')])
+                                    @livewire('sidebar-dropdown-menu', ['name' => __('menu.menuItemReport'), 'link' => route('reports.menuItem'), 'active' => request()->routeIs('reports.menuItem')])
                                     @if ($this->hasModule('Expense'))
                                         @livewire('sidebar-dropdown-menu', ['name' => __('menu.expenseReports'), 'link' => route('reports.expenseReports'), 'active' => request()->routeIs('reports.expenseReports')])
                                     @endif
