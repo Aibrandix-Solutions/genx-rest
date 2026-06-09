@@ -279,6 +279,18 @@
                                             </svg>
                                             @lang('inventory::modules.consumption.consumption')
                                         </button>
+
+                                        <button
+                                            type="button"
+                                            wire:click="$dispatch('openRecordDisposal', { itemId: {{ $item->id }} })"
+                                            class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-md border border-red-400 text-red-600 dark:text-red-400 dark:border-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition"
+                                            title="@lang('inventory::modules.disposal.recordDisposal')"
+                                        >
+                                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                            </svg>
+                                            @lang('inventory::modules.disposal.dispose')
+                                        </button>
                                     @endif
                                 </div>
                             </td>
@@ -505,4 +517,7 @@
 
     {{-- Record Consumption modal (listens for `openRecordConsumption` event) --}}
     <livewire:inventory::stock.record-consumption />
+
+    {{-- Record Disposal modal (listens for `openRecordDisposal` event) --}}
+    <livewire:inventory::stock.record-disposal />
 </div>

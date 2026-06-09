@@ -82,6 +82,12 @@ class PurchaseOrder extends Model
         return max(0, $this->subtotal - $this->discount_amount);
     }
 
+    // Authoritative purchase total (includes item-level discounts saved on create/edit)
+    public function getEffectiveTotalAttribute()
+    {
+        return (float) ($this->total_amount ?? $this->final_total);
+    }
+
     // Helper to get paid amount
     public function getPaidAmountAttribute()
     {
@@ -91,13 +97,13 @@ class PurchaseOrder extends Model
     // Helper to get due amount
     public function getDueAmountAttribute()
     {
-        return max(0, $this->final_total - $this->paid_amount);
+        return max(0, $this->effective_total - $this->paid_amount);
     }
 
     // Helper to determine payment status
     public function getPaymentStatusAttribute()
     {
-        if ($this->paid_amount >= $this->final_total) {
+        if ($this->paid_amount >= $this->effective_total) {
             return 'paid';
         } elseif ($this->paid_amount > 0) {
             return 'partial';

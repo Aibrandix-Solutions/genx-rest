@@ -2,6 +2,6 @@
 
 @section('content')
     <div class="max-w-6xl mx-auto py-6">
-        @livewire('inventory::edit-direct-purchase', ['purchaseId' => $purchase->id])
+        @livewire('inventory::edit-direct-purchase', ['purchaseId' => $purchase->id, 'returnTo' => $returnTo ?? null])
     </div>
 @endsection

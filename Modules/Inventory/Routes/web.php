@@ -35,6 +35,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::get('consumption', [InventoryStockController::class, 'consumption'])->name('inventory.consumption.index');
     Route::get('consumption/report', [InventoryStockController::class, 'consumptionReport'])->name('inventory.consumption.report');
     Route::get('consumption/report/print', [InventoryStockController::class, 'consumptionReportPrint'])->name('inventory.consumption.report.print');
+    Route::get('disposal', [InventoryStockController::class, 'disposal'])->name('inventory.disposal.index');
     Route::get('inventory-movements/export', [InventoryMovementController::class, 'export'])->name('inventory-movements.export');
     Route::resource('inventory-movements', InventoryMovementController::class);
     Route::resource('recipes', InventoryRecipeController::class);
@@ -42,10 +43,12 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
     Route::resource('stock-transfers', \Modules\Inventory\Http\Controllers\StockTransferController::class);
+    Route::get('stock-transfers/report/print', [\Modules\Inventory\Http\Controllers\StockTransferController::class, 'reportPrint'])->name('stock-transfers.report.print');
     Route::resource('inventory-settings', InventorySettingController::class);
     Route::get('locations', [PurchaseLocationController::class, 'index'])->name('inventory.locations.index');
     
     Route::controller(PurchaseOrderController::class)->group(function () {
+        Route::get('purchases/report/print', 'reportPrint')->name('purchases.report.print');
         Route::get('purchases/{purchase_order}/pdf', 'generatePdf')->name('purchases.pdf');
     });
 

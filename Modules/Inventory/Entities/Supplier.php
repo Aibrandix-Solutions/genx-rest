@@ -43,7 +43,7 @@ class Supplier extends Model
             ->where('status', 'received')
             ->with('items')
             ->get()
-            ->sum(fn ($po) => (float) $po->final_total);
+            ->sum(fn ($po) => (float) $po->effective_total);
     }
 
     // Calculate total amount paid

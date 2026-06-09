@@ -171,6 +171,32 @@
         font-size: 11px;
     }
 
+    .chip-red {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: #fee2e2;
+        color: #dc2626;
+        font-weight: 600;
+        font-size: 11px;
+    }
+
+    .section-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        font-weight: 700;
+        margin: 24px 0 10px;
+        padding-bottom: 6px;
+        border-bottom: 2px solid var(--border);
+    }
+    .section-title.red { color: #dc2626; border-bottom-color: #fca5a5; }
+
+    .disposal-thead th {
+        background: #fff1f2 !important;
+    }
+
     .footer {
         margin-top: 24px;
         padding-top: 12px;
@@ -263,7 +289,7 @@
         @endif
     </dl>
 
-    <div class="stats">
+    <div class="stats" style="grid-template-columns: repeat(4, minmax(0,1fr));">
         <div class="stat">
             <div class="label">@lang('inventory::modules.consumption.totalConsumed')</div>
             <div class="value">{{ number_format($totals['consumed'], 2) }}</div>
@@ -276,9 +302,16 @@
             <div class="label">@lang('inventory::modules.consumption.uniqueItems')</div>
             <div class="value">{{ number_format($totals['items']) }}</div>
         </div>
+        <div class="stat" style="border-color:#fca5a5; background:#fff7f7;">
+            <div class="label" style="color:#dc2626;">@lang('inventory::modules.disposal.totalDisposed')</div>
+            <div class="value" style="color:#dc2626;">{{ number_format($disposalTotals['disposed'], 2) }}</div>
+        </div>
     </div>
 
     @if($viewMode === 'summary')
+        <div class="section-title">
+            &#x25A3; @lang('inventory::modules.consumption.report.title')
+        </div>
         <table class="report">
             <thead>
                 <tr>
@@ -337,7 +370,64 @@
                 @endif
             </tbody>
         </table>
+
+        {{-- Disposal summary section --}}
+        <div class="section-title red">
+            &#x1F5D1; @lang('inventory::modules.disposal.reportSection')
+        </div>
+        <table class="report">
+            <thead class="disposal-thead">
+                <tr>
+                    <th style="width: 6%;">#</th>
+                    <th>@lang('inventory::modules.disposal.item')</th>
+                    <th class="text-right">@lang('inventory::modules.disposal.totalDisposed')</th>
+                    <th class="text-right">@lang('inventory::modules.disposal.entries')</th>
+                    <th>@lang('inventory::modules.consumption.report.dateRange')</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($disposalSummaryRows as $idx => $row)
+                    <tr>
+                        <td class="text-center">{{ $idx + 1 }}</td>
+                        <td>
+                            <div><strong>{{ $row->item_name }}</strong></div>
+                            @if(!empty($row->item_code))
+                                <div class="muted mono" style="font-size: 10px;">{{ $row->item_code }}</div>
+                            @endif
+                        </td>
+                        <td class="text-right">
+                            <span class="chip-red">- {{ number_format($row->disposed, 2) }} {{ $row->unit_symbol }}</span>
+                        </td>
+                        <td class="text-right">{{ number_format($row->entries) }}</td>
+                        <td class="muted" style="font-size: 11px;">
+                            {{ optional($row->first_date)->format('M d, Y') }} &mdash;
+                            {{ optional($row->last_date)->format('M d, Y') }}
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="5" class="text-center muted" style="padding: 24px;">
+                            @lang('inventory::modules.disposal.noEntries')
+                        </td>
+                    </tr>
+                @endforelse
+
+                @if($disposalSummaryRows->isNotEmpty())
+                    <tr class="totals-row">
+                        <td colspan="2" class="text-right">@lang('inventory::modules.consumption.report.totals')</td>
+                        <td class="text-right" style="color:#dc2626;">
+                            {{ number_format($disposalSummaryRows->sum('disposed'), 2) }}
+                        </td>
+                        <td colspan="2"></td>
+                    </tr>
+                @endif
+            </tbody>
+        </table>
+
     @else
+        <div class="section-title">
+            &#x25A3; @lang('inventory::modules.consumption.report.title')
+        </div>
         <table class="report">
             <thead>
                 <tr>
@@ -398,6 +488,63 @@
                         <td colspan="5" class="text-right">@lang('inventory::modules.consumption.report.totals')</td>
                         <td class="text-right">
                             {{ number_format($detailRows->sum('quantity'), 2) }}
+                        </td>
+                        <td colspan="2"></td>
+                    </tr>
+                @endif
+            </tbody>
+        </table>
+
+        {{-- Disposal detail section --}}
+        <div class="section-title red">
+            &#x1F5D1; @lang('inventory::modules.disposal.reportSection')
+        </div>
+        <table class="report">
+            <thead class="disposal-thead">
+                <tr>
+                    <th style="width: 6%;">#</th>
+                    <th>@lang('inventory::modules.disposal.date')</th>
+                    <th>@lang('inventory::modules.disposal.item')</th>
+                    <th>@lang('inventory::modules.disposal.branch')</th>
+                    <th class="text-right">@lang('inventory::modules.disposal.quantity')</th>
+                    <th>@lang('inventory::modules.disposal.reason')</th>
+                    <th>@lang('inventory::modules.disposal.recordedBy')</th>
+                </tr>
+            </thead>
+            <tbody>
+                @forelse($disposalDetailRows as $idx => $row)
+                    @php $unitSymbol = optional($row->item?->unit)->symbol; @endphp
+                    <tr>
+                        <td class="text-center">{{ $idx + 1 }}</td>
+                        <td>{{ optional($row->disposal_date)->format('M d, Y') }}</td>
+                        <td>
+                            <div><strong>{{ $row->item->name ?? '--' }}</strong></div>
+                            @if(!empty($row->item?->item_code))
+                                <div class="muted mono" style="font-size: 10px;">{{ $row->item->item_code }}</div>
+                            @endif
+                        </td>
+                        <td>{{ $row->branch->name ?? '--' }}</td>
+                        <td class="text-right">
+                            <span class="chip-red">- {{ number_format((float) $row->quantity, 2) }} {{ $unitSymbol }}</span>
+                        </td>
+                        <td class="muted" style="font-size: 11px;">
+                            {{ \Illuminate\Support\Str::limit($row->reason, 60) ?: '--' }}
+                        </td>
+                        <td>{{ $row->addedBy->name ?? '--' }}</td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="7" class="text-center muted" style="padding: 24px;">
+                            @lang('inventory::modules.disposal.noEntries')
+                        </td>
+                    </tr>
+                @endforelse
+
+                @if($disposalDetailRows->isNotEmpty())
+                    <tr class="totals-row">
+                        <td colspan="4" class="text-right">@lang('inventory::modules.consumption.report.totals')</td>
+                        <td class="text-right" style="color:#dc2626;">
+                            {{ number_format($disposalDetailRows->sum('quantity'), 2) }}
                         </td>
                         <td colspan="2"></td>
                     </tr>

@@ -58,6 +58,8 @@ class AccountList extends Component
                 $q->where('name', 'like', '%'.$this->search.'%')
                   ->orWhere('account_number', 'like', '%'.$this->search.'%');
             })
+            ->withSum(['transactions as total_debit' => fn($q) => $q->where('type', 'debit')], 'amount')
+            ->withSum(['transactions as total_credit' => fn($q) => $q->where('type', 'credit')], 'amount')
             ->latest()
             ->paginate(10);
 
