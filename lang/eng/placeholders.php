@@ -18,6 +18,7 @@ return array (
   'restaurantNamePlaceHolder' => 'e.g., The Midtown Cafe',
   'searchPayments' => 'Search payments by amount, method, TX ID',
   'searchDuePayments' => 'Search payments by amount or order #',
+  'searchOrdersById' => 'Search by order ID',
   'methodExamples' => 'e.g., Cash, Cheque, Bank Transfer, etc.',
   'methodDescription' => 'e.g., via USD dollar, etc.',
   'facebookPlaceHolder' => 'Enter your Facebook URL',
