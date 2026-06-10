@@ -63,16 +63,17 @@ class RecordPurchasePayment extends Component
         } catch (\Exception $e) {
             $this->paymentAccounts = [];
         }
+
+        $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
     }
 
     public function updatedPaymentMethod($value)
     {
-        // Auto-select default payment account for this payment method
-        if ($value && !$this->paymentAccountId) {
-            $defaultAccount = BranchPaymentAccountSetting::getDefaultAccount(branch()->id, $value);
-            if ($defaultAccount) {
-                $this->paymentAccountId = $defaultAccount->id;
-            }
+        if ($value) {
+            $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
         }
     }
 
@@ -82,6 +83,9 @@ class RecordPurchasePayment extends Component
 
         try {
             $paidOn = $this->paymentDate ?: now();
+            $paymentAccountId = $this->paymentAccountId
+                ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
             $paymentData = [
                 'supplier_id' => $this->purchase->supplier_id,
                 'purchase_order_id' => $this->purchase->id,
@@ -93,15 +97,15 @@ class RecordPurchasePayment extends Component
             ];
             
             // Add payment_account_id only if set and payment_accounts table exists
-            if ($this->paymentAccountId) {
-                $paymentData['payment_account_id'] = $this->paymentAccountId;
+            if ($paymentAccountId) {
+                $paymentData['payment_account_id'] = $paymentAccountId;
             }
 
             $payment = SupplierPayment::create($paymentData);
 
             // Update Payment Account Balance and log transaction if account selected
-            if ($this->paymentAccountId) {
-                $account = PaymentAccount::find($this->paymentAccountId);
+            if ($paymentAccountId) {
+                $account = PaymentAccount::find($paymentAccountId);
                 if ($account) {
                     $account->decrement('current_balance', $this->paymentAmount);
 
@@ -132,7 +136,10 @@ class RecordPurchasePayment extends Component
         $this->paymentAmount = null;
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentMethod = 'cash';
-        $this->paymentAccountId = null;
+        $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentNote = '';
         $this->resetErrorBag();
     }

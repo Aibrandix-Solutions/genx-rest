@@ -15,9 +15,11 @@ use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Modules\Inventory\Services\PurchaseOrderService;
 
 class SupplierDetails extends Component
 {
@@ -137,7 +139,7 @@ class SupplierDetails extends Component
                     'date' => $po->order_date,
                     'type' => 'purchase',
                     'description' => 'Purchase #' . $po->po_number,
-                    'debit' => (float) $po->final_total,
+                    'debit' => (float) $po->effective_total,
                     'credit' => 0,
                     'reference_id' => $po->id
                 ];
@@ -307,15 +309,28 @@ class SupplierDetails extends Component
         $this->paymentAmount = number_format(max(0, (float) $this->supplier->balance), 2, '.', '');
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentMethod = 'cash';
-        $this->paymentAccount = null;
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentNote = '';
         $this->paymentDocument = null;
         $this->showPaymentModal = true;
     }
 
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
+    }
+
     public function savePayment()
     {
         $this->validate();
+
+        $paymentAccount = $this->paymentAccount
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
 
         $path = null;
         if ($this->paymentDocument) {
@@ -334,7 +349,7 @@ class SupplierDetails extends Component
             ->filter(fn ($po) => $po->due_amount > 0);
 
         try {
-            $createdPayments = DB::transaction(function () use (&$remaining, $duePurchases, $path) {
+            $createdPayments = DB::transaction(function () use (&$remaining, $duePurchases, $path, $paymentAccount) {
                 $payments = [];
 
                 foreach ($duePurchases as $po) {
@@ -350,7 +365,7 @@ class SupplierDetails extends Component
                     $payments[] = SupplierPayment::create([
                         'supplier_id' => $this->supplier->id,
                         'purchase_order_id' => $po->id,
-                        'payment_account_id' => $this->paymentAccount,
+                        'payment_account_id' => $paymentAccount,
                         'amount' => $allocate,
                         'paid_on' => $this->paymentDate,
                         'payment_method' => $this->paymentMethod,
@@ -367,7 +382,7 @@ class SupplierDetails extends Component
                     $payments[] = SupplierPayment::create([
                         'supplier_id' => $this->supplier->id,
                         'purchase_order_id' => null,
-                        'payment_account_id' => $this->paymentAccount,
+                        'payment_account_id' => $paymentAccount,
                         'amount' => $remaining,
                         'paid_on' => $this->paymentDate,
                         'payment_method' => $this->paymentMethod,
@@ -386,8 +401,8 @@ class SupplierDetails extends Component
         }
 
         // Update Payment Account Balance once for the full amount and log a single transaction
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
+        if ($paymentAccount) {
+            $account = PaymentAccount::find($paymentAccount);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 
@@ -445,18 +460,27 @@ class SupplierDetails extends Component
     public function confirmDeletePurchase($purchaseOrderId)
     {
         $purchaseOrder = PurchaseOrder::find($purchaseOrderId);
-        if ($purchaseOrder && !in_array($purchaseOrder->status, ['received', 'cancelled'], true)) {
+        if ($purchaseOrder && !in_array($purchaseOrder->status, ['cancelled'], true)) {
             $this->purchaseOrderToDelete = $purchaseOrder;
             $this->confirmingDeletion = true;
         }
     }
 
-    public function deletePurchase()
+    public function deletePurchase(PurchaseOrderService $purchaseOrderService)
     {
+        abort_if(!user_can('Delete Purchase Order'), 403);
+
         if ($this->purchaseOrderToDelete) {
-            $this->purchaseOrderToDelete->delete();
-            $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
-            $this->supplier->refresh();
+            try {
+                $purchaseOrderService->deletePurchaseOrder($this->purchaseOrderToDelete);
+                $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
+                $this->supplier->refresh();
+                if ($this->activeTab === 'ledger') {
+                    $this->loadLedger();
+                }
+            } catch (\Throwable $e) {
+                $this->alert('error', $e->getMessage());
+            }
         }
         $this->confirmingDeletion = false;
         $this->purchaseOrderToDelete = null;
@@ -524,7 +548,11 @@ class SupplierDetails extends Component
     {
         return $this->supplier->orders()
             ->when($this->search, function ($query) {
-                $query->where('po_number', 'like', '%' . $this->search . '%');
+                $query->where(function ($q) {
+                    $q->where('id', 'like', '%' . $this->search . '%')
+                        ->orWhere('po_number', 'like', '%' . $this->search . '%')
+                        ->orWhere('invoice_no', 'like', '%' . $this->search . '%');
+                });
             })
             ->when($this->locationId, function ($query) {
                 $query->where('location_id', $this->locationId);

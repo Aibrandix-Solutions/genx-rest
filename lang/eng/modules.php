@@ -2074,6 +2074,7 @@ return [
         'sumOfTotalRevenue' => 'Sum of Total Revenue',
         'totalCharges' => 'Total Charges',
         'itemReportMessage' => 'View detailed sales and performance of items',
+        'menuItemReportMessage' => 'View all menu items and their sales performance',
         'salesReportMessage' => 'Check and track your restaurant\'s earnings',
         'detailedSalesReportMessage' => 'View individual sales transactions and details',
         'categoryReportMessage' => 'See sales by category to understand performance',

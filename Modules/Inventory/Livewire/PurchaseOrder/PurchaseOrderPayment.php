@@ -8,6 +8,7 @@ use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -81,9 +82,21 @@ class PurchaseOrderPayment extends Component
 
     public function resetForm()
     {
-        $this->reset(['paymentAmount', 'paymentMethod', 'paymentAccount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->reset(['paymentAmount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->paymentMethod = 'cash';
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->resetValidation();
+    }
+
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
     }
 
     public function updatedPaymentAmount()
@@ -123,10 +136,13 @@ class PurchaseOrderPayment extends Component
             $path = $this->paymentDocument->store('supplier-payments', 'public');
         }
 
+        $paymentAccount = $this->paymentAccount
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
         $payment = SupplierPayment::create([
             'supplier_id' => $this->purchaseOrder->supplier_id,
             'purchase_order_id' => $this->purchaseOrder->id,
-            'payment_account_id' => $this->paymentAccount,
+            'payment_account_id' => $paymentAccount,
             'amount' => $this->paymentAmount,
             'paid_on' => $this->paymentDate,
             'payment_method' => $this->paymentMethod,
@@ -137,8 +153,8 @@ class PurchaseOrderPayment extends Component
         ]);
 
         // Update Payment Account Balance if selected and log transaction
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
+        if ($paymentAccount) {
+            $account = PaymentAccount::find($paymentAccount);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 
