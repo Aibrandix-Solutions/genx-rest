@@ -1132,6 +1132,18 @@ class PosVueOrderController extends Controller
      */
     private static function syncPostPaymentBalance(Order $order, float $newTotal, bool $allowImmediatePaymentWithoutCustomer = false): void
     {
+        if (class_exists(\Modules\Hotel\Services\OrderFolioSettlement::class)
+            && \Modules\Hotel\Services\OrderFolioSettlement::isChargedToFolio($order)) {
+            $order->update([
+                'amount_paid' => 0,
+                'status' => \Modules\Hotel\Services\OrderFolioSettlement::isFolioSettled($order)
+                    ? \Modules\Hotel\Services\OrderFolioSettlement::STATUS_FOLIO_SETTLED
+                    : 'billed',
+            ]);
+
+            return;
+        }
+
         $amountPaid = $order->split_type === 'items'
             ? (float) $order->splitOrders()->where('status', 'paid')->sum('amount')
             : (float) $order->payments()

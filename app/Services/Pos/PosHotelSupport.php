@@ -38,15 +38,7 @@ class PosHotelSupport
 
     public static function showRoomChargePayment(): bool
     {
-        if (! self::isHotelModuleEnabled()) {
-            return false;
-        }
-
-        if (! function_exists('hotel_business_mode')) {
-            return false;
-        }
-
-        return in_array(hotel_business_mode(), ['hotel_primary', 'equal'], true);
+        return self::isHotelModuleEnabled();
     }
 
     /**

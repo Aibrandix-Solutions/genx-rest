@@ -11,6 +11,7 @@ use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
 use App\Models\Order;
 use App\Models\Payment;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class PropertyProfitLoss extends Component
 {
@@ -62,7 +63,7 @@ class PropertyProfitLoss extends Component
 
         $roomServiceSales = Order::where('branch_id', branch()->id)
             ->whereNotNull('hotel_reservation_id')
-            ->whereIn('status', ['paid', 'payment_due'])
+            ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
