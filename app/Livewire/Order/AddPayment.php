@@ -18,6 +18,7 @@ use App\Livewire\Customer\AddCustomer;
 use App\Livewire\Order\OrderDetail;
 use App\Services\Pos\PosHotelSupport;
 use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class AddPayment extends Component
 {
@@ -592,6 +593,7 @@ class AddPayment extends Component
         }
 
         $epsilon = 0.0001;
+        $chargedToFolio = false;
 
         try {
             DB::beginTransaction();
@@ -616,37 +618,36 @@ class AddPayment extends Component
 
                 $this->processSplitPayment();
             } else {
-                if ($this->paymentAmount >= 0) {
-                    if ($this->paymentMethod === 'room_charge' && $this->showRoomCharge) {
-                        if (! $this->roomChargeReservationId) {
-                            DB::rollBack();
-                            $this->alert('error', __('modules.order.selectRoom'), [
-                                'toast' => true,
-                                'position' => 'top-end',
-                            ]);
-
-                            return;
-                        }
-
-                        $this->order->update([
-                            'hotel_reservation_id' => (int) $this->roomChargeReservationId,
+                if ($this->paymentMethod === 'room_charge' && $this->showRoomCharge) {
+                    if (! $this->roomChargeReservationId) {
+                        DB::rollBack();
+                        $this->alert('error', __('modules.order.selectRoom'), [
+                            'toast' => true,
+                            'position' => 'top-end',
                         ]);
+
+                        return;
                     }
 
-                    $storedPaymentMethod = $this->paymentMethod === 'room_charge' ? 'due' : $this->paymentMethod;
-
+                    OrderFolioSettlement::chargeToFolio(
+                        $this->order,
+                        (int) $this->roomChargeReservationId
+                    );
+                    $chargedToFolio = true;
+                } elseif ($this->paymentAmount >= 0) {
                     Payment::create([
                         'order_id' => $this->order->id,
-                        'payment_method' => $storedPaymentMethod,
+                        'payment_method' => $this->paymentMethod,
                         'amount' => $this->paymentAmount - $this->returnAmount,
                         'balance' => $this->returnAmount,
-                        'payment_account_id' => $this->getDefaultPaymentAccountId($storedPaymentMethod),
+                        'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod),
                     ]);
                 }
             }
 
             $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
+            if (! $chargedToFolio) {
             if ($this->order->split_type === 'items') {
                 $orderPaidAmount = $this->order->splitOrders()
                     ->where('status', 'paid')
@@ -679,6 +680,8 @@ class AddPayment extends Component
                     'amount' => $outstanding,
                     'payment_account_id' => $this->getDefaultPaymentAccountId('due'),
                 ]);
+            }
+
             }
 
             DB::commit();

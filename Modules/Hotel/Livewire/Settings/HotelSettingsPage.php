@@ -128,6 +128,10 @@ class HotelSettingsPage extends Component
             $this->hotel_logo = null;
         }
 
+        if (function_exists('forget_hotel_business_mode_cache')) {
+            forget_hotel_business_mode_cache(restaurant()->id);
+        }
+
         $this->alert('success', __('hotel::modules.settings.saved'));
     }
 
