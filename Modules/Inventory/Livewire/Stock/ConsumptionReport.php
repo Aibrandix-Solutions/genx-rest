@@ -9,6 +9,7 @@ use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Inventory\Entities\InventoryConsumption;
+use Modules\Inventory\Entities\InventoryDisposal;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryStock;
 
@@ -191,6 +192,106 @@ class ConsumptionReport extends Component
         ];
     }
 
+    /**
+     * Disposal totals for the same date/branch/item filters.
+     */
+    protected function disposalBaseQuery()
+    {
+        $query = InventoryDisposal::query()
+            ->where('restaurant_id', restaurant()->id);
+
+        if ($this->startDate) {
+            $query->whereDate('disposal_date', '>=', $this->startDate);
+        }
+        if ($this->endDate) {
+            $query->whereDate('disposal_date', '<=', $this->endDate);
+        }
+        if ($this->branchFilter !== 'all' && $this->branchFilter !== '') {
+            $query->where('branch_id', $this->branchFilter);
+        }
+        if (!empty($this->itemFilter)) {
+            $query->where('inventory_item_id', $this->itemFilter);
+        }
+        if (trim($this->search) !== '') {
+            $term = '%' . trim($this->search) . '%';
+            $query->whereHas('item', function ($q) use ($term) {
+                $q->where('name', 'like', $term)
+                    ->orWhere('item_code', 'like', $term);
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * Per-item disposal summary for the report.
+     */
+    public function getDisposalSummaryRowsProperty()
+    {
+        $base = $this->disposalBaseQuery();
+
+        $aggregates = (clone $base)
+            ->selectRaw('inventory_item_id,
+                SUM(quantity) as total_disposed,
+                COUNT(*) as entries,
+                MIN(disposal_date) as first_date,
+                MAX(disposal_date) as last_date')
+            ->groupBy('inventory_item_id')
+            ->orderByDesc('total_disposed')
+            ->paginate($this->perPage, ['*'], 'disposalSummaryPage');
+
+        $itemIds = collect($aggregates->items())->pluck('inventory_item_id')->all();
+
+        $items = InventoryItem::with('unit:id,symbol,name')
+            ->whereIn('id', $itemIds)
+            ->get()
+            ->keyBy('id');
+
+        $rows = collect($aggregates->items())->map(function ($row) use ($items) {
+            $item = $items->get($row->inventory_item_id);
+            return (object) [
+                'item_id'     => $row->inventory_item_id,
+                'item_name'   => $item->name ?? '--',
+                'item_code'   => $item->item_code ?? null,
+                'unit_symbol' => optional($item?->unit)->symbol,
+                'disposed'    => (float) $row->total_disposed,
+                'entries'     => (int) $row->entries,
+                'first_date'  => $row->first_date,
+                'last_date'   => $row->last_date,
+            ];
+        });
+
+        return [
+            'rows'      => $rows,
+            'paginator' => $aggregates,
+        ];
+    }
+
+    /**
+     * Detailed disposal entry list.
+     */
+    public function getDisposalDetailRowsProperty()
+    {
+        return $this->disposalBaseQuery()
+            ->with(['item.unit:id,symbol,name', 'branch:id,name', 'addedBy:id,name'])
+            ->orderByDesc('disposal_date')
+            ->orderByDesc('id')
+            ->paginate($this->perPage, ['*'], 'disposalDetailPage');
+    }
+
+    /**
+     * Disposal top-level totals.
+     */
+    public function getDisposalTotalsProperty(): array
+    {
+        $base = $this->disposalBaseQuery();
+        return [
+            'disposed' => (float) (clone $base)->sum('quantity'),
+            'entries'  => (int) (clone $base)->count(),
+            'items'    => (int) (clone $base)->distinct('inventory_item_id')->count('inventory_item_id'),
+        ];
+    }
+
     public function getBranchesProperty()
     {
         return Branch::where('restaurant_id', restaurant()->id)
@@ -208,14 +309,19 @@ class ConsumptionReport extends Component
     public function render()
     {
         $summary = $this->summaryRows;
+        $disposalSummary = $this->disposalSummaryRows;
 
         return view('inventory::livewire.stock.consumption-report', [
-            'summaryRows' => $summary['rows'],
-            'summaryPaginator' => $summary['paginator'],
-            'detailRows' => $this->detailRows,
-            'totals' => $this->totals,
-            'branches' => $this->branches,
-            'items' => $this->items,
+            'summaryRows'          => $summary['rows'],
+            'summaryPaginator'     => $summary['paginator'],
+            'detailRows'           => $this->detailRows,
+            'totals'               => $this->totals,
+            'branches'             => $this->branches,
+            'items'                => $this->items,
+            'disposalSummaryRows'  => $disposalSummary['rows'],
+            'disposalSummaryPaginator' => $disposalSummary['paginator'],
+            'disposalDetailRows'   => $this->disposalDetailRows,
+            'disposalTotals'       => $this->disposalTotals,
         ]);
     }
 }

@@ -232,6 +232,7 @@
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.categoryReport'), 'link' => route('reports.category'), 'active' => request()->routeIs('reports.category')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.deliveryAppReport'), 'link' => route('reports.delivery'), 'active' => request()->routeIs('reports.delivery')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.kotAdjustmentLog'), 'link' => route('reports.kotAdjustments'), 'active' => request()->routeIs('reports.kotAdjustments')])
+                                    @livewire('sidebar-dropdown-menu', ['name' => __('menu.menuItemReport'), 'link' => route('reports.menuItem'), 'active' => request()->routeIs('reports.menuItem')])
                                     @if ($this->hasModule('Expense'))
                                         @livewire('sidebar-dropdown-menu', ['name' => __('menu.expenseReports'), 'link' => route('reports.expenseReports'), 'active' => request()->routeIs('reports.expenseReports')])
                                     @endif
@@ -241,6 +242,9 @@
                         @endif
 
                         @foreach ($customPlugins as $item)
+                            @if (strtolower($item) === 'hotel' && in_array($businessMode, ['hotel_primary', 'equal'], true))
+                                @continue
+                            @endif
                             @includeIf(strtolower($item) . '::sections.sidebar')
                         @endforeach
 

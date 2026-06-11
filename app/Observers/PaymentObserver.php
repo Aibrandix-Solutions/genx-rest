@@ -2,6 +2,7 @@
 
 namespace App\Observers;
 
+use App\Models\BranchPaymentAccountSetting;
 use App\Models\Payment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
@@ -15,6 +16,21 @@ class PaymentObserver
     {
         if (branch()) {
             $payment->branch_id = branch()->id;
+        }
+
+        if (
+            !$payment->payment_account_id
+            && $payment->payment_method
+            && $payment->payment_method !== 'due'
+        ) {
+            $branchId = $payment->branch_id ?? branch()?->id;
+
+            if ($branchId) {
+                $payment->payment_account_id = BranchPaymentAccountSetting::resolveDefaultAccountId(
+                    $branchId,
+                    $payment->payment_method
+                );
+            }
         }
     }
 

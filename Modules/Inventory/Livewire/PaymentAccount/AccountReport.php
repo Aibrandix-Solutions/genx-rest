@@ -214,7 +214,10 @@ class AccountReport extends Component
 
         return view('inventory::livewire.payment-account.account-report', [
             'transactions' => $transactions,
-            'accounts' => PaymentAccount::all(),
+            'accounts' => PaymentAccount::query()
+                ->withSum(['transactions as total_debit' => fn($q) => $q->where('type', 'debit')], 'amount')
+                ->withSum(['transactions as total_credit' => fn($q) => $q->where('type', 'credit')], 'amount')
+                ->get(),
             'totalCredit' => $this->calculateTotal('credit'),
             'totalDebit' => $this->calculateTotal('debit'),
         ]);

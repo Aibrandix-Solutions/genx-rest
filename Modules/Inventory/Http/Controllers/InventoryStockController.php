@@ -7,6 +7,7 @@ use App\Models\Branch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Modules\Inventory\Entities\InventoryConsumption;
+use Modules\Inventory\Entities\InventoryDisposal;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryStock;
 
@@ -161,19 +162,100 @@ class InventoryStockController extends Controller
             $itemName = optional(InventoryItem::where('restaurant_id', restaurant()->id)->find($itemFilter))->name;
         }
 
+        // ── Disposal data ────────────────────────────────────────────────────
+        $disposalBase = InventoryDisposal::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->whereDate('disposal_date', '>=', $startDate)
+            ->whereDate('disposal_date', '<=', $endDate);
+
+        if ($branchFilter !== 'all' && $branchFilter !== '') {
+            $disposalBase->where('branch_id', $branchFilter);
+        }
+        if (!empty($itemFilter)) {
+            $disposalBase->where('inventory_item_id', $itemFilter);
+        }
+        if (trim($search) !== '') {
+            $term = '%' . trim($search) . '%';
+            $disposalBase->whereHas('item', function ($q) use ($term) {
+                $q->where('name', 'like', $term)
+                    ->orWhere('item_code', 'like', $term);
+            });
+        }
+
+        $disposalTotals = [
+            'disposed' => (float) (clone $disposalBase)->sum('quantity'),
+            'entries'  => (int)   (clone $disposalBase)->count(),
+            'items'    => (int)   (clone $disposalBase)->distinct('inventory_item_id')->count('inventory_item_id'),
+        ];
+
+        $disposalSummaryRows = collect();
+        $disposalDetailRows  = collect();
+
+        if ($viewMode === 'summary') {
+            $disposalAggregates = (clone $disposalBase)
+                ->selectRaw('inventory_item_id,
+                    SUM(quantity)      as total_disposed,
+                    COUNT(*)           as entries,
+                    MIN(disposal_date) as first_date,
+                    MAX(disposal_date) as last_date')
+                ->groupBy('inventory_item_id')
+                ->orderByDesc('total_disposed')
+                ->get();
+
+            $disposalItemIds = $disposalAggregates->pluck('inventory_item_id')->all();
+            $disposalItems   = InventoryItem::with('unit:id,symbol,name')
+                ->whereIn('id', $disposalItemIds)
+                ->get()
+                ->keyBy('id');
+
+            $disposalSummaryRows = $disposalAggregates->map(function ($row) use ($disposalItems) {
+                $item = $disposalItems->get($row->inventory_item_id);
+                return (object) [
+                    'item_id'     => $row->inventory_item_id,
+                    'item_name'   => $item->name ?? '--',
+                    'item_code'   => $item->item_code ?? null,
+                    'unit_symbol' => optional($item?->unit)->symbol,
+                    'disposed'    => (float) $row->total_disposed,
+                    'entries'     => (int) $row->entries,
+                    'first_date'  => $row->first_date,
+                    'last_date'   => $row->last_date,
+                ];
+            });
+        } else {
+            $disposalDetailRows = (clone $disposalBase)
+                ->with(['item.unit:id,symbol,name', 'branch:id,name', 'addedBy:id,name'])
+                ->orderByDesc('disposal_date')
+                ->orderByDesc('id')
+                ->get();
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         return view('inventory::stock.consumption-report-print', [
-            'viewMode' => $viewMode,
-            'startDate' => $startDate,
-            'endDate' => $endDate,
-            'branchFilter' => $branchFilter,
-            'branchName' => $branchName,
-            'itemFilter' => $itemFilter,
-            'itemName' => $itemName,
-            'search' => $search,
-            'totals' => $totals,
-            'summaryRows' => $summaryRows,
-            'detailRows' => $detailRows,
+            'viewMode'            => $viewMode,
+            'startDate'           => $startDate,
+            'endDate'             => $endDate,
+            'branchFilter'        => $branchFilter,
+            'branchName'          => $branchName,
+            'itemFilter'          => $itemFilter,
+            'itemName'            => $itemName,
+            'search'              => $search,
+            'totals'              => $totals,
+            'summaryRows'         => $summaryRows,
+            'detailRows'          => $detailRows,
+            'disposalTotals'      => $disposalTotals,
+            'disposalSummaryRows' => $disposalSummaryRows,
+            'disposalDetailRows'  => $disposalDetailRows,
         ]);
+    }
+
+    /**
+     * Display the inventory disposal (wastage) list.
+     */
+    public function disposal()
+    {
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('Show Inventory Stock'), 403);
+        return view('inventory::stock.disposal');
     }
 
     /**

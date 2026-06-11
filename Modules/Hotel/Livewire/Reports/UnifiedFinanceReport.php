@@ -11,6 +11,7 @@ use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
 use App\Models\Order;
 use App\Models\Payment;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class UnifiedFinanceReport extends Component
 {
@@ -67,7 +68,7 @@ class UnifiedFinanceReport extends Component
         // --- Room-service orders (tagged to a hotel reservation) ---
         $roomServiceSales = Order::where('branch_id', branch()->id)
             ->whereNotNull('hotel_reservation_id')
-            ->whereIn('status', ['paid', 'payment_due'])
+            ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
@@ -164,14 +165,15 @@ class UnifiedFinanceReport extends Component
         // Room-service per day
         $roomServiceByDay = Order::where('branch_id', branch()->id)
             ->whereNotNull('hotel_reservation_id')
-            ->whereIn('status', ['paid', 'payment_due'])
+            ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween(DB::raw('DATE(date_time)'), [$from, $to])
             ->groupBy(DB::raw('DATE(date_time)'))
             ->select(DB::raw('DATE(date_time) as day'), DB::raw('SUM(total) as amount'))
             ->get()->keyBy('day');
 
-        // Room charges per day
+        // Room charges per day (exclude restaurant lines — counted via room-service orders above)
         $roomChargesByDay = RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+            ->where('charge_type', '!=', RoomCharge::TYPE_RESTAURANT)
             ->whereBetween(DB::raw('DATE(charge_date)'), [$from, $to])
             ->groupBy(DB::raw('DATE(charge_date)'))
             ->select(DB::raw('DATE(charge_date) as day'), DB::raw('SUM(amount) as amount'))
