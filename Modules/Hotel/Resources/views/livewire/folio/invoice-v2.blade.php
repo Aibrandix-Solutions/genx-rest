@@ -49,9 +49,9 @@
             <tr>
                 <td class="py-3 text-sm">{{ $charge->charge_date->format('d/m/Y') }}</td>
                 <td class="py-3">
-                    <p class="font-medium">{{ ucfirst(str_replace('_', ' ', $charge->charge_type)) }}</p>
-                    @if($charge->description)
-                        <p class="text-xs text-gray-500">{{ $charge->description }}</p>
+                    <p class="font-medium">{{ $charge->getCustomTypeLabel() ?? ucfirst(str_replace('_', ' ', $charge->charge_type)) }}</p>
+                    @if($charge->getDisplayDescription())
+                        <p class="text-xs text-gray-500">{{ $charge->getDisplayDescription() }}</p>
                     @endif
                 </td>
                 <td class="py-3 text-right font-medium text-gray-800">

@@ -9,6 +9,7 @@ use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
+use Modules\Hotel\Support\HotelPaymentRecorder;
 use Modules\Hotel\Services\FolioOrderChargeSync;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +27,8 @@ class FolioManager extends Component
     public $totalPayments = 0;
     public $hasRoomNightCharges = false;
     public $hotelName = '';
+    public $paymentSurchargeEnabled = false;
+    public $paymentProcessingRate = 0;
     public $businessMode = 'restaurant_primary';
 
     // Payment modal
@@ -39,8 +42,14 @@ class FolioManager extends Component
     // Add charge modal
     public $showChargeModal = false;
     public $chargeType = 'minibar';
+    public $chargeTypeCustom = '';
     public $chargeDescription = '';
     public $chargeAmount = 0;
+
+    // Tax rate override modal
+    public $showTaxRateModal = false;
+    public $editTaxRate = 0;
+    public $defaultTaxRate = 0;
 
     public function mount($reservationNumber)
     {
@@ -59,6 +68,7 @@ class FolioManager extends Component
         // Load hotel name from settings
         $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
+        $this->paymentSurchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
 
         // Keep restaurant folio lines aligned with linked order totals (fixes stale Rs0.00 rows).
         foreach ($this->reservation->orders as $order) {
@@ -165,13 +175,14 @@ class FolioManager extends Component
             }
 
             // Apply tax on room charges
-            if ($settings && $settings->tax_rate > 0) {
-                $taxAmount = $settings->calculateTax($roomChargesTotal);
+            $taxRate = $this->reservation->getEffectiveTaxRate();
+            if ($taxRate > 0) {
+                $taxAmount = round($roomChargesTotal * ($taxRate / 100), 2);
                 if ($taxAmount > 0) {
                     RoomCharge::create([
                         'reservation_id' => $this->reservation->id,
                         'charge_type' => RoomCharge::TYPE_TAX,
-                        'description' => 'Tax (' . $settings->tax_rate . '%)',
+                        'description' => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
                         'amount' => $taxAmount,
                         'charge_date' => $checkIn->toDateString(),
                     ]);
@@ -223,6 +234,7 @@ class FolioManager extends Component
         $this->paymentType = 'settlement';
         $this->paymentReference = '';
         $this->paymentNotes = '';
+        $this->paymentProcessingRate = 0;
         $this->showPaymentModal = true;
     }
 
@@ -244,6 +256,7 @@ class FolioManager extends Component
         $this->paymentType = 'refund';
         $this->paymentReference = '';
         $this->paymentNotes = '';
+        $this->paymentProcessingRate = 0;
         $this->showPaymentModal = true;
     }
 
@@ -255,11 +268,13 @@ class FolioManager extends Component
             'paymentAmount' => 'required|numeric|min:0.01',
             'paymentMethod' => 'required|in:cash,card,bank_transfer,upi,other',
             'paymentType' => 'required|in:advance,deposit,settlement,refund',
+            'paymentProcessingRate' => 'nullable|numeric|min:0|max:100',
             'paymentReference' => 'nullable|string|max:255',
             'paymentNotes' => 'nullable|string|max:1000',
         ]);
 
         $balanceBeforePayment = (float) $this->balance;
+        $totalCollected = (float) $this->paymentAmount;
 
         if ($this->paymentType === 'refund') {
             if ($balanceBeforePayment >= 0) {
@@ -292,17 +307,32 @@ class FolioManager extends Component
             }
         }
 
-        DB::transaction(function () {
-            HotelPayment::create([
-                'restaurant_id' => $this->reservation->restaurant_id,
-                'reservation_id' => $this->reservation->id,
-                'amount' => $this->paymentAmount,
-                'payment_method' => $this->paymentMethod,
-                'payment_type' => $this->paymentType,
-                'reference_number' => $this->paymentReference ?: null,
-                'notes' => $this->paymentNotes ?: null,
-                'received_by_user_id' => auth()->id(),
-            ]);
+        DB::transaction(function () use (&$totalCollected) {
+            if ($this->paymentType === HotelPayment::TYPE_REFUND) {
+                HotelPayment::create([
+                    'restaurant_id' => $this->reservation->restaurant_id,
+                    'reservation_id' => $this->reservation->id,
+                    'amount' => $this->paymentAmount,
+                    'payment_method' => $this->paymentMethod,
+                    'payment_type' => $this->paymentType,
+                    'reference_number' => $this->paymentReference ?: null,
+                    'notes' => $this->paymentNotes ?: null,
+                    'received_by_user_id' => auth()->id(),
+                ]);
+            } else {
+                $result = HotelPaymentRecorder::record(
+                    $this->reservation,
+                    (float) $this->paymentAmount,
+                    $this->paymentMethod,
+                    $this->paymentType,
+                    $this->paymentReference ?: null,
+                    $this->paymentNotes ?: null,
+                    auth()->id(),
+                    (float) $this->paymentProcessingRate,
+                    $this->paymentSurchargeEnabled,
+                );
+                $totalCollected = $result['total_collected'];
+            }
 
             $this->reservation->calculateTotal();
         });
@@ -310,7 +340,7 @@ class FolioManager extends Component
         $this->showPaymentModal = false;
         $this->loadData();
 
-        $this->alert('success', 'Payment of ' . currency_format($this->paymentAmount) . ' recorded successfully.');
+        $this->alert('success', 'Payment of ' . currency_format($totalCollected) . ' recorded successfully.');
     }
 
     // --- Add Manual Charge Methods ---
@@ -319,6 +349,7 @@ class FolioManager extends Component
     {
         abort_unless(user_can('add_room_charge'), 403);
         $this->chargeType = 'minibar';
+        $this->chargeTypeCustom = '';
         $this->chargeDescription = '';
         $this->chargeAmount = 0;
         $this->showChargeModal = true;
@@ -328,17 +359,27 @@ class FolioManager extends Component
     {
         abort_unless(user_can('add_room_charge'), 403);
 
-        $this->validate([
+        $rules = [
             'chargeType' => 'required|in:room_night,minibar,laundry,service,tax,other',
             'chargeDescription' => 'required|string|max:500',
             'chargeAmount' => 'required|numeric|min:0.01',
-        ]);
+        ];
+
+        if ($this->chargeType === 'other') {
+            $rules['chargeTypeCustom'] = ['required', 'string', 'max:50', 'regex:/^[^:]+$/'];
+        }
+
+        $this->validate($rules);
+
+        $description = $this->chargeType === 'other'
+            ? RoomCharge::encodeCustomTypeDescription($this->chargeTypeCustom, $this->chargeDescription)
+            : $this->chargeDescription;
 
         DB::transaction(function () {
             RoomCharge::create([
                 'reservation_id' => $this->reservation->id,
                 'charge_type' => $this->chargeType,
-                'description' => $this->chargeDescription,
+                'description' => $description,
                 'amount' => $this->chargeAmount,
                 'charge_date' => now()->toDateString(),
             ]);
@@ -406,6 +447,47 @@ class FolioManager extends Component
         $this->loadData();
 
         $this->alert('success', 'Charge removed.');
+    }
+
+    // --- Tax Rate Override ---
+
+    public function openTaxRateModal()
+    {
+        abort_unless(user_can('add_room_charge'), 403);
+
+        $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+        $this->defaultTaxRate = $settings ? (float) $settings->tax_rate : 0;
+        $this->editTaxRate = $this->reservation->getEffectiveTaxRate();
+        $this->showTaxRateModal = true;
+    }
+
+    public function saveTaxRate()
+    {
+        abort_unless(user_can('add_room_charge'), 403);
+
+        $this->validate([
+            'editTaxRate' => 'required|numeric|min:0|max:100',
+        ]);
+
+        DB::transaction(function () {
+            $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+            $defaultRate = $settings ? (float) $settings->tax_rate : 0.0;
+            $newRate = round((float) $this->editTaxRate, 2);
+
+            $this->reservation->update([
+                'tax_rate_override' => $newRate === $defaultRate ? null : $newRate,
+            ]);
+
+            $this->reservation->refresh();
+            $this->reservation->recalculateTaxCharge();
+            $this->reservation->recalculateLinkedServiceCharge();
+            $this->reservation->calculateTotal();
+        });
+
+        $this->showTaxRateModal = false;
+        $this->loadData();
+
+        $this->alert('success', __('hotel::modules.folio.taxRateUpdated'));
     }
 
     public function viewLinkedOrder(int $orderId): void

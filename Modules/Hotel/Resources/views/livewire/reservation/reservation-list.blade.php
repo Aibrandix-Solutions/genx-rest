@@ -274,13 +274,17 @@
                                         </span>
 
                                         {{-- Price (effective / overridden) --}}
+                                        @php
+                                            $nightlyRate = $room->roomType->getPriceForDate($create_check_in_date);
+                                            $hasPriceOverride = (float) $nightlyRate !== (float) ($room->roomType->base_price ?? 0);
+                                        @endphp
                                         <div class="mt-1.5">
-                                            @if($room->has_price_override)
+                                            @if($hasPriceOverride)
                                                 <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
                                             @endif
-                                            <span class="text-sm font-semibold {{ $room->has_price_override ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($room->effective_nightly_rate, restaurant()->currency_id) }}</span>
+                                            <span class="text-sm font-semibold {{ $hasPriceOverride ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
                                             <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
-                                            @if($room->has_price_override)
+                                            @if($hasPriceOverride)
                                                 <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
                                             @endif
                                         </div>
@@ -474,6 +478,7 @@
 
                     {{-- Payment Form --}}
                     <form wire:submit.prevent="processCheckout">
+                        @php $currencySymbol = restaurant()->currency->currency_symbol ?? 'Rs'; @endphp
                         <div class="space-y-4">
                             <div>
                                 <x-label for="checkout_date_actual" value="Checkout Date" />
@@ -481,29 +486,82 @@
                                 <x-input-error for="checkout_date_actual" class="mt-2" />
                             </div>
 
-                            <div>
-                                <x-label for="checkout_amount_paid" value="Settlement Amount" />
-                                <x-input id="checkout_amount_paid" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="checkout_amount_paid" required />
-                                <p class="text-xs text-gray-500 mt-1">Enter 0 if balance was already settled.</p>
-                                <x-input-error for="checkout_amount_paid" class="mt-2" />
-                            </div>
+                            @if($paymentSurchargeEnabled)
+                            <div
+                                class="space-y-4"
+                                x-data="{
+                                    amount: @entangle('checkout_amount_paid'),
+                                    method: @entangle('checkout_payment_method'),
+                                    rate: @entangle('checkout_processing_rate'),
+                                    currencySymbol: @js($currencySymbol),
+                                    get showSurchargeFields() {
+                                        return ['card', 'bank_transfer'].includes(this.method);
+                                    },
+                                    get surchargeAmount() {
+                                        const amt = parseFloat(this.amount) || 0;
+                                        const rt = parseFloat(this.rate) || 0;
+                                        if (!this.showSurchargeFields || amt <= 0 || rt <= 0) return 0;
+                                        return Math.round((amt * rt / 100) * 100) / 100;
+                                    },
+                                    get totalCollected() {
+                                        const amt = parseFloat(this.amount) || 0;
+                                        return Math.round((amt + this.surchargeAmount) * 100) / 100;
+                                    }
+                                }"
+                            >
+                                <div>
+                                    <x-label for="checkout_amount_paid" value="Settlement Amount" />
+                                    <input id="checkout_amount_paid" type="number" step="0.01" min="0" x-model="amount" required class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
+                                    <p class="text-xs text-gray-500 mt-1">Enter 0 if balance was already settled.</p>
+                                    <x-input-error for="checkout_amount_paid" class="mt-2" />
+                                </div>
 
-                            <div>
-                                <x-label for="checkout_payment_method" value="Payment Method" />
-                                <select id="checkout_payment_method" wire:model="checkout_payment_method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
-                                    <option value="cash">Cash</option>
-                                    <option value="card">Card</option>
-                                    <option value="bank_transfer">Bank Transfer</option>
-                                    <option value="upi">UPI</option>
-                                    <option value="other">Other</option>
-                                </select>
-                                <x-input-error for="checkout_payment_method" class="mt-2" />
-                            </div>
+                                <div>
+                                    <x-label for="checkout_payment_method" value="Payment Method" />
+                                    <select id="checkout_payment_method" x-model="method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                        <option value="cash">Cash</option>
+                                        <option value="card">Card</option>
+                                        <option value="bank_transfer">Bank Transfer</option>
+                                        <option value="upi">UPI</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                    <x-input-error for="checkout_payment_method" class="mt-2" />
+                                </div>
 
-                            <div>
-                                <x-label for="checkout_notes" value="Notes" />
-                                <textarea id="checkout_notes" wire:model="checkout_notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                                @include('hotel::partials.payment-surcharge-fields', ['rateInputId' => 'checkout_processing_rate'])
+
+                                <div>
+                                    <x-label for="checkout_notes" value="Notes" />
+                                    <textarea id="checkout_notes" wire:model="checkout_notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                                </div>
                             </div>
+                            @else
+                            <div class="space-y-4">
+                                <div>
+                                    <x-label for="checkout_amount_paid" value="Settlement Amount" />
+                                    <input id="checkout_amount_paid" type="number" step="0.01" min="0" wire:model="checkout_amount_paid" required class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
+                                    <p class="text-xs text-gray-500 mt-1">Enter 0 if balance was already settled.</p>
+                                    <x-input-error for="checkout_amount_paid" class="mt-2" />
+                                </div>
+
+                                <div>
+                                    <x-label for="checkout_payment_method" value="Payment Method" />
+                                    <select id="checkout_payment_method" wire:model="checkout_payment_method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                        <option value="cash">Cash</option>
+                                        <option value="card">Card</option>
+                                        <option value="bank_transfer">Bank Transfer</option>
+                                        <option value="upi">UPI</option>
+                                        <option value="other">Other</option>
+                                    </select>
+                                    <x-input-error for="checkout_payment_method" class="mt-2" />
+                                </div>
+
+                                <div>
+                                    <x-label for="checkout_notes" value="Notes" />
+                                    <textarea id="checkout_notes" wire:model="checkout_notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                                </div>
+                            </div>
+                            @endif
                         </div>
 
                         <div class="mt-6 flex justify-end gap-3">
@@ -602,6 +660,60 @@
 
                     {{-- Advance Payment --}}
                     <form wire:submit.prevent="processCheckIn">
+                        @php $currencySymbol = restaurant()->currency->currency_symbol ?? 'Rs'; @endphp
+                        @if($paymentSurchargeEnabled)
+                        <div
+                            class="space-y-4"
+                            x-data="{
+                                amount: @entangle('checkInAdvanceAmount'),
+                                method: @entangle('checkInPaymentMethod'),
+                                rate: @entangle('checkInProcessingRate'),
+                                currencySymbol: @js($currencySymbol),
+                                get showSurchargeFields() {
+                                    return ['card', 'bank_transfer'].includes(this.method);
+                                },
+                                get surchargeAmount() {
+                                    const amt = parseFloat(this.amount) || 0;
+                                    const rt = parseFloat(this.rate) || 0;
+                                    if (!this.showSurchargeFields || amt <= 0 || rt <= 0) return 0;
+                                    return Math.round((amt * rt / 100) * 100) / 100;
+                                },
+                                get totalCollected() {
+                                    const amt = parseFloat(this.amount) || 0;
+                                    return Math.round((amt + this.surchargeAmount) * 100) / 100;
+                                }
+                            }"
+                        >
+                            <div class="border-t pt-4 dark:border-gray-600">
+                                <h4 class="font-semibold text-gray-900 dark:text-white mb-3">Advance Payment (Optional)</h4>
+                            </div>
+
+                            <div>
+                                <x-label for="checkInAdvanceAmount" value="Advance Amount" />
+                                <input id="checkInAdvanceAmount" type="number" step="0.01" min="0" x-model="amount" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
+                                <p class="text-xs text-gray-500 mt-1">Enter 0 if no advance payment is being collected.</p>
+                                <x-input-error for="checkInAdvanceAmount" class="mt-2" />
+                            </div>
+
+                            <div>
+                                <x-label for="checkInPaymentMethod" value="Payment Method" />
+                                <select id="checkInPaymentMethod" x-model="method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                    <option value="cash">Cash</option>
+                                    <option value="card">Card</option>
+                                    <option value="bank_transfer">Bank Transfer</option>
+                                    <option value="upi">UPI</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+
+                            @include('hotel::partials.payment-surcharge-fields', ['rateInputId' => 'checkInProcessingRate'])
+
+                            <div>
+                                <x-label for="checkInNotes" value="Notes" />
+                                <textarea id="checkInNotes" wire:model="checkInNotes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                            </div>
+                        </div>
+                        @else
                         <div class="space-y-4">
                             <div class="border-t pt-4 dark:border-gray-600">
                                 <h4 class="font-semibold text-gray-900 dark:text-white mb-3">Advance Payment (Optional)</h4>
@@ -609,7 +721,7 @@
 
                             <div>
                                 <x-label for="checkInAdvanceAmount" value="Advance Amount" />
-                                <x-input id="checkInAdvanceAmount" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="checkInAdvanceAmount" />
+                                <input id="checkInAdvanceAmount" type="number" step="0.01" min="0" wire:model="checkInAdvanceAmount" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
                                 <p class="text-xs text-gray-500 mt-1">Enter 0 if no advance payment is being collected.</p>
                                 <x-input-error for="checkInAdvanceAmount" class="mt-2" />
                             </div>
@@ -630,6 +742,7 @@
                                 <textarea id="checkInNotes" wire:model="checkInNotes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
                             </div>
                         </div>
+                        @endif
 
                         <div class="mt-6 flex justify-end gap-3">
                             <x-button type="button" wire:click="$set('showCheckInModal', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
@@ -650,10 +763,11 @@
         <x-slot name="title">@lang('hotel::modules.folio.addCharge')</x-slot>
         <x-slot name="content">
             <form wire:submit.prevent="saveQuickCharge">
-                <div class="space-y-4">
+                <div class="space-y-4" x-data="{ showCustomType: @js($charge_type === 'other') }">
                     <div>
                         <x-label for="charge_type" value="{{ __('hotel::modules.folio.chargeType') }}" />
                         <select id="charge_type" wire:model="charge_type"
+                            x-on:change="showCustomType = ($event.target.value === 'other')"
                             class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
                             <option value="room_night">@lang('hotel::modules.folio.roomNight')</option>
                             <option value="minibar">@lang('hotel::modules.folio.minibar')</option>
@@ -663,6 +777,11 @@
                             <option value="other">@lang('hotel::modules.folio.other')</option>
                         </select>
                         @error('charge_type') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                    </div>
+                    <div x-show="showCustomType" x-cloak x-transition.opacity.duration.150ms>
+                        <x-label for="charge_type_custom" value="{{ __('hotel::modules.folio.customChargeType') }}" />
+                        <x-input id="charge_type_custom" type="text" wire:model="charge_type_custom" class="mt-1 block w-full" placeholder="{{ __('hotel::modules.folio.customChargeTypePlaceholder') }}" />
+                        @error('charge_type_custom') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
                     </div>
                     <div>
                         <x-label for="charge_description" value="{{ __('app.description') }}" />

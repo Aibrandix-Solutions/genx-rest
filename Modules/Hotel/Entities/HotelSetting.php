@@ -32,6 +32,8 @@ class HotelSetting extends Model
         'max_rooms_per_booking',
         'tax_rate',
         'service_charge_rate',
+        'enable_payment_surcharge',
+        'payment_surcharge_rate',
     ];
 
     protected $casts = [
@@ -42,9 +44,11 @@ class HotelSetting extends Model
         'enable_room_service' => 'boolean',
         'enable_housekeeping_module' => 'boolean',
         'enable_dynamic_pricing' => 'boolean',
+        'enable_payment_surcharge' => 'boolean',
         'max_rooms_per_booking' => 'integer',
         'tax_rate' => 'decimal:2',
         'service_charge_rate' => 'decimal:2',
+        'payment_surcharge_rate' => 'decimal:2',
     ];
 
     const PAYMENT_FULL_ADVANCE = 'full_advance';
@@ -104,5 +108,32 @@ class HotelSetting extends Model
     public function getLateCheckoutCharge()
     {
         return $this->late_checkout_charge_per_hour ?? 0;
+    }
+
+    public function paymentSurchargeAppliesTo(string $method): bool
+    {
+        return $this->enable_payment_surcharge
+            && (float) $this->payment_surcharge_rate > 0
+            && in_array($method, ['card', 'bank_transfer'], true);
+    }
+
+    public function calculatePaymentSurcharge(float $amount, string $method): float
+    {
+        if ($amount <= 0 || !$this->paymentSurchargeAppliesTo($method)) {
+            return 0;
+        }
+
+        return round($amount * ((float) $this->payment_surcharge_rate / 100), 2);
+    }
+
+    public function paymentSurchargeDescription(string $method): string
+    {
+        $label = match ($method) {
+            'card' => 'Card',
+            'bank_transfer' => 'Bank transfer',
+            default => ucfirst(str_replace('_', ' ', $method)),
+        };
+
+        return $label . ' payment surcharge (' . number_format((float) $this->payment_surcharge_rate, 2, '.', '') . '%)';
     }
 }

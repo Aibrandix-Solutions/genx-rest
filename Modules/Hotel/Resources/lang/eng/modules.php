@@ -143,6 +143,17 @@ return [
         'noPayments' => 'No payments recorded yet.',
         'confirmDeleteCharge' => 'Are you sure you want to delete this charge?',
         'generateRoomCharges' => 'Generate Room Charges',
+        'editTaxRate' => 'Edit Tax Rate',
+        'editTaxRateHint' => 'Hotel default tax rate is :rate%. Changes here apply only to this reservation.',
+        'taxRate' => 'Tax Rate',
+        'taxRateUpdated' => 'Tax rate updated for this reservation.',
+        'customRate' => 'Custom',
+        'customChargeType' => 'Custom Charge Type',
+        'customChargeTypePlaceholder' => 'e.g. Parking, Spa, Damage fee',
+        'processingFee' => 'Processing fee (:rate%)',
+        'processingFeeLabel' => 'Processing fee',
+        'processingChargeRate' => 'Processing Charge Rate',
+        'totalToCollect' => 'Total to collect',
     ],
 
     'invoice' => [
@@ -184,6 +195,8 @@ return [
         'fullAdvanceHint' => 'The full stay amount is collected at check-in.',
         'depositPercentage' => 'Deposit Percentage',
         'cancellationPolicy' => 'Cancellation Policy',
+        'enablePaymentSurcharge' => 'Card / Bank Transfer Surcharge',
+        'enablePaymentSurchargeHint' => 'Allow staff to add a processing fee (%) when guests pay by card or bank transfer. The rate is entered per payment.',
 
         // Tax & Charges
         'taxAndCharges' => 'Tax & Service Charges',
