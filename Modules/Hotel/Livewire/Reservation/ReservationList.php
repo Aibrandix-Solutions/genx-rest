@@ -10,6 +10,7 @@ use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
+use Modules\Hotel\Support\HotelPaymentRecorder;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -43,6 +44,7 @@ class ReservationList extends Component
     public $checkInReservation = null;
     public $checkInAdvanceAmount = 0;
     public $checkInPaymentMethod = 'cash';
+    public $checkInProcessingRate = 0;
     public $checkInNotes = '';
     public $checkInTotalAmount = 0;
 
@@ -62,6 +64,7 @@ class ReservationList extends Component
         $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->checkInAdvanceAmount = $settings ? $settings->calculateDeposit($this->checkInTotalAmount) : 0;
         $this->checkInPaymentMethod = 'cash';
+        $this->checkInProcessingRate = 0;
         $this->checkInNotes = '';
         $this->showCheckInModal = true;
     }
@@ -73,6 +76,7 @@ class ReservationList extends Component
         $this->validate([
             'checkInAdvanceAmount' => 'required|numeric|min:0',
             'checkInPaymentMethod' => 'required|string',
+            'checkInProcessingRate' => 'nullable|numeric|min:0|max:100',
         ]);
 
         if (!$this->checkInReservation) {
@@ -109,15 +113,18 @@ class ReservationList extends Component
 
             // 2. Record advance payment if amount > 0
             if ($this->checkInAdvanceAmount > 0) {
-                HotelPayment::create([
-                    'restaurant_id' => restaurant()->id,
-                    'reservation_id' => $reservation->id,
-                    'amount' => $this->checkInAdvanceAmount,
-                    'payment_method' => $this->checkInPaymentMethod,
-                    'payment_type' => HotelPayment::TYPE_ADVANCE,
-                    'notes' => $this->checkInNotes ?: 'Advance payment at check-in',
-                    'received_by_user_id' => auth()->id(),
-                ]);
+                $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+                HotelPaymentRecorder::record(
+                    $reservation,
+                    (float) $this->checkInAdvanceAmount,
+                    $this->checkInPaymentMethod,
+                    HotelPayment::TYPE_ADVANCE,
+                    null,
+                    $this->checkInNotes ?: 'Advance payment at check-in',
+                    auth()->id(),
+                    (float) $this->checkInProcessingRate,
+                    (bool) ($settings->enable_payment_surcharge ?? false),
+                );
             }
 
             // 3. Update reservation status
@@ -574,6 +581,7 @@ class ReservationList extends Component
     public $checkout_amount_paid = 0;
     public $checkout_balance_due = 0;
     public $checkout_payment_method = 'cash';
+    public $checkout_processing_rate = 0;
     public $checkout_notes = '';
     public $checkout_date_actual = '';
 
@@ -602,6 +610,8 @@ class ReservationList extends Component
             // Default payment to full balance
             $this->checkout_amount_paid = max(0, $this->checkout_balance_due);
             $this->checkout_date_actual = Carbon::today()->format('Y-m-d');
+            $this->checkout_payment_method = 'cash';
+            $this->checkout_processing_rate = 0;
             
             $this->showEditReservation = true;
         }
@@ -614,6 +624,7 @@ class ReservationList extends Component
         $this->validate([
             'checkout_amount_paid' => 'required|numeric|min:0',
             'checkout_payment_method' => 'required|string',
+            'checkout_processing_rate' => 'nullable|numeric|min:0|max:100',
             'checkout_date_actual' => 'required|date',
         ]);
 
@@ -623,6 +634,7 @@ class ReservationList extends Component
 
         DB::transaction(function () {
             $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+            $surchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
 
             // Auto-post late checkout surcharge before settlement
             if ($settings && (float) $settings->late_checkout_charge_per_hour > 0) {
@@ -651,15 +663,17 @@ class ReservationList extends Component
 
             // Record settlement payment if amount > 0
             if ($this->checkout_amount_paid > 0) {
-                HotelPayment::create([
-                    'restaurant_id' => restaurant()->id,
-                    'reservation_id' => $this->checkout_reservation->id,
-                    'amount' => $this->checkout_amount_paid,
-                    'payment_method' => $this->checkout_payment_method,
-                    'payment_type' => HotelPayment::TYPE_SETTLEMENT,
-                    'notes' => $this->checkout_notes ?: 'Settlement at checkout',
-                    'received_by_user_id' => auth()->id(),
-                ]);
+                HotelPaymentRecorder::record(
+                    $this->checkout_reservation,
+                    (float) $this->checkout_amount_paid,
+                    $this->checkout_payment_method,
+                    HotelPayment::TYPE_SETTLEMENT,
+                    null,
+                    $this->checkout_notes ?: 'Settlement at checkout',
+                    auth()->id(),
+                    (float) $this->checkout_processing_rate,
+                    $surchargeEnabled,
+                );
             }
 
             // Update reservation status
@@ -734,6 +748,8 @@ class ReservationList extends Component
         $this->checkout_amount_paid = 0;
         $this->checkout_balance_due = 0;
         $this->checkout_notes = '';
+        $this->checkout_payment_method = 'cash';
+        $this->checkout_processing_rate = 0;
         $this->checkout_date_actual = '';
         $this->editingReservationId = null;
     }
@@ -866,11 +882,66 @@ class ReservationList extends Component
 
         $guests = \Modules\Hotel\Entities\Guest::orderBy('first_name')->get();
         $roomTypes = \Modules\Hotel\Entities\RoomType::all();
+        $hotelSettings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
 
         return view('hotel::livewire.reservation.reservation-list', [
             'reservations' => $reservations,
             'guests' => $guests,
             'roomTypes' => $roomTypes,
+            'paymentSurchargeEnabled' => (bool) ($hotelSettings->enable_payment_surcharge ?? false),
         ])->layout('layouts.app');
+    }
+
+    public function checkInAppliesSurcharge(): bool
+    {
+        return $this->paymentSurchargeEnabledForView()
+            && in_array($this->checkInPaymentMethod, ['card', 'bank_transfer'], true);
+    }
+
+    public function checkInCalculatedSurcharge(): float
+    {
+        if (!$this->checkInAppliesSurcharge()) {
+            return 0;
+        }
+
+        return HotelPaymentRecorder::calculateSurcharge(
+            (float) $this->checkInAdvanceAmount,
+            (float) $this->checkInProcessingRate
+        );
+    }
+
+    public function checkInCalculatedTotal(): float
+    {
+        return round((float) $this->checkInAdvanceAmount + $this->checkInCalculatedSurcharge(), 2);
+    }
+
+    public function checkoutAppliesSurcharge(): bool
+    {
+        return $this->paymentSurchargeEnabledForView()
+            && in_array($this->checkout_payment_method, ['card', 'bank_transfer'], true);
+    }
+
+    public function checkoutCalculatedSurcharge(): float
+    {
+        if (!$this->checkoutAppliesSurcharge()) {
+            return 0;
+        }
+
+        return HotelPaymentRecorder::calculateSurcharge(
+            (float) $this->checkout_amount_paid,
+            (float) $this->checkout_processing_rate
+        );
+    }
+
+    public function checkoutCalculatedTotal(): float
+    {
+        return round((float) $this->checkout_amount_paid + $this->checkoutCalculatedSurcharge(), 2);
+    }
+
+    protected function paymentSurchargeEnabledForView(): bool
+    {
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+
+        return (bool) ($settings->enable_payment_surcharge ?? false);
     }
 }

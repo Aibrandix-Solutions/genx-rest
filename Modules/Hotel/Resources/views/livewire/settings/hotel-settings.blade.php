@@ -218,6 +218,23 @@
                     <textarea id="cancellation_policy" wire:model="cancellation_policy" rows="3" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" placeholder="e.g. Free cancellation up to 24 hours before check-in..."></textarea>
                     <x-input-error for="cancellation_policy" class="mt-2" />
                 </div>
+
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <div class="flex items-center justify-between">
+                        <div class="pr-4">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                                @lang('hotel::modules.settings.enablePaymentSurcharge')
+                            </div>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                @lang('hotel::modules.settings.enablePaymentSurchargeHint')
+                            </p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                            <input type="checkbox" wire:model.live="enable_payment_surcharge" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:after:border-gray-500 peer-checked:bg-blue-600"></div>
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
 

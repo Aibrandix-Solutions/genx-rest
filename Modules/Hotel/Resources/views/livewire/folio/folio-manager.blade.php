@@ -264,9 +264,9 @@
     <x-right-modal wire:model.live="showPaymentModal">
         <x-slot name="title">@lang('hotel::modules.folio.recordPayment')</x-slot>
         <x-slot name="content">
+            @php $currencySymbol = restaurant()->currency->currency_symbol ?? 'Rs'; @endphp
             <form wire:submit.prevent="savePayment">
                 <div class="space-y-4">
-                    {{-- Balance Info --}}
                     <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
                         <div class="flex justify-between text-sm">
                             <span class="text-gray-600 dark:text-gray-400">@lang('hotel::modules.folio.currentBalance')</span>
@@ -274,46 +274,118 @@
                         </div>
                     </div>
 
-                    <div>
-                        <x-label for="paymentType" value="{{ __('hotel::modules.folio.paymentType') }}" />
-                        <select id="paymentType" wire:model="paymentType" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
-                            <option value="advance">@lang('hotel::modules.folio.advance')</option>
-                            <option value="deposit">@lang('hotel::modules.folio.deposit')</option>
-                            <option value="settlement">@lang('hotel::modules.folio.settlement')</option>
-                            <option value="refund">@lang('hotel::modules.folio.refund')</option>
-                        </select>
-                        <x-input-error for="paymentType" class="mt-2" />
-                    </div>
+                    @if($paymentSurchargeEnabled)
+                    <div
+                        class="space-y-4"
+                        x-data="{
+                            amount: @entangle('paymentAmount'),
+                            method: @entangle('paymentMethod'),
+                            rate: @entangle('paymentProcessingRate'),
+                            paymentType: @entangle('paymentType'),
+                            currencySymbol: @js($currencySymbol),
+                            get showSurchargeFields() {
+                                if (this.paymentType === 'refund') return false;
+                                return ['card', 'bank_transfer'].includes(this.method);
+                            },
+                            get surchargeAmount() {
+                                const amt = parseFloat(this.amount) || 0;
+                                const rt = parseFloat(this.rate) || 0;
+                                if (!this.showSurchargeFields || amt <= 0 || rt <= 0) return 0;
+                                return Math.round((amt * rt / 100) * 100) / 100;
+                            },
+                            get totalCollected() {
+                                const amt = parseFloat(this.amount) || 0;
+                                return Math.round((amt + this.surchargeAmount) * 100) / 100;
+                            }
+                        }"
+                    >
+                        <div>
+                            <x-label for="paymentType" value="{{ __('hotel::modules.folio.paymentType') }}" />
+                            <select id="paymentType" x-model="paymentType" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                <option value="advance">@lang('hotel::modules.folio.advance')</option>
+                                <option value="deposit">@lang('hotel::modules.folio.deposit')</option>
+                                <option value="settlement">@lang('hotel::modules.folio.settlement')</option>
+                                <option value="refund">@lang('hotel::modules.folio.refund')</option>
+                            </select>
+                            <x-input-error for="paymentType" class="mt-2" />
+                        </div>
 
-                    <div>
-                        <x-label for="paymentAmount" value="{{ __('hotel::modules.folio.amount') }}" />
-                        <x-input id="paymentAmount" type="number" step="0.01" min="0.01" class="block w-full mt-1" wire:model="paymentAmount" required />
-                        <x-input-error for="paymentAmount" class="mt-2" />
-                    </div>
+                        <div>
+                            <x-label for="paymentAmount" value="{{ __('hotel::modules.folio.amount') }}" />
+                            <input id="paymentAmount" type="number" step="0.01" min="0.01" x-model="amount" required class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
+                            <x-input-error for="paymentAmount" class="mt-2" />
+                        </div>
 
-                    <div>
-                        <x-label for="paymentMethod" value="{{ __('hotel::modules.folio.paymentMethod') }}" />
-                        <select id="paymentMethod" wire:model="paymentMethod" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
-                            <option value="cash">@lang('hotel::modules.folio.cash')</option>
-                            <option value="card">@lang('hotel::modules.folio.card')</option>
-                            <option value="bank_transfer">@lang('hotel::modules.folio.bankTransfer')</option>
-                            <option value="upi">@lang('hotel::modules.folio.upi')</option>
-                            <option value="other">@lang('hotel::modules.folio.otherMethod')</option>
-                        </select>
-                        <x-input-error for="paymentMethod" class="mt-2" />
-                    </div>
+                        <div>
+                            <x-label for="paymentMethod" value="{{ __('hotel::modules.folio.paymentMethod') }}" />
+                            <select id="paymentMethod" x-model="method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                <option value="cash">@lang('hotel::modules.folio.cash')</option>
+                                <option value="card">@lang('hotel::modules.folio.card')</option>
+                                <option value="bank_transfer">@lang('hotel::modules.folio.bankTransfer')</option>
+                                <option value="upi">@lang('hotel::modules.folio.upi')</option>
+                                <option value="other">@lang('hotel::modules.folio.otherMethod')</option>
+                            </select>
+                            <x-input-error for="paymentMethod" class="mt-2" />
+                        </div>
 
-                    <div>
-                        <x-label for="paymentReference" value="{{ __('hotel::modules.folio.reference') }}" />
-                        <x-input id="paymentReference" type="text" class="block w-full mt-1" wire:model="paymentReference" placeholder="Transaction ID / Receipt #" />
-                        <x-input-error for="paymentReference" class="mt-2" />
-                    </div>
+                        @include('hotel::partials.payment-surcharge-fields', ['rateInputId' => 'paymentProcessingRate'])
 
-                    <div>
-                        <x-label for="paymentNotes" value="{{ __('hotel::modules.folio.notes') }}" />
-                        <textarea id="paymentNotes" wire:model="paymentNotes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
-                        <x-input-error for="paymentNotes" class="mt-2" />
+                        <div>
+                            <x-label for="paymentReference" value="{{ __('hotel::modules.folio.reference') }}" />
+                            <x-input id="paymentReference" type="text" class="block w-full mt-1" wire:model="paymentReference" placeholder="Transaction ID / Receipt #" />
+                            <x-input-error for="paymentReference" class="mt-2" />
+                        </div>
+
+                        <div>
+                            <x-label for="paymentNotes" value="{{ __('hotel::modules.folio.notes') }}" />
+                            <textarea id="paymentNotes" wire:model="paymentNotes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                            <x-input-error for="paymentNotes" class="mt-2" />
+                        </div>
                     </div>
+                    @else
+                    <div class="space-y-4">
+                        <div>
+                            <x-label for="paymentType" value="{{ __('hotel::modules.folio.paymentType') }}" />
+                            <select id="paymentType" wire:model="paymentType" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                <option value="advance">@lang('hotel::modules.folio.advance')</option>
+                                <option value="deposit">@lang('hotel::modules.folio.deposit')</option>
+                                <option value="settlement">@lang('hotel::modules.folio.settlement')</option>
+                                <option value="refund">@lang('hotel::modules.folio.refund')</option>
+                            </select>
+                            <x-input-error for="paymentType" class="mt-2" />
+                        </div>
+
+                        <div>
+                            <x-label for="paymentAmount" value="{{ __('hotel::modules.folio.amount') }}" />
+                            <input id="paymentAmount" type="number" step="0.01" min="0.01" wire:model="paymentAmount" required class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
+                            <x-input-error for="paymentAmount" class="mt-2" />
+                        </div>
+
+                        <div>
+                            <x-label for="paymentMethod" value="{{ __('hotel::modules.folio.paymentMethod') }}" />
+                            <select id="paymentMethod" wire:model="paymentMethod" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                <option value="cash">@lang('hotel::modules.folio.cash')</option>
+                                <option value="card">@lang('hotel::modules.folio.card')</option>
+                                <option value="bank_transfer">@lang('hotel::modules.folio.bankTransfer')</option>
+                                <option value="upi">@lang('hotel::modules.folio.upi')</option>
+                                <option value="other">@lang('hotel::modules.folio.otherMethod')</option>
+                            </select>
+                            <x-input-error for="paymentMethod" class="mt-2" />
+                        </div>
+
+                        <div>
+                            <x-label for="paymentReference" value="{{ __('hotel::modules.folio.reference') }}" />
+                            <x-input id="paymentReference" type="text" class="block w-full mt-1" wire:model="paymentReference" placeholder="Transaction ID / Receipt #" />
+                            <x-input-error for="paymentReference" class="mt-2" />
+                        </div>
+
+                        <div>
+                            <x-label for="paymentNotes" value="{{ __('hotel::modules.folio.notes') }}" />
+                            <textarea id="paymentNotes" wire:model="paymentNotes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                            <x-input-error for="paymentNotes" class="mt-2" />
+                        </div>
+                    </div>
+                    @endif
                 </div>
 
                 <div class="mt-6 flex justify-end gap-3">

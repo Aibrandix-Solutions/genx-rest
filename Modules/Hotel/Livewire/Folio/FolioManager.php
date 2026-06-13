@@ -9,6 +9,7 @@ use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
+use Modules\Hotel\Support\HotelPaymentRecorder;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
@@ -26,6 +27,8 @@ class FolioManager extends Component
     public $totalPayments = 0;
     public $hasRoomNightCharges = false;
     public $hotelName = '';
+    public $paymentSurchargeEnabled = false;
+    public $paymentProcessingRate = 0;
 
     // Payment modal
     public $showPaymentModal = false;
@@ -63,6 +66,7 @@ class FolioManager extends Component
         // Load hotel name from settings
         $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
+        $this->paymentSurchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
 
         // All posted charges (room nights, restaurant/room-service, minibar, etc.)
         $this->charges = RoomCharge::where('reservation_id', $this->reservation->id)
@@ -215,7 +219,36 @@ class FolioManager extends Component
         $this->paymentType = 'settlement';
         $this->paymentReference = '';
         $this->paymentNotes = '';
+        $this->paymentProcessingRate = 0;
         $this->showPaymentModal = true;
+    }
+
+    public function paymentAppliesSurcharge(): bool
+    {
+        return $this->paymentSurchargeEnabled
+            && $this->paymentType !== HotelPayment::TYPE_REFUND
+            && in_array($this->paymentMethod, ['card', 'bank_transfer'], true);
+    }
+
+    public function calculatedPaymentSurcharge(): float
+    {
+        if (
+            !$this->paymentSurchargeEnabled
+            || $this->paymentType === HotelPayment::TYPE_REFUND
+            || !in_array($this->paymentMethod, ['card', 'bank_transfer'], true)
+        ) {
+            return 0;
+        }
+
+        return HotelPaymentRecorder::calculateSurcharge(
+            (float) $this->paymentAmount,
+            (float) $this->paymentProcessingRate
+        );
+    }
+
+    public function calculatedPaymentTotal(): float
+    {
+        return round((float) $this->paymentAmount + $this->calculatedPaymentSurcharge(), 2);
     }
 
     public function savePayment()
@@ -226,21 +259,39 @@ class FolioManager extends Component
             'paymentAmount' => 'required|numeric|min:0.01',
             'paymentMethod' => 'required|in:cash,card,bank_transfer,upi,other',
             'paymentType' => 'required|in:advance,deposit,settlement,refund',
+            'paymentProcessingRate' => 'nullable|numeric|min:0|max:100',
             'paymentReference' => 'nullable|string|max:255',
             'paymentNotes' => 'nullable|string|max:1000',
         ]);
 
-        DB::transaction(function () {
-            HotelPayment::create([
-                'restaurant_id' => $this->reservation->restaurant_id,
-                'reservation_id' => $this->reservation->id,
-                'amount' => $this->paymentAmount,
-                'payment_method' => $this->paymentMethod,
-                'payment_type' => $this->paymentType,
-                'reference_number' => $this->paymentReference ?: null,
-                'notes' => $this->paymentNotes ?: null,
-                'received_by_user_id' => auth()->id(),
-            ]);
+        $totalCollected = $this->paymentAmount;
+
+        DB::transaction(function () use (&$totalCollected) {
+            if ($this->paymentType === HotelPayment::TYPE_REFUND) {
+                HotelPayment::create([
+                    'restaurant_id' => $this->reservation->restaurant_id,
+                    'reservation_id' => $this->reservation->id,
+                    'amount' => $this->paymentAmount,
+                    'payment_method' => $this->paymentMethod,
+                    'payment_type' => $this->paymentType,
+                    'reference_number' => $this->paymentReference ?: null,
+                    'notes' => $this->paymentNotes ?: null,
+                    'received_by_user_id' => auth()->id(),
+                ]);
+            } else {
+                $result = HotelPaymentRecorder::record(
+                    $this->reservation,
+                    (float) $this->paymentAmount,
+                    $this->paymentMethod,
+                    $this->paymentType,
+                    $this->paymentReference ?: null,
+                    $this->paymentNotes ?: null,
+                    auth()->id(),
+                    (float) $this->paymentProcessingRate,
+                    $this->paymentSurchargeEnabled,
+                );
+                $totalCollected = $result['total_collected'];
+            }
 
             $this->reservation->calculateTotal();
         });
@@ -248,7 +299,7 @@ class FolioManager extends Component
         $this->showPaymentModal = false;
         $this->loadData();
 
-        $this->alert('success', 'Payment of ' . currency_format($this->paymentAmount) . ' recorded successfully.');
+        $this->alert('success', 'Payment of ' . currency_format($totalCollected) . ' recorded successfully.');
     }
 
     // --- Add Manual Charge Methods ---

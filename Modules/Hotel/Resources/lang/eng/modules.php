@@ -138,6 +138,10 @@ return [
         'customRate' => 'Custom',
         'customChargeType' => 'Custom Charge Type',
         'customChargeTypePlaceholder' => 'e.g. Parking, Spa, Damage fee',
+        'processingFee' => 'Processing fee (:rate%)',
+        'processingFeeLabel' => 'Processing fee',
+        'processingChargeRate' => 'Processing Charge Rate',
+        'totalToCollect' => 'Total to collect',
     ],
 
     'invoice' => [
@@ -179,6 +183,8 @@ return [
         'fullAdvanceHint' => 'The full stay amount is collected at check-in.',
         'depositPercentage' => 'Deposit Percentage',
         'cancellationPolicy' => 'Cancellation Policy',
+        'enablePaymentSurcharge' => 'Card / Bank Transfer Surcharge',
+        'enablePaymentSurchargeHint' => 'Allow staff to add a processing fee (%) when guests pay by card or bank transfer. The rate is entered per payment.',
 
         // Tax & Charges
         'taxAndCharges' => 'Tax & Service Charges',
