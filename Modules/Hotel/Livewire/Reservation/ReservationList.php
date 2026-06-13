@@ -8,6 +8,7 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\Room;
 use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
+use Modules\Hotel\Services\OrderFolioSettlement;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
 use Modules\Hotel\Support\HotelPaymentRecorder;
@@ -684,6 +685,8 @@ class ReservationList extends Component
 
             // Recalculate totals
             $this->checkout_reservation->calculateTotal();
+
+            OrderFolioSettlement::settleReservationOrders($this->checkout_reservation->fresh());
 
             // Update room status to cleaning
             if ($this->checkout_reservation->room) {

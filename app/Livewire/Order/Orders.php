@@ -53,8 +53,24 @@ class Orders extends Component
         $this->pollingInterval = (int)request()->cookie('orders_polling_interval', 10);
 
 
-        if (!is_null($this->orderID)) {
-            $this->dispatch('showOrderDetail', id: $this->orderID);
+        if (! is_null($this->orderID) && $this->orderID !== '') {
+            $order = Order::query()
+                ->where(function ($query) {
+                    $query->where('id', $this->orderID)->orWhere('uuid', $this->orderID);
+                })
+                ->first(['id', 'status']);
+
+            if ($order) {
+                if ($order->status === 'kot') {
+                    $this->redirect($order->staffDetailUrl(), navigate: true);
+
+                    return;
+                }
+
+                $orderId = (int) $order->id;
+                $this->orderID = $orderId;
+                $this->js('setTimeout(() => Livewire.dispatch("showOrderDetail", { id: ' . $orderId . ' }), 0)');
+            }
         }
 
         $this->setDateRange();

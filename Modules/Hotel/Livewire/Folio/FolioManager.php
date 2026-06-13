@@ -10,6 +10,8 @@ use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
 use Modules\Hotel\Support\HotelPaymentRecorder;
+use Modules\Hotel\Services\FolioOrderChargeSync;
+use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
@@ -19,16 +21,15 @@ class FolioManager extends Component
     public $reservationNumber;
     public $reservation;
     public $charges;
-    public $orders;
     public $payments;
     public $balance = 0;
     public $totalCharges = 0;
-    public $totalOrders = 0;
     public $totalPayments = 0;
     public $hasRoomNightCharges = false;
     public $hotelName = '';
     public $paymentSurchargeEnabled = false;
     public $paymentProcessingRate = 0;
+    public $businessMode = 'restaurant_primary';
 
     // Payment modal
     public $showPaymentModal = false;
@@ -54,6 +55,7 @@ class FolioManager extends Component
     {
         abort_unless(user_can('view_hotel_billing'), 403);
         $this->reservationNumber = $reservationNumber;
+        $this->businessMode = function_exists('hotel_business_mode') ? hotel_business_mode() : 'restaurant_primary';
         $this->loadData();
     }
 
@@ -68,17 +70,20 @@ class FolioManager extends Component
         $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
         $this->paymentSurchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
 
-        // All posted charges (room nights, restaurant/room-service, minibar, etc.)
-        $this->charges = RoomCharge::where('reservation_id', $this->reservation->id)
-            ->orderBy('charge_date', 'asc')
-            ->get();
+        // Keep restaurant folio lines aligned with linked order totals (fixes stale Rs0.00 rows).
+        foreach ($this->reservation->orders as $order) {
+            if (FolioOrderChargeSync::shouldSync($order)) {
+                FolioOrderChargeSync::sync($order);
+            }
+        }
 
-        // Pending room-service orders not yet posted as charges (still in kitchen / kot)
-        $postedOrderIds = $this->charges->whereNotNull('order_id')->pluck('order_id')->toArray();
-        $this->orders = $this->reservation->orders()
-            ->where('status', '!=', 'canceled')
-            ->whereNotIn('id', $postedOrderIds)
-            ->orderBy('created_at', 'asc')
+        $this->reservation->refresh();
+        $this->reservation->calculateTotal();
+
+        // All posted charges (room nights, restaurant/room-service, minibar, etc.)
+        $this->charges = RoomCharge::with('order')
+            ->where('reservation_id', $this->reservation->id)
+            ->orderBy('charge_date', 'asc')
             ->get();
 
         // Payments
@@ -87,7 +92,6 @@ class FolioManager extends Component
             ->get();
 
         $this->totalCharges = $this->charges->sum('amount');
-        $this->totalOrders = $this->orders->sum('total'); // pending orders not yet posted
 
         $totalPaid = $this->payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
         $totalRefunds = $this->payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
@@ -96,8 +100,7 @@ class FolioManager extends Component
         // Check if room night charges exist
         $this->hasRoomNightCharges = $this->charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->isNotEmpty();
 
-        // Balance = all posted charges + pending order totals - payments
-        $this->balance = ($this->totalCharges + $this->totalOrders) - $this->totalPayments;
+        $this->balance = (float) $this->reservation->balance_due;
     }
 
     /**
@@ -214,7 +217,19 @@ class FolioManager extends Component
     public function openPaymentModal()
     {
         abort_unless(user_can('process_hotel_payment'), 403);
-        $this->paymentAmount = $this->balance > 0 ? $this->balance : 0;
+
+        if ($this->balance <= 0) {
+            $this->alert('info', $this->balance < 0
+                ? __('hotel::modules.folio.useRefundForCredit')
+                : __('hotel::modules.folio.folioAlreadySettled'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        $this->paymentAmount = $this->balance;
         $this->paymentMethod = 'cash';
         $this->paymentType = 'settlement';
         $this->paymentReference = '';
@@ -223,32 +238,26 @@ class FolioManager extends Component
         $this->showPaymentModal = true;
     }
 
-    public function paymentAppliesSurcharge(): bool
+    public function openRefundModal()
     {
-        return $this->paymentSurchargeEnabled
-            && $this->paymentType !== HotelPayment::TYPE_REFUND
-            && in_array($this->paymentMethod, ['card', 'bank_transfer'], true);
-    }
+        abort_unless(user_can('process_hotel_payment'), 403);
 
-    public function calculatedPaymentSurcharge(): float
-    {
-        if (
-            !$this->paymentSurchargeEnabled
-            || $this->paymentType === HotelPayment::TYPE_REFUND
-            || !in_array($this->paymentMethod, ['card', 'bank_transfer'], true)
-        ) {
-            return 0;
+        if ($this->balance >= 0) {
+            $this->alert('info', __('hotel::modules.folio.noCreditToRefund'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
         }
 
-        return HotelPaymentRecorder::calculateSurcharge(
-            (float) $this->paymentAmount,
-            (float) $this->paymentProcessingRate
-        );
-    }
-
-    public function calculatedPaymentTotal(): float
-    {
-        return round((float) $this->paymentAmount + $this->calculatedPaymentSurcharge(), 2);
+        $this->paymentAmount = round(abs($this->balance), 2);
+        $this->paymentMethod = 'cash';
+        $this->paymentType = 'refund';
+        $this->paymentReference = '';
+        $this->paymentNotes = '';
+        $this->paymentProcessingRate = 0;
+        $this->showPaymentModal = true;
     }
 
     public function savePayment()
@@ -264,7 +273,39 @@ class FolioManager extends Component
             'paymentNotes' => 'nullable|string|max:1000',
         ]);
 
-        $totalCollected = $this->paymentAmount;
+        $balanceBeforePayment = (float) $this->balance;
+        $totalCollected = (float) $this->paymentAmount;
+
+        if ($this->paymentType === 'refund') {
+            if ($balanceBeforePayment >= 0) {
+                $this->addError('paymentAmount', __('hotel::modules.folio.noCreditToRefund'));
+
+                return;
+            }
+
+            $maxRefund = round(abs($balanceBeforePayment), 2);
+            if ($this->paymentAmount > $maxRefund) {
+                $this->addError('paymentAmount', __('hotel::modules.folio.refundExceedsCredit', [
+                    'amount' => currency_format($maxRefund),
+                ]));
+
+                return;
+            }
+        } elseif ($this->paymentType === 'settlement') {
+            if ($balanceBeforePayment <= 0) {
+                $this->addError('paymentAmount', __('hotel::modules.folio.folioAlreadySettled'));
+
+                return;
+            }
+
+            if ($this->paymentAmount > $balanceBeforePayment) {
+                $this->addError('paymentAmount', __('hotel::modules.folio.paymentExceedsBalance', [
+                    'amount' => currency_format($balanceBeforePayment),
+                ]));
+
+                return;
+            }
+        }
 
         DB::transaction(function () use (&$totalCollected) {
             if ($this->paymentType === HotelPayment::TYPE_REFUND) {
@@ -359,7 +400,20 @@ class FolioManager extends Component
     public function confirmDeleteCharge($chargeId)
     {
         $this->pendingDeleteChargeId = $chargeId;
-        $this->alert('warning', __('hotel::modules.folio.confirmDeleteCharge'), [
+
+        $charge = RoomCharge::where('reservation_id', $this->reservation->id)->find($chargeId);
+        $message = __('hotel::modules.folio.confirmDeleteCharge');
+
+        if ($charge) {
+            $balanceAfterDelete = $this->totalCharges - (float) $charge->amount - $this->totalPayments;
+            if ($balanceAfterDelete < 0) {
+                $message .= ' ' . __('hotel::modules.folio.deleteChargeCreatesCredit', [
+                    'amount' => currency_format(abs($balanceAfterDelete)),
+                ]);
+            }
+        }
+
+        $this->alert('warning', $message, [
             'showConfirmButton' => true,
             'showCancelButton' => true,
             'confirmButtonText' => 'Yes, Delete',
@@ -434,6 +488,30 @@ class FolioManager extends Component
         $this->loadData();
 
         $this->alert('success', __('hotel::modules.folio.taxRateUpdated'));
+    }
+
+    public function viewLinkedOrder(int $orderId): void
+    {
+        abort_unless(user_can('Show Order'), 403);
+
+        $order = Order::query()->find($orderId);
+
+        if (! $order) {
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        if ($order->status === 'kot') {
+            $this->redirect($order->staffDetailUrl(), navigate: true);
+
+            return;
+        }
+
+        $this->dispatch('showOrderDetail', id: $order->id);
     }
 
     public function render()

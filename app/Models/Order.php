@@ -27,6 +27,8 @@ class Order extends BaseModel
     protected $casts = [
         'date_time' => 'datetime',
         'order_status' => OrderStatus::class,
+        'charged_to_folio_at' => 'datetime',
+        'folio_settled_at' => 'datetime',
     ];
 
     protected static function boot()
@@ -278,5 +280,18 @@ class Order extends BaseModel
         }
 
         return null;
+    }
+
+    /**
+     * Shareable URL for this order (KOT POS screen vs orders deep-link).
+     * In-app UI should prefer dispatching showOrderDetail to avoid leaving the current page.
+     */
+    public function staffDetailUrl(): string
+    {
+        if ($this->status === 'kot') {
+            return route('pos.kot', $this->id) . '?show-order-detail=true';
+        }
+
+        return route('orders.show', $this);
     }
 }
