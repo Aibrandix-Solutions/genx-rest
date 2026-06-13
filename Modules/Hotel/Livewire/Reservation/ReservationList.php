@@ -171,13 +171,14 @@ class ReservationList extends Component
         }
 
         // Apply tax on room charges (if configured in hotel settings)
-        if ($settings && $settings->tax_rate > 0) {
-            $taxAmount = $settings->calculateTax($roomChargesTotal);
+        $taxRate = $reservation->getEffectiveTaxRate();
+        if ($taxRate > 0) {
+            $taxAmount = round($roomChargesTotal * ($taxRate / 100), 2);
             if ($taxAmount > 0) {
                 RoomCharge::create([
                     'reservation_id' => $reservation->id,
                     'charge_type'    => RoomCharge::TYPE_TAX,
-                    'description'    => 'Tax (' . $settings->tax_rate . '%)',
+                    'description'    => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
                     'amount'         => $taxAmount,
                     'charge_date'    => $checkIn->toDateString(),
                 ]);
@@ -347,15 +348,7 @@ class ReservationList extends Component
               ->where('checkout_date', '>', $checkIn);
         });
 
-        // Attach effective nightly rate (considering pricing overrides) to each room
-        $rooms = $query->with(['roomType.prices'])->get();
-        foreach ($rooms as $room) {
-            $basePrice  = $room->roomType->base_price ?? 0;
-            $effective  = $room->roomType->getPriceForDate($checkIn->toDateString());
-            $room->effective_nightly_rate = $effective;
-            $room->has_price_override     = (float)$effective !== (float)$basePrice;
-        }
-        $this->available_rooms = $rooms;
+        $this->available_rooms = $query->with(['roomType.prices'])->get();
     }
 
     public function createNewReservation()
@@ -370,6 +363,7 @@ class ReservationList extends Component
         $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->maxRoomsPerBooking = $settings->max_rooms_per_booking ?? 10;
 
+        $this->findAvailableRooms();
         $this->showCreateReservation = true;
     }
 
@@ -587,6 +581,7 @@ class ReservationList extends Component
     public $showAddChargeModal = false;
     public $charge_reservation_id = null;
     public $charge_type = 'minibar';
+    public $charge_type_custom = '';
     public $charge_description = '';
     public $charge_amount = 0;
 
@@ -796,6 +791,7 @@ class ReservationList extends Component
         abort_unless(user_can('add_room_charge'), 403);
         $this->charge_reservation_id = $reservationId;
         $this->charge_type = 'minibar';
+        $this->charge_type_custom = '';
         $this->charge_description = '';
         $this->charge_amount = 0;
         $this->showAddChargeModal = true;
@@ -805,12 +801,22 @@ class ReservationList extends Component
     {
         abort_unless(user_can('add_room_charge'), 403);
 
-        $this->validate([
+        $rules = [
             'charge_reservation_id' => 'required|exists:hotel_reservations,id',
-            'charge_type' => 'required|string',
+            'charge_type' => 'required|in:room_night,minibar,laundry,service,tax,other',
             'charge_description' => 'required|string|max:255',
             'charge_amount' => 'required|numeric|min:0.01',
-        ]);
+        ];
+
+        if ($this->charge_type === 'other') {
+            $rules['charge_type_custom'] = ['required', 'string', 'max:50', 'regex:/^[^:]+$/'];
+        }
+
+        $this->validate($rules);
+
+        $description = $this->charge_type === 'other'
+            ? RoomCharge::encodeCustomTypeDescription($this->charge_type_custom, $this->charge_description)
+            : $this->charge_description;
 
         $reservation = Reservation::find($this->charge_reservation_id);
         if (!$reservation || !in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
@@ -821,7 +827,7 @@ class ReservationList extends Component
         RoomCharge::create([
             'reservation_id' => $reservation->id,
             'charge_type' => $this->charge_type,
-            'description' => $this->charge_description,
+            'description' => $description,
             'amount' => $this->charge_amount,
             'charge_date' => now()->toDateString(),
         ]);

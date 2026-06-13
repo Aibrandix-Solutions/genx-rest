@@ -38,8 +38,14 @@ class FolioManager extends Component
     // Add charge modal
     public $showChargeModal = false;
     public $chargeType = 'minibar';
+    public $chargeTypeCustom = '';
     public $chargeDescription = '';
     public $chargeAmount = 0;
+
+    // Tax rate override modal
+    public $showTaxRateModal = false;
+    public $editTaxRate = 0;
+    public $defaultTaxRate = 0;
 
     public function mount($reservationNumber)
     {
@@ -162,13 +168,14 @@ class FolioManager extends Component
             }
 
             // Apply tax on room charges
-            if ($settings && $settings->tax_rate > 0) {
-                $taxAmount = $settings->calculateTax($roomChargesTotal);
+            $taxRate = $this->reservation->getEffectiveTaxRate();
+            if ($taxRate > 0) {
+                $taxAmount = round($roomChargesTotal * ($taxRate / 100), 2);
                 if ($taxAmount > 0) {
                     RoomCharge::create([
                         'reservation_id' => $this->reservation->id,
                         'charge_type' => RoomCharge::TYPE_TAX,
-                        'description' => 'Tax (' . $settings->tax_rate . '%)',
+                        'description' => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
                         'amount' => $taxAmount,
                         'charge_date' => $checkIn->toDateString(),
                     ]);
@@ -250,6 +257,7 @@ class FolioManager extends Component
     {
         abort_unless(user_can('add_room_charge'), 403);
         $this->chargeType = 'minibar';
+        $this->chargeTypeCustom = '';
         $this->chargeDescription = '';
         $this->chargeAmount = 0;
         $this->showChargeModal = true;
@@ -259,17 +267,27 @@ class FolioManager extends Component
     {
         abort_unless(user_can('add_room_charge'), 403);
 
-        $this->validate([
+        $rules = [
             'chargeType' => 'required|in:room_night,minibar,laundry,service,tax,other',
             'chargeDescription' => 'required|string|max:500',
             'chargeAmount' => 'required|numeric|min:0.01',
-        ]);
+        ];
+
+        if ($this->chargeType === 'other') {
+            $rules['chargeTypeCustom'] = ['required', 'string', 'max:50', 'regex:/^[^:]+$/'];
+        }
+
+        $this->validate($rules);
+
+        $description = $this->chargeType === 'other'
+            ? RoomCharge::encodeCustomTypeDescription($this->chargeTypeCustom, $this->chargeDescription)
+            : $this->chargeDescription;
 
         DB::transaction(function () {
             RoomCharge::create([
                 'reservation_id' => $this->reservation->id,
                 'charge_type' => $this->chargeType,
-                'description' => $this->chargeDescription,
+                'description' => $description,
                 'amount' => $this->chargeAmount,
                 'charge_date' => now()->toDateString(),
             ]);
@@ -324,6 +342,47 @@ class FolioManager extends Component
         $this->loadData();
 
         $this->alert('success', 'Charge removed.');
+    }
+
+    // --- Tax Rate Override ---
+
+    public function openTaxRateModal()
+    {
+        abort_unless(user_can('add_room_charge'), 403);
+
+        $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+        $this->defaultTaxRate = $settings ? (float) $settings->tax_rate : 0;
+        $this->editTaxRate = $this->reservation->getEffectiveTaxRate();
+        $this->showTaxRateModal = true;
+    }
+
+    public function saveTaxRate()
+    {
+        abort_unless(user_can('add_room_charge'), 403);
+
+        $this->validate([
+            'editTaxRate' => 'required|numeric|min:0|max:100',
+        ]);
+
+        DB::transaction(function () {
+            $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+            $defaultRate = $settings ? (float) $settings->tax_rate : 0.0;
+            $newRate = round((float) $this->editTaxRate, 2);
+
+            $this->reservation->update([
+                'tax_rate_override' => $newRate === $defaultRate ? null : $newRate,
+            ]);
+
+            $this->reservation->refresh();
+            $this->reservation->recalculateTaxCharge();
+            $this->reservation->recalculateLinkedServiceCharge();
+            $this->reservation->calculateTotal();
+        });
+
+        $this->showTaxRateModal = false;
+        $this->loadData();
+
+        $this->alert('success', __('hotel::modules.folio.taxRateUpdated'));
     }
 
     public function render()

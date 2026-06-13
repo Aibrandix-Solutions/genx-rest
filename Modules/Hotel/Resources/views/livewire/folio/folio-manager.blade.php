@@ -103,11 +103,32 @@
                                     'bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300' => $charge->charge_type === 'service',
                                     'bg-gray-100 text-gray-700 dark:bg-gray-900 dark:text-gray-300' => !in_array($charge->charge_type, ['room_night','restaurant','minibar','laundry','service']),
                                 ])>
-                                    {{ ucfirst(str_replace('_', ' ', $charge->charge_type)) }}
+                                    {{ $charge->getCustomTypeLabel() ?? ucfirst(str_replace('_', ' ', $charge->charge_type)) }}
                                 </span>
                             </td>
                             <td class="p-3 text-sm text-gray-700 dark:text-gray-300">
-                                {{ $charge->description }}
+                                @if($charge->charge_type === 'tax')
+                                    <span class="inline-flex items-center gap-1.5 flex-wrap">
+                                        <span>Tax ({{ number_format($reservation->getEffectiveTaxRate(), 2) }}%)</span>
+                                        @if(user_can('add_room_charge'))
+                                            <button
+                                                type="button"
+                                                wire:click="openTaxRateModal"
+                                                class="inline-flex items-center text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition"
+                                                title="@lang('hotel::modules.folio.editTaxRate')"
+                                            >
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                                                </svg>
+                                            </button>
+                                        @endif
+                                        @if($reservation->tax_rate_override !== null)
+                                            <span class="text-[10px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-400">@lang('hotel::modules.folio.customRate')</span>
+                                        @endif
+                                    </span>
+                                @else
+                                    {{ $charge->getDisplayDescription() }}
+                                @endif
                             </td>
                             <td class="p-3 text-sm text-right font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">
                                 {{ currency_format($charge->amount) }}
@@ -312,10 +333,12 @@
         <x-slot name="title">@lang('hotel::modules.folio.addCharge')</x-slot>
         <x-slot name="content">
             <form wire:submit.prevent="saveCharge">
-                <div class="space-y-4">
+                <div class="space-y-4" x-data="{ showCustomType: @js($chargeType === 'other') }">
                     <div>
                         <x-label for="chargeType" value="{{ __('hotel::modules.folio.chargeType') }}" />
-                        <select id="chargeType" wire:model="chargeType" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                        <select id="chargeType" wire:model="chargeType"
+                            x-on:change="showCustomType = ($event.target.value === 'other')"
+                            class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
                             <option value="minibar">@lang('hotel::modules.folio.minibar')</option>
                             <option value="laundry">@lang('hotel::modules.folio.laundry')</option>
                             <option value="service">@lang('hotel::modules.folio.service')</option>
@@ -324,6 +347,12 @@
                             <option value="other">@lang('hotel::modules.folio.other')</option>
                         </select>
                         <x-input-error for="chargeType" class="mt-2" />
+                    </div>
+
+                    <div x-show="showCustomType" x-cloak x-transition.opacity.duration.150ms>
+                        <x-label for="chargeTypeCustom" value="{{ __('hotel::modules.folio.customChargeType') }}" />
+                        <x-input id="chargeTypeCustom" type="text" class="block w-full mt-1" wire:model="chargeTypeCustom" placeholder="{{ __('hotel::modules.folio.customChargeTypePlaceholder') }}" />
+                        <x-input-error for="chargeTypeCustom" class="mt-2" />
                     </div>
 
                     <div>
@@ -345,6 +374,38 @@
                     </x-button>
                     <x-button type="submit" wire:loading.attr="disabled" class="bg-amber-600 hover:bg-amber-700">
                         @lang('hotel::modules.folio.addCharge')
+                    </x-button>
+                </div>
+            </form>
+        </x-slot>
+    </x-right-modal>
+
+    {{-- Edit Tax Rate Modal --}}
+    <x-right-modal wire:model.live="showTaxRateModal">
+        <x-slot name="title">@lang('hotel::modules.folio.editTaxRate')</x-slot>
+        <x-slot name="content">
+            <form wire:submit.prevent="saveTaxRate">
+                <div class="space-y-4">
+                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                        @lang('hotel::modules.folio.editTaxRateHint', ['rate' => number_format($defaultTaxRate, 2)])
+                    </p>
+
+                    <div>
+                        <x-label for="editTaxRate" value="{{ __('hotel::modules.folio.taxRate') }}" />
+                        <div class="flex items-center gap-2 mt-1">
+                            <x-input id="editTaxRate" type="number" step="0.01" min="0" max="100" class="block w-full" wire:model="editTaxRate" required />
+                            <span class="text-gray-500 dark:text-gray-400 font-medium">%</span>
+                        </div>
+                        <x-input-error for="editTaxRate" class="mt-2" />
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end gap-3">
+                    <x-button type="button" wire:click="$set('showTaxRateModal', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                        @lang('app.cancel')
+                    </x-button>
+                    <x-button type="submit" wire:loading.attr="disabled" class="bg-blue-600 hover:bg-blue-700">
+                        @lang('app.save')
                     </x-button>
                 </div>
             </form>

@@ -274,13 +274,17 @@
                                         </span>
 
                                         {{-- Price (effective / overridden) --}}
+                                        @php
+                                            $nightlyRate = $room->roomType->getPriceForDate($create_check_in_date);
+                                            $hasPriceOverride = (float) $nightlyRate !== (float) ($room->roomType->base_price ?? 0);
+                                        @endphp
                                         <div class="mt-1.5">
-                                            @if($room->has_price_override)
+                                            @if($hasPriceOverride)
                                                 <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
                                             @endif
-                                            <span class="text-sm font-semibold {{ $room->has_price_override ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($room->effective_nightly_rate, restaurant()->currency_id) }}</span>
+                                            <span class="text-sm font-semibold {{ $hasPriceOverride ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
                                             <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
-                                            @if($room->has_price_override)
+                                            @if($hasPriceOverride)
                                                 <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
                                             @endif
                                         </div>
@@ -650,10 +654,11 @@
         <x-slot name="title">@lang('hotel::modules.folio.addCharge')</x-slot>
         <x-slot name="content">
             <form wire:submit.prevent="saveQuickCharge">
-                <div class="space-y-4">
+                <div class="space-y-4" x-data="{ showCustomType: @js($charge_type === 'other') }">
                     <div>
                         <x-label for="charge_type" value="{{ __('hotel::modules.folio.chargeType') }}" />
                         <select id="charge_type" wire:model="charge_type"
+                            x-on:change="showCustomType = ($event.target.value === 'other')"
                             class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
                             <option value="room_night">@lang('hotel::modules.folio.roomNight')</option>
                             <option value="minibar">@lang('hotel::modules.folio.minibar')</option>
@@ -663,6 +668,11 @@
                             <option value="other">@lang('hotel::modules.folio.other')</option>
                         </select>
                         @error('charge_type') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
+                    </div>
+                    <div x-show="showCustomType" x-cloak x-transition.opacity.duration.150ms>
+                        <x-label for="charge_type_custom" value="{{ __('hotel::modules.folio.customChargeType') }}" />
+                        <x-input id="charge_type_custom" type="text" wire:model="charge_type_custom" class="mt-1 block w-full" placeholder="{{ __('hotel::modules.folio.customChargeTypePlaceholder') }}" />
+                        @error('charge_type_custom') <span class="text-red-500 text-xs">{{ $message }}</span> @enderror
                     </div>
                     <div>
                         <x-label for="charge_description" value="{{ __('app.description') }}" />

@@ -131,6 +131,13 @@ return [
         'noPayments' => 'No payments recorded yet.',
         'confirmDeleteCharge' => 'Are you sure you want to delete this charge?',
         'generateRoomCharges' => 'Generate Room Charges',
+        'editTaxRate' => 'Edit Tax Rate',
+        'editTaxRateHint' => 'Hotel default tax rate is :rate%. Changes here apply only to this reservation.',
+        'taxRate' => 'Tax Rate',
+        'taxRateUpdated' => 'Tax rate updated for this reservation.',
+        'customRate' => 'Custom',
+        'customChargeType' => 'Custom Charge Type',
+        'customChargeTypePlaceholder' => 'e.g. Parking, Spa, Damage fee',
     ],
 
     'invoice' => [
