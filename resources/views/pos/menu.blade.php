@@ -34,10 +34,10 @@
             </x-primary-link>
         </div>
 
-        <div class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-nowrap max-md:snap-x max-md:snap-mandatory">
+        <div class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap max-md:flex-nowrap max-md:snap-x max-md:snap-mandatory">
 
             <button wire:click="$set('menuId', null)" @class([
-                'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                 $posFilterTabActive => is_null($menuId),
                 $posFilterTabInactive => !is_null($menuId),
             ])>
@@ -46,7 +46,7 @@
 
             @foreach ($menuList as $index => $item)
                 <button wire:click="$set('menuId', {{ $item->id }})" @class([
-                    'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                    'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                     $posFilterTabActive => $menuId == $item->id,
                     $posFilterTabInactive => $menuId != $item->id,
                 ])>
@@ -57,9 +57,9 @@
         </div>
 
         {{-- Categories Section --}}
-        <div class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-nowrap max-md:snap-x max-md:snap-mandatory">
+        <div class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap max-md:flex-nowrap max-md:snap-x max-md:snap-mandatory">
             <button wire:click="$set('filterCategories', null)" @class([
-                'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                 $posFilterTabActive => is_null($filterCategories),
                 $posFilterTabInactive => !is_null($filterCategories),
             ])>
@@ -67,7 +67,7 @@
             </button>
             @foreach ($categoryList as $value)
                 <button wire:click="$set('filterCategories', {{ $value->id }})" @class([
-                    'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                    'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                     $posFilterTabActive => $filterCategories == $value->id,
                     $posFilterTabInactive => $filterCategories != $value->id,
                 ])>
