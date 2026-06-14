@@ -1,4 +1,4 @@
-<div class="flex flex-col h-auto min-h-screen px-2 py-4 pr-4 bg-white border-l lg:w-5/12 dark:border-gray-700 dark:bg-gray-800">
+<div class="flex flex-col h-auto min-h-screen max-md:min-h-0 px-2 py-4 pr-4 bg-white border-l lg:w-5/12 dark:border-gray-700 dark:bg-gray-800">
     <div>
 
         <div class="flex justify-between items-center dark:text-neutral-200">
