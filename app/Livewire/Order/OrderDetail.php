@@ -23,11 +23,26 @@ use App\Support\KotAdjustmentLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Livewire\Customer\AddCustomer;
 use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class OrderDetail extends Component
 {
 
     use LivewireAlert, PrinterSetting;
+
+    private function abortIfFolioSettled(): bool
+    {
+        if ($this->order && OrderFolioSettlement::isLockedForEditing($this->order)) {
+            $this->alert('error', __('modules.order.folioSettledLocked'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return true;
+        }
+
+        return false;
+    }
 
     public $order;
     public $taxes;
@@ -133,7 +148,19 @@ class OrderDetail extends Component
             'cancelReason',
             'hotelReservation.room',
             'hotelReservation.guest'
-        )->find($id);
+        )->where(function ($query) use ($id) {
+            $query->where('id', $id)->orWhere('uuid', $id);
+        })->first();
+
+        if (! $this->order) {
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
         $this->orderStatus = $this->order->status;
         $this->fromPos = $fromPos;
         $this->orderProgressStatus = $this->order->order_status->value;
@@ -278,6 +305,10 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
@@ -294,6 +325,10 @@ class OrderDetail extends Component
     public function removeComboGroup(string $comboGroupKey): void
     {
         if (!$this->order) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
             return;
         }
 
@@ -1282,6 +1317,10 @@ class OrderDetail extends Component
 
     public function applyDiscount()
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             return;
         }
@@ -1367,6 +1406,10 @@ class OrderDetail extends Component
 
     public function removeDiscount()
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             return;
         }

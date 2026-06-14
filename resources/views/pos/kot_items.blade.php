@@ -1,5 +1,5 @@
 <div
-    class="lg:w-6/12 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto pr-4 px-2 py-4 dark:bg-gray-800">
+    class="lg:w-6/12 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen max-md:min-h-0 h-auto pr-4 px-2 py-4 dark:bg-gray-800">
 
     {{-- Order Type Indicator + Dropdown Selector (replaces modal UX) --}}
     <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
@@ -692,7 +692,7 @@
             </div>
         </div>
 
-        <div class="h-auto pb-4 pt-3 select-none text-center w-full mb-16 md:mb-0">
+        <div class="h-auto pb-4 pt-3 select-none text-center w-full">
             @if (in_array('KOT', restaurant_modules()))
                 <div class="flex gap-3">
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative" wire:click="saveOrder('kot')"

@@ -24,7 +24,22 @@ class OrderController extends Controller
 
     public function show($id)
     {
-        return view('order.show', compact('id'));
+        abort_if(! in_array('Order', restaurant_modules()), 403);
+        abort_if(! user_can('Show Order'), 403);
+
+        $order = Order::query()
+            ->where(function ($query) use ($id) {
+                $query->where('id', $id)->orWhere('uuid', $id);
+            })
+            ->first();
+
+        abort_if(! $order, 404);
+
+        if ($order->status === 'kot') {
+            return redirect()->to($order->staffDetailUrl());
+        }
+
+        return view('order.show', ['id' => $order->id]);
     }
 
     public function printOrder($id, $width = 80, $thermal = false, $generateImage = false)

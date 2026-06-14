@@ -159,6 +159,8 @@
                             $order->status == 'kot',
                         'bg-blue-100 text-blue-800 dark:bg-gray-700 dark:text-blue-400 border border-blue-400' =>
                             $order->status == 'billed' || $order->status == 'out_for_delivery',
+                        'bg-teal-100 text-teal-800 dark:bg-gray-700 dark:text-teal-400 border border-teal-400' =>
+                            $order->status == 'folio_settled',
                         'bg-green-100 text-green-800 dark:bg-gray-700 dark:text-green-400 border border-green-400' =>
                             $order->status == 'paid' || $order->status == 'delivered',
                         'bg-red-100 text-red-800 dark:bg-gray-700 dark:text-red-400 border border-red-400' =>
@@ -168,6 +170,8 @@
                     ])>
                         @lang('modules.order.' . $order->status)
                     </span>
+
+                    <x-order.folio-settlement-badge :order="$order" />
 
                     @if($order->placed_via)
                         <span @class([
