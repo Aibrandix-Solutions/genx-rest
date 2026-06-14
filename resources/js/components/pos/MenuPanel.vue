@@ -1,27 +1,7 @@
 <template>
     <div class="w-full min-w-0">
-        <div data-has-alpine-state="true">
-            <!-- Mobile Toggle Button -->
-            <button @click="showMenu = !showMenu"
-                class="fixed bottom-6 right-6 z-50 md:hidden bg-skin-base text-white rounded-full shadow-lg p-4 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-skin-base transition"
-                aria-label="Toggle Menu" type="button">
-                <!-- Hamburger Icon (visible when menu is closed) -->
-                <svg v-show="!showMenu" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                    stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5">
-                    </path>
-                </svg>
-                <!-- Close Icon (visible when menu is open) -->
-                <svg v-show="showMenu" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                    stroke="currentColor" class="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"></path>
-                </svg>
-            </button>
-
-            <!-- Menu Panel -->
-            <div :class="showMenu ? 'fixed inset-0 z-40 flex' : 'hidden md:flex'"
-                class="md:flex flex-col bg-gray-50 lg:h-full w-full py-4 px-3 dark:bg-gray-900 transition-transform duration-300 md:static md:inset-auto md:z-auto md:translate-x-0 overflow-y-auto md:overflow-visible md:max-h-none"
-                style="backdrop-filter: blur(2px)">
+        <div
+            class="flex flex-col bg-gray-50 lg:h-full w-full py-4 px-3 dark:bg-gray-900 overflow-y-auto lg:overflow-visible lg:max-h-none max-md:border-b max-md:border-gray-200 max-md:dark:border-gray-700">
                 <div v-if="menuAddsBlocked"
                     class="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
                     {{ linkedOrderNewKotMessage }}
@@ -63,12 +43,12 @@
 
                 <!-- Menu Filters -->
                 <div
-                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap">
+                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-nowrap max-md:snap-x max-md:snap-mandatory">
                     <button @click="handleMenuFilter(null)" :class="[
-                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
                         localMenuId === null && !localComboOnly
-                            ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                            : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
+                            ? filterTabActiveClass
+                            : filterTabInactiveClass,
                     ]">
                         Show All
                     </button>
@@ -83,10 +63,10 @@
                     </button>
 
                     <button v-for="menu in menus" :key="menu.id" @click="handleMenuFilter(menu.id)" :class="[
-                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
                         localMenuId === menu.id && !localComboOnly
-                            ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                            : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
+                            ? filterTabActiveClass
+                            : filterTabInactiveClass,
                     ]">
                         {{ menu.menu_name }}
                     </button>
@@ -94,22 +74,22 @@
 
                 <!-- Category Filters -->
                 <div
-                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap">
+                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-nowrap max-md:snap-x max-md:snap-mandatory">
                     <button @click="handleCategoryFilter(null)" :class="[
-                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
                         localCategoryId === null && !localComboOnly
-                            ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                            : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
+                            ? filterTabActiveClass
+                            : filterTabInactiveClass,
                     ]">
                         Show All
                     </button>
 
                     <button v-for="category in categories" :key="category.id" @click="handleCategoryFilter(category.id)"
                         :class="[
-                            'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap',
+                            'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
                             localCategoryId === category.id && !localComboOnly
-                                ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                                : 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
+                                ? filterTabActiveClass
+                                : filterTabInactiveClass,
                         ]">
                         {{ category.category_name }}
                         <span v-if="category.count !== undefined"
@@ -180,7 +160,6 @@
                 </div>
 
             </div>
-        </div>
 
         <!-- Item Variations Modal -->
         <ItemVariationsModal :show="showVariationsModal" :item="selectedItem" :currency-symbol="currencySymbol"
@@ -277,8 +256,10 @@ const localMenuId = ref(props.menuId);
 const localCategoryId = ref(props.filterCategories);
 const localComboOnly = ref(false);
 
-// Mobile menu state
-const showMenu = ref(false);
+const filterTabActiveClass =
+    "bg-gray-900 text-white dark:bg-white dark:text-gray-900 max-md:ring-2 max-md:ring-skin-base max-md:ring-offset-1 max-md:dark:ring-offset-gray-900";
+const filterTabInactiveClass =
+    "bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 max-md:border max-md:border-gray-300 max-md:shadow-sm max-md:dark:bg-gray-700 max-md:dark:text-white max-md:dark:border-gray-500";
 
 // Variations modal state
 const showVariationsModal = ref(false);
@@ -407,7 +388,6 @@ const handleAddCombo = (comboId) => {
         return;
     }
     emit("add-combo-to-cart", comboId);
-    closeMenuAfterAdd();
 };
 
 /**
@@ -561,13 +541,6 @@ const handleComboFilter = () => {
     emit("update:filterCategories", null);
 };
 
-const closeMenuAfterAdd = () => {
-    const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches;
-    if (!isMobile) {
-        showMenu.value = false;
-    }
-};
-
 /**
  * True when the given item has any modifier group that applies to the chosen
  * variation (or to the base item, when no variation is chosen yet). Mirrors
@@ -629,7 +602,6 @@ const handleAddToCart = (itemId, variantId, modifierId, done) => {
     }
 
     emit("add-to-cart", itemId, numericVariantId, numericModifierId, {});
-    closeMenuAfterAdd();
     if (typeof done === "function") {
         done();
     }
@@ -675,7 +647,6 @@ const handleSelectVariationWithCallback = (variation, done) => {
     }
 
     emit("add-to-cart", item.id, variation.id, 0, {});
-    closeMenuAfterAdd();
     if (typeof done === "function") {
         done();
     }
@@ -707,7 +678,6 @@ const handleModifiersSave = (payload, done) => {
     );
 
     showModifiersModal.value = false;
-    closeMenuAfterAdd();
     if (typeof done === "function") done();
     if (typeof pendingMenuItemDone.value === "function") {
         pendingMenuItemDone.value();
