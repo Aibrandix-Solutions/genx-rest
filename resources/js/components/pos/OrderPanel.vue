@@ -412,7 +412,7 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div ref="cartContainer" class="flex flex-col rounded max-md:max-h-none max-md:overflow-visible lg:max-h-[250px] lg:overflow-y-auto">
+        <div ref="cartContainer" class="flex flex-col rounded max-md:max-h-none max-md:overflow-visible md:max-h-[250px] md:overflow-y-auto">
             <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
                 <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
                     <tr>

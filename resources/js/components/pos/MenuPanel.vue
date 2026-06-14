@@ -43,9 +43,9 @@
 
                 <!-- Menu Filters -->
                 <div
-                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-nowrap max-md:snap-x max-md:snap-mandatory">
+                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap max-md:flex-nowrap max-md:snap-x max-md:snap-mandatory">
                     <button @click="handleMenuFilter(null)" :class="[
-                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                         localMenuId === null && !localComboOnly
                             ? filterTabActiveClass
                             : filterTabInactiveClass,
@@ -63,7 +63,7 @@
                     </button>
 
                     <button v-for="menu in menus" :key="menu.id" @click="handleMenuFilter(menu.id)" :class="[
-                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                         localMenuId === menu.id && !localComboOnly
                             ? filterTabActiveClass
                             : filterTabInactiveClass,
@@ -74,9 +74,9 @@
 
                 <!-- Category Filters -->
                 <div
-                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-nowrap max-md:snap-x max-md:snap-mandatory">
+                    class="flex gap-2 mt-4 overflow-x-auto pb-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600 flex-wrap max-md:flex-nowrap max-md:snap-x max-md:snap-mandatory">
                     <button @click="handleCategoryFilter(null)" :class="[
-                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                        'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                         localCategoryId === null && !localComboOnly
                             ? filterTabActiveClass
                             : filterTabInactiveClass,
@@ -86,7 +86,7 @@
 
                     <button v-for="category in categories" :key="category.id" @click="handleCategoryFilter(category.id)"
                         :class="[
-                            'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap shrink-0',
+                            'px-3 py-1.5 text-sm font-medium rounded-lg whitespace-nowrap max-md:shrink-0',
                             localCategoryId === category.id && !localComboOnly
                                 ? filterTabActiveClass
                                 : filterTabInactiveClass,
@@ -99,8 +99,8 @@
                     </button>
                 </div>
 
-                <!-- Menu Items Grid -->
-                <div v-if="!localComboOnly" class="mt-4">
+                <!-- Menu Items Grid (collapsed by default below lg; toggle via menu/category buttons) -->
+                <div v-if="!localComboOnly" :class="['mt-4', mobileItemsExpanded ? 'block' : 'hidden lg:block']">
                     <ul class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-8 gap-3">
                         <MenuItem v-for="item in filteredItems" :key="item.id" :item="item"
                             :currency-symbol="currencySymbol" @add-to-cart="handleAddToCart"
@@ -112,7 +112,8 @@
                 </div>
 
                 <!-- Combo packs (parity with legacy pos/menu.blade.php) -->
-                <div v-if="filteredComboPacks.length > 0" :class="localComboOnly ? 'mt-4' : 'mt-8'">
+                <div v-if="filteredComboPacks.length > 0"
+                    :class="[localComboOnly ? 'mt-4' : 'mt-8', mobileItemsExpanded ? 'block' : 'hidden lg:block']">
                     <h3 class="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
                         Combo packs
                     </h3>
@@ -174,7 +175,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import MenuItem from "./MenuItem.vue";
 import ItemVariationsModal from "./ItemVariationsModal.vue";
 import ItemModifiersModal from "./ItemModifiersModal.vue";
@@ -255,6 +256,29 @@ const localSearch = ref(props.search);
 const localMenuId = ref(props.menuId);
 const localCategoryId = ref(props.filterCategories);
 const localComboOnly = ref(false);
+
+const MOBILE_MEDIA_QUERY = "(max-width: 1023px)";
+const isMobileView = ref(false);
+const mobileItemsExpanded = ref(false);
+let mobileMediaQuery = null;
+
+const updateMobileView = () => {
+    const matches = mobileMediaQuery?.matches ?? false;
+    isMobileView.value = matches;
+    if (!matches) {
+        mobileItemsExpanded.value = false;
+    }
+};
+
+onMounted(() => {
+    mobileMediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY);
+    updateMobileView();
+    mobileMediaQuery.addEventListener("change", updateMobileView);
+});
+
+onUnmounted(() => {
+    mobileMediaQuery?.removeEventListener("change", updateMobileView);
+});
 
 const filterTabActiveClass =
     "bg-gray-900 text-white dark:bg-white dark:text-gray-900 max-md:ring-2 max-md:ring-skin-base max-md:ring-offset-1 max-md:dark:ring-offset-gray-900";
@@ -489,6 +513,10 @@ const triggerItemAutoAdd = (item) => {
 const handleSearch = () => {
     emit("update:search", localSearch.value);
 
+    if (isMobileView.value && localSearch.value.trim()) {
+        mobileItemsExpanded.value = true;
+    }
+
     if (itemCodeAutoAddTimer) {
         clearTimeout(itemCodeAutoAddTimer);
         itemCodeAutoAddTimer = null;
@@ -514,6 +542,11 @@ const handleSearchEnter = () => {
         clearTimeout(itemCodeAutoAddTimer);
         itemCodeAutoAddTimer = null;
     }
+
+    if (isMobileView.value && localSearch.value.trim()) {
+        mobileItemsExpanded.value = true;
+    }
+
     const match = findUniqueMatch(localSearch.value);
     if (match) {
         triggerItemAutoAdd(match);
@@ -521,24 +554,56 @@ const handleSearchEnter = () => {
 };
 
 const handleMenuFilter = (menuId) => {
+    const isSameSelection =
+        !localComboOnly.value && localMenuId.value === menuId;
+
+    if (isMobileView.value && isSameSelection) {
+        mobileItemsExpanded.value = !mobileItemsExpanded.value;
+        return;
+    }
+
     localComboOnly.value = false;
     localMenuId.value = menuId;
     emit("update:menuId", menuId);
+
+    if (isMobileView.value) {
+        mobileItemsExpanded.value = true;
+    }
 };
 
 const handleCategoryFilter = (categoryId) => {
+    const isSameSelection =
+        !localComboOnly.value && localCategoryId.value === categoryId;
+
+    if (isMobileView.value && isSameSelection) {
+        mobileItemsExpanded.value = !mobileItemsExpanded.value;
+        return;
+    }
+
     localComboOnly.value = false;
     localCategoryId.value = categoryId;
-
     emit("update:filterCategories", categoryId);
+
+    if (isMobileView.value) {
+        mobileItemsExpanded.value = true;
+    }
 };
 
 const handleComboFilter = () => {
+    if (isMobileView.value && localComboOnly.value) {
+        mobileItemsExpanded.value = !mobileItemsExpanded.value;
+        return;
+    }
+
     localComboOnly.value = true;
     localMenuId.value = null;
     localCategoryId.value = null;
     emit("update:menuId", null);
     emit("update:filterCategories", null);
+
+    if (isMobileView.value) {
+        mobileItemsExpanded.value = true;
+    }
 };
 
 /**
@@ -698,6 +763,7 @@ const handleReset = () => {
     localMenuId.value = null;
     localCategoryId.value = null;
     localComboOnly.value = false;
+    mobileItemsExpanded.value = false;
     emit("reset");
     emit("update:search", "");
     emit("update:menuId", null);
