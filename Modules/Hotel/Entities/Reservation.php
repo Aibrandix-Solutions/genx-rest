@@ -243,6 +243,35 @@ class Reservation extends Model
     }
 
     /**
+     * Keep tax rate + description aligned when staff edit the tax amount inline.
+     */
+    public function syncTaxRateFromAmount(float $taxAmount): void
+    {
+        $base = $this->getTaxableRoomChargesBase();
+
+        if ($base <= 0) {
+            return;
+        }
+
+        $impliedRate = round(($taxAmount / $base) * 100, 2);
+        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+        $defaultRate = $settings ? (float) $settings->tax_rate : 0.0;
+
+        $this->update([
+            'tax_rate_override' => $impliedRate === $defaultRate ? null : $impliedRate,
+        ]);
+
+        $taxCharge = $this->charges()->where('charge_type', RoomCharge::TYPE_TAX)->first();
+
+        if ($taxCharge) {
+            $taxCharge->update([
+                'amount' => round($taxAmount, 2),
+                'description' => 'Tax (' . number_format($impliedRate, 2, '.', '') . '%)',
+            ]);
+        }
+    }
+
+    /**
      * Calculate total charges and update balance
      */
     public function calculateTotal()

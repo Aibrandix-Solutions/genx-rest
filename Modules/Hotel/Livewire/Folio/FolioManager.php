@@ -46,6 +46,10 @@ class FolioManager extends Component
     public $chargeDescription = '';
     public $chargeAmount = 0;
 
+    // Inline edit charge
+    public $editingChargeId = null;
+    public $editChargeAmount = 0;
+
     // Tax rate override modal
     public $showTaxRateModal = false;
     public $editTaxRate = 0;
@@ -375,7 +379,7 @@ class FolioManager extends Component
             ? RoomCharge::encodeCustomTypeDescription($this->chargeTypeCustom, $this->chargeDescription)
             : $this->chargeDescription;
 
-        DB::transaction(function () {
+        DB::transaction(function () use ($description) {
             RoomCharge::create([
                 'reservation_id' => $this->reservation->id,
                 'charge_type' => $this->chargeType,
@@ -391,6 +395,106 @@ class FolioManager extends Component
         $this->loadData();
 
         $this->alert('success', 'Charge added successfully.');
+    }
+
+    // --- Edit Charge (inline) ---
+
+    public function startEditCharge($chargeId)
+    {
+        abort_unless(user_can('edit_room_charge'), 403);
+
+        $charge = RoomCharge::where('reservation_id', $this->reservation->id)->find($chargeId);
+
+        if (!$charge) {
+            return;
+        }
+
+        if ($charge->order_id) {
+            $this->alert('error', __('hotel::modules.folio.cannotEditOrderCharge'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        $this->editingChargeId = $charge->id;
+        $this->editChargeAmount = (float) $charge->amount;
+    }
+
+    public function cancelEditCharge()
+    {
+        $this->editingChargeId = null;
+        $this->editChargeAmount = 0;
+        $this->resetErrorBag('editChargeAmount');
+    }
+
+    public function saveEditCharge()
+    {
+        abort_unless(user_can('edit_room_charge'), 403);
+
+        $this->validate([
+            'editChargeAmount' => 'required|numeric|min:0.01',
+        ]);
+
+        $charge = RoomCharge::where('reservation_id', $this->reservation->id)
+            ->find($this->editingChargeId);
+
+        if (!$charge) {
+            $this->cancelEditCharge();
+
+            return;
+        }
+
+        if ($charge->order_id) {
+            $this->alert('error', __('hotel::modules.folio.cannotEditOrderCharge'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+            $this->cancelEditCharge();
+
+            return;
+        }
+
+        $newAmount = round((float) $this->editChargeAmount, 2);
+
+        if ((float) $charge->amount === $newAmount) {
+            $this->cancelEditCharge();
+
+            return;
+        }
+
+        $isPaymentSurcharge = $charge->isPaymentSurcharge();
+
+        DB::transaction(function () use ($charge, $newAmount) {
+            if (in_array($charge->charge_type, [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_OTHER], true)) {
+                $charge->update(['amount' => $newAmount]);
+                $this->reservation->refresh();
+                $this->reservation->recalculateTaxCharge();
+                $this->reservation->recalculateLinkedServiceCharge();
+            } elseif ($charge->charge_type === RoomCharge::TYPE_TAX) {
+                $this->reservation->syncTaxRateFromAmount($newAmount);
+                $this->reservation->recalculateLinkedServiceCharge();
+            } else {
+                $charge->update(['amount' => $newAmount]);
+            }
+
+            $this->reservation->calculateTotal();
+        });
+
+        $this->cancelEditCharge();
+        $this->loadData();
+
+        $message = __('hotel::modules.folio.chargeUpdated');
+        if ($isPaymentSurcharge) {
+            $message .= ' ' . __('hotel::modules.folio.paymentSurchargeEditHint');
+        }
+
+        $this->alert('success', $message, [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 2000,
+        ]);
     }
 
     // --- Delete Charge ---
