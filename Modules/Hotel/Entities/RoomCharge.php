@@ -72,6 +72,18 @@ class RoomCharge extends Model
         return $description === '' ? $customType : $customType . '::' . $description;
     }
 
+    public function isPaymentSurcharge(): bool
+    {
+        return $this->charge_type === self::TYPE_SERVICE
+            && str_contains(strtolower((string) $this->description), 'payment surcharge');
+    }
+
+    public function isAutoServiceCharge(): bool
+    {
+        return $this->charge_type === self::TYPE_SERVICE
+            && str_starts_with((string) $this->description, 'Service charge (');
+    }
+
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);
