@@ -10,7 +10,9 @@ use App\Models\OrderExtra;
 use App\Scopes\BranchScope;
 use App\Models\DeliveryExecutive;
 use App\Models\OrderNumberSetting;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -280,6 +282,43 @@ class Order extends BaseModel
         }
 
         return null;
+    }
+
+    /**
+     * True when the segment should match orders.uuid (full RFC UUID string).
+     * Numeric ids must never be compared to uuid — MySQL coerces uuid strings to
+     * numbers and can return the wrong row (e.g. id 19411 vs uuid "19411c4c-...").
+     */
+    public static function identifierIsUuid(mixed $identifier): bool
+    {
+        return is_string($identifier) && Str::isUuid($identifier);
+    }
+
+    /**
+     * @param  Builder<Order>  $query
+     * @return Builder<Order>
+     */
+    public function scopeWhereIdentifier(Builder $query, mixed $identifier): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        if (static::identifierIsUuid($identifier)) {
+            return $query->where($table . '.uuid', $identifier);
+        }
+
+        return $query->where($table . '.id', (int) $identifier);
+    }
+
+    public static function findIdByIdentifier(mixed $identifier): ?int
+    {
+        $id = static::query()->whereIdentifier($identifier)->value('id');
+
+        return $id !== null ? (int) $id : null;
+    }
+
+    public static function findByIdentifier(mixed $identifier): ?self
+    {
+        return static::query()->whereIdentifier($identifier)->first();
     }
 
     /**
