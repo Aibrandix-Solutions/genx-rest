@@ -147,26 +147,77 @@ class PurchaseOrderService
     protected function reversePayments(PurchaseOrder $purchaseOrder): void
     {
         foreach ($purchaseOrder->payments as $payment) {
-            if ($payment->payment_account_id) {
+            $this->reverseSupplierPayment($payment, false);
+        }
+    }
+
+    public function reverseSupplierPayment(SupplierPayment $payment, bool $useTransaction = true): void
+    {
+        $this->reverseSupplierPaymentBatch(collect([$payment]), $useTransaction);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, SupplierPayment>  $payments
+     */
+    public function reverseSupplierPaymentBatch($payments, bool $useTransaction = true): void
+    {
+        $callback = function () use ($payments) {
+            $paymentIds = $payments->pluck('id')->filter()->values()->all();
+
+            if ($paymentIds === []) {
+                return;
+            }
+
+            $lockedPayments = SupplierPayment::query()
+                ->whereIn('id', $paymentIds)
+                ->lockForUpdate()
+                ->get();
+
+            $transaction = AccountTransaction::query()
+                ->where('reference_type', SupplierPayment::class)
+                ->whereIn('reference_id', $paymentIds)
+                ->first();
+
+            if ($transaction) {
                 $account = PaymentAccount::query()
                     ->lockForUpdate()
-                    ->find($payment->payment_account_id);
+                    ->find($transaction->payment_account_id);
 
-                if (!$account) {
+                if (! $account) {
                     throw new \RuntimeException(
                         trans('inventory::modules.purchaseOrder.payment_account_missing_revert')
                     );
                 }
 
-                $account->increment('current_balance', (float) $payment->amount);
+                $account->increment('current_balance', (float) $transaction->amount);
+                $transaction->delete();
+            } else {
+                foreach ($lockedPayments as $payment) {
+                    if (! $payment->payment_account_id) {
+                        continue;
+                    }
+
+                    $account = PaymentAccount::query()
+                        ->lockForUpdate()
+                        ->find($payment->payment_account_id);
+
+                    if (! $account) {
+                        throw new \RuntimeException(
+                            trans('inventory::modules.purchaseOrder.payment_account_missing_revert')
+                        );
+                    }
+
+                    $account->increment('current_balance', (float) $payment->amount);
+                }
             }
 
-            AccountTransaction::query()
-                ->where('reference_type', SupplierPayment::class)
-                ->where('reference_id', $payment->id)
-                ->delete();
+            SupplierPayment::query()->whereIn('id', $paymentIds)->delete();
+        };
 
-            $payment->delete();
+        if ($useTransaction) {
+            DB::transaction($callback);
+        } else {
+            $callback();
         }
     }
 
