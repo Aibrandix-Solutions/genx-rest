@@ -140,11 +140,7 @@ class OrderDetail extends Component
     #[On('showOrderDetail')]
     public function showOrder($id, $fromPos = null)
     {
-        $resolvedOrderId = Order::query()
-            ->where(function ($query) use ($id) {
-                $query->where('id', $id)->orWhere('uuid', $id);
-            })
-            ->value('id');
+        $resolvedOrderId = Order::findIdByIdentifier($id);
 
         if (!$resolvedOrderId) {
             $this->resetOrderDetailState();

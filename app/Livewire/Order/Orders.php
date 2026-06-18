@@ -55,9 +55,7 @@ class Orders extends Component
 
         if (! is_null($this->orderID) && $this->orderID !== '') {
             $order = Order::query()
-                ->where(function ($query) {
-                    $query->where('id', $this->orderID)->orWhere('uuid', $this->orderID);
-                })
+                ->whereIdentifier($this->orderID)
                 ->first(['id', 'status']);
 
             if ($order) {
