@@ -36,31 +36,13 @@
     </div>
 
     <!-- Charges Table -->
-    <table class="w-full mb-6">
-        <thead>
-            <tr class="border-b-2 border-gray-800">
-                <th class="text-left py-2">@lang('hotel::modules.folio.date')</th>
-                <th class="text-left py-2">@lang('hotel::modules.folio.description')</th>
-                <th class="text-right py-2">@lang('hotel::modules.folio.amount')</th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200">
-            @foreach($charges as $charge)
-            <tr>
-                <td class="py-3 text-sm">{{ $charge->charge_date->format('d/m/Y') }}</td>
-                <td class="py-3">
-                    <p class="font-medium">{{ $charge->getCustomTypeLabel() ?? ucfirst(str_replace('_', ' ', $charge->charge_type)) }}</p>
-                    @if($charge->getDisplayDescription())
-                        <p class="text-xs text-gray-500">{{ $charge->getDisplayDescription() }}</p>
-                    @endif
-                </td>
-                <td class="py-3 text-right font-medium text-gray-800">
-                    {{ currency_format($charge->amount) }}
-                </td>
-            </tr>
-            @endforeach
-        </tbody>
-    </table>
+    <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">@lang('hotel::modules.folio.charges')</h3>
+    @include('hotel::livewire.folio.partials.folio-charges-summary', [
+        'folioSummary' => $folioSummary,
+        'reservation' => $reservation,
+        'interactive' => false,
+    ])
+    <div class="mb-6"></div>
 
     <!-- Payments Table -->
     @if($payments->isNotEmpty())

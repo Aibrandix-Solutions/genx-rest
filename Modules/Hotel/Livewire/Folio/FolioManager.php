@@ -10,6 +10,7 @@ use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
 use Modules\Hotel\Support\HotelPaymentRecorder;
+use Modules\Hotel\Services\FolioChargePresenter;
 use Modules\Hotel\Services\FolioOrderChargeSync;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ class FolioManager extends Component
     public $reservationNumber;
     public $reservation;
     public $charges;
+    public $folioSummary = [];
     public $payments;
     public $balance = 0;
     public $totalCharges = 0;
@@ -52,6 +54,13 @@ class FolioManager extends Component
 
     // Tax rate override modal
     public $showTaxRateModal = false;
+
+    // Grouped folio display
+    public $expandedRoomGroups = [];
+    public $showOtherChargesModal = false;
+    public $otherChargesFilterType = null;
+    public $editingRoomGroupKey = null;
+    public $editGroupPricePerNight = 0;
     public $editTaxRate = 0;
     public $defaultTaxRate = 0;
 
@@ -95,7 +104,8 @@ class FolioManager extends Component
             ->orderBy('created_at', 'asc')
             ->get();
 
-        $this->totalCharges = $this->charges->sum('amount');
+        $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
+        $this->totalCharges = $this->folioSummary['subtotal'];
 
         $totalPaid = $this->payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
         $totalRefunds = $this->payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
@@ -418,6 +428,7 @@ class FolioManager extends Component
             return;
         }
 
+        $this->cancelEditRoomGroupPrice();
         $this->editingChargeId = $charge->id;
         $this->editChargeAmount = (float) $charge->amount;
     }
@@ -592,6 +603,105 @@ class FolioManager extends Component
         $this->loadData();
 
         $this->alert('success', __('hotel::modules.folio.taxRateUpdated'));
+    }
+
+    public function toggleRoomGroupExpand(string $groupKey): void
+    {
+        if (in_array($groupKey, $this->expandedRoomGroups, true)) {
+            $this->expandedRoomGroups = array_values(array_filter(
+                $this->expandedRoomGroups,
+                fn (string $key) => $key !== $groupKey,
+            ));
+        } else {
+            $this->expandedRoomGroups[] = $groupKey;
+        }
+    }
+
+    public function startEditRoomGroupPrice(string $groupKey): void
+    {
+        abort_unless(user_can('edit_room_charge'), 403);
+
+        $this->cancelEditCharge();
+
+        $group = collect($this->folioSummary['room_groups'] ?? [])->firstWhere('key', $groupKey);
+
+        if (! $group) {
+            return;
+        }
+
+        $this->editingRoomGroupKey = $groupKey;
+        $this->editGroupPricePerNight = (float) $group['price_per_night'];
+    }
+
+    public function cancelEditRoomGroupPrice(): void
+    {
+        $this->editingRoomGroupKey = null;
+        $this->editGroupPricePerNight = 0;
+        $this->resetErrorBag('editGroupPricePerNight');
+    }
+
+    public function saveEditRoomGroupPrice(): void
+    {
+        abort_unless(user_can('edit_room_charge'), 403);
+
+        $this->validate([
+            'editGroupPricePerNight' => 'required|numeric|min:0.01',
+        ]);
+
+        $group = collect($this->folioSummary['room_groups'] ?? [])
+            ->firstWhere('key', $this->editingRoomGroupKey);
+
+        if (! $group) {
+            $this->cancelEditRoomGroupPrice();
+
+            return;
+        }
+
+        $newPrice = round((float) $this->editGroupPricePerNight, 2);
+
+        if ($newPrice === (float) $group['price_per_night']) {
+            $this->cancelEditRoomGroupPrice();
+
+            return;
+        }
+
+        $chargeIds = $group['charges']->pluck('id')->all();
+
+        DB::transaction(function () use ($chargeIds, $newPrice) {
+            RoomCharge::query()
+                ->where('reservation_id', $this->reservation->id)
+                ->whereIn('id', $chargeIds)
+                ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
+                ->update(['amount' => $newPrice]);
+
+            $this->reservation->refresh();
+            $this->reservation->recalculateTaxCharge();
+            $this->reservation->recalculateLinkedServiceCharge();
+            $this->reservation->calculateTotal();
+        });
+
+        $this->cancelEditRoomGroupPrice();
+        $this->loadData();
+
+        $this->alert('success', __('hotel::modules.folio.groupPriceUpdated', [
+            'nights' => $group['nights'],
+        ]), [
+            'toast' => true,
+            'position' => 'top-end',
+            'timer' => 2000,
+        ]);
+    }
+
+    public function openOtherChargesModal(?string $typeFilter = null): void
+    {
+        $this->otherChargesFilterType = $typeFilter;
+        $this->showOtherChargesModal = true;
+    }
+
+    public function closeOtherChargesModal(): void
+    {
+        $this->showOtherChargesModal = false;
+        $this->otherChargesFilterType = null;
     }
 
     public function viewLinkedOrder(int $orderId): void
