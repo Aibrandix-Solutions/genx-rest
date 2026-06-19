@@ -1,4 +1,4 @@
-name: Deploy digierp.cloud VPS
+name: Deploy digierp.cloud VPS (rsync + SSH)
 
 on:
   push:
@@ -14,22 +14,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Validate SSH Key
+      - name: Validate SSH private key format
         run: |
+          set -e
           echo "${{ secrets.VPS_SSH_KEY }}" > /tmp/vps_key
           chmod 600 /tmp/vps_key
           ssh-keygen -lf /tmp/vps_key
 
-      - name: SSH Preflight
+      - name: SSH preflight
         run: |
           ssh -i /tmp/vps_key \
-            -p "${{ secrets.VPS_SSH_PORT }}" \
-            -o StrictHostKeyChecking=no \
-            -o IdentitiesOnly=yes \
-            "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" \
-            "echo SSH OK"
+              -p "${{ secrets.VPS_SSH_PORT }}" \
+              -o StrictHostKeyChecking=no \
+              -o IdentitiesOnly=yes \
+              "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" \
+              "echo SSH OK: \$(whoami) on \$(hostname)"
 
-      - name: Setup Node.js
+      - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -38,35 +39,34 @@ jobs:
         run: |
           npm ci
           npm run build
-          echo "Checking build output..."
-          ls -la public || true
-          ls -la public/build || true
-          ls -la public/build/assets || true
-          test -f public/build/manifest.json
 
-      - name: Prepare Deploy Folders
+      - name: Prepare deploy artifacts
         shell: bash
         run: |
           set -e
-
           rm -rf deploy_app deploy_public
           mkdir -p deploy_app deploy_public
 
-          rsync -a \
-            --exclude=".git" \
-            --exclude=".github" \
-            --exclude=".env" \
-            --exclude="node_modules" \
-            --exclude="vendor" \
-            --exclude="storage" \
-            --exclude="public" \
-            --exclude="deploy_app" \
-            --exclude="deploy_public" \
-            ./ deploy_app/
+          cp -r app bootstrap config database routes artisan composer.json composer.lock phpunit.xml .htaccess Modules deploy_app/ 2>/dev/null || true
+
+          if [ -d lang ]; then cp -r lang deploy_app/; fi
+          mkdir -p deploy_app/resources
+          [ -d resources/lang ]  && cp -r resources/lang  deploy_app/resources/
+          [ -d resources/views ] && cp -r resources/views deploy_app/resources/
+
+          mkdir -p deploy_app/storage/app
+          mkdir -p deploy_app/storage/framework/{cache,sessions,views}
+          mkdir -p deploy_app/storage/logs
+          mkdir -p deploy_app/bootstrap/cache
+          touch deploy_app/storage/.gitignore
 
           rsync -a public/ deploy_public/
 
-          test -f deploy_public/build/manifest.json
+          mkdir -p deploy_app/public/build
+          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
+          if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
+
+          if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
 
           cat > deploy_public/index.php <<'PHP'
           <?php
@@ -83,8 +83,7 @@ jobs:
           define('LARAVEL_BASE', __DIR__ . '/laravel');
 
           require LARAVEL_BASE . '/vendor/autoload.php';
-
-          $app = require_once LARAVEL_BASE . '/bootstrap/app.php';
+          $app = require LARAVEL_BASE . '/bootstrap/app.php';
 
           $kernel = $app->make(Kernel::class);
 
@@ -95,52 +94,29 @@ jobs:
           $kernel->terminate($request, $response);
           PHP
 
-          cat > deploy_public/.htaccess <<'HTACCESS'
-          <IfModule mod_rewrite.c>
-              <IfModule mod_negotiation.c>
-                  Options -MultiViews -Indexes
-              </IfModule>
-
-              RewriteEngine On
-
-              RewriteCond %{HTTP:Authorization} .
-              RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-
-              RewriteCond %{REQUEST_FILENAME} !-d
-              RewriteCond %{REQUEST_FILENAME} !-f
-              RewriteRule ^ index.php [L]
-          </IfModule>
-          HTACCESS
-
-      - name: Create Remote Folders
+      - name: Create remote laravel folder
         run: |
           ssh -i /tmp/vps_key \
-            -p "${{ secrets.VPS_SSH_PORT }}" \
-            -o StrictHostKeyChecking=no \
-            -o IdentitiesOnly=yes \
-            "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" \
-            "mkdir -p /home/admin/domains/digierp.cloud/public_html/laravel"
+              -p "${{ secrets.VPS_SSH_PORT }}" \
+              -o StrictHostKeyChecking=no \
+              -o IdentitiesOnly=yes \
+              "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" \
+              "mkdir -p /home/admin/domains/digierp.cloud/public_html/laravel"
 
-      - name: Upload Laravel App
+      - name: Upload app via rsync to laravel
         run: |
           rsync -avz \
-            --exclude=".env" \
-            --exclude="vendor" \
-            --exclude="storage" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            deploy_app/ \
-            ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/laravel/
+            deploy_app/ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/laravel/
 
-      - name: Upload Public Files
+      - name: Upload public via rsync to public_html
         run: |
           rsync -avz \
             --exclude="laravel" \
-            --exclude="storage" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            deploy_public/ \
-            ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
+            deploy_public/ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
 
-      - name: SSH - Laravel Deploy Commands
+      - name: SSH - composer install and caches
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_SSH_HOST }}
@@ -153,32 +129,27 @@ jobs:
             cd /home/admin/domains/digierp.cloud/public_html/laravel
 
             if [ ! -f .env ]; then
-              echo "❌ Missing .env file"
+              echo "❌ Missing .env at /home/admin/domains/digierp.cloud/public_html/laravel/.env"
               exit 1
             fi
 
-            mkdir -p storage/app/public
-            mkdir -p storage/framework/cache
-            mkdir -p storage/framework/sessions
-            mkdir -p storage/framework/views
+            mkdir -p storage/framework/{cache,sessions,views}
             mkdir -p storage/logs
             mkdir -p bootstrap/cache
+            chmod -R 755 storage bootstrap/cache || true
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
-            php artisan optimize:clear
-            php artisan migrate:fresh --seed --force
+            php artisan optimize:clear || true
+            php artisan module:publish || true
+            php artisan module:publish-migration Inventory || true
+            php artisan migrate --force
             php artisan storage:link || true
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
 
             cd /home/admin/domains/digierp.cloud/public_html
-            rm -rf storage 2>/dev/null || true
-            ln -sf laravel/storage/app/public storage
-
-            chmod -R 775 /home/admin/domains/digierp.cloud/public_html/laravel/storage
-            chmod -R 775 /home/admin/domains/digierp.cloud/public_html/laravel/bootstrap/cache
-            chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
-
-            echo "✅ Deployment completed successfully"
+            rm -rf user-uploads 2>/dev/null || true
+            ln -sf /home/admin/domains/digierp.cloud/public_html/laravel/public/user-uploads user-uploads
+            ls -la user-uploads || true
