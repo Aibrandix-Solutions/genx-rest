@@ -1,8 +1,8 @@
-name: Deploy digierp.cloud VPS
+name: Deploy digierp.cloud VPS Secure Laravel
 
 on:
   push:
-    branches: [sharaf]
+    branches: [himan]
   workflow_dispatch:
 
 jobs:
@@ -39,17 +39,61 @@ jobs:
           npm ci
           npm run build
 
-      - name: Upload Project to VPS
+      - name: Prepare Deploy Folders
         run: |
-          rsync -avz --delete \
+          rm -rf deploy_app deploy_public
+          mkdir -p deploy_app deploy_public
+
+          rsync -a ./ deploy_app/ \
             --exclude=".git" \
             --exclude=".github" \
             --exclude=".env" \
-            --exclude="vendor" \
             --exclude="node_modules" \
+            --exclude="vendor" \
+            --exclude="storage" \
+            --exclude="public"
+
+          rsync -a public/ deploy_public/
+
+          cat > deploy_public/index.php <<'PHP'
+          <?php
+
+          use Illuminate\Contracts\Http\Kernel;
+          use Illuminate\Http\Request;
+
+          define('LARAVEL_START', microtime(true));
+
+          if (file_exists($maintenance = __DIR__.'/../laravel/storage/framework/maintenance.php')) {
+              require $maintenance;
+          }
+
+          require __DIR__.'/../laravel/vendor/autoload.php';
+
+          $app = require_once __DIR__.'/../laravel/bootstrap/app.php';
+
+          $kernel = $app->make(Kernel::class);
+
+          $response = tap($kernel->handle(
+              $request = Request::capture()
+          ))->send();
+
+          $kernel->terminate($request, $response);
+          PHP
+
+      - name: Upload Laravel App to Secure Folder
+        run: |
+          rsync -avz --delete \
+            --exclude=".env" \
+            --exclude="vendor" \
             --exclude="storage" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
+            deploy_app/ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/laravel/
+
+      - name: Upload Public Files
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            deploy_public/ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
 
       - name: SSH - Laravel Deploy Commands
         uses: appleboy/ssh-action@v1.0.3
@@ -61,14 +105,14 @@ jobs:
           script: |
             set -e
 
-            cd /home/admin/domains/digierp.cloud/public_html
+            cd /home/admin/domains/digierp.cloud/laravel
 
             if [ ! -f .env ]; then
-              echo "❌ Missing .env file"
+              echo "❌ Missing .env file in /home/admin/domains/digierp.cloud/laravel"
               exit 1
             fi
 
-            mkdir -p storage/app
+            mkdir -p storage/app/public
             mkdir -p storage/framework/cache
             mkdir -p storage/framework/sessions
             mkdir -p storage/framework/views
@@ -84,7 +128,13 @@ jobs:
             php artisan route:cache
             php artisan view:cache
 
-            chmod -R 775 storage bootstrap/cache
+            cd /home/admin/domains/digierp.cloud/public_html
+            rm -rf storage
+            ln -s ../laravel/storage/app/public storage
+
+            chmod -R 775 /home/admin/domains/digierp.cloud/laravel/storage
+            chmod -R 775 /home/admin/domains/digierp.cloud/laravel/bootstrap/cache
+            chown -R admin:admin /home/admin/domains/digierp.cloud/laravel || true
             chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
 
-            echo "✅ Deployment completed successfully"
+            echo "✅ Secure Laravel VPS deployment completed"
