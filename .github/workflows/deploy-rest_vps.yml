@@ -57,6 +57,8 @@ jobs:
             --exclude="vendor" \
             --exclude="storage" \
             --exclude="public" \
+            --exclude="deploy_app" \
+            --exclude="deploy_public" \
             ./ deploy_app/
 
           rsync -a public/ deploy_public/
@@ -139,6 +141,7 @@ jobs:
 
             php artisan optimize:clear
             php artisan migrate --force
+            php artisan db:seed --force
             php artisan storage:link || true
             php artisan config:cache
             php artisan route:cache
