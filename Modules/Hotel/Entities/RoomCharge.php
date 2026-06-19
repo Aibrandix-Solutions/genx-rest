@@ -35,6 +35,55 @@ class RoomCharge extends Model
     const TYPE_TAX = 'tax';
     const TYPE_OTHER = 'other';
 
+    /**
+     * Custom charge types (charge_type = other) are stored as "Label::description".
+     */
+    public function getCustomTypeLabel(): ?string
+    {
+        if ($this->charge_type !== self::TYPE_OTHER) {
+            return null;
+        }
+
+        $parts = explode('::', $this->description, 2);
+
+        if (count($parts) === 2 && trim($parts[0]) !== '') {
+            return trim($parts[0]);
+        }
+
+        return null;
+    }
+
+    public function getDisplayDescription(): string
+    {
+        if ($this->getCustomTypeLabel() !== null) {
+            $parts = explode('::', $this->description, 2);
+
+            return trim($parts[1] ?? '') ?: $this->getCustomTypeLabel();
+        }
+
+        return $this->description;
+    }
+
+    public static function encodeCustomTypeDescription(string $customType, string $description): string
+    {
+        $customType = trim($customType);
+        $description = trim($description);
+
+        return $description === '' ? $customType : $customType . '::' . $description;
+    }
+
+    public function isPaymentSurcharge(): bool
+    {
+        return $this->charge_type === self::TYPE_SERVICE
+            && str_contains(strtolower((string) $this->description), 'payment surcharge');
+    }
+
+    public function isAutoServiceCharge(): bool
+    {
+        return $this->charge_type === self::TYPE_SERVICE
+            && str_starts_with((string) $this->description, 'Service charge (');
+    }
+
     public function reservation(): BelongsTo
     {
         return $this->belongsTo(Reservation::class);

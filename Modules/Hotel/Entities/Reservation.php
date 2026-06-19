@@ -34,6 +34,7 @@ class Reservation extends Model
         'total_amount',
         'paid_amount',
         'balance_due',
+        'tax_rate_override',
         'group_booking_id',
         'created_by_user_id',
     ];
@@ -46,6 +47,7 @@ class Reservation extends Model
         'total_amount' => 'decimal:2',
         'paid_amount' => 'decimal:2',
         'balance_due' => 'decimal:2',
+        'tax_rate_override' => 'decimal:2',
     ];
 
     const STATUS_CONFIRMED = 'confirmed';
@@ -146,6 +148,127 @@ class Reservation extends Model
         } while (self::where('reservation_number', $candidate)->exists());
 
         return $candidate;
+    }
+
+    /**
+     * Tax rate for this reservation: folio override, or hotel settings default.
+     */
+    public function getEffectiveTaxRate(): float
+    {
+        if ($this->tax_rate_override !== null) {
+            return (float) $this->tax_rate_override;
+        }
+
+        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+
+        return $settings ? (float) $settings->tax_rate : 0.0;
+    }
+
+    /**
+     * Room-night charges used as the tax calculation base.
+     */
+    public function getTaxableRoomChargesBase(): float
+    {
+        return (float) $this->charges()
+            ->whereIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_OTHER])
+            ->sum('amount');
+    }
+
+    /**
+     * Create or update the auto-generated tax charge for this reservation.
+     */
+    public function recalculateTaxCharge(): void
+    {
+        $taxRate = $this->getEffectiveTaxRate();
+        $base = $this->getTaxableRoomChargesBase();
+        $taxCharge = $this->charges()->where('charge_type', RoomCharge::TYPE_TAX)->first();
+
+        if ($taxRate <= 0 || $base <= 0) {
+            if ($taxCharge) {
+                $taxCharge->delete();
+            }
+
+            return;
+        }
+
+        $taxAmount = round($base * ($taxRate / 100), 2);
+        $description = 'Tax (' . number_format($taxRate, 2, '.', '') . '%)';
+
+        if ($taxCharge) {
+            $taxCharge->update([
+                'amount' => $taxAmount,
+                'description' => $description,
+            ]);
+
+            return;
+        }
+
+        RoomCharge::create([
+            'reservation_id' => $this->id,
+            'charge_type' => RoomCharge::TYPE_TAX,
+            'description' => $description,
+            'amount' => $taxAmount,
+            'charge_date' => $this->check_in_date->toDateString(),
+        ]);
+    }
+
+    /**
+     * Recalculate auto-generated service charge when tax changes (folio flow includes tax in base).
+     */
+    public function recalculateLinkedServiceCharge(): void
+    {
+        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+
+        if (!$settings || (float) $settings->service_charge_rate <= 0) {
+            return;
+        }
+
+        $serviceCharge = $this->charges()
+            ->where('charge_type', RoomCharge::TYPE_SERVICE)
+            ->where('description', 'like', 'Service charge (%')
+            ->first();
+
+        if (!$serviceCharge) {
+            return;
+        }
+
+        $base = $this->getTaxableRoomChargesBase();
+        $taxAmount = (float) $this->charges()->where('charge_type', RoomCharge::TYPE_TAX)->sum('amount');
+        $serviceAmount = round(($base + $taxAmount) * ((float) $settings->service_charge_rate / 100), 2);
+
+        $serviceCharge->update([
+            'amount' => $serviceAmount,
+            'description' => 'Service charge (' . number_format((float) $settings->service_charge_rate, 2, '.', '') . '%)',
+        ]);
+    }
+
+    /**
+     * Keep tax rate + description aligned when staff edit the tax amount inline.
+     */
+    public function syncTaxRateFromAmount(float $taxAmount): void
+    {
+        $base = $this->getTaxableRoomChargesBase();
+
+        if ($base <= 0) {
+            return;
+        }
+
+        $impliedRate = round(($taxAmount / $base) * 100, 2);
+        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+        $defaultRate = $settings ? (float) $settings->tax_rate : 0.0;
+
+        $this->update([
+            'tax_rate_override' => $impliedRate === $defaultRate ? null : $impliedRate,
+        ]);
+
+        $taxCharge = $this->charges()->where('charge_type', RoomCharge::TYPE_TAX)->first();
+
+        if ($taxCharge) {
+            $taxCharge->update([
+                'amount' => round($taxAmount, 2),
+                'description' => 'Tax (' . number_format($impliedRate, 2, '.', '') . '%)',
+            ]);
+        }
     }
 
     /**

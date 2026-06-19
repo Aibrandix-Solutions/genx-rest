@@ -1,6 +1,6 @@
 <template>
     <div
-        class="w-full min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto px-3 py-4 dark:bg-gray-800 overflow-x-hidden overflow-y-auto">
+        class="w-full min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen max-md:min-h-0 h-auto px-3 py-4 dark:bg-gray-800 overflow-x-hidden max-md:overflow-visible lg:overflow-y-auto">
         <div v-if="isLinkedOrderMode"
             class="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-100">
             {{ linkedOrderNewKotMessage }}
@@ -412,7 +412,7 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div ref="cartContainer" class="flex flex-col rounded overflow-visible max-h-[calc(2*4.5rem+3rem)] overflow-y-auto" style="max-height: 250px;">
+        <div ref="cartContainer" class="flex flex-col rounded max-md:max-h-none max-md:overflow-visible md:max-h-[250px] md:overflow-y-auto">
             <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
                 <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
                     <tr>
@@ -1181,7 +1181,7 @@
             </div>
 
             <!-- Action Buttons -->
-            <div class="h-auto pb-4 pt-3 select-none text-center w-full mb-16 md:mb-0">
+            <div class="h-auto pb-4 pt-3 select-none text-center w-full">
                 <template v-if="isLinkedOrderMode">
                     <!-- KOT buttons gated by kotModuleEnabled subscription -->
                     <div v-if="linkedLifecycleStatus === 'kot'" class="grid grid-cols-1 md:grid-cols-2 gap-3">

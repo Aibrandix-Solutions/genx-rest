@@ -7,12 +7,14 @@ use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
+use Modules\Hotel\Services\FolioChargePresenter;
 
 class InvoiceV2 extends Component
 {
     public $reservationId;
     public $reservation;
     public $charges;
+    public $folioSummary = [];
     public $payments;
     public $totalCharges = 0;
     public $totalPayments = 0;
@@ -42,15 +44,18 @@ class InvoiceV2 extends Component
         $this->hotelAddress = restaurant()->address ?? '';
         $this->hotelPhone   = restaurant()->phone ?? '';
         
-        $this->charges = RoomCharge::where('reservation_id', $this->reservationId)
+        $this->charges = RoomCharge::with('order')
+            ->where('reservation_id', $this->reservationId)
             ->orderBy('charge_date', 'asc')
             ->get();
+
+        $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
 
         $this->payments = HotelPayment::where('reservation_id', $this->reservationId)
             ->orderBy('created_at', 'asc')
             ->get();
 
-        $this->totalCharges = $this->charges->sum('amount');
+        $this->totalCharges = $this->folioSummary['subtotal'];
 
         $totalPaid = $this->payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
         $totalRefunds = $this->payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
