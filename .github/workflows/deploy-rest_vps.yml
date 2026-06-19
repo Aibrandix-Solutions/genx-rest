@@ -1,0 +1,91 @@
+name: Deploy digierp.cloud VPS
+
+on:
+  push:
+    branches: [sharaf]
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate SSH Key
+        run: |
+          echo "${{ secrets.VPS_SSH_KEY }}" > /tmp/vps_key
+          chmod 600 /tmp/vps_key
+          ssh-keygen -lf /tmp/vps_key
+
+      - name: SSH Preflight
+        run: |
+          ssh -i /tmp/vps_key \
+            -p "${{ secrets.VPS_SSH_PORT }}" \
+            -o StrictHostKeyChecking=no \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}" \
+            "echo SSH OK: \$(whoami) on \$(hostname)"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build Assets
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload Project to VPS
+        run: |
+          rsync -avz --delete \
+            --exclude=".git" \
+            --exclude=".github" \
+            --exclude=".env" \
+            --exclude="vendor" \
+            --exclude="node_modules" \
+            --exclude="storage" \
+            -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
+            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
+
+      - name: SSH - Laravel Deploy Commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            cd /home/admin/domains/digierp.cloud/public_html
+
+            if [ ! -f .env ]; then
+              echo "❌ Missing .env file"
+              exit 1
+            fi
+
+            mkdir -p storage/app
+            mkdir -p storage/framework/cache
+            mkdir -p storage/framework/sessions
+            mkdir -p storage/framework/views
+            mkdir -p storage/logs
+            mkdir -p bootstrap/cache
+
+            composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+
+            php artisan optimize:clear
+            php artisan migrate --force
+            php artisan db:seed --force
+            php artisan storage:link || true
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+
+            chmod -R 775 storage bootstrap/cache
+            chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
+
+            echo "✅ Deployment completed successfully"
