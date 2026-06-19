@@ -47,46 +47,62 @@ jobs:
           rm -rf deploy_app deploy_public
           mkdir -p deploy_app deploy_public
 
-          rsync -a \
-            --exclude=".git" \
-            --exclude=".github" \
-            --exclude=".env" \
-            --exclude="node_modules" \
-            --exclude="vendor" \
-            --exclude="storage" \
-            --exclude="public" \
-            --exclude="deploy_app" \
-            --exclude="deploy_public" \
-            ./ deploy_app/
+          # Core app files only
+          cp -r app bootstrap config database routes artisan composer.json composer.lock phpunit.xml .htaccess Modules deploy_app/ 2>/dev/null || true
 
+          # Translations and views
+          if [ -d lang ]; then cp -r lang deploy_app/; fi
+          mkdir -p deploy_app/resources
+          [ -d resources/lang ] && cp -r resources/lang deploy_app/resources/
+          [ -d resources/views ] && cp -r resources/views deploy_app/resources/
+
+          # Laravel runtime skeleton for storage
+          mkdir -p deploy_app/storage/app
+          mkdir -p deploy_app/storage/framework/{cache,sessions,views}
+          mkdir -p deploy_app/storage/logs
+          mkdir -p deploy_app/bootstrap/cache
+          touch deploy_app/storage/.gitignore
+
+          # Public contents for document root
           rsync -a public/ deploy_public/
 
+          # Ensure public/build is available under both root and laravel public
+          mkdir -p deploy_app/public/build
+          if [ -d public/build ]; then rsync -a public/build/ deploy_public/build/; fi
+          if [ -d public/build ]; then rsync -a public/build/ deploy_app/public/build/; fi
+
+          # Ensure .htaccess is included explicitly
+          if [ -f public/.htaccess ]; then cp public/.htaccess deploy_public/.htaccess; fi
+
+          # Write split docroot root index.php
           cat > deploy_public/index.php <<'PHP'
-          <?php
+<?php
 
-          use Illuminate\Contracts\Http\Kernel;
-          use Illuminate\Http\Request;
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Http\Request;
 
-          define('LARAVEL_START', microtime(true));
+define('LARAVEL_START', microtime(true));
 
-          if (file_exists($maintenance = __DIR__ . '/laravel/storage/framework/maintenance.php')) {
-              require $maintenance;
-          }
+// maintenance file relative to public docroot
+if (file_exists($maintenance = __DIR__ . '/laravel/storage/framework/maintenance.php')) {
+    require $maintenance;
+}
 
-          define('LARAVEL_BASE', __DIR__ . '/laravel');
+// Point to the 'laravel' directory (relative to this docroot)
+define('LARAVEL_BASE', __DIR__ . '/laravel');
 
-          require LARAVEL_BASE . '/vendor/autoload.php';
+require LARAVEL_BASE . '/vendor/autoload.php';
+$app = require LARAVEL_BASE . '/bootstrap/app.php';
 
-          $app = require_once LARAVEL_BASE . '/bootstrap/app.php';
+/** @var Kernel $kernel */
+$kernel = $app->make(Kernel::class);
 
-          $kernel = $app->make(Kernel::class);
+$response = tap($kernel->handle(
+    $request = Request::capture()
+))->send();
 
-          $response = tap($kernel->handle(
-              $request = Request::capture()
-          ))->send();
-
-          $kernel->terminate($request, $response);
-          PHP
+$kernel->terminate($request, $response);
+PHP
 
       - name: Create Remote Folders
         run: |
