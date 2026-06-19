@@ -2,7 +2,7 @@ name: Deploy digierp.cloud VPS Secure Laravel
 
 on:
   push:
-    branches: [himan]
+    branches: [sharaf]
   workflow_dispatch:
 
 jobs:
