@@ -37,6 +37,7 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
         return [
             __('app.date'),
             __('inventory::modules.purchaseOrder.poNumber'),
+            __('inventory::modules.purchaseOrder.invoice_no'),
             __('inventory::modules.purchaseOrder.supplier'),
             __('app.status'),
             __('inventory::modules.purchaseOrder.totalCost'),
@@ -48,6 +49,7 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
         return [
             $order->order_date ? $order->order_date->format('Y-m-d') : '',
             $order->po_number,
+            $order->invoice_no ?? '',
             $order->supplier->name ?? '--',
             $order->status,
             currency_format($order->total_amount, restaurant()->currency_id),
@@ -76,6 +78,7 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
                     $query->where('po_number', 'like', '%' . $this->search . '%')
+                        ->orWhere('invoice_no', 'like', '%' . $this->search . '%')
                         ->orWhereHas('supplier', function ($query) {
                             $query->where('name', 'like', '%' . $this->search . '%');
                         });

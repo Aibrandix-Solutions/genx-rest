@@ -55,4 +55,9 @@ class ReportController extends Controller
     {
         return view('reports.detailed-sales');
     }
+
+    public function menuItemReport()
+    {
+        return view('reports.menu-item-report');
+    }
 }

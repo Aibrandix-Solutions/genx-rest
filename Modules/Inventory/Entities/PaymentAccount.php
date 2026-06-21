@@ -13,6 +13,11 @@ class PaymentAccount extends Model
     {
         return $this->hasMany(SupplierPayment::class);
     }
+
+    public function transactions(): HasMany
+    {
+        return $this->hasMany(AccountTransaction::class);
+    }
 }
 
 

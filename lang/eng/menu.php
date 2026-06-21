@@ -2,6 +2,7 @@
 
 return array(
     'dashboard' => 'Dashboard',
+    'hotelDashboard' => 'Hotel Dashboard',
     'menu' => 'Menu',
     'menus' => 'Menus',
     'menuItem' => 'Menu Items',
@@ -59,4 +60,5 @@ return array(
     'customerDisplay' => 'Customer Display',
     'deliveryAppReport' => 'Delivery App Report',
     'kotAdjustmentLog' => 'KOT Adjustment Log',
+    'menuItemReport' => 'Menu Item Report',
 );

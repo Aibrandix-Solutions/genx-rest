@@ -1,5 +1,5 @@
 <div
-    class="flex flex-col h-auto min-h-screen px-2 py-4 pr-4 bg-white border-l lg:w-6/12 dark:border-gray-700 dark:bg-gray-800">
+    class="flex flex-col h-auto min-h-screen max-md:min-h-0 px-2 py-4 pr-4 bg-white border-l lg:w-6/12 dark:border-gray-700 dark:bg-gray-800">
     @php
         $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
         $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
@@ -26,6 +26,15 @@
                     {{ $formattedOrderNumber }}
                 @endif
             </div>
+
+            @if ($orderType == 'room_service' && $orderDetail->hotelReservation && $orderDetail->hotelReservation->room && $orderDetail->hotelReservation->guest)
+            <div class="inline-flex items-center gap-2 dark:text-gray-300">
+                <div class="font-semibold text-gray-700 dark:text-gray-300">
+                     @lang('hotel::modules.reservation.room') {{ $orderDetail->hotelReservation->room->room_number }} 
+                     <span class="text-sm font-normal text-gray-500">({{ $orderDetail->hotelReservation->guest->full_name }})</span>
+                 </div>
+            </div>
+            @endif
 
             @if ($orderType == 'dine_in')
             <div class="inline-flex items-center gap-2 dark:text-gray-300">

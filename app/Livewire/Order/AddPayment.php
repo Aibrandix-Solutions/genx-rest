@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
 use App\Livewire\Customer\AddCustomer;
 use App\Livewire\Order\OrderDetail;
+use App\Services\Pos\PosHotelSupport;
 use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class AddPayment extends Component
 {
@@ -46,6 +48,13 @@ class AddPayment extends Component
     public $showTipModal = false;
     public $canAddTip;
     public $predefinedAmounts = [];
+
+    // Hotel room charge (folio) payment
+    public $showRoomCharge = false;
+
+    public $roomChargeReservationId = null;
+
+    public $inHouseReservations = [];
 
     /** When split bill "due" is chosen without a customer, we re-apply due to this split after attach. */
     public ?int $pendingDueSplitIdForCustomerModal = null;
@@ -98,6 +107,23 @@ class AddPayment extends Component
         $this->refreshAvailableItems();
 
         $this->initializeSplits();
+
+        $this->showRoomCharge = PosHotelSupport::showRoomChargePayment();
+        $this->inHouseReservations = [];
+        $this->roomChargeReservationId = null;
+
+        if ($this->showRoomCharge) {
+            $this->roomChargeReservationId = $this->order->hotel_reservation_id;
+            if ($this->order->hotel_reservation_id) {
+                $this->paymentMethod = 'room_charge';
+            }
+            $this->loadInHouseReservations();
+        }
+    }
+
+    public function loadInHouseReservations(): void
+    {
+        $this->inHouseReservations = PosHotelSupport::checkedInReservationsForPos()->values()->all();
     }
 
     private function refreshAvailableItems()
@@ -304,6 +330,11 @@ class AddPayment extends Component
         }
 
         $this->paymentMethod = $method;
+
+        if ($method === 'room_charge' && $this->showRoomCharge) {
+            $this->loadInHouseReservations();
+        }
+
         $this->updatedPaymentAmount();
     }
 
@@ -562,6 +593,7 @@ class AddPayment extends Component
         }
 
         $epsilon = 0.0001;
+        $chargedToFolio = false;
 
         try {
             DB::beginTransaction();
@@ -586,7 +618,23 @@ class AddPayment extends Component
 
                 $this->processSplitPayment();
             } else {
-                if ($this->paymentAmount >= 0) {
+                if ($this->paymentMethod === 'room_charge' && $this->showRoomCharge) {
+                    if (! $this->roomChargeReservationId) {
+                        DB::rollBack();
+                        $this->alert('error', __('modules.order.selectRoom'), [
+                            'toast' => true,
+                            'position' => 'top-end',
+                        ]);
+
+                        return;
+                    }
+
+                    OrderFolioSettlement::chargeToFolio(
+                        $this->order,
+                        (int) $this->roomChargeReservationId
+                    );
+                    $chargedToFolio = true;
+                } elseif ($this->paymentAmount >= 0) {
                     Payment::create([
                         'order_id' => $this->order->id,
                         'payment_method' => $this->paymentMethod,
@@ -599,6 +647,7 @@ class AddPayment extends Component
 
             $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
+            if (! $chargedToFolio) {
             if ($this->order->split_type === 'items') {
                 $orderPaidAmount = $this->order->splitOrders()
                     ->where('status', 'paid')
@@ -631,6 +680,8 @@ class AddPayment extends Component
                     'amount' => $outstanding,
                     'payment_account_id' => $this->getDefaultPaymentAccountId('due'),
                 ]);
+            }
+
             }
 
             DB::commit();

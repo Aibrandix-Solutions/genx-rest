@@ -177,7 +177,7 @@
                             <select wire:model="linkAccountId" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm dark:bg-gray-700 dark:border-gray-600">
                                 <option value="">Select...</option>
                                 @foreach($accounts as $acc)
-                                    <option value="{{ $acc->id }}">{{ $acc->name }} ({{ number_format($acc->current_balance, 2) }})</option>
+                                    <option value="{{ $acc->id }}">{{ $acc->name }} ({{ number_format(($acc->total_debit ?? 0) - ($acc->total_credit ?? 0), 2) }})</option>
                                 @endforeach
                             </select>
                             @error('linkAccountId') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror

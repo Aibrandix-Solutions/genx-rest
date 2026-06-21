@@ -84,6 +84,10 @@
                         <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->supplier->name ?? '-' }}</p>
                     </div>
                     <div>
+                        <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">{{ trans('inventory::modules.purchaseOrder.invoice_no') }}</h4>
+                        <p class="text-base font-semibold text-gray-900 dark:text-white">{{ $purchaseOrder->invoice_no ?: '-' }}</p>
+                    </div>
+                    <div>
                         <h4 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Location</h4>
                         <p class="text-base font-semibold text-gray-900 dark:text-white">
                             {{ $purchaseOrder->location?->display_name ?? '-' }}

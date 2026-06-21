@@ -354,6 +354,9 @@
         <div class="document-info">
             <div class="document-title">{{ trans('inventory::modules.purchaseOrder.purchase_order') }}</div>
             <div class="document-number">{{ $purchaseOrder->po_number }}</div>
+            @if($purchaseOrder->invoice_no)
+                <div class="document-number">{{ trans('inventory::modules.purchaseOrder.invoice_no') }}: {{ $purchaseOrder->invoice_no }}</div>
+            @endif
             <div class="status-badge status-{{ $purchaseOrder->status }}">{{ $statusLabel }}</div>
         </div>
     </div>

@@ -23,11 +23,26 @@ use App\Support\KotAdjustmentLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Livewire\Customer\AddCustomer;
 use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class OrderDetail extends Component
 {
 
     use LivewireAlert, PrinterSetting;
+
+    private function abortIfFolioSettled(): bool
+    {
+        if ($this->order && OrderFolioSettlement::isLockedForEditing($this->order)) {
+            $this->alert('error', __('modules.order.folioSettledLocked'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return true;
+        }
+
+        return false;
+    }
 
     public $order;
     public $taxes;
@@ -63,6 +78,7 @@ class OrderDetail extends Component
     public $showDiscountModal = false;
     public $discountValue = null;
     public $discountType = 'fixed';
+    public $requestedOrderId = null;
 
     public function mount()
     {
@@ -124,7 +140,50 @@ class OrderDetail extends Component
     #[On('showOrderDetail')]
     public function showOrder($id, $fromPos = null)
     {
-        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'items.comboPack', 'payments', 'cancelReason')->find($id);
+        $resolvedOrderId = Order::findIdByIdentifier($id);
+
+        if (!$resolvedOrderId) {
+            $this->resetOrderDetailState();
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        // Track latest requested id and clear stale order state before loading.
+        $this->requestedOrderId = (int) $resolvedOrderId;
+        $this->order = null;
+
+        $order = Order::with(
+            'items',
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.comboPack',
+            'payments',
+            'cancelReason',
+            'hotelReservation.room',
+            'hotelReservation.guest'
+        )->find($this->requestedOrderId);
+
+        if (! $order) {
+            $this->resetOrderDetailState();
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        // If another request arrived while this one was resolving, ignore stale load.
+        if ((int) $this->requestedOrderId !== (int) $order->id) {
+            return;
+        }
+
+        $this->order = $order;
+
         $this->orderStatus = $this->order->status;
         $this->fromPos = $fromPos;
         $this->orderProgressStatus = $this->order->order_status->value;
@@ -138,6 +197,27 @@ class OrderDetail extends Component
 
         $this->selectWaiter = $this->order->waiter_id;
         $this->showOrderDetail = true;
+    }
+
+    public function updatedShowOrderDetail($value): void
+    {
+        if (!$value) {
+            $this->resetOrderDetailState();
+        }
+    }
+
+    private function resetOrderDetailState(): void
+    {
+        $this->order = null;
+        $this->requestedOrderId = null;
+        $this->orderStatus = null;
+        $this->orderProgressStatus = null;
+        $this->showTableModal = false;
+        $this->cancelOrderModal = false;
+        $this->deleteOrderModal = false;
+        $this->confirmDeleteModal = false;
+        $this->showRemovalReasonModal = false;
+        $this->showDiscountModal = false;
     }
 
     /**
@@ -269,6 +349,10 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
@@ -285,6 +369,10 @@ class OrderDetail extends Component
     public function removeComboGroup(string $comboGroupKey): void
     {
         if (!$this->order) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
             return;
         }
 
@@ -1273,6 +1361,10 @@ class OrderDetail extends Component
 
     public function applyDiscount()
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             return;
         }
@@ -1358,6 +1450,10 @@ class OrderDetail extends Component
 
     public function removeDiscount()
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             return;
         }
