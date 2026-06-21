@@ -87,4 +87,4 @@ jobs:
             chmod -R 775 storage bootstrap/cache
             chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
 
-            echo "✅ Deployment completed successfully"
+            echo "✅ VPS Deployment completed successfully"
