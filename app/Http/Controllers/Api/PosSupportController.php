@@ -21,6 +21,7 @@ use App\Models\RestaurantCharge;
 use App\Models\Table;
 use App\Models\User;
 use App\Scopes\BranchScope;
+use App\Services\OrderPaymentBalanceSync;
 use App\Services\Pos\PosHotelSupport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -1293,6 +1294,8 @@ class PosSupportController extends Controller
 
     private function recomputeOrderFinancialsFromPersistedItems(Order $order): void
     {
+        $statusBefore = $order->status;
+
         $order->loadMissing('taxes');
         $remainingItems = $order->items()->get();
         $subtotal = $remainingItems->sum(fn ($i) => (float) ($i->amount ?? 0));
@@ -1321,6 +1324,10 @@ class PosSupportController extends Controller
             'total' => max(0, $total),
             'total_tax_amount' => round($totalTax, 2),
         ]);
+
+        if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+            OrderPaymentBalanceSync::reconcileAfterTotalChange($order->fresh(['payments']));
+        }
     }
 
     /**

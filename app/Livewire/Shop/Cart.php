@@ -1430,17 +1430,24 @@ class Cart extends Component
             $payment->save();
 
             $order = Order::find($payment->order_id);
-            $order->amount_paid = $this->total;
-            $order->status = 'paid';
-            $order->save();
 
-            Payment::create([
-                'order_id' => $payment->order_id,
-                'branch_id' => $this->shopBranch->id,
-                'payment_method' => 'razorpay',
-                'amount' => $payment->amount,
-                'transaction_id' => $razorpayPaymentID
-            ]);
+            if ($order && $order->status !== 'paid') {
+                $order->amount_paid = $this->total;
+                $order->status = 'paid';
+                $order->save();
+            }
+
+            Payment::updateOrCreate(
+                [
+                    'order_id' => $payment->order_id,
+                    'transaction_id' => $razorpayPaymentID,
+                ],
+                [
+                    'branch_id' => $this->shopBranch->id,
+                    'payment_method' => 'razorpay',
+                    'amount' => $payment->amount,
+                ]
+            );
 
             $this->sendNotifications($order);
 

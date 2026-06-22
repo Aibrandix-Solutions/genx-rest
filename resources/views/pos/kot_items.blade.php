@@ -1,5 +1,5 @@
 <div
-    class="lg:w-6/12 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen max-md:min-h-0 h-auto pr-4 px-2 py-4 dark:bg-gray-800">
+    class="lg:w-1/3 min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen max-md:min-h-0 h-auto pr-4 px-2 py-4 dark:bg-gray-800">
 
     {{-- Order Type Indicator + Dropdown Selector (replaces modal UX) --}}
     <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">

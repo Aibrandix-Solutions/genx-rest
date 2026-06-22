@@ -101,7 +101,7 @@
 
                 <!-- Menu Items Grid (collapsed by default below lg; toggle via menu/category buttons) -->
                 <div v-if="!localComboOnly" :class="['mt-4', mobileItemsExpanded ? 'block' : 'hidden lg:block']">
-                    <ul class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-8 gap-3">
+                    <ul class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                         <MenuItem v-for="item in filteredItems" :key="item.id" :item="item"
                             :currency-symbol="currencySymbol" @add-to-cart="handleAddToCart"
                             @show-variations="handleShowVariations" />
