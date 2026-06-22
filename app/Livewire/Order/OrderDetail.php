@@ -20,6 +20,7 @@ use App\Models\KotItem;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Support\KotAdjustmentLogger;
+use App\Services\OrderPaymentBalanceSync;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Livewire\Customer\AddCustomer;
 use Illuminate\Support\Facades\DB;
@@ -514,8 +515,8 @@ class OrderDetail extends Component
             $this->recalculateOrderTotals();
 
             // Keep payment records in sync with the revised total
-            if (in_array($this->order->status, ['paid', 'payment_due'])) {
-                $this->scalePaymentsToNewTotal($this->total);
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
             }
         }
 
@@ -1093,6 +1094,10 @@ class OrderDetail extends Component
 
             // Recalculate order totals properly
             $this->recalculateOrderTotals();
+
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
+            }
         }
     }
 
@@ -1170,43 +1175,6 @@ class OrderDetail extends Component
     /**
      * Recalculate order totals including all components
      */
-    /**
-     * Reduce overpaid payment amounts so their sum equals the new order total.
-     * Works from the most-recent payment backwards, never letting any amount go below zero.
-     */
-    private function scalePaymentsToNewTotal(float $newTotal): void
-    {
-        $payments = $this->order->payments()
-            ->where('payment_method', '!=', 'due')
-            ->orderBy('id')
-            ->get();
-
-        $excess = round($payments->sum('amount') - $newTotal, 2);
-
-        if ($excess <= 0) {
-            return;
-        }
-
-        // Reduce from the most recent payment first
-        foreach ($payments->sortByDesc('id') as $payment) {
-            if ($excess <= 0) {
-                break;
-            }
-            $canReduce = min((float) $payment->amount, $excess);
-            $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
-            $excess = round($excess - $canReduce, 2);
-        }
-
-        $this->order->update([
-            'amount_paid' => $this->order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount'),
-        ]);
-
-        $this->order->refresh();
-        $this->order->load('payments');
-    }
-
     public function recalculateOrderTotals()
     {
         if (!$this->order) {
@@ -1405,19 +1373,7 @@ class OrderDetail extends Component
                 $this->order->load('payments');
 
                 if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-                    $this->scalePaymentsToNewTotal($newTotal);
-                    $this->order->refresh();
-
-                    $amountPaid = $this->order->payments()
-                        ->where('payment_method', '!=', 'due')
-                        ->sum('amount');
-                    $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
-                    if ($newStatus === 'payment_due' && !$this->order->canRecordDueBalance()) {
-                        throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
-                    }
-                    if ($this->order->status !== $newStatus) {
-                        $this->order->update(['status' => $newStatus]);
-                    }
+                    OrderPaymentBalanceSync::reconcileAfterTotalChangeForUi($this->order);
                 }
             });
         } catch (\RuntimeException $e) {
@@ -1494,22 +1450,8 @@ class OrderDetail extends Component
             'total'           => $newTotal,
         ]);
 
-        // If the order was paid and the new total exceeds what was collected, mark as payment_due
         if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-            $this->order->refresh();
-            $amountPaid = $this->order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount');
-
-            if ($amountPaid < $newTotal - 0.0001) {
-                $shortfall = round($newTotal - $amountPaid, 2);
-                $this->order->payments()->create([
-                    'payment_method' => 'due',
-                    'amount'         => $shortfall,
-                    'order_id'       => $this->order->id,
-                ]);
-                $this->order->update(['status' => 'payment_due']);
-            }
+            OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
         }
 
         $this->order->refresh();

@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\BranchPaymentAccountSetting;
+use App\Services\OrderPaymentBalanceSync;
 use App\Models\ComboPack;
 use App\Models\Customer;
 use App\Models\DeliveryPlatform;
@@ -996,7 +996,11 @@ class PosVueOrderController extends Controller
             }
 
             if (in_array($statusBeforeSave, ['paid', 'payment_due'], true)) {
-                self::syncPostPaymentBalance($order->fresh('payments'), $total, $opensImmediatePayment);
+                OrderPaymentBalanceSync::syncPostPaymentBalance(
+                    $order->fresh('payments'),
+                    $total,
+                    $opensImmediatePayment
+                );
             }
 
             $kotIds = [];
@@ -1122,71 +1126,6 @@ class PosVueOrderController extends Controller
                     ),
                 ],
             ],
-        ]);
-    }
-
-    /**
-     * Paid/payment_due orders can be edited by adding a New KOT. Existing real
-     * payments become the prepayment against the new total; any shortfall is
-     * tracked as a single `due` payment, matching the legacy POS due model.
-     */
-    private static function syncPostPaymentBalance(Order $order, float $newTotal, bool $allowImmediatePaymentWithoutCustomer = false): void
-    {
-        if (class_exists(\Modules\Hotel\Services\OrderFolioSettlement::class)
-            && \Modules\Hotel\Services\OrderFolioSettlement::isChargedToFolio($order)) {
-            $order->update([
-                'amount_paid' => 0,
-                'status' => \Modules\Hotel\Services\OrderFolioSettlement::isFolioSettled($order)
-                    ? \Modules\Hotel\Services\OrderFolioSettlement::STATUS_FOLIO_SETTLED
-                    : 'billed',
-            ]);
-
-            return;
-        }
-
-        $amountPaid = $order->split_type === 'items'
-            ? (float) $order->splitOrders()->where('status', 'paid')->sum('amount')
-            : (float) $order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount');
-
-        $shortfall = round(max(0, $newTotal - $amountPaid), 2);
-
-        $order->payments()
-            ->where('payment_method', 'due')
-            ->delete();
-
-        if ($shortfall > 0) {
-            if (! $order->canRecordDueBalance()) {
-                abort_if(
-                    ! $allowImmediatePaymentWithoutCustomer,
-                    422,
-                    'Walk-in paid orders require immediate payment for additional KOT items.'
-                );
-
-                $order->update([
-                    'amount_paid' => round($amountPaid, 2),
-                    'status' => 'billed',
-                ]);
-
-                return;
-            }
-
-            $dueAccount = $order->branch_id
-                ? BranchPaymentAccountSetting::getDefaultAccount((int) $order->branch_id, 'due')
-                : null;
-
-            $order->payments()->create([
-                'payment_method' => 'due',
-                'amount' => $shortfall,
-                'order_id' => $order->id,
-                'payment_account_id' => $dueAccount?->id,
-            ]);
-        }
-
-        $order->update([
-            'amount_paid' => round($amountPaid, 2),
-            'status' => $shortfall > 0 ? 'payment_due' : 'paid',
         ]);
     }
 
