@@ -4,11 +4,11 @@ namespace App\Livewire\Reports;
 
 use Carbon\Carbon;
 use App\Models\Tax;
-use App\Models\Order;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use App\Models\RestaurantCharge;
 use App\Exports\SalesReportExport;
+use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Models\PaymentGatewayCredential;
@@ -17,13 +17,21 @@ use App\Models\User;
 class SalesReport extends Component
 {
     public $dateRangeType = 'currentWeek';
+
     public $startDate;
+
     public $endDate;
-    public $startTime = '00:00'; // Default start time
-    public $endTime = '23:59';  // Default end time
+
+    public $startTime = '00:00';
+
+    public $endTime = '23:59';
+
     public $currencyId;
+
     public $filterByWaiter = '';
+
     public $waiters = [];
+
     public $selectedWaiter = '';
 
     public function mount()
@@ -31,15 +39,20 @@ class SalesReport extends Component
         abort_unless(in_array('Report', restaurant_modules()), 403);
         abort_unless(user_can('Show Reports'), 403);
 
-        // Centralize currency ID
         $this->currencyId = restaurant()->currency_id;
-
-        // Load date range type from cookie
         $this->dateRangeType = request()->cookie('sales_report_date_range_type', 'currentWeek');
-        $this->setDateRange();
-        // Populate waiters
-        $this->waiters = User::whereHas('roles', function($query) {
-            $query->where('name', 'Waiter_'.restaurant()->id);
+
+        if ($this->dateRangeType === 'custom') {
+            $this->startDate = request()->cookie('sales_report_start_date', now()->format('m/d/Y'));
+            $this->endDate = request()->cookie('sales_report_end_date', now()->format('m/d/Y'));
+            $this->startTime = request()->cookie('sales_report_start_time', '00:00');
+            $this->endTime = request()->cookie('sales_report_end_time', '23:59');
+        } else {
+            $this->setDateRange();
+        }
+
+        $this->waiters = User::whereHas('roles', function ($query) {
+            $query->where('name', 'Waiter_' . restaurant()->id);
         })->get();
 
         $this->selectedWaiter = '';
@@ -47,14 +60,18 @@ class SalesReport extends Component
 
     public function setDateRange()
     {
+        if ($this->dateRangeType === 'custom') {
+            return;
+        }
+
         $ranges = [
             'today' => [now()->startOfDay(), now()->endOfDay()],
             'yesterday' => [now()->subDay()->startOfDay(), now()->subDay()->endOfDay()],
             'lastWeek' => [now()->subWeek()->startOfWeek(), now()->subWeek()->endOfWeek()],
-            'last7Days' => [now()->subDays(7), now()->endOfDay()],
-            'currentMonth' => [now()->startOfMonth(), now()->endOfDay()],
+            'last7Days' => [now()->subDays(6)->startOfDay(), now()->endOfDay()],
+            'currentMonth' => [now()->startOfMonth(), now()->endOfMonth()],
             'lastMonth' => [now()->subMonth()->startOfMonth(), now()->subMonth()->endOfMonth()],
-            'currentYear' => [now()->startOfYear(), now()->endOfDay()],
+            'currentYear' => [now()->startOfYear(), now()->endOfYear()],
             'lastYear' => [now()->subYear()->startOfYear(), now()->subYear()->endOfYear()],
             'currentWeek' => [now()->startOfWeek(), now()->endOfWeek()],
         ];
@@ -63,18 +80,57 @@ class SalesReport extends Component
         $this->startDate = $start->format('m/d/Y');
         $this->endDate = $end->format('m/d/Y');
         $this->filterByWaiter = '';
+        $this->persistDateCookies();
+    }
+
+    private function persistDateCookies(): void
+    {
+        $ttl = 60 * 24 * 30;
+        cookie()->queue(cookie('sales_report_date_range_type', $this->dateRangeType, $ttl));
+        cookie()->queue(cookie('sales_report_start_date', $this->startDate, $ttl));
+        cookie()->queue(cookie('sales_report_end_date', $this->endDate, $ttl));
+        cookie()->queue(cookie('sales_report_start_time', $this->startTime, $ttl));
+        cookie()->queue(cookie('sales_report_end_time', $this->endTime, $ttl));
+    }
+
+    private function markCustomDateRange(): void
+    {
+        $this->dateRangeType = 'custom';
+        $this->persistDateCookies();
     }
 
     #[On('setStartDate')]
     public function setStartDate($start)
     {
         $this->startDate = $start;
+        $this->markCustomDateRange();
     }
 
     #[On('setEndDate')]
     public function setEndDate($end)
     {
         $this->endDate = $end;
+        $this->markCustomDateRange();
+    }
+
+    public function updatedStartDate(): void
+    {
+        $this->markCustomDateRange();
+    }
+
+    public function updatedEndDate(): void
+    {
+        $this->markCustomDateRange();
+    }
+
+    public function updatedStartTime(): void
+    {
+        $this->markCustomDateRange();
+    }
+
+    public function updatedEndTime(): void
+    {
+        $this->markCustomDateRange();
     }
 
     private function prepareDateTimeData()
@@ -95,8 +151,9 @@ class SalesReport extends Component
 
     public function exportReport()
     {
-        if (!in_array('Export Report', restaurant_modules())) {
+        if (! in_array('Export Report', restaurant_modules())) {
             $this->dispatch('showUpgradeLicense');
+
             return;
         }
 
@@ -116,7 +173,11 @@ class SalesReport extends Component
 
     public function updatedDateRangeType($value)
     {
-        cookie()->queue(cookie('sales_report_date_range_type', $value, 60 * 24 * 30)); // 30 days
+        cookie()->queue(cookie('sales_report_date_range_type', $value, 60 * 24 * 30));
+
+        if ($value !== 'custom') {
+            $this->setDateRange();
+        }
     }
 
     public function filterWaiter()
@@ -128,122 +189,25 @@ class SalesReport extends Component
     {
         $dateTimeData = $this->prepareDateTimeData();
 
-        // Retrieve all taxes and charges
         $charges = RestaurantCharge::all();
         $taxes = Tax::all();
         $restaurant = restaurant();
         $taxMode = $restaurant->tax_mode ?? 'order';
+        $waiterId = $this->filterByWaiter ? (int) $this->filterByWaiter : null;
 
-        // Get sales report with charges grouped
-        $query = Order::join('payments', 'orders.id', '=', 'payments.order_id')
-            ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-            ->whereIn('orders.status', ['paid', 'payment_due'])
-            ->where(function ($q) use ($dateTimeData) {
-                if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                    $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                }
-                else
-                 {
-                    $q->where(function ($sub) use ($dateTimeData) {
-                        $sub->whereRaw('TIME(orders.date_time) >= ?', [$dateTimeData['startTime']])
-                            ->orWhereRaw('TIME(orders.date_time) <= ?', [$dateTimeData['endTime']]);
-                    });
-                }
-            });
+        $dailyRows = SalesReportData::fetchDailyAggregates($dateTimeData, $waiterId);
+        $outstandingData = SalesReportData::fetchOutstandingByDate($dateTimeData, $waiterId);
 
-        // Get outstanding payments data separately
-        $outstandingQuery = Order::whereBetween('date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-            ->where('status', 'payment_due')
-            ->where(function ($q) use ($dateTimeData) {
-                if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                    $q->whereRaw('TIME(date_time) BETWEEN ? AND ?', [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                }
-                else
-                 {
-                    $q->where(function ($sub) use ($dateTimeData) {
-                        $sub->whereRaw('TIME(date_time) >= ?', [$dateTimeData['startTime']])
-                            ->orWhereRaw('TIME(date_time) <= ?', [$dateTimeData['endTime']]);
-                    });
-                }
-            });
-
-        // Filter by waiter if selected
-        if ($this->filterByWaiter) {
-            $query->where('orders.waiter_id', $this->filterByWaiter);
-            $outstandingQuery->where('waiter_id', $this->filterByWaiter);
-        }
-
-        $query = $query->select(
-            DB::raw('DATE(orders.date_time) as date'),
-            DB::raw('COUNT(DISTINCT orders.id) as total_orders'),
-            DB::raw('SUM(payments.amount) as total_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "cash" THEN payments.amount ELSE 0 END) as cash_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "card" THEN payments.amount ELSE 0 END) as card_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "upi" THEN payments.amount ELSE 0 END) as upi_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "bank_transfer" THEN payments.amount ELSE 0 END) as bank_transfer_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "razorpay" THEN payments.amount ELSE 0 END) as razorpay_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "stripe" THEN payments.amount ELSE 0 END) as stripe_amount'),
-            DB::raw('SUM(CASE WHEN payments.payment_method = "flutterwave" THEN payments.amount ELSE 0 END) as flutterwave_amount'),
-        )
-        ->groupBy('date')
-        ->orderBy('date')
-        ->get();
-
-        // Get outstanding payments data
-        $outstandingData = $outstandingQuery->select(
-            DB::raw('DATE(date_time) as date'),
-            DB::raw('COUNT(*) as outstanding_orders'),
-            DB::raw('SUM(total) as outstanding_amount')
-        )
-        ->groupBy('date')
-        ->orderBy('date')
-        ->get()
-        ->keyBy('date');
-
-        // Get order-level data separately to avoid duplication
-        $orderData = Order::whereBetween('date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-            ->whereIn('status', ['paid', 'payment_due'])
-            ->where(function ($q) use ($dateTimeData) {
-                if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                    $q->whereRaw('TIME(date_time) BETWEEN ? AND ?', [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                }
-                else
-                 {
-                    $q->where(function ($sub) use ($dateTimeData) {
-                        $sub->whereRaw('TIME(date_time) >= ?', [$dateTimeData['startTime']])
-                            ->orWhereRaw('TIME(date_time) <= ?', [$dateTimeData['endTime']]);
-                    });
-                }
-            });
-
-        // Filter by waiter if selected
-        if ($this->filterByWaiter) {
-            $orderData->where('waiter_id', $this->filterByWaiter);
-        }
-
-        $orderData = $orderData->select(
-            DB::raw('DATE(date_time) as date'),
-            DB::raw('SUM(total) as orders_total'),
-            DB::raw('SUM(discount_amount) as discount_amount'),
-            DB::raw('SUM(tip_amount) as tip_amount'),
-            DB::raw('SUM(delivery_fee) as delivery_fee'),
-        )
-        ->groupBy('date')
-        ->get()
-        ->keyBy('date');
-
-        // Process taxes and charges dynamically using actual tax breakdown data
-        $groupedData = $query->map(function ($item) use ($charges, $taxes, $taxMode, $orderData, $outstandingData) {
-            // Get order-level data for this date
-            $orderInfo = $orderData->get($item->date);
+        $groupedData = $dailyRows->map(function ($item) use ($charges, $taxes, $outstandingData) {
             $outstandingInfo = $outstandingData->get($item->date);
             $chargeAmounts = [];
+
             foreach ($charges as $charge) {
                 $chargeAmounts[$charge->charge_name] = DB::table('order_charges')
                     ->join('orders', 'order_charges.order_id', '=', 'orders.id')
                     ->join('restaurant_charges', 'order_charges.charge_id', '=', 'restaurant_charges.id')
                     ->where('order_charges.charge_id', $charge->id)
-                    ->where('orders.status', 'paid', 'payment_due')
+                    ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                     ->whereDate('orders.date_time', $item->date)
                     ->where('orders.branch_id', branch()->id)
                     ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
@@ -251,29 +215,26 @@ class SalesReport extends Component
                 ELSE restaurant_charges.charge_value END')) ?? 0;
             }
 
-            // Get tax breakdown from both item and order level taxes - flexible approach
             $taxAmounts = [];
             $totalTaxAmount = 0;
             $taxDetails = [];
 
-            // Initialize tax amounts for all taxes
             foreach ($taxes as $tax) {
                 $taxAmounts[$tax->tax_name] = 0;
                 $taxDetails[$tax->tax_name] = [
                     'name' => $tax->tax_name,
                     'percent' => $tax->tax_percent,
                     'total_amount' => 0,
-                    'items_count' => 0
+                    'items_count' => 0,
                 ];
             }
 
-            // First, try to get item-level tax data (regardless of current tax mode)
             $itemTaxData = DB::table('order_items')
                 ->join('orders', 'order_items.order_id', '=', 'orders.id')
                 ->join('menu_items', 'order_items.menu_item_id', '=', 'menu_items.id')
                 ->join('menu_item_tax', 'menu_items.id', '=', 'menu_item_tax.menu_item_id')
                 ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
-                ->where('orders.status', 'paid')
+                ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                 ->where('orders.branch_id', branch()->id)
                 ->whereDate('orders.date_time', $item->date)
                 ->select(
@@ -286,23 +247,20 @@ class SalesReport extends Component
                 )
                 ->get();
 
-            // Process item-level taxes if found
             if ($itemTaxData->isNotEmpty()) {
-                // Group by order_id and menu_item_id to calculate tax properly per order item
                 $orderItemGroups = $itemTaxData->groupBy(['order_id', 'menu_item_id']);
 
-                foreach ($orderItemGroups as $orderId => $menuItems) {
-                    foreach ($menuItems as $menuItemId => $itemTaxes) {
+                foreach ($orderItemGroups as $menuItems) {
+                    foreach ($menuItems as $itemTaxes) {
                         $totalTaxPercent = $itemTaxes->sum('tax_percent');
                         $orderItemTaxAmount = $itemTaxes->first()->tax_amount ?? 0;
 
                         foreach ($itemTaxes as $taxItem) {
                             $taxName = $taxItem->tax_name;
                             $taxPercent = $taxItem->tax_percent;
-
-                            // Calculate proportional tax amount for this specific order item
-                            $proportionalAmount = $totalTaxPercent > 0 ?
-                                ($orderItemTaxAmount * ($taxPercent / $totalTaxPercent)) : 0;
+                            $proportionalAmount = $totalTaxPercent > 0
+                                ? ($orderItemTaxAmount * ($taxPercent / $totalTaxPercent))
+                                : 0;
 
                             $taxAmounts[$taxName] += $proportionalAmount;
                             $taxDetails[$taxName]['total_amount'] += $proportionalAmount;
@@ -312,11 +270,10 @@ class SalesReport extends Component
                 }
             }
 
-            // Second, try to get order-level tax data (regardless of current tax mode)
             $orderTaxData = DB::table('order_taxes')
                 ->join('orders', 'order_taxes.order_id', '=', 'orders.id')
                 ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
-                ->where('orders.status', 'paid')
+                ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                 ->where('orders.branch_id', branch()->id)
                 ->whereDate('orders.date_time', $item->date)
                 ->select(
@@ -328,7 +285,6 @@ class SalesReport extends Component
                 )
                 ->get();
 
-            // Process order-level taxes if found
             if ($orderTaxData->isNotEmpty()) {
                 foreach ($orderTaxData as $orderTax) {
                     $taxName = $orderTax->tax_name;
@@ -336,20 +292,18 @@ class SalesReport extends Component
 
                     $taxAmounts[$taxName] += $taxAmount;
                     $taxDetails[$taxName]['total_amount'] += $taxAmount;
-                    $taxDetails[$taxName]['items_count'] += 1; // Count as one order
+                    $taxDetails[$taxName]['items_count'] += 1;
                 }
             }
 
-            // If neither item nor order taxes found, try fallback calculation
-            if (empty($itemTaxData) && empty($orderTaxData)) {
+            if ($itemTaxData->isEmpty() && $orderTaxData->isEmpty()) {
                 foreach ($taxes as $tax) {
-                    // Try item-level calculation using direct tax amount from order_items
                     $itemTaxAmount = DB::table('order_items')
                         ->join('orders', 'order_items.order_id', '=', 'orders.id')
                         ->join('menu_item_tax', 'order_items.menu_item_id', '=', 'menu_item_tax.menu_item_id')
                         ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
                         ->where('taxes.id', $tax->id)
-                        ->where('orders.status', 'paid')
+                        ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                         ->where('orders.branch_id', branch()->id)
                         ->whereDate('orders.date_time', $item->date)
                         ->sum(DB::raw('
@@ -369,18 +323,17 @@ class SalesReport extends Component
                 }
             }
 
-            // Calculate total tax amount
             $totalTaxAmount = array_sum($taxAmounts);
+            $ordersTotal = $item->orders_total ?? 0;
 
-            $ordersTotal = $orderInfo->orders_total ?? $item->total_amount ?? 0;
             return [
                 'date' => $item->date,
                 'total_orders' => $item->total_orders,
                 'total_amount' => $ordersTotal,
-                'total_excluding_tip' => $ordersTotal - ($orderInfo->tip_amount ?? 0),
-                'discount_amount' => $orderInfo->discount_amount ?? 0,
-                'tip_amount' => $orderInfo->tip_amount ?? 0,
-                'delivery_fee' => $orderInfo->delivery_fee ?? 0,
+                'total_excluding_tip' => $ordersTotal - ($item->tip_amount ?? 0),
+                'discount_amount' => $item->discount_amount ?? 0,
+                'tip_amount' => $item->tip_amount ?? 0,
+                'delivery_fee' => $item->delivery_fee ?? 0,
                 'cash_amount' => $item->cash_amount ?? 0,
                 'card_amount' => $item->card_amount ?? 0,
                 'upi_amount' => $item->upi_amount ?? 0,
@@ -397,33 +350,30 @@ class SalesReport extends Component
             ];
         });
 
-        // Aggregate all taxes across all dates
         $allTaxes = [];
         foreach ($groupedData as $item) {
             if (isset($item['tax_details']) && is_array($item['tax_details'])) {
                 foreach ($item['tax_details'] as $taxName => $taxDetail) {
-                    if (!isset($allTaxes[$taxName])) {
+                    if (! isset($allTaxes[$taxName])) {
                         $allTaxes[$taxName] = [
                             'name' => $taxName,
                             'percent' => $taxDetail['percent'] ?? 0,
                             'total_amount' => 0,
-                            'items_count' => 0
+                            'items_count' => 0,
                         ];
                     }
                     $allTaxes[$taxName]['total_amount'] += $taxDetail['total_amount'] ?? 0;
                     $allTaxes[$taxName]['items_count'] += $taxDetail['items_count'] ?? 0;
                 }
             } elseif (isset($item['taxes']) && is_array($item['taxes'])) {
-                // Fallback for older tax structure
                 foreach ($item['taxes'] as $taxName => $taxAmount) {
-                    if (!isset($allTaxes[$taxName])) {
-                        // Find tax percentage from the taxes collection
+                    if (! isset($allTaxes[$taxName])) {
                         $taxPercent = $taxes->where('tax_name', $taxName)->first()->tax_percent ?? 0;
                         $allTaxes[$taxName] = [
                             'name' => $taxName,
                             'percent' => $taxPercent,
                             'total_amount' => 0,
-                            'items_count' => 1
+                            'items_count' => 1,
                         ];
                     }
                     $allTaxes[$taxName]['total_amount'] += $taxAmount;
@@ -447,6 +397,4 @@ class SalesReport extends Component
             'filterByWaiter' => $this->filterByWaiter,
         ]);
     }
-
 }
-
