@@ -117,38 +117,27 @@ class XenditPaymentController extends Controller
 
         if ($xenditPayment && $xenditPayment->payment_status === 'completed') {
             $order = Order::find($xenditPayment->order_id);
-            $order->amount_paid = $order->amount_paid + $xenditPayment->amount;
-            $order->status = 'paid';
-            $order->save();
 
-            // Only create a new Payment if transaction_id is not equal to $invoiceId
             $existingPayment = Payment::where('order_id', $xenditPayment->order_id)
                 ->where('transaction_id', $invoiceId)
                 ->first();
 
-            if (!$existingPayment) {
+            if (! $existingPayment && $order) {
+                $order->amount_paid = (float) $order->amount_paid + (float) $xenditPayment->amount;
+                $order->status = 'paid';
+                $order->save();
+
                 Payment::updateOrCreate(
                     [
                         'order_id' => $xenditPayment->order_id,
                         'payment_method' => 'xendit',
-                        'amount' => $xenditPayment->amount,
+                        'transaction_id' => $invoiceId,
                     ],
                     [
-                        'transaction_id' => $invoiceId,
+                        'amount' => $xenditPayment->amount,
                     ]
                 );
             }
-
-            Payment::updateOrCreate(
-                [
-                    'order_id' => $xenditPayment->order_id,
-                    'payment_method' => 'xendit',
-                    'amount' => $xenditPayment->amount,
-                ],
-                [
-                    'transaction_id' => $invoiceId,
-                ]
-            );
 
             SendNewOrderReceived::dispatch($order);
 

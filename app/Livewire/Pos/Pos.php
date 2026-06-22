@@ -28,6 +28,7 @@ use App\Models\Tax;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Services\Pos\BillSecondaryActionResolver;
+use App\Services\OrderPaymentBalanceSync;
 use App\Services\PosBatchSyncService;
 use App\Services\PosBootstrapService;
 use App\Services\RewardPointsService;
@@ -2861,8 +2862,7 @@ class Pos extends Component
                     if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
                         $order->refresh();
                         $order->load('payments');
-                        $canonicalTotal = (float) $order->total;
-                        $this->reconcilePaymentsAfterDiscount($order, $canonicalTotal);
+                        OrderPaymentBalanceSync::reconcileAfterTotalChangeForUi($order);
                     }
                 });
             } catch (\RuntimeException $e) {
@@ -2938,22 +2938,8 @@ class Pos extends Component
                 'total' => $newTotal,
             ]);
 
-            // If already paid/partially paid, the new higher total may create a shortfall
             if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-                $order->refresh();
-                $amountPaid = $order->payments()
-                    ->where('payment_method', '!=', 'due')
-                    ->sum('amount');
-
-                if ($amountPaid < $newTotal - 0.0001) {
-                    $shortfall = round($newTotal - $amountPaid, 2);
-                    $order->payments()->create([
-                        'payment_method' => 'due',
-                        'amount' => $shortfall,
-                        'order_id' => $order->id,
-                    ]);
-                    $order->update(['status' => 'payment_due']);
-                }
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($order->fresh(['payments']));
             }
         }
 
@@ -2961,46 +2947,6 @@ class Pos extends Component
         $this->discountValue = null;
         $this->discountAmount = null;
         $this->calculateTotal();
-    }
-
-    /**
-     * After a discount reduces the order total, trim any overpaid amounts and
-     * re-evaluate the order status (paid vs payment_due).
-     */
-    private function reconcilePaymentsAfterDiscount($order, float $newTotal): void
-    {
-        $payments = $order->payments()
-            ->where('payment_method', '!=', 'due')
-            ->orderBy('id')
-            ->get();
-
-        $excess = round($payments->sum('amount') - $newTotal, 2);
-
-        if ($excess > 0) {
-            foreach ($payments->sortByDesc('id') as $payment) {
-                if ($excess <= 0) {
-                    break;
-                }
-                $canReduce = min((float) $payment->amount, $excess);
-                $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
-                $excess = round($excess - $canReduce, 2);
-            }
-        }
-
-        $amountPaid = $order->payments()
-            ->where('payment_method', '!=', 'due')
-            ->sum('amount');
-
-        $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
-
-        if ($newStatus === 'payment_due' && ! $order->canRecordDueBalance()) {
-            throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
-        }
-
-        $order->update([
-            'amount_paid' => $amountPaid,
-            'status' => $newStatus,
-        ]);
     }
 
     public function removeExtraCharge($chargeId, $orderType)

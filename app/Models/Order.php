@@ -64,6 +64,31 @@ class Order extends BaseModel
         return (bool) $this->customer_id;
     }
 
+    /**
+     * Sum of collected payments (excludes `due` placeholders; uses split totals for item splits).
+     */
+    public function nonDuePaymentsSum(): float
+    {
+        if ($this->split_type === 'items') {
+            return (float) $this->splitOrders()->where('status', 'paid')->sum('amount');
+        }
+
+        return (float) $this->payments()->where('payment_method', '!=', 'due')->sum('amount');
+    }
+
+    /**
+     * Amount still owed on this order (never negative).
+     */
+    public function outstandingAmount(): float
+    {
+        return max(0, round((float) $this->total - $this->nonDuePaymentsSum(), 2));
+    }
+
+    public function isFullyPaid(float $epsilon = 0.0001): bool
+    {
+        return $this->outstandingAmount() <= $epsilon;
+    }
+
     public function waiter(): BelongsTo
     {
         return $this->belongsTo(User::class)->withoutGlobalScope(BranchScope::class);

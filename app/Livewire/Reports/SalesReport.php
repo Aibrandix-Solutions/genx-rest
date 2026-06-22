@@ -43,10 +43,20 @@ class SalesReport extends Component
         $this->dateRangeType = request()->cookie('sales_report_date_range_type', 'currentWeek');
 
         if ($this->dateRangeType === 'custom') {
-            $this->startDate = request()->cookie('sales_report_start_date', now()->format('m/d/Y'));
-            $this->endDate = request()->cookie('sales_report_end_date', now()->format('m/d/Y'));
-            $this->startTime = request()->cookie('sales_report_start_time', '00:00');
-            $this->endTime = request()->cookie('sales_report_end_time', '23:59');
+            $defaultStartDate = now()->format('m/d/Y');
+            $defaultEndDate = now()->format('m/d/Y');
+            $defaultStartTime = '00:00';
+            $defaultEndTime = '23:59';
+
+            $cookieStartDate = request()->cookie('sales_report_start_date', $defaultStartDate);
+            $cookieEndDate = request()->cookie('sales_report_end_date', $defaultEndDate);
+            $cookieStartTime = request()->cookie('sales_report_start_time', $defaultStartTime);
+            $cookieEndTime = request()->cookie('sales_report_end_time', $defaultEndTime);
+
+            $this->startDate = $this->isValidDateFormat($cookieStartDate) ? $cookieStartDate : $defaultStartDate;
+            $this->endDate = $this->isValidDateFormat($cookieEndDate) ? $cookieEndDate : $defaultEndDate;
+            $this->startTime = $this->isValidTimeFormat($cookieStartTime) ? $cookieStartTime : $defaultStartTime;
+            $this->endTime = $this->isValidTimeFormat($cookieEndTime) ? $cookieEndTime : $defaultEndTime;
         } else {
             $this->setDateRange();
         }
@@ -91,6 +101,20 @@ class SalesReport extends Component
         cookie()->queue(cookie('sales_report_end_date', $this->endDate, $ttl));
         cookie()->queue(cookie('sales_report_start_time', $this->startTime, $ttl));
         cookie()->queue(cookie('sales_report_end_time', $this->endTime, $ttl));
+    }
+
+    private function isValidDateFormat(string $value, string $format = 'm/d/Y'): bool
+    {
+        $parsed = \DateTime::createFromFormat($format, $value);
+
+        return $parsed !== false && $parsed->format($format) === $value;
+    }
+
+    private function isValidTimeFormat(string $value, string $format = 'H:i'): bool
+    {
+        $parsed = \DateTime::createFromFormat($format, $value);
+
+        return $parsed !== false && $parsed->format($format) === $value;
     }
 
     private function markCustomDateRange(): void
