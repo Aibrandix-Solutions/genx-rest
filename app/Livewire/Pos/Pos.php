@@ -2949,6 +2949,56 @@ class Pos extends Component
         $this->calculateTotal();
     }
 
+    /**
+     * After a discount reduces the order total, trim any overpaid amounts and
+     * re-evaluate the order status (paid vs payment_due).
+     */
+    private function reconcilePaymentsAfterDiscount($order, float $newTotal): void
+    {
+        $payments = $order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->orderBy('id')
+            ->get();
+
+        $excess = round($payments->sum('amount') - $newTotal, 2);
+
+        if ($excess > 0) {
+            foreach ($payments->sortByDesc('id') as $payment) {
+                if ($excess <= 0) {
+                    break;
+                }
+                $canReduce = min((float) $payment->amount, $excess);
+                $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
+                $excess = round($excess - $canReduce, 2);
+            }
+        }
+
+        $amountPaid = $order->payments()
+            ->where('payment_method', '!=', 'due')
+            ->sum('amount');
+
+        $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
+
+        if ($newStatus === 'payment_due' && ! $order->canRecordDueBalance()) {
+            throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
+        }
+
+        $currentProgressStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
+        $updates = [
+            'amount_paid' => $amountPaid,
+            'status' => $newStatus,
+        ];
+
+        if (
+            $newStatus === 'paid'
+            && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+        ) {
+            $updates['order_status'] = \App\Enums\OrderStatus::SERVED;
+        }
+
+        $order->update($updates);
+    }
+
     public function removeExtraCharge($chargeId, $orderType)
     {
         $order = $this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail;
