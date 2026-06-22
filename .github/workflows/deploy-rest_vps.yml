@@ -49,9 +49,9 @@ jobs:
             --exclude=".git" \
             --exclude=".github" \
             --exclude=".env" \
-            --exclude="vendor" \
             --exclude="node_modules" \
             --exclude="storage" \
+            --exclude="bootstrap/cache" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
             ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
 
