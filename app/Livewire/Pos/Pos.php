@@ -2997,10 +2997,20 @@ class Pos extends Component
             throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
         }
 
-        $order->update([
+        $currentProgressStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
+        $updates = [
             'amount_paid' => $amountPaid,
             'status' => $newStatus,
-        ]);
+        ];
+
+        if (
+            $newStatus === 'paid'
+            && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+        ) {
+            $updates['order_status'] = \App\Enums\OrderStatus::SERVED;
+        }
+
+        $order->update($updates);
     }
 
     public function removeExtraCharge($chargeId, $orderType)

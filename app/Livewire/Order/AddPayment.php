@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Order;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\SplitOrder;
@@ -667,8 +668,17 @@ class AddPayment extends Component
                 return;
             }
 
+            $nextFinancialStatus = $orderPaidAmount >= $this->order->total - $epsilon ? 'paid' : 'payment_due';
+            $currentProgressStatus = $this->order->order_status?->value ?? (string) ($this->order->order_status ?? '');
+
             $this->order->amount_paid = $orderPaidAmount;
-            $this->order->status = $orderPaidAmount >= $this->order->total - $epsilon ? 'paid' : 'payment_due';
+            $this->order->status = $nextFinancialStatus;
+            if (
+                $nextFinancialStatus === 'paid'
+                && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+            ) {
+                $this->order->order_status = OrderStatus::SERVED;
+            }
             $this->order->save();
 
             Payment::where('order_id', $this->order->id)->where('payment_method', 'due')->delete();
