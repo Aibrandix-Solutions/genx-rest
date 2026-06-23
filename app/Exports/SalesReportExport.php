@@ -4,8 +4,8 @@ namespace App\Exports;
 
 use Carbon\Carbon;
 use App\Models\Tax;
-use App\Models\Order;
 use App\Models\RestaurantCharge;
+use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Style\{Fill, Style};
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
@@ -58,6 +58,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                 __('modules.order.cash'),
                 __('modules.order.upi'),
                 __('modules.order.card'),
+                __('modules.order.bank_transfer'),
                 __('modules.order.razorpay'),
                 __('modules.order.stripe'),
                 __('modules.order.flutterwave'),
@@ -91,6 +92,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
         $mappedItem[] = currency_format($item['cash_amount'], $this->currencyId);
         $mappedItem[] = currency_format($item['upi_amount'], $this->currencyId);
         $mappedItem[] = currency_format($item['card_amount'], $this->currencyId);
+        $mappedItem[] = currency_format($item['bank_transfer_amount'] ?? 0, $this->currencyId);
         $mappedItem[] = currency_format($item['razorpay_amount'], $this->currencyId);
         $mappedItem[] = currency_format($item['stripe_amount'], $this->currencyId);
         $mappedItem[] = currency_format($item['flutterwave_amount'], $this->currencyId);
@@ -116,87 +118,41 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
         $charges = RestaurantCharge::all()->keyBy('id');
         $taxes = Tax::all()->keyBy('id');
 
-        $query = Order::join('payments', 'orders.id', '=', 'payments.order_id')
-            ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
-            ->where('orders.status', 'paid')
-            ->where(function ($q) {
-                if ($this->startTime < $this->endTime) {
-                    $q->whereRaw("TIME(orders.date_time) BETWEEN ? AND ?", [$this->startTime, $this->endTime]);
-                } else {
-                    $q->where(function ($sub) {
-                        $sub->whereRaw("TIME(orders.date_time) >= ?", [$this->startTime])
-                            ->orWhereRaw("TIME(orders.date_time) <= ?", [$this->endTime]);
-                    });
-                }
-            })
-            ->select(
-                DB::raw("DATE(orders.date_time) as date"),
-                DB::raw('COUNT(DISTINCT orders.id) as total_orders'),
-                DB::raw('SUM(payments.amount) as total_amount'),
-                DB::raw('SUM(CASE WHEN payments.payment_method = "cash" THEN payments.amount ELSE 0 END) as cash_amount'),
-                DB::raw('SUM(CASE WHEN payments.payment_method = "card" THEN payments.amount ELSE 0 END) as card_amount'),
-                DB::raw('SUM(CASE WHEN payments.payment_method = "upi" THEN payments.amount ELSE 0 END) as upi_amount'),
-                DB::raw('SUM(CASE WHEN payments.payment_method = "razorpay" THEN payments.amount ELSE 0 END) as razorpay_amount'),
-                DB::raw('SUM(CASE WHEN payments.payment_method = "stripe" THEN payments.amount ELSE 0 END) as stripe_amount'),
-                DB::raw('SUM(CASE WHEN payments.payment_method = "flutterwave" THEN payments.amount ELSE 0 END) as flutterwave_amount'),
-            )
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get();
+        $dateTimeData = [
+            'startDateTime' => $this->startDateTime,
+            'endDateTime' => $this->endDateTime,
+            'startTime' => $this->startTime,
+            'endTime' => $this->endTime,
+        ];
 
-        // Get order-level data separately to avoid duplication
-        $orderData = Order::whereBetween('date_time', [$this->startDateTime, $this->endDateTime])
-            ->where('status', 'paid')
-            ->where(function ($q) {
-                if ($this->startTime < $this->endTime) {
-                    $q->whereRaw("TIME(date_time) BETWEEN ? AND ?", [$this->startTime, $this->endTime]);
-                } else {
-                    $q->where(function ($sub) {
-                        $sub->whereRaw("TIME(date_time) >= ?", [$this->startTime])
-                            ->orWhereRaw("TIME(date_time) <= ?", [$this->endTime]);
-                    });
-                }
-            })
-            ->select(
-                DB::raw("DATE(date_time) as date"),
-                DB::raw('SUM(total) as orders_total'),
-                DB::raw('SUM(discount_amount) as discount_amount'),
-                DB::raw('SUM(tip_amount) as tip_amount'),
-                DB::raw('SUM(delivery_fee) as delivery_fee'),
-            )
-            ->groupBy('date')
-            ->get()
-            ->keyBy('date');
+        $dailyRows = SalesReportData::fetchDailyAggregates($dateTimeData);
 
-        $data = $query->map(function ($item) use ($charges, $taxes, $orderData) {
-            // Get order-level data for this date
-            $orderInfo = $orderData->get($item->date);
-            
-            $ordersTotal = $orderInfo->orders_total ?? $item->total_amount ?? 0;
+        $data = $dailyRows->map(function ($item) use ($charges, $taxes) {
+            $ordersTotal = $item->orders_total ?? 0;
             $row = [
                 'date' => $item->date,
                 'total_orders' => $item->total_orders,
                 'total_amount' => $ordersTotal,
-                'total_excluding_tip' => $ordersTotal - ($orderInfo->tip_amount ?? 0),
-                'delivery_fee' => $orderInfo->delivery_fee ?? 0,
-                'tip_amount' => $orderInfo->tip_amount ?? 0,
+                'total_excluding_tip' => $ordersTotal - ($item->tip_amount ?? 0),
+                'delivery_fee' => $item->delivery_fee ?? 0,
+                'tip_amount' => $item->tip_amount ?? 0,
                 'cash_amount' => $item->cash_amount ?? 0,
                 'card_amount' => $item->card_amount ?? 0,
                 'upi_amount' => $item->upi_amount ?? 0,
-                'discount_amount' => $orderInfo->discount_amount ?? 0,
+                'bank_transfer_amount' => $item->bank_transfer_amount ?? 0,
+                'discount_amount' => $item->discount_amount ?? 0,
                 'razorpay_amount' => $item->razorpay_amount ?? 0,
                 'stripe_amount' => $item->stripe_amount ?? 0,
                 'flutterwave_amount' => $item->flutterwave_amount ?? 0,
             ];
 
-            // Process charges dynamically using actual charge data
             $chargeAmounts = [];
             foreach ($charges as $charge) {
                 $chargeAmounts[$charge->charge_name] = DB::table('order_charges')
                     ->join('orders', 'order_charges.order_id', '=', 'orders.id')
                     ->join('restaurant_charges', 'order_charges.charge_id', '=', 'restaurant_charges.id')
                     ->where('order_charges.charge_id', $charge->id)
-                    ->where('orders.status', 'paid')
+                    ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                     ->whereDate('orders.date_time', $item->date)
                     ->where('orders.branch_id', branch()->id)
                     ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
@@ -226,7 +182,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                 ->join('menu_items', 'order_items.menu_item_id', '=', 'menu_items.id')
                 ->join('menu_item_tax', 'menu_items.id', '=', 'menu_item_tax.menu_item_id')
                 ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
-                ->where('orders.status', 'paid')
+                ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                 ->where('orders.branch_id', branch()->id)
                 ->whereDate('orders.date_time', $item->date)
                 ->select(
@@ -269,7 +225,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             $orderTaxData = DB::table('order_taxes')
                 ->join('orders', 'order_taxes.order_id', '=', 'orders.id')
                 ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
-                ->where('orders.status', 'paid')
+                ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                 ->where('orders.branch_id', branch()->id)
                 ->whereDate('orders.date_time', $item->date)
                 ->select(
@@ -303,7 +259,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
                         ->join('menu_item_tax', 'order_items.menu_item_id', '=', 'menu_item_tax.menu_item_id')
                         ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
                         ->where('taxes.id', $tax->id)
-                        ->where('orders.status', 'paid')
+                        ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
                         ->where('orders.branch_id', branch()->id)
                         ->whereDate('orders.date_time', $item->date)
                         ->sum(DB::raw('

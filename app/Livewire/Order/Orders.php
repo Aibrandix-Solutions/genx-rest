@@ -34,6 +34,7 @@ class Orders extends Component
     public $filterOrderType = '';
     public $deliveryApps;
     public $filterDeliveryApp = '';
+    public $searchOrderId = '';
     public $cancelReasons;
     public $selectedCancelReason;
     public $cancelComment;
@@ -52,8 +53,22 @@ class Orders extends Component
         $this->pollingInterval = (int)request()->cookie('orders_polling_interval', 10);
 
 
-        if (!is_null($this->orderID)) {
-            $this->dispatch('showOrderDetail', id: $this->orderID);
+        if (! is_null($this->orderID) && $this->orderID !== '') {
+            $order = Order::query()
+                ->whereIdentifier($this->orderID)
+                ->first(['id', 'status']);
+
+            if ($order) {
+                if ($order->status === 'kot') {
+                    $this->redirect($order->staffDetailUrl(), navigate: true);
+
+                    return;
+                }
+
+                $orderId = (int) $order->id;
+                $this->orderID = $orderId;
+                $this->js('setTimeout(() => Livewire.dispatch("showOrderDetail", { id: ' . $orderId . ' }), 0)');
+            }
         }
 
         $this->setDateRange();
@@ -183,13 +198,20 @@ class Orders extends Component
             ->endOfDay()
             ->toDateTimeString();
 
+        $searchOrderNumber = $this->parseSearchOrderNumber($this->searchOrderId);
+
         $orders = Order::withCount('items')
             ->with('table', 'waiter', 'customer', 'orderType', 'deliveryApp')
             ->where('status', '<>', 'draft')
             ->orderBy('orders.date_time', 'desc')
-            ->orderBy('orders.id', 'desc')
-            ->where('orders.date_time', '>=', $start)
-            ->where('orders.date_time', '<=', $end);
+            ->orderBy('orders.id', 'desc');
+
+        if ($searchOrderNumber !== null) {
+            $orders->where('order_number', $searchOrderNumber);
+        } else {
+            $orders->where('orders.date_time', '>=', $start)
+                ->where('orders.date_time', '<=', $end);
+        }
 
         if (!empty($this->filterOrderType)) {
             $orders->where('order_type', $this->filterOrderType);
@@ -251,48 +273,48 @@ class Orders extends Component
             return $order->status == 'delivered';
         });
 
-        switch ($this->filterOrders) {
-            case 'kot':
-                $orderList = $kotCount;
-                break;
+        if ($searchOrderNumber !== null) {
+            $orderList = $orders;
+        } else {
+            switch ($this->filterOrders) {
+                case 'kot':
+                    $orderList = $kotCount;
+                    break;
 
-            case 'billed':
-                $orderList = $billedCount;
-                break;
+                case 'billed':
+                    $orderList = $billedCount;
+                    break;
 
-            case 'payment_due':
-                $orderList = $paymentDue;
-                break;
+                case 'payment_due':
+                    $orderList = $paymentDue;
+                    break;
 
-            case 'paid':
-                $orderList = $paidOrders;
-                break;
+                case 'paid':
+                    $orderList = $paidOrders;
+                    break;
 
-            case 'canceled':
-                $orderList = $canceledOrders;
-                break;
+                case 'canceled':
+                    $orderList = $canceledOrders;
+                    break;
 
-            case 'out_for_delivery':
-                $orderList = $outDeliveryOrders;
-                break;
+                case 'out_for_delivery':
+                    $orderList = $outDeliveryOrders;
+                    break;
 
-            case 'delivered':
-                $orderList = $deliveredOrders;
-                break;
+                case 'delivered':
+                    $orderList = $deliveredOrders;
+                    break;
 
-            default:
-                $orderList = $orders;
-                break;
-        }
+                default:
+                    $orderList = $orders;
+                    break;
+            }
 
-
-
-
-
-        if ($this->filterWaiter) {
-            $orderList = $orderList->filter(function ($order) {
-                return $order->waiter_id == $this->filterWaiter;
-            });
+            if ($this->filterWaiter) {
+                $orderList = $orderList->filter(function ($order) {
+                    return $order->waiter_id == $this->filterWaiter;
+                });
+            }
         }
 
         $receiptSettings = restaurant()->receiptSetting;
@@ -310,6 +332,20 @@ class Orders extends Component
             'orderID' => $this->orderID,
             'playFoodReadySound' => $playFoodReadySound,
         ]);
+    }
+
+    /**
+     * Extract numeric order number from search input (e.g. "#19", "19", "Order 19").
+     */
+    private function parseSearchOrderNumber(?string $search): ?string
+    {
+        if ($search === null || trim($search) === '') {
+            return null;
+        }
+
+        $numeric = preg_replace('/\D/', '', trim($search));
+
+        return $numeric !== '' ? $numeric : null;
     }
 
     /**

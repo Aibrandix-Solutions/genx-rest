@@ -5,7 +5,7 @@ namespace Modules\Inventory\Livewire;
 use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PaymentAccount;
-use Modules\Inventory\Entities\SupplierPayment;
+use Illuminate\Support\Str;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -88,6 +88,7 @@ class RecordPurchasePayment extends Component
 
             $paymentData = [
                 'supplier_id' => $this->purchase->supplier_id,
+                'payment_batch_id' => (string) Str::uuid(),
                 'purchase_order_id' => $this->purchase->id,
                 'amount' => $this->paymentAmount,
                 'paid_on' => $paidOn,

@@ -266,45 +266,69 @@
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Note</th>
                                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Document</th>
                                 <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Amount</th>
+                                <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">@lang('inventory::modules.supplier.actions')</th>
                             </tr>
                         </thead>
                         <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            @forelse($payments as $payment)
-                                <tr>
+                            @forelse($paymentGroups as $paymentGroup)
+                                <tr wire:key="supplier-payment-group-{{ $paymentGroup['key'] }}">
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
-                                        {{ $payment->paid_on->format('M d, Y H:i') }}
+                                        {{ $paymentGroup['paid_on']?->format('M d, Y H:i') }}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200 capitalize">
-                                        {{ $payment->payment_method }}
+                                        {{ $paymentGroup['payment_method'] }}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-200">
-                                        {{ $payment->account->name ?? '-' }}
+                                        {{ $paymentGroup['account']?->name ?? '-' }}
                                     </td>
                                     <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
-                                        {{ $payment->note ?? '-' }}
+                                        {{ $paymentGroup['note'] ?? '-' }}
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        @if($payment->document_path && \Storage::disk('public')->exists($payment->document_path))
-                                            <a href="{{ asset('storage/' . $payment->document_path) }}" target="_blank" class="text-indigo-600 hover:text-indigo-900">View</a>
-                                        @elseif($payment->document_path)
+                                        @if($paymentGroup['document_path'] && \Storage::disk('public')->exists($paymentGroup['document_path']))
+                                            <a href="{{ asset('storage/' . $paymentGroup['document_path']) }}" target="_blank" class="text-indigo-600 hover:text-indigo-900">View</a>
+                                        @elseif($paymentGroup['document_path'])
                                             <span class="text-yellow-600" title="Document not found">Missing</span>
                                         @else
                                             -
                                         @endif
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-gray-900 dark:text-gray-100">
-                                        {{ number_format($payment->amount, 2) }}
+                                        {{ number_format($paymentGroup['amount'], 2) }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-right">
+                                        <div class="inline-flex items-center justify-end gap-2">
+                                            <button
+                                                type="button"
+                                                wire:click="viewPayment({{ $paymentGroup['representative_id'] }})"
+                                                class="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium"
+                                            >
+                                                @lang('inventory::modules.supplier.viewPayment')
+                                            </button>
+                                            @if(user_can('Create Purchase Order'))
+                                                <button
+                                                    type="button"
+                                                    wire:click="confirmDeletePayment({{ $paymentGroup['representative_id'] }})"
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="deletePayment,confirmDeletePayment"
+                                                    @disabled($isDeletingPayment)
+                                                    class="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 font-medium disabled:opacity-50"
+                                                >
+                                                    @lang('inventory::modules.supplier.deletePayment')
+                                                </button>
+                                            @endif
+                                        </div>
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="px-6 py-4 text-center text-gray-500">No payments found.</td>
+                                    <td colspan="7" class="px-6 py-4 text-center text-gray-500">No payments found.</td>
                                 </tr>
                             @endforelse
                         </tbody>
                     </table>
                     <div class="px-4 py-3 border-t border-gray-200 dark:border-gray-700 sm:px-6">
-                        {{ $payments->links() }}
+                        {{ $paymentGroups->links() }}
                     </div>
                 </div>
             @endif
@@ -548,9 +572,9 @@
     @if($showPaymentModal)
         <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
             <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
-                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="$set('showPaymentModal', false)"></div>
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @if(!$isSavingPayment) wire:click="$set('showPaymentModal', false)" @endif></div>
 
-                <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+                <form wire:submit.prevent="savePayment" class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
                     <div>
                         <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100" id="modal-title">Record Payment</h3>
                         <div class="mt-4 space-y-4">
@@ -613,11 +637,166 @@
                         </div>
                     </div>
                     <div class="mt-5 sm:mt-6 sm:grid sm:grid-cols-2 sm:gap-3 sm:grid-flow-row-dense">
-                        <button type="button" wire:click="savePayment" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:col-start-2 sm:text-sm">
-                            Confirm Payment
+                        <button
+                            type="submit"
+                            wire:loading.attr="disabled"
+                            wire:target="savePayment"
+                            @disabled($isSavingPayment)
+                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed sm:col-start-2 sm:text-sm"
+                        >
+                            <span wire:loading.remove wire:target="savePayment">Confirm Payment</span>
+                            <span wire:loading wire:target="savePayment">Processing...</span>
                         </button>
-                        <button type="button" wire:click="$set('showPaymentModal', false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600">
+                        <button
+                            type="button"
+                            wire:click="$set('showPaymentModal', false)"
+                            wire:loading.attr="disabled"
+                            wire:target="savePayment"
+                            @disabled($isSavingPayment)
+                            class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed sm:mt-0 sm:col-start-1 sm:text-sm dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
+                        >
                             Cancel
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    <!-- Payment View Modal -->
+    @if($showPaymentViewModal && $paymentViewDetails)
+        <div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="payment-view-title" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" wire:click="closePaymentViewModal"></div>
+
+                <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full sm:p-6">
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-gray-100" id="payment-view-title">
+                        @lang('inventory::modules.supplier.paymentDetails')
+                    </h3>
+
+                    <div class="mt-4 space-y-3 text-sm">
+                        <div class="flex justify-between gap-4">
+                            <span class="text-gray-500 dark:text-gray-400">@lang('inventory::modules.payments.date')</span>
+                            <span class="font-medium text-gray-900 dark:text-gray-100">{{ $paymentViewDetails['paid_on'] }}</span>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <span class="text-gray-500 dark:text-gray-400">@lang('inventory::modules.payments.method')</span>
+                            <span class="font-medium text-gray-900 dark:text-gray-100">{{ $paymentViewDetails['payment_method'] }}</span>
+                        </div>
+                        <div class="flex justify-between gap-4">
+                            <span class="text-gray-500 dark:text-gray-400">@lang('inventory::modules.payments.amount')</span>
+                            <span class="font-semibold text-gray-900 dark:text-gray-100">{{ number_format($paymentViewDetails['amount'], 2) }}</span>
+                        </div>
+                        @if($paymentViewDetails['account_name'])
+                            <div class="flex justify-between gap-4">
+                                <span class="text-gray-500 dark:text-gray-400">@lang('inventory::modules.payments.account')</span>
+                                <span class="font-medium text-gray-900 dark:text-gray-100">{{ $paymentViewDetails['account_name'] }}</span>
+                            </div>
+                        @endif
+                        @if($paymentViewDetails['note'])
+                            <div>
+                                <span class="text-gray-500 dark:text-gray-400">@lang('inventory::modules.payments.note')</span>
+                                <p class="mt-1 text-gray-900 dark:text-gray-100">{{ $paymentViewDetails['note'] }}</p>
+                            </div>
+                        @endif
+                        @if($paymentViewDetails['added_by'])
+                            <div class="flex justify-between gap-4">
+                                <span class="text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.recordedBy')</span>
+                                <span class="font-medium text-gray-900 dark:text-gray-100">{{ $paymentViewDetails['added_by'] }}</span>
+                            </div>
+                        @endif
+                    </div>
+
+                    <div class="mt-5 border-t border-gray-200 dark:border-gray-700 pt-4">
+                        <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                            @lang('inventory::modules.supplier.paymentAllocation')
+                        </h4>
+
+                        <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
+                                <thead class="bg-gray-50 dark:bg-gray-800">
+                                    <tr>
+                                        <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.appliedToPurchase')</th>
+                                        <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.purchaseOrder.order_date')</th>
+                                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.purchaseTotal')</th>
+                                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.amountApplied')</th>
+                                        <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.paymentType')</th>
+                                        <th class="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.paymentStatusNow')</th>
+                                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.paidOnPurchase')</th>
+                                        <th class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">@lang('inventory::modules.supplier.dueOnPurchase')</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900/40">
+                                    @forelse($paymentViewDetails['allocations'] ?? [] as $allocation)
+                                        @if(($allocation['type'] ?? '') === 'purchase')
+                                            <tr>
+                                                <td class="px-3 py-3 font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                                    {{ $allocation['po_number'] }}
+                                                    @if($allocation['invoice_no'])
+                                                        <span class="block text-xs font-normal text-gray-500 dark:text-gray-400">{{ $allocation['invoice_no'] }}</span>
+                                                    @endif
+                                                </td>
+                                                <td class="px-3 py-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">{{ $allocation['order_date'] ?? '—' }}</td>
+                                                <td class="px-3 py-3 text-right text-gray-900 dark:text-gray-100 whitespace-nowrap">{{ number_format($allocation['purchase_total'], 2) }}</td>
+                                                <td class="px-3 py-3 text-right font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">{{ number_format($allocation['applied_amount'], 2) }}</td>
+                                                <td class="px-3 py-3 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                                                    {{ $allocation['is_partial_payment'] ? __('inventory::modules.supplier.partialPayment') : __('inventory::modules.supplier.fullPayment') }}
+                                                </td>
+                                                <td class="px-3 py-3 whitespace-nowrap">
+                                                    <span @class([
+                                                        'inline-flex px-2 py-0.5 rounded text-xs font-semibold',
+                                                        'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' => $allocation['payment_status'] === 'paid',
+                                                        'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' => $allocation['payment_status'] === 'partial',
+                                                        'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' => $allocation['payment_status'] === 'due',
+                                                    ])>
+                                                        @lang('inventory::modules.purchaseOrder.payment_status.' . $allocation['payment_status'])
+                                                    </span>
+                                                </td>
+                                                <td class="px-3 py-3 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">{{ number_format($allocation['paid_on_purchase'], 2) }}</td>
+                                                <td class="px-3 py-3 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">{{ number_format($allocation['due_on_purchase'], 2) }}</td>
+                                            </tr>
+                                        @else
+                                            <tr class="bg-amber-50/60 dark:bg-amber-900/20">
+                                                <td class="px-3 py-3 font-medium text-amber-900 dark:text-amber-100" colspan="2">
+                                                    @lang('inventory::modules.supplier.unallocatedPayment')
+                                                </td>
+                                                <td class="px-3 py-3 text-right text-gray-500 dark:text-gray-400">—</td>
+                                                <td class="px-3 py-3 text-right font-semibold text-amber-900 dark:text-amber-100 whitespace-nowrap">{{ number_format($allocation['applied_amount'], 2) }}</td>
+                                                <td class="px-3 py-3 text-gray-500 dark:text-gray-400" colspan="4">—</td>
+                                            </tr>
+                                        @endif
+                                    @empty
+                                        <tr>
+                                            <td colspan="8" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">
+                                                @lang('inventory::modules.supplier.noPaymentAllocations')
+                                            </td>
+                                        </tr>
+                                    @endforelse
+                                </tbody>
+                                @if(count($paymentViewDetails['allocations'] ?? []) > 0)
+                                    <tfoot class="bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                                        <tr>
+                                            <td colspan="3" class="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                                @lang('inventory::modules.supplier.allocationTotal')
+                                            </td>
+                                            <td class="px-3 py-2.5 text-right font-bold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                                {{ number_format($paymentViewDetails['amount'], 2) }}
+                                            </td>
+                                            <td colspan="4"></td>
+                                        </tr>
+                                    </tfoot>
+                                @endif
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 flex justify-end">
+                        <button
+                            type="button"
+                            wire:click="closePaymentViewModal"
+                            class="inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600"
+                        >
+                            @lang('app.close')
                         </button>
                     </div>
                 </div>

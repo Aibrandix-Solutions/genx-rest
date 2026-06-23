@@ -17,10 +17,11 @@ class SearchableSelect extends Component
     public $subField = null;
     public $modelId = null;
     public $dispatchEvent = 'item-selected';
+    public $maxResults = 5;
 
     protected $listeners = ['clearSelection'];
 
-    public function mount($name, $placeholder, $items, $modelId = null, $displayField = 'name', $subField = null, $dispatchEvent = null)
+    public function mount($name, $placeholder, $items, $modelId = null, $displayField = 'name', $subField = null, $dispatchEvent = null, $maxResults = 5)
     {
         $this->name = $name;
         $this->placeholder = $placeholder;
@@ -31,6 +32,7 @@ class SearchableSelect extends Component
         if ($dispatchEvent) {
             $this->dispatchEvent = $dispatchEvent;
         }
+        $this->maxResults = (int) $maxResults;
         
         if ($modelId) {
             $selectedItem = $this->items->firstWhere('id', $modelId);
@@ -78,10 +80,10 @@ class SearchableSelect extends Component
                 
                 return str_contains($mainField, $search) || 
                        ($subField && str_contains($subField, $search));
-            })->take(5);
+            })->take($this->maxResults);
         } else {
-            // Show first 5 items when no search term
-            $searchResults = $this->items->take(5);
+            // Show first items when no search term
+            $searchResults = $this->items->take($this->maxResults);
         }
 
         return view('inventory::livewire.components.searchable-select', [

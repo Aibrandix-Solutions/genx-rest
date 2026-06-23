@@ -242,6 +242,9 @@
                         @endif
 
                         @foreach ($customPlugins as $item)
+                            @if (strtolower($item) === 'hotel' && in_array($businessMode, ['hotel_primary', 'equal'], true))
+                                @continue
+                            @endif
                             @includeIf(strtolower($item) . '::sections.sidebar')
                         @endforeach
 

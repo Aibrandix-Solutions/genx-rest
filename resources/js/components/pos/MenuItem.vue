@@ -37,6 +37,7 @@
                     <h5 class="text-sm font-medium text-gray-900 dark:text-white min-h-[2.5rem]">
                         {{ item.item_name }}
                     </h5>
+                    <span v-if="item.item_code" class="mt-1 inline-block w-fit max-w-full rounded px-1.5 py-0.5 text-xs font-semibold font-mono bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 break-all">{{ item.item_code }}</span>
                     <div v-if="item.in_stock === false" class="text-red-500">
                         Out of stock
                     </div>
@@ -84,6 +85,7 @@
                     <h5 class="text-sm font-medium text-gray-900 dark:text-white min-h-[2.5rem]">
                         {{ item.item_name }}
                     </h5>
+                    <span v-if="item.item_code" class="mt-1 inline-block w-fit max-w-full rounded px-1.5 py-0.5 text-xs font-semibold font-mono bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 break-all">{{ item.item_code }}</span>
                     <div v-if="item.in_stock === false" class="text-red-500">
                         Out of stock
                     </div>

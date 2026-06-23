@@ -788,6 +788,18 @@ if (!function_exists('custom_module_plugins')) {
     }
 }
 
+if (!function_exists('forget_hotel_business_mode_cache')) {
+
+    /**
+     * Clear cached business mode for a restaurant (call after hotel settings change).
+     */
+    function forget_hotel_business_mode_cache(?int $restaurantId = null): void
+    {
+        $restaurantId = $restaurantId ?? (restaurant() ? restaurant()->id : 0);
+        cache()->forget('hotel_business_mode_' . $restaurantId);
+    }
+}
+
 if (!function_exists('hotel_business_mode')) {
 
     /**
@@ -796,15 +808,16 @@ if (!function_exists('hotel_business_mode')) {
      */
     function hotel_business_mode(): string
     {
-        $cacheKey = 'hotel_business_mode_' . (restaurant() ? restaurant()->id : 0);
+        $restaurantId = restaurant() ? restaurant()->id : 0;
+        $cacheKey = 'hotel_business_mode_' . $restaurantId;
 
-        return cache()->remember($cacheKey, 300, function () {
+        return cache()->remember($cacheKey, 60, function () use ($restaurantId) {
             if (!in_array('hotel', array_map('strtolower', custom_module_plugins()))) {
                 return 'restaurant_primary';
             }
 
             $settings = \Modules\Hotel\Entities\HotelSetting::withoutGlobalScopes()->where(
-                'restaurant_id', restaurant() ? restaurant()->id : 0
+                'restaurant_id', $restaurantId
             )->first();
 
             return $settings?->business_mode ?? 'restaurant_primary';

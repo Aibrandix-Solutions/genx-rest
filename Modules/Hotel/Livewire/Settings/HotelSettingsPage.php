@@ -44,6 +44,9 @@ class HotelSettingsPage extends Component
     public $tax_rate = 0;
     public $service_charge_rate = 0;
 
+    // Payment surcharge
+    public $enable_payment_surcharge = false;
+
     public function mount()
     {
         abort_unless(user_can('manage_hotel_settings'), 403);
@@ -71,6 +74,7 @@ class HotelSettingsPage extends Component
             $this->max_rooms_per_booking = $settings->max_rooms_per_booking ?? 10;
             $this->tax_rate = $settings->tax_rate ?? 0;
             $this->service_charge_rate = $settings->service_charge_rate ?? 0;
+            $this->enable_payment_surcharge = (bool) ($settings->enable_payment_surcharge ?? false);
         }
     }
 
@@ -112,6 +116,7 @@ class HotelSettingsPage extends Component
                 'max_rooms_per_booking' => $this->max_rooms_per_booking,
                 'tax_rate' => $this->tax_rate,
                 'service_charge_rate' => $this->service_charge_rate,
+                'enable_payment_surcharge' => $this->enable_payment_surcharge,
             ]
         );
 
@@ -126,6 +131,10 @@ class HotelSettingsPage extends Component
             $settings->save();
             $this->existing_logo = $settings->hotel_logo;
             $this->hotel_logo = null;
+        }
+
+        if (function_exists('forget_hotel_business_mode_cache')) {
+            forget_hotel_business_mode_cache(restaurant()->id);
         }
 
         $this->alert('success', __('hotel::modules.settings.saved'));

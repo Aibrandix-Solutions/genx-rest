@@ -1,5 +1,5 @@
 <div
-    class="flex flex-col h-auto min-h-screen px-2 py-4 pr-4 bg-white border-l lg:w-6/12 dark:border-gray-700 dark:bg-gray-800">
+    class="flex flex-col h-auto min-h-screen max-md:min-h-0 px-2 py-4 pr-4 bg-white border-l lg:w-1/3 min-w-0 dark:border-gray-700 dark:bg-gray-800">
     @php
         $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
         $orderStatusValue = $rawOrderStatus instanceof \BackedEnum

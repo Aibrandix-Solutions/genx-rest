@@ -28,6 +28,7 @@ use App\Models\Tax;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Services\Pos\BillSecondaryActionResolver;
+use App\Services\OrderPaymentBalanceSync;
 use App\Services\PosBatchSyncService;
 use App\Services\PosBootstrapService;
 use App\Services\RewardPointsService;
@@ -2861,8 +2862,7 @@ class Pos extends Component
                     if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
                         $order->refresh();
                         $order->load('payments');
-                        $canonicalTotal = (float) $order->total;
-                        $this->reconcilePaymentsAfterDiscount($order, $canonicalTotal);
+                        OrderPaymentBalanceSync::reconcileAfterTotalChangeForUi($order);
                     }
                 });
             } catch (\RuntimeException $e) {
@@ -2938,22 +2938,8 @@ class Pos extends Component
                 'total' => $newTotal,
             ]);
 
-            // If already paid/partially paid, the new higher total may create a shortfall
             if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-                $order->refresh();
-                $amountPaid = $order->payments()
-                    ->where('payment_method', '!=', 'due')
-                    ->sum('amount');
-
-                if ($amountPaid < $newTotal - 0.0001) {
-                    $shortfall = round($newTotal - $amountPaid, 2);
-                    $order->payments()->create([
-                        'payment_method' => 'due',
-                        'amount' => $shortfall,
-                        'order_id' => $order->id,
-                    ]);
-                    $order->update(['status' => 'payment_due']);
-                }
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($order->fresh(['payments']));
             }
         }
 
@@ -2997,10 +2983,20 @@ class Pos extends Component
             throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
         }
 
-        $order->update([
+        $currentProgressStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
+        $updates = [
             'amount_paid' => $amountPaid,
             'status' => $newStatus,
-        ]);
+        ];
+
+        if (
+            $newStatus === 'paid'
+            && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+        ) {
+            $updates['order_status'] = \App\Enums\OrderStatus::SERVED;
+        }
+
+        $order->update($updates);
     }
 
     public function removeExtraCharge($chargeId, $orderType)
