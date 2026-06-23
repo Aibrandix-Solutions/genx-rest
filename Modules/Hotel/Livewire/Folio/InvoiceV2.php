@@ -1,0 +1,72 @@
+<?php
+
+namespace Modules\Hotel\Livewire\Folio;
+
+use Livewire\Component;
+use Modules\Hotel\Entities\Reservation;
+use Modules\Hotel\Entities\RoomCharge;
+use Modules\Hotel\Entities\HotelPayment;
+use Modules\Hotel\Entities\HotelSetting;
+use Modules\Hotel\Services\FolioChargePresenter;
+
+class InvoiceV2 extends Component
+{
+    public $reservationId;
+    public $reservation;
+    public $charges;
+    public $folioSummary = [];
+    public $payments;
+    public $totalCharges = 0;
+    public $totalPayments = 0;
+    public $balance = 0;
+    public $hotelName    = '';
+    public $hotelLogo    = '';
+    public $hotelAddress = '';
+    public $hotelPhone   = '';
+
+    public function mount($reservationId)
+    {
+        abort_unless(user_can('view_hotel_billing'), 403);
+        $this->reservationId = $reservationId;
+        $this->loadData();
+    }
+
+    public function loadData()
+    {
+        $this->reservation = Reservation::with(['guest', 'room', 'room.roomType'])
+            ->where('restaurant_id', restaurant()->id)
+            ->findOrFail($this->reservationId);
+
+        // Load hotel name from settings
+        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $this->hotelName    = $settings->hotel_name ?? restaurant()->name ?? '';
+        $this->hotelLogo    = $settings->hotel_logo ?? '';
+        $this->hotelAddress = restaurant()->address ?? '';
+        $this->hotelPhone   = restaurant()->phone ?? '';
+        
+        $this->charges = RoomCharge::with('order')
+            ->where('reservation_id', $this->reservationId)
+            ->orderBy('charge_date', 'asc')
+            ->get();
+
+        $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
+
+        $this->payments = HotelPayment::where('reservation_id', $this->reservationId)
+            ->orderBy('created_at', 'asc')
+            ->get();
+
+        $this->totalCharges = $this->folioSummary['subtotal'];
+
+        $totalPaid = $this->payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
+        $totalRefunds = $this->payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
+        $this->totalPayments = $totalPaid - $totalRefunds;
+
+        $this->balance = $this->totalCharges - $this->totalPayments;
+    }
+
+    public function render()
+    {
+        return view('hotel::livewire.folio.invoice-v2')
+            ->layout('layouts.empty');
+    }
+}

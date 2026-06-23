@@ -2,6 +2,7 @@
 
 namespace App\Livewire\Order;
 
+use App\Enums\OrderStatus;
 use App\Models\Order;
 use App\Models\Payment;
 use App\Models\SplitOrder;
@@ -16,7 +17,9 @@ use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
 use App\Livewire\Customer\AddCustomer;
 use App\Livewire\Order\OrderDetail;
+use App\Services\Pos\PosHotelSupport;
 use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class AddPayment extends Component
 {
@@ -47,8 +50,17 @@ class AddPayment extends Component
     public $canAddTip;
     public $predefinedAmounts = [];
 
+    // Hotel room charge (folio) payment
+    public $showRoomCharge = false;
+
+    public $roomChargeReservationId = null;
+
+    public $inHouseReservations = [];
+
     /** When split bill "due" is chosen without a customer, we re-apply due to this split after attach. */
     public ?int $pendingDueSplitIdForCustomerModal = null;
+
+    public bool $paymentSubmitInProgress = false;
 
     #[On('showPaymentModal')]
     public function showPaymentModal($id)
@@ -98,6 +110,23 @@ class AddPayment extends Component
         $this->refreshAvailableItems();
 
         $this->initializeSplits();
+
+        $this->showRoomCharge = PosHotelSupport::showRoomChargePayment();
+        $this->inHouseReservations = [];
+        $this->roomChargeReservationId = null;
+
+        if ($this->showRoomCharge) {
+            $this->roomChargeReservationId = $this->order->hotel_reservation_id;
+            if ($this->order->hotel_reservation_id) {
+                $this->paymentMethod = 'room_charge';
+            }
+            $this->loadInHouseReservations();
+        }
+    }
+
+    public function loadInHouseReservations(): void
+    {
+        $this->inHouseReservations = PosHotelSupport::checkedInReservationsForPos()->values()->all();
     }
 
     private function refreshAvailableItems()
@@ -304,6 +333,11 @@ class AddPayment extends Component
         }
 
         $this->paymentMethod = $method;
+
+        if ($method === 'room_charge' && $this->showRoomCharge) {
+            $this->loadInHouseReservations();
+        }
+
         $this->updatedPaymentAmount();
     }
 
@@ -457,6 +491,11 @@ class AddPayment extends Component
 
     public function processSplitPayment()
     {
+        if (in_array($this->splitType, ['equal', 'custom'], true)
+            && $this->order->splitOrders()->where('status', 'paid')->exists()) {
+            throw new \RuntimeException(__('modules.order.orderAlreadyPaid'));
+        }
+
         switch ($this->splitType) {
         case 'equal':
             $this->order->split_type = 'even';
@@ -553,20 +592,60 @@ class AddPayment extends Component
 
     public function submitForm()
     {
-        $this->order?->refresh();
-
-        if ($this->requiresRegisteredCustomerForSubmission()) {
-            $this->promptCustomerForDuePayment(false);
-
+        if ($this->paymentSubmitInProgress) {
             return;
         }
 
-        $epsilon = 0.0001;
+        $this->paymentSubmitInProgress = true;
 
         try {
+            $this->order?->refresh();
+
+            if ($this->requiresRegisteredCustomerForSubmission()) {
+                $this->promptCustomerForDuePayment(false);
+
+                return;
+            }
+
+            $epsilon = 0.0001;
+            $chargedToFolio = false;
+
+            if (class_exists(OrderFolioSettlement::class)
+                && OrderFolioSettlement::isChargedToFolio($this->order)) {
+                $this->alert('warning', __('modules.order.orderAlreadyPaid'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+
+                return;
+            }
+
             DB::beginTransaction();
 
+            $lockedOrder = Order::query()
+                ->whereKey($this->order->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $lockedOrder) {
+                DB::rollBack();
+                $this->alert('error', __('messages.orderNotFound'), ['toast' => true]);
+
+                return;
+            }
+
+            $this->order = $lockedOrder->load(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
+
             if ($this->showSplitOptions && $this->splitType) {
+                if ($this->splitType === 'items' && $this->order->isFullyPaid($epsilon)) {
+                    DB::rollBack();
+                    $this->alert('warning', __('modules.order.orderAlreadyPaid'), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                    ]);
+
+                    return;
+                }
                 if ($this->splitType === 'items') {
                     $hasItemsInSplits = false;
                     foreach ($this->splits as $split) {
@@ -584,13 +663,62 @@ class AddPayment extends Component
                     }
                 }
 
-                $this->processSplitPayment();
+                try {
+                    $this->processSplitPayment();
+                } catch (\RuntimeException $e) {
+                    DB::rollBack();
+                    $this->alert('warning', $e->getMessage(), [
+                        'toast' => true,
+                        'position' => 'top-end',
+                    ]);
+
+                    return;
+                }
             } else {
-                if ($this->paymentAmount >= 0) {
+                if ($this->paymentMethod === 'room_charge' && $this->showRoomCharge) {
+                    if (! $this->roomChargeReservationId) {
+                        DB::rollBack();
+                        $this->alert('error', __('modules.order.selectRoom'), [
+                            'toast' => true,
+                            'position' => 'top-end',
+                        ]);
+
+                        return;
+                    }
+
+                    OrderFolioSettlement::chargeToFolio(
+                        $this->order,
+                        (int) $this->roomChargeReservationId
+                    );
+                    $chargedToFolio = true;
+                } else {
+                    $netPay = max(0, (float) $this->paymentAmount - (float) $this->returnAmount);
+                    $outstandingBeforePay = $this->order->outstandingAmount();
+
+                    if ($outstandingBeforePay <= $epsilon) {
+                        DB::rollBack();
+                        $this->alert('warning', __('modules.order.orderAlreadyPaid'), [
+                            'toast' => true,
+                            'position' => 'top-end',
+                        ]);
+
+                        return;
+                    }
+
+                    if ($netPay <= $epsilon) {
+                        DB::rollBack();
+                        $this->alert('error', __('modules.customer.payment_amount_required'), [
+                            'toast' => true,
+                            'position' => 'top-end',
+                        ]);
+
+                        return;
+                    }
+
                     Payment::create([
                         'order_id' => $this->order->id,
                         'payment_method' => $this->paymentMethod,
-                        'amount' => $this->paymentAmount - $this->returnAmount,
+                        'amount' => $netPay,
                         'balance' => $this->returnAmount,
                         'payment_account_id' => $this->getDefaultPaymentAccountId($this->paymentMethod),
                     ]);
@@ -599,6 +727,7 @@ class AddPayment extends Component
 
             $this->order = $this->order->fresh(['items', 'items.menuItem', 'taxes', 'payments', 'splitOrders.items']);
 
+            if (! $chargedToFolio) {
             if ($this->order->split_type === 'items') {
                 $orderPaidAmount = $this->order->splitOrders()
                     ->where('status', 'paid')
@@ -618,8 +747,17 @@ class AddPayment extends Component
                 return;
             }
 
+            $nextFinancialStatus = $orderPaidAmount >= $this->order->total - $epsilon ? 'paid' : 'payment_due';
+            $currentProgressStatus = $this->order->order_status?->value ?? (string) ($this->order->order_status ?? '');
+
             $this->order->amount_paid = $orderPaidAmount;
-            $this->order->status = $orderPaidAmount >= $this->order->total - $epsilon ? 'paid' : 'payment_due';
+            $this->order->status = $nextFinancialStatus;
+            if (
+                $nextFinancialStatus === 'paid'
+                && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+            ) {
+                $this->order->order_status = OrderStatus::SERVED;
+            }
             $this->order->save();
 
             Payment::where('order_id', $this->order->id)->where('payment_method', 'due')->delete();
@@ -633,10 +771,16 @@ class AddPayment extends Component
                 ]);
             }
 
+            }
+
             DB::commit();
         } catch (\Throwable $e) {
-            DB::rollBack();
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
             throw $e;
+        } finally {
+            $this->paymentSubmitInProgress = false;
         }
 
         // Update table status

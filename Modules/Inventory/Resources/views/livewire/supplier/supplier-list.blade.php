@@ -22,7 +22,7 @@
             </div>
         </div>
 
-        <livewire:inventory::supplier.supplier-table :search='$search' key='supplier-table-{{ microtime() }}' />
+        <livewire:inventory::supplier.supplier-table :search='$search' key='supplier-table' />
     </div>
 
     <x-right-modal wire:model.live="showAddSupplierModal">

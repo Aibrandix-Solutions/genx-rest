@@ -21,6 +21,12 @@
                 </div>
 
                 <div>
+                    <x-label value="Invoice No (Optional)" />
+                    <x-input type="text" wire:model.live="invoiceNo" class="w-full" placeholder="Enter invoice number" />
+                    @error('invoiceNo') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <div>
                     <x-label value="Location" />
                     <x-select wire:model.live="location_id" class="w-full">
                         <option value="">Select location...</option>
@@ -456,7 +462,7 @@
             </div>
 
             <div class="flex items-center justify-end gap-2">
-                <x-button type="submit" wire:loading.attr="disabled">Save Purchase</x-button>
+                <x-button type="submit" wire:loading.attr="disabled" wire:target="savePurchase" :disabled="$isSaving">Save Purchase</x-button>
             </div>
         </form>
     </div>

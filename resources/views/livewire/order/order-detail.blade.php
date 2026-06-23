@@ -78,7 +78,24 @@
                                     @endif
                                 @endif
                                 <div>
-                                    @if ($order->customer_id)
+                                    @if($order->hotel_reservation_id && $order->hotelReservation)
+                                        <div class="space-y-1.5">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <div class="font-semibold text-gray-700 dark:text-gray-300">
+                                                    @lang('hotel::modules.reservation.room') {{ $order->hotelReservation?->room?->room_number ?? '--' }}
+                                                    <span class="text-sm font-normal text-gray-500">({{ $order->hotelReservation?->guest?->full_name ?? '--' }})</span>
+                                                </div>
+                                                <x-order.folio-settlement-badge :order="$order" />
+                                            </div>
+                                            @if(user_can('view_hotel_billing'))
+                                                <a href="{{ route('hotel.folio', $order->hotelReservation->reservation_number) }}"
+                                                   class="inline-flex items-center gap-1 text-xs font-medium text-violet-700 hover:text-violet-900 dark:text-violet-300 dark:hover:text-violet-100">
+                                                    @lang('hotel::modules.folio.viewGuestFolio')
+                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+                                                </a>
+                                            @endif
+                                        </div>
+                                    @elseif ($order->customer_id)
                                         <div class="flex items-center gap-2">
                                             <div class="font-semibold text-gray-700 dark:text-gray-300">{{ $order->customer ? ($order->customer->name ? $order->customer->name : __('modules.customer.walkin')) : '--' }}</div>
                                             @if(user_can('Update Order'))
@@ -166,6 +183,8 @@
                                 $order->status == 'kot',
                             'bg-blue-100 text-blue-800 dark:bg-gray-700 dark:text-blue-400 border border-blue-400' =>
                                 $order->status == 'billed' || $order->status == 'out_for_delivery',
+                            'bg-teal-100 text-teal-800 dark:bg-gray-700 dark:text-teal-400 border border-teal-400' =>
+                                $order->status == 'folio_settled',
                             'bg-green-100 text-green-800 dark:bg-gray-700 dark:text-green-400 border border-green-400' =>
                                 $order->status == 'paid' || $order->status == 'delivered',
                             'bg-red-100 text-red-800 dark:bg-gray-700 dark:text-red-400 border border-red-400' =>
@@ -175,6 +194,8 @@
                         ])>
                             @lang('modules.order.' . $order->status)
                         </span>
+
+                        <x-order.folio-settlement-badge :order="$order" />
 
                         @if($order->placed_via)
                             <span @class([

@@ -47,8 +47,18 @@ class RoleSettings extends Component
 
     private function enabledModules(array $relations = [])
     {
-        return Module::with($relations)->get()
-            ->filter(fn ($m) => $m->name !== 'Sms' || (module_enabled('Sms') && in_array('Sms', restaurant_modules())));
+        return Module::with($relations)->excludeDeprecated()->get()
+            ->filter(function ($m) {
+                if ($m->name === 'Sms') {
+                    return module_enabled('Sms') && in_array('Sms', restaurant_modules());
+                }
+
+                if ($m->name === 'Hotel') {
+                    return module_enabled('Hotel') && in_array('Hotel', restaurant_modules());
+                }
+
+                return true;
+            });
     }
 
     public function setPermission($roleID, $permissionID)

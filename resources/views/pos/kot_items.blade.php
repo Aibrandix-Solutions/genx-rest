@@ -1,5 +1,5 @@
 <div
-    class="lg:w-6/12 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto pr-4 px-2 py-4 dark:bg-gray-800">
+    class="lg:w-1/3 min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen max-md:min-h-0 h-auto pr-4 px-2 py-4 dark:bg-gray-800">
 
     {{-- Order Type Indicator + Dropdown Selector (replaces modal UX) --}}
     <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
@@ -28,6 +28,36 @@
             <button type="button" wire:click="toggleOrderTypeDropdown" class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
                 {{ $showOrderTypeDropdown ? __('app.close') : __('app.change') }}
             </button>
+
+            @if(($orderTypeSlug ?? null) === 'room_service')
+                @if($selectedRoomReservationId && !empty($roomServiceReservations))
+                    @php
+                        $selectedRes = collect($roomServiceReservations)->firstWhere('id', $selectedRoomReservationId);
+                    @endphp
+                    @if($selectedRes)
+                        <div class="flex items-center ml-2 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-300 dark:border-gray-600 gap-2">
+                             <div class="flex flex-col leading-none">
+                                 <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Room {{ $selectedRes->room->room_number ?? '' }}</span>
+                                 <span class="text-[10px] text-gray-500 max-w-[80px] truncate" title="{{ $selectedRes->guest->full_name ?? '' }}">{{ $selectedRes->guest->first_name ?? '' }}</span>
+                             </div>
+                             <button type="button" wire:click="changeRoom" class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-square" viewBox="0 0 16 16">
+                                     <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+                                     <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+                                 </svg>
+                             </button>
+                        </div>
+                    @else
+                        <button type="button" wire:click="changeRoom" class="text-xs bg-blue-100 dark:bg-blue-700 hover:bg-blue-200 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 px-3 py-2 rounded-full transition-all ml-2">
+                            @lang('modules.order.selectRoom')
+                        </button>
+                    @endif
+                @else
+                    <button type="button" wire:click="changeRoom" class="text-xs bg-blue-100 dark:bg-blue-700 hover:bg-blue-200 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 px-3 py-2 rounded-full transition-all ml-2">
+                        @lang('modules.order.selectRoom')
+                    </button>
+                @endif
+            @endif
         </div>
 
         @if($showOrderTypeDropdown)
@@ -64,7 +94,19 @@
 
     <div>
         <div class="mt-2">
-            @if($customerId)
+            @if(($orderTypeSlug ?? null) === 'room_service' && $selectedRoomReservationId && !empty($roomServiceReservations))
+                @php
+                    $selectedRes = collect($roomServiceReservations)->firstWhere('id', $selectedRoomReservationId);
+                @endphp
+                @if($selectedRes)
+                    <div class="flex items-center gap-2">
+                         <div class="font-semibold text-gray-700 dark:text-gray-300">
+                             @lang('hotel::modules.reservation.room') {{ $selectedRes->room->room_number ?? '' }} 
+                             <span class="text-sm font-normal text-gray-500">({{ $selectedRes->guest->full_name ?? '' }})</span>
+                         </div>
+                    </div>
+                @endif
+            @elseif($customerId)
                 <div class="flex items-center gap-2">
                     <div class="font-semibold text-gray-700 dark:text-gray-300">{{ $customer->name }}</div>
                     @if(user_can('Update Order'))
@@ -650,7 +692,7 @@
             </div>
         </div>
 
-        <div class="h-auto pb-4 pt-3 select-none text-center w-full mb-16 md:mb-0">
+        <div class="h-auto pb-4 pt-3 select-none text-center w-full">
             @if (in_array('KOT', restaurant_modules()))
                 <div class="flex gap-3">
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative" wire:click="saveOrder('kot')"

@@ -1,4 +1,4 @@
-<div class="flex flex-col h-auto min-h-screen px-2 py-4 pr-4 bg-white border-l lg:w-5/12 dark:border-gray-700 dark:bg-gray-800">
+<div class="flex flex-col h-auto min-h-screen max-md:min-h-0 px-2 py-4 pr-4 bg-white border-l lg:w-1/3 min-w-0 dark:border-gray-700 dark:bg-gray-800">
     <div>
 
         <div class="flex justify-between items-center dark:text-neutral-200">
@@ -43,7 +43,14 @@
                     </h3>
                 </div>
                 <div>
-                    @if ($orderDetail->customer_id)
+                    @if($orderDetail->hotel_reservation_id && $orderDetail->hotelReservation)
+                        <div class="flex items-center gap-2">
+                            <div class="font-semibold text-gray-700 dark:text-gray-300">
+                                @lang('hotel::modules.reservation.room') {{ $orderDetail->hotelReservation?->room?->room_number ?? '--' }} 
+                                <span class="text-sm font-normal text-gray-500">({{ $orderDetail->hotelReservation?->guest?->full_name ?? '--' }})</span>
+                            </div>
+                        </div>
+                    @elseif ($orderDetail->customer_id)
                         <div class="flex items-center gap-2">
                             <div class="font-semibold text-gray-700 dark:text-gray-300">{{ $orderDetail->customer->name }}</div>
                             @if(user_can('Update Order'))

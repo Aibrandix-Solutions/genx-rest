@@ -20,14 +20,30 @@ use App\Models\KotItem;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Support\KotAdjustmentLogger;
+use App\Services\OrderPaymentBalanceSync;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Livewire\Customer\AddCustomer;
 use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class OrderDetail extends Component
 {
 
     use LivewireAlert, PrinterSetting;
+
+    private function abortIfFolioSettled(): bool
+    {
+        if ($this->order && OrderFolioSettlement::isLockedForEditing($this->order)) {
+            $this->alert('error', __('modules.order.folioSettledLocked'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return true;
+        }
+
+        return false;
+    }
 
     public $order;
     public $taxes;
@@ -63,6 +79,7 @@ class OrderDetail extends Component
     public $showDiscountModal = false;
     public $discountValue = null;
     public $discountType = 'fixed';
+    public $requestedOrderId = null;
 
     public function mount()
     {
@@ -124,7 +141,50 @@ class OrderDetail extends Component
     #[On('showOrderDetail')]
     public function showOrder($id, $fromPos = null)
     {
-        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'items.comboPack', 'payments', 'cancelReason')->find($id);
+        $resolvedOrderId = Order::findIdByIdentifier($id);
+
+        if (!$resolvedOrderId) {
+            $this->resetOrderDetailState();
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        // Track latest requested id and clear stale order state before loading.
+        $this->requestedOrderId = (int) $resolvedOrderId;
+        $this->order = null;
+
+        $order = Order::with(
+            'items',
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.comboPack',
+            'payments',
+            'cancelReason',
+            'hotelReservation.room',
+            'hotelReservation.guest'
+        )->find($this->requestedOrderId);
+
+        if (! $order) {
+            $this->resetOrderDetailState();
+            $this->alert('error', __('messages.orderNotFound'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return;
+        }
+
+        // If another request arrived while this one was resolving, ignore stale load.
+        if ((int) $this->requestedOrderId !== (int) $order->id) {
+            return;
+        }
+
+        $this->order = $order;
+
         $this->orderStatus = $this->order->status;
         $this->fromPos = $fromPos;
         $this->orderProgressStatus = $this->order->order_status->value;
@@ -138,6 +198,27 @@ class OrderDetail extends Component
 
         $this->selectWaiter = $this->order->waiter_id;
         $this->showOrderDetail = true;
+    }
+
+    public function updatedShowOrderDetail($value): void
+    {
+        if (!$value) {
+            $this->resetOrderDetailState();
+        }
+    }
+
+    private function resetOrderDetailState(): void
+    {
+        $this->order = null;
+        $this->requestedOrderId = null;
+        $this->orderStatus = null;
+        $this->orderProgressStatus = null;
+        $this->showTableModal = false;
+        $this->cancelOrderModal = false;
+        $this->deleteOrderModal = false;
+        $this->confirmDeleteModal = false;
+        $this->showRemovalReasonModal = false;
+        $this->showDiscountModal = false;
     }
 
     /**
@@ -269,6 +350,10 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
@@ -285,6 +370,10 @@ class OrderDetail extends Component
     public function removeComboGroup(string $comboGroupKey): void
     {
         if (!$this->order) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
             return;
         }
 
@@ -426,8 +515,8 @@ class OrderDetail extends Component
             $this->recalculateOrderTotals();
 
             // Keep payment records in sync with the revised total
-            if (in_array($this->order->status, ['paid', 'payment_due'])) {
-                $this->scalePaymentsToNewTotal($this->total);
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
             }
         }
 
@@ -1005,6 +1094,10 @@ class OrderDetail extends Component
 
             // Recalculate order totals properly
             $this->recalculateOrderTotals();
+
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
+            }
         }
     }
 
@@ -1082,43 +1175,6 @@ class OrderDetail extends Component
     /**
      * Recalculate order totals including all components
      */
-    /**
-     * Reduce overpaid payment amounts so their sum equals the new order total.
-     * Works from the most-recent payment backwards, never letting any amount go below zero.
-     */
-    private function scalePaymentsToNewTotal(float $newTotal): void
-    {
-        $payments = $this->order->payments()
-            ->where('payment_method', '!=', 'due')
-            ->orderBy('id')
-            ->get();
-
-        $excess = round($payments->sum('amount') - $newTotal, 2);
-
-        if ($excess <= 0) {
-            return;
-        }
-
-        // Reduce from the most recent payment first
-        foreach ($payments->sortByDesc('id') as $payment) {
-            if ($excess <= 0) {
-                break;
-            }
-            $canReduce = min((float) $payment->amount, $excess);
-            $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
-            $excess = round($excess - $canReduce, 2);
-        }
-
-        $this->order->update([
-            'amount_paid' => $this->order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount'),
-        ]);
-
-        $this->order->refresh();
-        $this->order->load('payments');
-    }
-
     public function recalculateOrderTotals()
     {
         if (!$this->order) {
@@ -1273,6 +1329,10 @@ class OrderDetail extends Component
 
     public function applyDiscount()
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             return;
         }
@@ -1313,19 +1373,7 @@ class OrderDetail extends Component
                 $this->order->load('payments');
 
                 if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-                    $this->scalePaymentsToNewTotal($newTotal);
-                    $this->order->refresh();
-
-                    $amountPaid = $this->order->payments()
-                        ->where('payment_method', '!=', 'due')
-                        ->sum('amount');
-                    $newStatus = ($amountPaid >= $newTotal - 0.0001) ? 'paid' : 'payment_due';
-                    if ($newStatus === 'payment_due' && !$this->order->canRecordDueBalance()) {
-                        throw new \RuntimeException(__('modules.order.customerRequiredForDuePayment'));
-                    }
-                    if ($this->order->status !== $newStatus) {
-                        $this->order->update(['status' => $newStatus]);
-                    }
+                    OrderPaymentBalanceSync::reconcileAfterTotalChangeForUi($this->order);
                 }
             });
         } catch (\RuntimeException $e) {
@@ -1358,6 +1406,10 @@ class OrderDetail extends Component
 
     public function removeDiscount()
     {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             return;
         }
@@ -1398,22 +1450,8 @@ class OrderDetail extends Component
             'total'           => $newTotal,
         ]);
 
-        // If the order was paid and the new total exceeds what was collected, mark as payment_due
         if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-            $this->order->refresh();
-            $amountPaid = $this->order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount');
-
-            if ($amountPaid < $newTotal - 0.0001) {
-                $shortfall = round($newTotal - $amountPaid, 2);
-                $this->order->payments()->create([
-                    'payment_method' => 'due',
-                    'amount'         => $shortfall,
-                    'order_id'       => $this->order->id,
-                ]);
-                $this->order->update(['status' => 'payment_due']);
-            }
+            OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
         }
 
         $this->order->refresh();
