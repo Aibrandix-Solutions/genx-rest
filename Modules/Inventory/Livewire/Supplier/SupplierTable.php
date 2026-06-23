@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Livewire\Supplier;
 
 use Illuminate\Support\Collection;
+use Livewire\Attributes\Reactive;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -15,6 +16,7 @@ class SupplierTable extends Component
 {
     use WithPagination, LivewireAlert;
 
+    #[Reactive]
     public $search = '';
     public $showAddSupplierModal = false;
     public $showEditSupplierModal = false;
@@ -32,9 +34,9 @@ class SupplierTable extends Component
 
     protected $listeners = ['refreshSupplierTable' => '$refresh'];
 
-    public function mount($search)
+    public function updatingSearch(): void
     {
-        $this->search = $search;
+        $this->resetPage();
     }
 
     public function editSupplier($id)
@@ -250,13 +252,14 @@ class SupplierTable extends Component
 
     public function render()
     {
+        $term = trim($this->search);
+
         $suppliers = Supplier::query()
-            ->when($this->search, function ($query) {
-                $query->where(function ($query) {
-                    $query->where('name', 'like', '%' . $this->search . '%')
-                        ->orWhere('email', 'like', '%' . $this->search . '%')
-                        ->orWhere('phone', 'like', '%' . $this->search . '%')
-                        ->orWhere('address', 'like', '%' . $this->search . '%');
+            ->when($term !== '', function ($query) use ($term) {
+                $like = '%' . $term . '%';
+                $query->where(function ($query) use ($like) {
+                    $query->where('name', 'like', $like)
+                        ->orWhere('email', 'like', $like);
                 });
             })
             ->withCount('orders')

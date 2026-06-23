@@ -242,7 +242,7 @@
                 <form  action="#" method="GET">
 
                     <div class="lg:flex gap-2 items-center">
-                        <x-select id="dateRangeType" class="block w-full sm:w-fit mb-2 lg:mb-0" wire:model="dateRangeType" wire:change="setDateRange">
+                        <x-select id="dateRangeType" class="block w-full sm:w-fit mb-2 lg:mb-0" wire:model.live="dateRangeType">
                             <option value="today">@lang('app.today')</option>
                             <option value="yesterday">@lang('app.yesterday')</option>
                             <option value="currentWeek">@lang('app.currentWeek')</option>
@@ -252,6 +252,7 @@
                             <option value="lastMonth">@lang('app.lastMonth')</option>
                             <option value="currentYear">@lang('app.currentYear')</option>
                             <option value="lastYear">@lang('app.lastYear')</option>
+                            <option value="custom">@lang('app.custom')</option>
                         </x-select>
 
                         <div id="date-range-picker" date-rangepicker class="flex items-center w-full">

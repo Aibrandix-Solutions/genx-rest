@@ -377,6 +377,7 @@ return [
         'quantity' => 'Quantity',
         'remove' => 'Remove',
         'completePayment' => 'Complete Payment',
+        'orderAlreadyPaid' => 'This order is already fully paid.',
         'createBillAndPrintReceipt' => 'Bill & Print',
         'billAndPayment' => 'Bill & Payment',
         'discount' => 'Discount',
