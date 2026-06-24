@@ -309,7 +309,10 @@ class ItemInventoryReportService
                 'ref_no' => (string) ($row->po_number ?? '--'),
                 'transaction_type' => 'Purchase',
                 'branch_id' => (int) ($row->branch_id ?? 0),
-                'location' => (string) ($row->location_display ?? $row->location ?? '--'),
+                'location' => $this->formatLedgerLocation(
+                    (string) ($row->branch ?? ''),
+                    (string) ($row->location ?? '')
+                ),
                 'qty_in' => $qtyIn,
                 'qty_out' => 0.0,
                 'running_balance' => 0.0,
@@ -324,7 +327,10 @@ class ItemInventoryReportService
                 'ref_no' => 'USE-' . ($row->item_id ?? $itemId),
                 'transaction_type' => 'Menu Usage',
                 'branch_id' => (int) ($row->branch_id ?? 0),
-                'location' => trim(($row->branch ?? '--') . ' ' . ($row->location ?? '')),
+                'location' => $this->formatLedgerLocation(
+                    (string) ($row->branch ?? ''),
+                    (string) ($row->location ?? '')
+                ),
                 'qty_in' => 0.0,
                 'qty_out' => (float) ($row->quantity ?? 0),
                 'running_balance' => 0.0,
@@ -345,7 +351,10 @@ class ItemInventoryReportService
                     'ref_no' => $ref,
                     'transaction_type' => 'Transfer Out',
                     'branch_id' => (int) ($row->from_branch_id ?? 0),
-                    'location' => trim(($row->from_branch ?? '--') . ' ' . ($row->from_location ?? '')),
+                    'location' => $this->formatLedgerLocation(
+                        (string) ($row->from_branch ?? ''),
+                        (string) ($row->from_location ?? '')
+                    ),
                     'qty_in' => 0.0,
                     'qty_out' => $qtyOut,
                     'running_balance' => 0.0,
@@ -360,7 +369,10 @@ class ItemInventoryReportService
                     'ref_no' => $ref,
                     'transaction_type' => 'Transfer In',
                     'branch_id' => (int) ($row->to_branch_id ?? 0),
-                    'location' => trim(($row->to_branch ?? '--') . ' ' . ($row->to_location ?? '')),
+                    'location' => $this->formatLedgerLocation(
+                        (string) ($row->to_branch ?? ''),
+                        (string) ($row->to_location ?? '')
+                    ),
                     'qty_in' => $qtyIn,
                     'qty_out' => 0.0,
                     'running_balance' => 0.0,
@@ -376,7 +388,10 @@ class ItemInventoryReportService
                 'ref_no' => 'WST-' . ($row->item_id ?? $itemId),
                 'transaction_type' => 'Wastage',
                 'branch_id' => (int) ($row->branch_id ?? 0),
-                'location' => trim(($row->branch ?? '--') . ' ' . ($row->location ?? '')),
+                'location' => $this->formatLedgerLocation(
+                    (string) ($row->branch ?? ''),
+                    (string) ($row->location ?? '')
+                ),
                 'qty_in' => 0.0,
                 'qty_out' => (float) ($row->quantity ?? 0),
                 'running_balance' => 0.0,
@@ -471,7 +486,7 @@ class ItemInventoryReportService
                 ? $row->date->getTimestamp()
                 : strtotime((string) $row->date);
 
-            return ($timestamp ?: 0) . '|' . $row->ref_no . '|' . $row->transaction_type;
+            return ($timestamp ?: 0) . '|' . $row->ref_no . '|' . $this->ledgerSortSequence($row);
         })->values();
 
         $running = $openingBalance;
@@ -490,9 +505,42 @@ class ItemInventoryReportService
                     ? $row->date->getTimestamp()
                     : strtotime((string) $row->date);
 
-                return ($timestamp ?: 0) . '|' . $row->ref_no . '|' . $row->transaction_type;
+                return ($timestamp ?: 0) . '|' . $row->ref_no . '|' . $this->ledgerSortSequence($row);
             })
             ->values();
+    }
+
+    protected function ledgerSortSequence(object $row): int
+    {
+        return match ($row->transaction_type ?? '') {
+            'Transfer Out' => 1,
+            'Transfer In' => 2,
+            default => 0,
+        };
+    }
+
+    protected function formatLedgerLocation(?string $branchName, ?string $locationName): string
+    {
+        $branch = trim((string) ($branchName ?? ''));
+        $location = trim((string) ($locationName ?? ''));
+
+        if ($branch === '--') {
+            $branch = '';
+        }
+
+        if ($location === '--') {
+            $location = '';
+        }
+
+        if ($location === '') {
+            return $branch !== '' ? $branch : '--';
+        }
+
+        if ($branch === '' || strcasecmp($branch, $location) === 0) {
+            return $location;
+        }
+
+        return trim($branch . ' ' . $location);
     }
 
     /**
