@@ -5,6 +5,7 @@ namespace Modules\Inventory\Livewire;
 use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PaymentAccount;
+use Modules\Inventory\Entities\SupplierPayment;
 use Illuminate\Support\Str;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;

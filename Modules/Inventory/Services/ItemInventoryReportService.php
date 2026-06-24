@@ -49,7 +49,8 @@ class ItemInventoryReportService
                 'purchaseOrder' => fn ($q) => $q->withoutGlobalScope(BranchScope::class),
                 'purchaseOrder.supplier:id,name',
                 'purchaseOrder.branch:id,name',
-                'purchaseOrder.location:id,name',
+                'purchaseOrder.location:id,name,branch_id,type,restaurant_id',
+                'purchaseOrder.location.branch:id,name',
                 'purchaseOrder.payments:id,purchase_order_id,amount',
             ])
             ->whereHas('purchaseOrder', function ($po) use ($restaurantId, $filters) {
@@ -83,16 +84,19 @@ class ItemInventoryReportService
             $po = $line->purchaseOrder;
             $item = $line->inventoryItem;
             $location = $po?->location;
+            $branch = $this->resolvePurchaseEffectiveBranch($po, $location);
 
             return (object) [
                 'item_id' => (int) $line->inventory_item_id,
                 'date' => $po?->order_date,
                 'po_number' => $po?->po_number ?? '--',
                 'invoice_no' => $po?->invoice_no ?? '--',
-                'branch' => $po?->branch?->name ?? '--',
-                'branch_id' => (int) ($po?->branch_id ?? 0),
+                'branch' => $branch['name'],
+                'branch_id' => $branch['id'],
+                'location_branch_id' => $branch['location_branch_id'],
                 'supplier' => $po?->supplier?->name ?? '--',
                 'location' => $location?->name ?? '--',
+                'location_display' => trim($branch['name'] . ' ' . ($location?->name ?? '')),
                 'item_name' => $item?->name ?? '--',
                 'item_code' => $item?->item_code,
                 'quantity' => (float) $line->quantity,
@@ -305,7 +309,7 @@ class ItemInventoryReportService
                 'ref_no' => (string) ($row->po_number ?? '--'),
                 'transaction_type' => 'Purchase',
                 'branch_id' => (int) ($row->branch_id ?? 0),
-                'location' => (string) ($row->location ?? '--'),
+                'location' => (string) ($row->location_display ?? $row->location ?? '--'),
                 'qty_in' => $qtyIn,
                 'qty_out' => 0.0,
                 'running_balance' => 0.0,
@@ -751,6 +755,37 @@ class ItemInventoryReportService
         return $item->item_code
             ? "{$item->name} ({$item->item_code})"
             : $item->name;
+    }
+
+    /**
+     * @return array{id: int, name: string, location_branch_id: int}
+     */
+    protected function resolvePurchaseEffectiveBranch($po, $location): array
+    {
+        $locationBranchId = (int) ($location?->branch_id ?? 0);
+        $branchName = $location?->branch?->name;
+
+        if ($locationBranchId <= 0 && $location?->name && $location?->restaurant_id) {
+            $matchedBranch = Branch::query()
+                ->where('restaurant_id', $location->restaurant_id)
+                ->where('name', $location->name)
+                ->first(['id', 'name']);
+
+            if ($matchedBranch) {
+                $locationBranchId = (int) $matchedBranch->id;
+                $branchName = $matchedBranch->name;
+            }
+        }
+
+        $effectiveBranchId = $locationBranchId > 0
+            ? $locationBranchId
+            : (int) ($po?->branch_id ?? 0);
+
+        return [
+            'id' => $effectiveBranchId,
+            'name' => $branchName ?? $po?->branch?->name ?? '--',
+            'location_branch_id' => $locationBranchId,
+        ];
     }
 
     /**

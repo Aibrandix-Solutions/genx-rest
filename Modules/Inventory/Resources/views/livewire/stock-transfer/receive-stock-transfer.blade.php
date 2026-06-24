@@ -111,8 +111,19 @@
                     {{ __('app.cancel') }}
                 </button>
                 @if($transfer->items->contains(fn($i) => $i->status !== 'completed'))
-                <button type="button" wire:click="confirmReceive" class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors">
-                    {{ __('inventory::modules.transfers.confirm_receive') }}
+                <button type="button"
+                        wire:click="confirmReceive"
+                        wire:loading.attr="disabled"
+                        wire:target="confirmReceive"
+                        :disabled="$isProcessing"
+                        @disabled($isProcessing)
+                        class="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <span wire:loading.remove wire:target="confirmReceive">
+                        {{ __('inventory::modules.transfers.confirm_receive') }}
+                    </span>
+                    <span wire:loading wire:target="confirmReceive">
+                        {{ __('app.saving') }}
+                    </span>
                 </button>
                 @endif
             </div>
