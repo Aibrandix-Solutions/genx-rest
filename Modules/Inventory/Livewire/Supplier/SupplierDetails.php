@@ -25,6 +25,7 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Inventory\Services\PurchaseOrderService;
 use Modules\Inventory\Services\SupplierPaymentGrouper;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class SupplierDetails extends Component
 {
@@ -625,6 +626,39 @@ class SupplierDetails extends Component
         $this->supplier->is_active = !$this->supplier->is_active;
         $this->supplier->save();
         $this->alert('success', 'Supplier status updated');
+    }
+
+    public function downloadPdf(int $purchaseOrderId)
+    {
+        abort_if(!user_can('Show Purchase Order'), 403);
+
+        $purchaseOrder = PurchaseOrder::query()
+            ->where('id', $purchaseOrderId)
+            ->where('supplier_id', $this->supplier->id)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->firstOrFail();
+
+        $purchaseOrder->load([
+            'supplier',
+            'location.branch',
+            'items.inventoryItem.unit',
+            'items.inventoryItem.category',
+            'creator',
+            'payments.account',
+            'attachments',
+        ]);
+
+        $pdf = Pdf::loadView('inventory::pdfs.purchase-order', [
+            'purchaseOrder' => $purchaseOrder,
+        ])->setPaper('a4');
+
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
+
+        return response()->streamDownload(function () use ($pdf) {
+            echo $pdf->output();
+        }, "PO-{$purchaseOrder->po_number}.pdf");
     }
 
     public function confirmDeletePurchase($purchaseOrderId)
