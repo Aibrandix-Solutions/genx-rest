@@ -49,7 +49,18 @@ class SupplierTable extends Component
     {
         if ($this->confirmDeleteSupplierModal) {
             $supplier = Supplier::find($id);
-            if ($supplier && $supplier->orders_count == 0) {
+            if ($supplier) {
+                $hasActiveOrders = $supplier->orders()
+                    ->whereNotIn('status', ['cancelled'])
+                    ->exists();
+
+                if ($hasActiveOrders) {
+                    $this->alert('error', trans('inventory::modules.supplier.cannot_delete_has_orders'));
+                    $this->confirmDeleteSupplierModal = false;
+                    $this->supplier = null;
+                    return;
+                }
+
                 $supplier->delete();
                 $this->confirmDeleteSupplierModal = false;
                 $this->supplier = null;

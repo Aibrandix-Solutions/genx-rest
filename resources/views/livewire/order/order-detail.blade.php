@@ -548,7 +548,23 @@
                                     </td>
                                     <td
                                         class="p-2 text-xs text-center text-gray-900 whitespace-nowrap dark:text-gray-400">
-                                        {{ $item->quantity }}
+                                        @if ($canManageItems && !$isComboItem)
+                                            <div class="inline-flex items-center max-w-[5rem] mx-auto">
+                                                <button type="button"
+                                                    wire:click="promptOrderItemQuantityDecrease({{ $item->id }})"
+                                                    class="bg-gray-50 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-s-md p-1.5 h-7 relative"
+                                                    title="@lang('modules.order.decreaseQty')">
+                                                    <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
+                                                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
+                                                    </svg>
+                                                </button>
+                                                <span class="min-w-8 border-y border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 h-7 flex items-center justify-center text-sm font-medium text-gray-900 dark:text-white">
+                                                    {{ $item->quantity }}
+                                                </span>
+                                            </div>
+                                        @else
+                                            {{ $item->quantity }}
+                                        @endif
                                     </td>
 
 

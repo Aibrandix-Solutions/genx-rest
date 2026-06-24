@@ -76,6 +76,8 @@ class OrderDetail extends Component
     public $pendingOrderItemId = null;
     public $pendingComboPackId = null;
     public $pendingComboGroupKey = null;
+    /** @var 'delete'|'decrement' */
+    public $pendingRemovalAction = 'delete';
     public $showDiscountModal = false;
     public $discountValue = null;
     public $discountType = 'fixed';
@@ -314,6 +316,59 @@ class OrderDetail extends Component
 
         $this->pendingOrderItemId = $id;
         $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = null;
+        $this->pendingRemovalAction = 'delete';
+        $this->removalReason = '';
+        $this->showRemovalReasonModal = true;
+    }
+
+    public function promptOrderItemQuantityDecrease(int $id): void
+    {
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
+        if (!user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close'),
+            ]);
+
+            return;
+        }
+
+        if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close'),
+            ]);
+
+            return;
+        }
+
+        $orderItem = OrderItem::query()
+            ->where('order_id', $this->order?->id)
+            ->where('id', $id)
+            ->first();
+
+        if (!$orderItem || !empty($orderItem->combo_pack_id)) {
+            return;
+        }
+
+        if ((int) $orderItem->quantity <= 1) {
+            $this->promptOrderItemRemoval($id);
+
+            return;
+        }
+
+        $this->pendingOrderItemId = $id;
+        $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = null;
+        $this->pendingRemovalAction = 'decrement';
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
     }
@@ -325,6 +380,7 @@ class OrderDetail extends Component
         $this->pendingOrderItemId = null;
         $this->pendingComboPackId = null;
         $this->pendingComboGroupKey = null;
+        $this->pendingRemovalAction = 'delete';
     }
 
     public function confirmOrderItemRemoval(): void
@@ -342,6 +398,8 @@ class OrderDetail extends Component
         } elseif ($this->pendingComboPackId) {
             // Backward compatibility for old state shape.
             $this->executeComboGroupRemoval('pack:' . (int) $this->pendingComboPackId, $this->removalReason);
+        } elseif ($this->pendingRemovalAction === 'decrement' && $this->pendingOrderItemId) {
+            $this->performOrderItemQuantityDecrease($this->pendingOrderItemId, $this->removalReason);
         } else {
             $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
         }
@@ -530,6 +588,105 @@ class OrderDetail extends Component
         }
 
         $this->dispatch('refreshPos');
+    }
+
+    protected function performOrderItemQuantityDecrease(int $id, string $note): void
+    {
+        $orderItem = OrderItem::find($id);
+
+        if (!$orderItem || (int) $orderItem->quantity <= 1) {
+            return;
+        }
+
+        $quantityBefore = (int) $orderItem->quantity;
+        $newQuantity = $quantityBefore - 1;
+
+        $unitAmount = $quantityBefore > 0
+            ? round((float) $orderItem->amount / $quantityBefore, 4)
+            : (float) ($orderItem->price ?? 0);
+        $unitTax = $quantityBefore > 0
+            ? round((float) ($orderItem->tax_amount ?? 0) / $quantityBefore, 4)
+            : 0.0;
+
+        $kotItem = $this->findKotItemForOrderItem($orderItem);
+
+        if ($kotItem) {
+            $kotQtyBefore = (int) $kotItem->quantity;
+            $newKotQty = $kotQtyBefore - 1;
+
+            if ($newKotQty <= 0) {
+                KotAdjustmentLogger::log($kotItem, 'deleted', $note, $kotQtyBefore, 0);
+                $kot = $kotItem->kot;
+                $kotItem->delete();
+                $kot?->refresh();
+                if ($kot && $kot->items()->count() === 0) {
+                    $kot->delete();
+                }
+            } else {
+                KotAdjustmentLogger::log($kotItem, 'quantity_updated', $note, $kotQtyBefore, $newKotQty);
+                $kotItem->update(['quantity' => $newKotQty]);
+            }
+        } else {
+            KotAdjustmentLogger::logOrderItem(
+                $orderItem,
+                'quantity_updated',
+                $note,
+                $quantityBefore,
+                $newQuantity
+            );
+        }
+
+        $orderItem->update([
+            'quantity' => $newQuantity,
+            'amount' => round($unitAmount * $newQuantity, 2),
+            'tax_amount' => round($unitTax * $newQuantity, 2),
+        ]);
+
+        if ($this->order) {
+            $this->order->refresh();
+            $this->recalculateOrderTotals();
+
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
+            }
+        }
+
+        $this->alert('success', __('messages.updateSuccess'), [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close'),
+        ]);
+
+        $this->dispatch('refreshPos');
+    }
+
+    protected function findKotItemForOrderItem(OrderItem $orderItem): ?KotItem
+    {
+        $query = KotItem::query()
+            ->whereHas('kot', fn ($q) => $q->where('order_id', $orderItem->order_id))
+            ->where('menu_item_id', $orderItem->menu_item_id)
+            ->where('quantity', '>', 0);
+
+        if ($orderItem->menu_item_variation_id) {
+            $query->where('menu_item_variation_id', $orderItem->menu_item_variation_id);
+        } else {
+            $query->whereNull('menu_item_variation_id');
+        }
+
+        if ($orderItem->combo_pack_id) {
+            $query->where('combo_pack_id', $orderItem->combo_pack_id);
+        } else {
+            $query->where(function ($q) {
+                $q->whereNull('combo_pack_id')->orWhere('combo_pack_id', 0);
+            });
+        }
+
+        $candidates = $query->get();
+
+        $exactQtyMatch = $candidates->firstWhere('quantity', $orderItem->quantity);
+
+        return $exactQtyMatch ?? $candidates->sortByDesc('quantity')->first();
     }
 
     protected function extractComboInstanceKey(?string $note): ?string

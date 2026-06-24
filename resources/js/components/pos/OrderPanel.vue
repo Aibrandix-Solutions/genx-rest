@@ -412,9 +412,9 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div ref="cartContainer" class="flex flex-col rounded max-md:max-h-none max-md:overflow-visible md:max-h-[250px] md:overflow-y-auto">
-            <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
-                <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
+        <div ref="cartContainer" class="pos-cart-items-scroll rounded">
+            <table class="w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <thead class="pos-cart-items-thead">
                     <tr>
                         <th scope="col"
                             class="p-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 rtl:text-right ltr:text-left">
@@ -3073,4 +3073,29 @@ const handleSaveOrder = (...actions) => {
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+/* ~6 item rows visible; 7th+ scrolls inside this block only */
+.pos-cart-items-scroll {
+    max-height: calc(2.75rem + (6 * 4.25rem));
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.pos-cart-items-scroll table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: rgb(243 244 246);
+    box-shadow: inset 0 -1px 0 rgb(229 231 235);
+}
+
+:global(.dark) .pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
+    background-color: rgb(55 65 81);
+    box-shadow: inset 0 -1px 0 rgb(75 85 99);
+}
+</style>
