@@ -10,6 +10,7 @@ use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class PurchaseOrderPayment extends Component
@@ -18,7 +19,8 @@ class PurchaseOrderPayment extends Component
 
     public $showModal = false;
     public $purchaseOrder;
-    
+    public $isSaving = false;
+
     // Payment form fields
     public $paymentAmount;
     public $paymentDate;
@@ -75,7 +77,7 @@ class PurchaseOrderPayment extends Component
         $this->resetForm();
         
         // Pre-fill with due amount
-        $this->paymentAmount = max(0, $this->purchaseOrder->total_amount - $this->purchaseOrder->paid_amount);
+        $this->paymentAmount = max(0, (float) $this->purchaseOrder->due_amount);
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->showModal = true;
     }
@@ -105,7 +107,7 @@ class PurchaseOrderPayment extends Component
             return;
         }
         
-        $maxAmount = max(0, $this->purchaseOrder->total_amount - $this->purchaseOrder->paid_amount);
+        $maxAmount = max(0, (float) $this->purchaseOrder->due_amount);
         if ($this->paymentAmount > $maxAmount) {
             $this->paymentAmount = $maxAmount;
             $this->alert('warning', "Payment amount cannot exceed the due amount of " . number_format($maxAmount, 2));
@@ -114,6 +116,18 @@ class PurchaseOrderPayment extends Component
 
     public function savePayment()
     {
+        if ($this->isSaving) {
+            return;
+        }
+
+        $lock = Cache::lock('po-payment:' . ($this->purchaseOrder?->id) . ':' . auth()->id(), 30);
+        if (! $lock->get()) {
+            return;
+        }
+
+        $this->isSaving = true;
+
+        try {
         $this->validate();
 
         if (!$this->purchaseOrder) {
@@ -125,7 +139,7 @@ class PurchaseOrderPayment extends Component
         $this->purchaseOrder->load('payments');
         
         // Check if payment amount exceeds due amount
-        $dueAmount = max(0, $this->purchaseOrder->total_amount - $this->purchaseOrder->paid_amount);
+        $dueAmount = max(0, (float) $this->purchaseOrder->due_amount);
         if ($this->paymentAmount > $dueAmount) {
             $this->alert('error', 'Payment amount cannot exceed the due amount.');
             return;
@@ -175,6 +189,14 @@ class PurchaseOrderPayment extends Component
         $this->showModal = false;
         $this->dispatch('purchaseOrderPaymentSaved');
         $this->resetForm();
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->alert('error', 'Failed to record payment: ' . $e->getMessage());
+        } finally {
+            $this->isSaving = false;
+            $lock->release();
+        }
     }
 
     public function render()

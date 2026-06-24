@@ -52,6 +52,7 @@ class ReallocateOrphanSupplierPayments extends Command
             // Orphan payments only — never touch payments already tied to a PO
             $orphans = SupplierPayment::where('supplier_id', $supplier->id)
                 ->whereNull('purchase_order_id')
+                ->whereNull('purchase_return_id')
                 ->orderBy('paid_on', 'asc')
                 ->orderBy('id', 'asc')
                 ->get();
