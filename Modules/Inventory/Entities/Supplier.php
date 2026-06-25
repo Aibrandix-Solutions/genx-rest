@@ -36,27 +36,29 @@ class Supplier extends Model
         return $this->hasMany(SupplierDocument::class);
     }
 
-    // Calculate total amount purchased (after discount)
+    // Calculate total amount purchased from received POs (uses persisted total_amount, fast DB aggregate)
     public function getTotalPurchasedAttribute()
     {
         return (float) $this->orders()
             ->where('status', 'received')
-            ->with('items')
-            ->get()
-            ->sum(fn ($po) => (float) $po->effective_total);
+            ->sum('total_amount');
     }
 
-    // Calculate total amount paid
+    // Calculate total amount paid to supplier (excludes return refunds received from supplier)
     public function getTotalPaidAttribute()
     {
-        return $this->payments()->sum('amount');
+        return (float) $this->payments()->whereNull('purchase_return_id')->sum('amount');
     }
 
-    // Calculate outstanding balance
+    // Calculate total refunds received from supplier (cash back on purchase returns)
+    public function getTotalRefundsAttribute()
+    {
+        return (float) $this->payments()->whereNotNull('purchase_return_id')->sum('amount');
+    }
+
+    // Calculate outstanding balance owed to supplier
     public function getBalanceAttribute()
     {
-        // This is a simplified logic. A more robust system would check for paid/unpaid status on specific POs.
-        // For a general ledger, Purchase Total - Payment Total = Balance to Pay
         return $this->total_purchased - $this->total_paid;
     }
 }

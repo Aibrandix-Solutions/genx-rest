@@ -1,7 +1,7 @@
 <div>
     {{-- Legacy order type modal (kept for reference; no longer rendered) --}}
     {{-- @livewire('forms.OrderTypeSelection') --}}
-    <div class="flex-grow flex flex-col max-md:flex-col lg:flex-row h-auto">
+    <div class="flex-grow flex flex-col max-md:flex-col lg:flex-row h-auto min-w-0">
         @include('pos.menu')
         @if (!$orderDetail)
             @include('pos.kot_items')

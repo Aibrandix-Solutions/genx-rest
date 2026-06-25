@@ -4,6 +4,7 @@
             type="text"
             id="{{ $name }}"
             wire:model.live="search"
+            wire:focus="$set('showDropdown', true)"
             wire:keydown.escape="$set('showDropdown', false)"
             wire:keydown.tab="$set('showDropdown', false)"
             class="block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-4 py-2.5 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm transition-colors duration-200"

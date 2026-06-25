@@ -3,7 +3,7 @@
     $posFilterTabInactive = 'bg-white text-gray-700 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 max-md:border max-md:border-gray-300 max-md:shadow-sm max-md:dark:bg-gray-700 max-md:dark:text-white max-md:dark:border-gray-500';
 @endphp
 
-<div class="w-full lg:w-6/12">
+<div class="w-full lg:w-2/3 min-w-0">
     <div class="flex flex-col bg-gray-50 lg:h-full w-full py-4 px-3 dark:bg-gray-900 overflow-y-auto lg:overflow-visible lg:max-h-none max-md:border-b max-md:border-gray-200 max-md:dark:border-gray-700">
         {{-- Search and Reset Section --}}
         <div class="flex items-center justify-between gap-3">
@@ -78,7 +78,7 @@
 
         {{-- Menu Items Grid --}}
         <div class="mt-4">
-            <ul class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-8 gap-3">
+            <ul class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                 @forelse ($menuItems as $item)
                     <li class="group relative">
                         <input type="checkbox" id="item-{{ $item->id }}" value="{{ $item->id }}"
@@ -114,6 +114,9 @@
                                 <h5 class="text-sm font-medium text-gray-900 dark:text-white min-h-[2.5rem]">
                                     {{ $item->item_name }}
                                 </h5>
+                                @if(!empty($item->item_code))
+                                    <span class="mt-1 inline-block w-fit max-w-full rounded px-1.5 py-0.5 text-xs font-semibold font-mono bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 break-all">{{ $item->item_code }}</span>
+                                @endif
                                 @if (!$item->in_stock)
                                     <div class="text-red-500">Out of stock</div>
                                 @else

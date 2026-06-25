@@ -173,24 +173,33 @@ class PurchaseOrderService
                 ->lockForUpdate()
                 ->get();
 
-            $transaction = AccountTransaction::query()
+            $transactions = AccountTransaction::query()
                 ->where('reference_type', SupplierPayment::class)
                 ->whereIn('reference_id', $paymentIds)
-                ->first();
+                ->get();
 
-            if ($transaction) {
-                $account = PaymentAccount::query()
-                    ->lockForUpdate()
-                    ->find($transaction->payment_account_id);
+            if ($transactions->isNotEmpty()) {
+                foreach ($transactions as $transaction) {
+                    $account = PaymentAccount::query()
+                        ->lockForUpdate()
+                        ->find($transaction->payment_account_id);
 
-                if (! $account) {
-                    throw new \RuntimeException(
-                        trans('inventory::modules.purchaseOrder.payment_account_missing_revert')
-                    );
+                    if (! $account) {
+                        throw new \RuntimeException(
+                            trans('inventory::modules.purchaseOrder.payment_account_missing_revert')
+                        );
+                    }
+
+                    // credit = money out (payment to supplier) → restore by incrementing
+                    // debit  = money in (refund from supplier) → restore by decrementing
+                    if ($transaction->type === 'debit') {
+                        $account->decrement('current_balance', (float) $transaction->amount);
+                    } else {
+                        $account->increment('current_balance', (float) $transaction->amount);
+                    }
+
+                    $transaction->delete();
                 }
-
-                $account->increment('current_balance', (float) $transaction->amount);
-                $transaction->delete();
             } else {
                 foreach ($lockedPayments as $payment) {
                     if (! $payment->payment_account_id) {

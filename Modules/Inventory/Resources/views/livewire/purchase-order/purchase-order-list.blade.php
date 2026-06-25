@@ -72,17 +72,120 @@
                 </x-select>
             </div>
             @endif
-            <div class="w-full sm:w-auto">
+            <div class="w-full sm:w-auto min-w-[220px]">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ trans('inventory::modules.purchaseOrder.supplier') }}
                 </label>
-                <x-select wire:model.live="supplierId" 
-                        class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                    <option value="">{{ trans('inventory::modules.purchaseOrder.all_suppliers') }}</option>
-                    @foreach($suppliers as $supplier)
-                        <option value="{{ $supplier->id }}">{{ $supplier->name }}</option>
-                    @endforeach
-                </x-select>
+                <div
+                    x-data="{
+                        isOpen: false,
+                        search: '',
+                        suppliers: @js($suppliers->map(fn ($supplier) => ['id' => $supplier->id, 'name' => $supplier->name, 'email' => $supplier->email])->values()),
+                        selectedId: @entangle('supplierId').live,
+                        allSuppliersLabel: @js(trans('inventory::modules.purchaseOrder.all_suppliers')),
+                        searchPlaceholder: @js(trans('inventory::modules.purchaseOrder.search_supplier_placeholder')),
+                        get selectedSupplier() {
+                            if (!this.selectedId) {
+                                return null;
+                            }
+
+                            return this.suppliers.find((supplier) => supplier.id == this.selectedId) ?? null;
+                        },
+                        get displayLabel() {
+                            return this.selectedSupplier?.name ?? this.allSuppliersLabel;
+                        },
+                        get filteredSuppliers() {
+                            const term = this.search.toLowerCase().trim();
+
+                            if (!term) {
+                                return this.suppliers;
+                            }
+
+                            return this.suppliers.filter((supplier) => {
+                                return supplier.name.toLowerCase().includes(term)
+                                    || (supplier.email && supplier.email.toLowerCase().includes(term));
+                            });
+                        },
+                        open() {
+                            this.isOpen = true;
+                            this.$nextTick(() => this.$refs.supplierSearch?.focus());
+                        },
+                        close() {
+                            this.isOpen = false;
+                            this.search = '';
+                        },
+                        selectSupplier(id) {
+                            this.selectedId = id || null;
+                            this.close();
+                        }
+                    }"
+                    @click.away="close()"
+                    class="relative"
+                >
+                    <button
+                        type="button"
+                        @click="isOpen ? close() : open()"
+                        class="flex w-full items-center justify-between rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 sm:text-sm min-h-[38px]"
+                    >
+                        <span class="truncate" x-text="displayLabel"></span>
+                        <svg class="ml-2 h-4 w-4 shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+
+                    <div
+                        x-show="isOpen"
+                        x-cloak
+                        x-transition
+                        class="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
+                    >
+                        <div class="border-b border-gray-200 p-2 dark:border-gray-600">
+                            <input
+                                type="text"
+                                x-ref="supplierSearch"
+                                x-model="search"
+                                @click.stop
+                                @keydown.escape.stop="close()"
+                                class="block w-full rounded-md border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                                :placeholder="searchPlaceholder"
+                            >
+                        </div>
+
+                        <ul class="max-h-60 overflow-y-auto py-1 text-sm">
+                            <li
+                                @click="selectSupplier(null)"
+                                class="cursor-pointer px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                :class="{ 'bg-indigo-50 text-indigo-700 dark:bg-gray-700 dark:text-white': !selectedId }"
+                            >
+                                <span x-text="allSuppliersLabel"></span>
+                            </li>
+
+                            <template x-for="supplier in filteredSuppliers" :key="supplier.id">
+                                <li
+                                    @click="selectSupplier(supplier.id)"
+                                    class="cursor-pointer px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                    :class="{ 'bg-indigo-50 text-indigo-700 dark:bg-gray-700 dark:text-white': selectedId == supplier.id }"
+                                >
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="truncate" x-text="supplier.name"></span>
+                                        <span
+                                            x-show="supplier.email"
+                                            x-text="supplier.email"
+                                            class="truncate text-xs text-gray-500 dark:text-gray-400"
+                                        ></span>
+                                    </div>
+                                </li>
+                            </template>
+
+                            <li
+                                x-show="filteredSuppliers.length === 0"
+                                class="px-3 py-2 text-gray-500 dark:text-gray-400"
+                            >
+                                @lang('app.noResults')
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
             <div class="w-full sm:w-auto">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">

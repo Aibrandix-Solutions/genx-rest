@@ -99,7 +99,7 @@ class ReservationList extends Component
                 $actualCheckIn = now();
 
                 if ($actualCheckIn->lt($defaultCheckIn)) {
-                    $hoursEarly = max(1, (int) ceil($actualCheckIn->floatDiffInHours($defaultCheckIn)));
+                    $hoursEarly = max(1, (int) ceil($actualCheckIn->diffInHours($defaultCheckIn, true)));
                     $earlyCharge = $hoursEarly * (float) $settings->early_checkin_charge_per_hour;
 
                     RoomCharge::create([
@@ -260,7 +260,7 @@ class ReservationList extends Component
     {
         return [
             'create_guest_id' => 'required|exists:hotel_guests,id',
-            'create_check_in_date' => 'required|date|after_or_equal:today',
+            'create_check_in_date' => 'required|date',
             'create_check_out_date' => 'required|date|after:create_check_in_date',
             'selected_rooms' => 'required|array|min:1',
             'selected_rooms.*.room_id' => 'required|exists:hotel_rooms,id',
@@ -586,6 +586,12 @@ class ReservationList extends Component
     public $checkout_notes = '';
     public $checkout_date_actual = '';
 
+    // Extended stay charge fields
+    public $checkout_extended_days   = 0;  // float, supports 0.5 increments
+    public $checkout_extended_rate   = 0;  // per-day rate (auto-filled, editable)
+    public $checkout_extended_amount = 0;  // days × rate (editable override)
+    public $checkout_extended_tax    = 0;  // tax on the extended amount (same rate as reservation)
+
     // Quick charge from reservation list
     public $showAddChargeModal = false;
     public $charge_reservation_id = null;
@@ -613,20 +619,132 @@ class ReservationList extends Component
             $this->checkout_date_actual = Carbon::today()->format('Y-m-d');
             $this->checkout_payment_method = 'cash';
             $this->checkout_processing_rate = 0;
-            
+
+            // Extended stay — auto-detect extra days vs original checkout date
+            $this->checkout_extended_days   = 0;
+            $this->checkout_extended_rate   = 0;
+            $this->checkout_extended_amount = 0;
+            $this->checkout_extended_tax    = 0;
+            $this->recalculateExtendedStay();
+
             $this->showEditReservation = true;
         }
     }
+
+    // ── Extended-stay lifecycle hooks ──────────────────────────────────────
+
+    public function updatedCheckoutDateActual(): void
+    {
+        $this->recalculateExtendedStay();
+    }
+
+    public function updatedCheckoutExtendedDays(): void
+    {
+        $this->checkout_extended_days   = max(0, (float) $this->checkout_extended_days);
+        $this->checkout_extended_amount = round($this->checkout_extended_days * (float) $this->checkout_extended_rate, 2);
+        $this->checkout_extended_tax    = $this->computeExtendedTax($this->checkout_extended_amount);
+        $this->syncExtendedSettlementAmount();
+    }
+
+    public function updatedCheckoutExtendedRate(): void
+    {
+        $this->checkout_extended_rate   = max(0, (float) $this->checkout_extended_rate);
+        $this->checkout_extended_amount = round($this->checkout_extended_days * (float) $this->checkout_extended_rate, 2);
+        $this->checkout_extended_tax    = $this->computeExtendedTax($this->checkout_extended_amount);
+        $this->syncExtendedSettlementAmount();
+    }
+
+    public function updatedCheckoutExtendedAmount(): void
+    {
+        $this->checkout_extended_amount = max(0, (float) $this->checkout_extended_amount);
+        $this->checkout_extended_tax    = $this->computeExtendedTax($this->checkout_extended_amount);
+        $this->syncExtendedSettlementAmount();
+    }
+
+    public function incrementExtendedDays(): void
+    {
+        $this->checkout_extended_days   = round((float) $this->checkout_extended_days + 0.5, 1);
+        $this->checkout_extended_amount = round($this->checkout_extended_days * (float) $this->checkout_extended_rate, 2);
+        $this->checkout_extended_tax    = $this->computeExtendedTax($this->checkout_extended_amount);
+        $this->syncExtendedSettlementAmount();
+    }
+
+    public function decrementExtendedDays(): void
+    {
+        $this->checkout_extended_days   = max(0, round((float) $this->checkout_extended_days - 0.5, 1));
+        $this->checkout_extended_amount = round($this->checkout_extended_days * (float) $this->checkout_extended_rate, 2);
+        $this->checkout_extended_tax    = $this->computeExtendedTax($this->checkout_extended_amount);
+        $this->syncExtendedSettlementAmount();
+    }
+
+    /** Auto-fill nightly rate and day count when actual checkout date changes. */
+    private function recalculateExtendedStay(): void
+    {
+        if (!$this->checkout_reservation || !$this->checkout_date_actual) {
+            $this->checkout_extended_days   = 0;
+            $this->checkout_extended_amount = 0;
+            return;
+        }
+
+        $originalCheckout = $this->checkout_reservation->checkout_date->copy()->startOfDay();
+        $actualDate       = Carbon::parse($this->checkout_date_actual)->startOfDay();
+
+        if ($actualDate->lte($originalCheckout)) {
+            $this->checkout_extended_days   = 0;
+            $this->checkout_extended_amount = 0;
+            return;
+        }
+
+        $this->checkout_extended_days = $originalCheckout->diffInDays($actualDate);
+
+        // Auto-fill rate from room type (editable by staff)
+        if ($this->checkout_extended_rate == 0 &&
+            $this->checkout_reservation->room?->roomType) {
+            $this->checkout_extended_rate = (float) $this->checkout_reservation->room->roomType
+                ->getPriceForDate($originalCheckout);
+        }
+
+        $this->checkout_extended_amount = round(
+            $this->checkout_extended_days * (float) $this->checkout_extended_rate, 2
+        );
+
+        $this->checkout_extended_tax = $this->computeExtendedTax($this->checkout_extended_amount);
+
+        $this->syncExtendedSettlementAmount();
+    }
+
+    /** Tax on the extended stay amount using the reservation's effective rate. */
+    private function computeExtendedTax(float $amount): float
+    {
+        if (!$this->checkout_reservation || $amount <= 0) {
+            return 0;
+        }
+        $taxRate = $this->checkout_reservation->getEffectiveTaxRate();
+        return round($amount * ($taxRate / 100), 2);
+    }
+
+    /** Keep the settlement amount in sync with the updated balance due (including tax). */
+    private function syncExtendedSettlementAmount(): void
+    {
+        $newBalance = (float) $this->checkout_balance_due
+            + (float) $this->checkout_extended_amount
+            + (float) $this->checkout_extended_tax;
+        $this->checkout_amount_paid = max(0, round($newBalance, 2));
+    }
+
+    // ── Checkout ───────────────────────────────────────────────────────────
 
     public function processCheckout()
     {
         abort_unless(user_can('check_out_guest'), 403);
 
         $this->validate([
-            'checkout_amount_paid' => 'required|numeric|min:0',
-            'checkout_payment_method' => 'required|string',
+            'checkout_amount_paid'     => 'required|numeric|min:0',
+            'checkout_payment_method'  => 'required|string',
             'checkout_processing_rate' => 'nullable|numeric|min:0|max:100',
-            'checkout_date_actual' => 'required|date',
+            'checkout_date_actual'     => 'required|date',
+            'checkout_extended_days'   => 'nullable|numeric|min:0',
+            'checkout_extended_amount' => 'nullable|numeric|min:0',
         ]);
 
         if (!$this->checkout_reservation) {
@@ -635,7 +753,31 @@ class ReservationList extends Component
 
         DB::transaction(function () {
             $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
-            $surchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
+            $surchargeEnabled = (bool) ($settings?->enable_payment_surcharge ?? false);
+
+            // ── Extended stay room charge ───────────────────────────────
+            if ((float) $this->checkout_extended_days > 0 && (float) $this->checkout_extended_amount > 0) {
+                $extDays = (float) $this->checkout_extended_days;
+
+                // Label: "1 night", "1.5 nights", "2 nights"
+                $daysLabel = ($extDays == (int) $extDays)
+                    ? (int) $extDays . ($extDays == 1 ? ' night' : ' nights')
+                    : number_format($extDays, 1) . ' nights';
+
+                RoomCharge::create([
+                    'reservation_id' => $this->checkout_reservation->id,
+                    'charge_type'    => RoomCharge::TYPE_ROOM_NIGHT,
+                    'description'    => "Extended stay ({$daysLabel})",
+                    'amount'         => round((float) $this->checkout_extended_amount, 2),
+                    'charge_date'    => $this->checkout_reservation->checkout_date->toDateString(),
+                ]);
+
+                // Recalculate tax and service charges to include the new room-night charge
+                $this->checkout_reservation->recalculateTaxCharge();
+                $this->checkout_reservation->recalculateLinkedServiceCharge();
+                $this->checkout_reservation->calculateTotal();
+                $this->checkout_reservation->refresh();
+            }
 
             // Auto-post late checkout surcharge before settlement
             if ($settings && (float) $settings->late_checkout_charge_per_hour > 0) {
@@ -645,7 +787,7 @@ class ReservationList extends Component
                 $actualCheckout = Carbon::parse($this->checkout_date_actual)->setTimeFrom(now());
 
                 if ($actualCheckout->gt($defaultCheckout)) {
-                    $hoursLate = max(1, (int) ceil($defaultCheckout->floatDiffInHours($actualCheckout)));
+                    $hoursLate = max(1, (int) ceil($defaultCheckout->diffInHours($actualCheckout, true)));
                     $lateCharge = $hoursLate * (float) $settings->late_checkout_charge_per_hour;
 
                     RoomCharge::create([
@@ -746,15 +888,19 @@ class ReservationList extends Component
 
     private function resetCheckoutForm()
     {
-        $this->checkout_reservation = null;
-        $this->checkout_total_amount = 0;
-        $this->checkout_amount_paid = 0;
-        $this->checkout_balance_due = 0;
-        $this->checkout_notes = '';
-        $this->checkout_payment_method = 'cash';
-        $this->checkout_processing_rate = 0;
-        $this->checkout_date_actual = '';
-        $this->editingReservationId = null;
+        $this->checkout_reservation      = null;
+        $this->checkout_total_amount     = 0;
+        $this->checkout_amount_paid      = 0;
+        $this->checkout_balance_due      = 0;
+        $this->checkout_notes            = '';
+        $this->checkout_payment_method   = 'cash';
+        $this->checkout_processing_rate  = 0;
+        $this->checkout_date_actual      = '';
+        $this->checkout_extended_days    = 0;
+        $this->checkout_extended_rate    = 0;
+        $this->checkout_extended_amount  = 0;
+        $this->checkout_extended_tax     = 0;
+        $this->editingReservationId      = null;
     }
 
     // --- Mark as No-Show ---
