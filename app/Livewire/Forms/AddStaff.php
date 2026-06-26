@@ -6,6 +6,8 @@ use Log;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\Country;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Livewire\Component;
 use App\Notifications\StaffWelcomeEmail;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -82,6 +84,19 @@ class AddStaff extends Component
         ]);
 
         $user->assignRole($this->memberRole);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::StaffCreated,
+            description: "Staff member {$user->name} created",
+            subject: $user,
+            properties: [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'role' => $this->memberRole,
+            ],
+            restaurantId: $user->restaurant_id ? (int) $user->restaurant_id : null,
+            branchId: $user->branch_id ? (int) $user->branch_id : null,
+        );
 
         try {
             $user->notify(new StaffWelcomeEmail($user->restaurant, $this->memberPassword));

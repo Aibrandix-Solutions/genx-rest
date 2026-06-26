@@ -2303,7 +2303,7 @@ const linkedKotGroups = computed(() => {
     const sourceGroups = Array.isArray(props.kotGroups) ? props.kotGroups : [];
     const seenLinkedKeys = new Set();
 
-    return sourceGroups.map((group, groupIndex) => {
+    const groups = sourceGroups.map((group, groupIndex) => {
         const lines = Array.isArray(group?.lines) ? group.lines : [];
 
         const normalizedLines = lines.map((line, lineIndex) => {
@@ -2425,6 +2425,66 @@ const linkedKotGroups = computed(() => {
             lines: normalizedLines,
         };
     });
+
+    if (groups.length === 0 && cartSource.length > 0) {
+        const fallbackLines = cartSource.map((item, lineIndex) => {
+            const resolvedKey = item.line_key || item.id || `fallback_${lineIndex}`;
+            const quantity = Number(item.quantity || 1);
+            const price = Number(item.price || 0);
+            const packId = item.combo_pack_id ? Number(item.combo_pack_id) : null;
+            const displayName = [
+                item.name || "Unknown Item",
+                item.variation_name || "",
+            ].filter(Boolean).join(" — ");
+
+            const cached = linkedLineReactiveCache.get(resolvedKey);
+            if (cached) {
+                Object.assign(cached, {
+                    id: resolvedKey,
+                    line_key: resolvedKey,
+                    order_item_id: item.order_item_id || null,
+                    kot_item_id: item.kot_item_id || null,
+                    name: displayName,
+                    quantity,
+                    price,
+                    note: item.note || "",
+                    combo_pack_id: packId,
+                    _linkedKey: resolvedKey,
+                    _isCombo: !!packId,
+                });
+                return cached;
+            }
+
+            const row = reactive({
+                id: resolvedKey,
+                line_key: resolvedKey,
+                order_item_id: item.order_item_id || null,
+                kot_item_id: item.kot_item_id || null,
+                name: displayName,
+                quantity,
+                price,
+                note: item.note || "",
+                combo_pack_id: packId,
+                _linkedKey: resolvedKey,
+                _isCombo: !!packId,
+                _showNoteInput: false,
+                _activeNote: "",
+                _showNotePreview: false,
+            });
+            linkedLineReactiveCache.set(resolvedKey, row);
+            return row;
+        });
+
+        return [{
+            key: "fallback_order_lines",
+            id: null,
+            title: "Order items",
+            createdAt: "",
+            lines: fallbackLines,
+        }];
+    }
+
+    return groups;
 });
 
 // Drop reactive line entries whose backing KOT row no longer exists, so the

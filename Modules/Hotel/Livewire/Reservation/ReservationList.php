@@ -12,6 +12,8 @@ use Modules\Hotel\Services\OrderFolioSettlement;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
 use Modules\Hotel\Support\HotelPaymentRecorder;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -143,6 +145,19 @@ class ReservationList extends Component
                 $reservation->room->update(['status' => 'occupied']);
             }
         });
+
+        if ($this->checkInReservation) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::GuestCheckedIn,
+                description: 'Guest checked in to room ' . ($this->checkInReservation->room?->room_number ?? 'N/A'),
+                subject: $this->checkInReservation->fresh(),
+                properties: [
+                    'reservation_id' => $this->checkInReservation->id,
+                    'reservation_number' => $this->checkInReservation->reservation_number ?? null,
+                ],
+                restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+            );
+        }
 
         $this->showCheckInModal = false;
         $this->checkInReservation = null;
@@ -511,7 +526,7 @@ class ReservationList extends Component
                 $checkInTime = $settings ? $settings->default_check_in_time : '14:00';
                 $checkOutTime = $settings ? $settings->default_checkout_time : '12:00';
 
-                Reservation::create([
+                $reservation = Reservation::create([
                     'guest_id' => $this->create_guest_id,
                     'room_id' => $entry['room_id'],
                     'group_booking_id' => $groupBookingId,
@@ -528,6 +543,19 @@ class ReservationList extends Component
                     'balance_due' => $totalAmount,
                     'created_by_user_id' => auth()->id(),
                 ]);
+
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::ReservationCreated,
+                    description: "Reservation created for room {$room->room_number}",
+                    subject: $reservation,
+                    properties: [
+                        'reservation_id' => $reservation->id,
+                        'reservation_number' => $reservation->reservation_number ?? null,
+                        'room_id' => $entry['room_id'],
+                        'group_booking_id' => $groupBookingId,
+                    ],
+                    restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                );
 
                 // Update room status to 'reserved' when reservation is created
                 $room->update(['status' => 'reserved']);
@@ -836,6 +864,20 @@ class ReservationList extends Component
             }
         });
 
+        if ($this->checkout_reservation) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::GuestCheckedOut,
+                description: 'Guest checked out from room ' . ($this->checkout_reservation->room?->room_number ?? 'N/A'),
+                subject: $this->checkout_reservation->fresh(),
+                properties: [
+                    'reservation_id' => $this->checkout_reservation->id,
+                    'reservation_number' => $this->checkout_reservation->reservation_number ?? null,
+                    'amount_paid' => $this->checkout_amount_paid,
+                ],
+                restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+            );
+        }
+
         $this->alert('success', 'Guest successfully checked out. Balance updated.');
 
         $this->showEditReservation = false;
@@ -875,6 +917,17 @@ class ReservationList extends Component
         }
 
         $reservation->update(['status' => Reservation::STATUS_CANCELLED]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::ReservationCancelled,
+            description: 'Reservation cancelled' . ($reservation->reservation_number ? " (#{$reservation->reservation_number})" : ''),
+            subject: $reservation,
+            properties: [
+                'reservation_id' => $reservation->id,
+                'reservation_number' => $reservation->reservation_number ?? null,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
 
         // If room was occupied (checked in), free it up
         if ($reservation->room) {

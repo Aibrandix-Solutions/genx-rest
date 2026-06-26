@@ -134,6 +134,7 @@ class PermissionSeeder extends Seeder
 
         if ($reportModule) {
             $permissions[] = ['guard_name' => 'web', 'name' => 'Show Reports', 'module_id' => $reportModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'View Activity Log', 'module_id' => $reportModule->id];
         }
 
         if ($settingsModule) {
