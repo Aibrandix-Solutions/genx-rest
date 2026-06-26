@@ -4,6 +4,8 @@ namespace Modules\Inventory\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Modules\Inventory\Entities\AccountTransaction;
 use Modules\Inventory\Entities\InventoryMovement;
 use Modules\Inventory\Entities\InventoryStock;
@@ -46,6 +48,22 @@ class PurchaseOrderService
             'notes' => $notes,
             'metadata' => $metadata,
         ]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::PurchaseOrderAmountUpdated,
+            description: "Purchase order {$purchaseOrder->po_number} amount updated",
+            subject: $purchaseOrder,
+            properties: [
+                'purchase_order_id' => $purchaseOrder->id,
+                'po_number' => $purchaseOrder->po_number,
+                'old_amount' => $oldAmount,
+                'new_amount' => $newAmount,
+                'amount_difference' => $difference,
+                'notes' => $notes,
+                'metadata' => $metadata,
+            ],
+            branchId: $purchaseOrder->branch_id ? (int) $purchaseOrder->branch_id : null,
+        );
     }
 
     public function deletePurchaseOrder(PurchaseOrder $purchaseOrder): void
@@ -88,6 +106,20 @@ class PurchaseOrderService
                     'invoice_no' => $purchaseOrder->invoice_no,
                 ],
             ]);
+
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PurchaseOrderDeleted,
+                description: "Purchase order {$purchaseOrder->po_number} deleted",
+                subject: $purchaseOrder,
+                properties: [
+                    'purchase_order_id' => $purchaseOrder->id,
+                    'po_number' => $purchaseOrder->po_number,
+                    'old_amount' => $oldAmount,
+                    'status' => $purchaseOrder->status,
+                    'invoice_no' => $purchaseOrder->invoice_no,
+                ],
+                branchId: $purchaseOrder->branch_id ? (int) $purchaseOrder->branch_id : null,
+            );
 
             $purchaseOrder->delete();
         });

@@ -13,6 +13,8 @@ use Modules\Hotel\Support\HotelPaymentRecorder;
 use Modules\Hotel\Services\FolioChargePresenter;
 use Modules\Hotel\Services\FolioOrderChargeSync;
 use App\Models\Order;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
@@ -351,6 +353,21 @@ class FolioManager extends Component
             $this->reservation->calculateTotal();
         });
 
+        if ($this->paymentType === HotelPayment::TYPE_SETTLEMENT) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::FolioSettled,
+                description: 'Folio settlement payment recorded for reservation ' . ($this->reservation->reservation_number ?? $this->reservation->id),
+                subject: $this->reservation,
+                properties: [
+                    'reservation_id' => $this->reservation->id,
+                    'reservation_number' => $this->reservation->reservation_number ?? null,
+                    'amount' => $totalCollected,
+                    'payment_method' => $this->paymentMethod,
+                ],
+                restaurantId: $this->reservation->restaurant_id ? (int) $this->reservation->restaurant_id : null,
+            );
+        }
+
         $this->showPaymentModal = false;
         $this->loadData();
 
@@ -390,7 +407,7 @@ class FolioManager extends Component
             : $this->chargeDescription;
 
         DB::transaction(function () use ($description) {
-            RoomCharge::create([
+            $charge = RoomCharge::create([
                 'reservation_id' => $this->reservation->id,
                 'charge_type' => $this->chargeType,
                 'description' => $description,
@@ -399,6 +416,21 @@ class FolioManager extends Component
             ]);
 
             $this->reservation->calculateTotal();
+
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::FolioChargeAdded,
+                description: "Folio charge added: {$description}",
+                subject: $this->reservation,
+                properties: [
+                    'reservation_id' => $this->reservation->id,
+                    'reservation_number' => $this->reservation->reservation_number ?? null,
+                    'charge_id' => $charge->id,
+                    'charge_type' => $this->chargeType,
+                    'amount' => $this->chargeAmount,
+                    'description' => $description,
+                ],
+                restaurantId: $this->reservation->restaurant_id ? (int) $this->reservation->restaurant_id : null,
+            );
         });
 
         $this->showChargeModal = false;
@@ -476,6 +508,7 @@ class FolioManager extends Component
         }
 
         $isPaymentSurcharge = $charge->isPaymentSurcharge();
+        $oldAmount = (float) $charge->amount;
 
         DB::transaction(function () use ($charge, $newAmount) {
             if (in_array($charge->charge_type, [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_OTHER], true)) {
@@ -492,6 +525,20 @@ class FolioManager extends Component
 
             $this->reservation->calculateTotal();
         });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::FolioChargeUpdated,
+            description: "Folio charge updated: {$charge->description}",
+            subject: $this->reservation,
+            properties: [
+                'reservation_id' => $this->reservation->id,
+                'charge_id' => $charge->id,
+                'old_amount' => $oldAmount,
+                'new_amount' => $newAmount,
+                'description' => $charge->description,
+            ],
+            restaurantId: $this->reservation->restaurant_id ? (int) $this->reservation->restaurant_id : null,
+        );
 
         $this->cancelEditCharge();
         $this->loadData();
@@ -555,6 +602,20 @@ class FolioManager extends Component
         }
 
         DB::transaction(function () use ($charge) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::FolioChargeDeleted,
+                description: "Folio charge deleted: {$charge->description}",
+                subject: $this->reservation,
+                properties: [
+                    'reservation_id' => $this->reservation->id,
+                    'charge_id' => $charge->id,
+                    'charge_type' => $charge->charge_type,
+                    'amount' => $charge->amount,
+                    'description' => $charge->description,
+                ],
+                restaurantId: $this->reservation->restaurant_id ? (int) $this->reservation->restaurant_id : null,
+            );
+
             $charge->delete();
             $this->reservation->calculateTotal();
         });

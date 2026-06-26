@@ -20,6 +20,8 @@ use App\Models\KotItem;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Support\KotAdjustmentLogger;
+use App\Support\ActivityLogger;
+use App\Enums\ActivityEvent;
 use App\Services\OrderPaymentBalanceSync;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Livewire\Customer\AddCustomer;
@@ -1081,6 +1083,19 @@ class OrderDetail extends Component
                 'cancel_reason_text' => $this->cancelReasonText,
 
             ]);
+
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::OrderCancelled,
+                description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' cancelled',
+                subject: $order,
+                properties: [
+                    'order_id' => $order->id,
+                    'cancel_reason_id' => $this->cancelReason,
+                    'cancel_reason_text' => $this->cancelReasonText,
+                ],
+                branchId: $order->branch_id ? (int) $order->branch_id : null,
+            );
+
             $order->kot()->delete();
             $order->payments()->delete();
 
@@ -1184,6 +1199,14 @@ class OrderDetail extends Component
                 'total_tax_amount' => 0,
             ]);
 
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::OrderCancelled,
+                description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' cancelled (audit preserved)',
+                subject: $order,
+                properties: ['order_id' => $order->id, 'has_kot_adjustments' => true],
+                branchId: $order->branch_id ? (int) $order->branch_id : null,
+            );
+
             $this->alert('success', __('messages.orderCanceled'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -1191,6 +1214,14 @@ class OrderDetail extends Component
                 'cancelButtonText' => __('app.close')
             ]);
         } else {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::OrderDeleted,
+                description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' deleted',
+                subject: $order,
+                properties: ['order_id' => $order->id],
+                branchId: $order->branch_id ? (int) $order->branch_id : null,
+            );
+
             $order->delete();
 
         $this->alert('success', __('messages.orderDeleted'), [

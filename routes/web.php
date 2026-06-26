@@ -184,6 +184,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
         Route::get('print-log', [ReportController::class, 'printLog'])->name('reports.printLog');
         Route::get('delivery-report', [ReportController::class, 'deliveryReport'])->name('reports.delivery');
         Route::get('kot-adjustments', [ReportController::class, 'kotAdjustmentReport'])->name('reports.kotAdjustments');
+        Route::get('activity-log', [ReportController::class, 'activityLog'])->name('reports.activityLog');
         Route::get('menu-item-report', [ReportController::class, 'menuItemReport'])->name('reports.menuItem');
     });
 
