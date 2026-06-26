@@ -80,6 +80,10 @@ use App\Observers\OrderTypeObserver;
 use App\Models\OrderType;
 use App\Observers\KotItemObserver;
 use App\Models\KotItem;
+use App\Listeners\LogAuthenticationActivity;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Support\Facades\Event;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -136,6 +140,9 @@ class AppServiceProvider extends ServiceProvider
         OrderType::observe(OrderTypeObserver::class);
         DeliveryPlatform::observe(DeliveryPlatformObserver::class);
         TableSession::observe(TableSessionObserver::class);
+
+        Event::listen(Login::class, [LogAuthenticationActivity::class, 'handleLogin']);
+        Event::listen(Logout::class, [LogAuthenticationActivity::class, 'handleLogout']);
 
         View::composer('hotel::sections.sidebar-primary', HotelSidebarComposer::class);
 

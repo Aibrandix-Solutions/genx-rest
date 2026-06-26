@@ -5,6 +5,8 @@ namespace Modules\Inventory\Livewire\PurchaseOrder;
 use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PurchaseLocation;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -72,7 +74,9 @@ class ReceivePurchaseOrder extends Component
             ? (int) $purchaseLocation->branch_id
             : ($this->purchaseOrder->branch_id !== null ? (int) $this->purchaseOrder->branch_id : null);
 
-        DB::transaction(function () use ($targetLocationId, $targetBranchId) {
+        $finalStatus = null;
+
+        DB::transaction(function () use ($targetLocationId, $targetBranchId, &$finalStatus) {
             $allReceived = true;
             
             foreach ($this->items as $item) {
@@ -117,7 +121,21 @@ class ReceivePurchaseOrder extends Component
             $this->purchaseOrder->update([
                 'status' => $allReceived ? 'received' : 'partially_received'
             ]);
+
+            $finalStatus = $allReceived ? 'received' : 'partially_received';
         });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::PurchaseOrderReceived,
+            description: "Purchase order {$this->purchaseOrder->po_number} received ({$finalStatus})",
+            subject: $this->purchaseOrder->fresh(),
+            properties: [
+                'purchase_order_id' => $this->purchaseOrder->id,
+                'po_number' => $this->purchaseOrder->po_number,
+                'status' => $finalStatus,
+            ],
+            branchId: $this->purchaseOrder->branch_id ? (int) $this->purchaseOrder->branch_id : null,
+        );
 
         $this->showModal = false;
         $this->dispatch('purchaseOrderSaved');

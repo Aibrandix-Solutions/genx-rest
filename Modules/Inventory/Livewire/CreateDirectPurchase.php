@@ -23,6 +23,8 @@ use Illuminate\Support\Str;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Inventory\Exports\PurchaseItemsImportTemplateExport;
 use Modules\Inventory\Entities\PurchaseAttachment;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 
 class CreateDirectPurchase extends Component
 {
@@ -535,7 +537,9 @@ class CreateDirectPurchase extends Component
 
         $this->validate();
 
-        DB::transaction(function () {
+        $purchase = null;
+
+        DB::transaction(function () use (&$purchase) {
             // Create purchase
             $purchase = PurchaseOrder::create([
                 'po_number' => $this->generatePurchaseNumber(),
@@ -598,6 +602,35 @@ class CreateDirectPurchase extends Component
                 }
             }
         });
+
+        if ($purchase) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PurchaseOrderCreated,
+                description: "Purchase order {$purchase->po_number} created",
+                subject: $purchase,
+                properties: [
+                    'purchase_order_id' => $purchase->id,
+                    'po_number' => $purchase->po_number,
+                    'status' => $purchase->status,
+                    'total_amount' => $purchase->total_amount,
+                ],
+                branchId: $purchase->branch_id ? (int) $purchase->branch_id : null,
+            );
+
+            if ($purchase->status === 'received') {
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::PurchaseOrderReceived,
+                    description: "Purchase order {$purchase->po_number} received",
+                    subject: $purchase,
+                    properties: [
+                        'purchase_order_id' => $purchase->id,
+                        'po_number' => $purchase->po_number,
+                        'status' => $purchase->status,
+                    ],
+                    branchId: $purchase->branch_id ? (int) $purchase->branch_id : null,
+                );
+            }
+        }
 
         $this->alert('success', 'Purchase created successfully');
         return redirect()->route('purchases.index');

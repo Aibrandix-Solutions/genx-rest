@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\ActivityEvent;
 use App\Enums\OrderStatus;
 use App\Events\KotUpdated;
 use App\Http\Controllers\Controller;
+use App\Support\ActivityLogger;
 use App\Models\ComboPack;
 use App\Models\Country;
 use App\Models\Customer;
@@ -778,12 +780,37 @@ class PosSupportController extends Controller
             abort(422, __('modules.settings.cancelReasonRequired'));
         }
 
+        $previousStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
+
         $order->update([
             'order_status' => $nextStatus,
             'status' => $nextStatus === OrderStatus::CANCELLED ? 'canceled' : $order->status,
             'cancel_reason_id' => $nextStatus === OrderStatus::CANCELLED ? ($validated['cancel_reason_id'] ?? null) : $order->cancel_reason_id,
             'cancel_reason_text' => $nextStatus === OrderStatus::CANCELLED ? ($validated['cancel_reason_text'] ?? null) : $order->cancel_reason_text,
         ]);
+
+        $event = $nextStatus === OrderStatus::CANCELLED
+            ? ActivityEvent::OrderCancelled
+            : ActivityEvent::OrderStatusChanged;
+
+        ActivityLogger::recordEvent(
+            activityEvent: $event,
+            description: sprintf(
+                'Order #%s status changed from %s to %s',
+                $order->formatted_order_number ?? $order->order_number ?? $order->id,
+                $previousStatus,
+                $nextStatus->value
+            ),
+            subject: $order,
+            properties: [
+                'order_id' => $order->id,
+                'previous_status' => $previousStatus,
+                'new_status' => $nextStatus->value,
+                'cancel_reason_id' => $validated['cancel_reason_id'] ?? null,
+                'cancel_reason_text' => $validated['cancel_reason_text'] ?? null,
+            ],
+            branchId: $order->branch_id ? (int) $order->branch_id : null,
+        );
 
         if ($nextStatus === OrderStatus::CANCELLED && $order->table_id) {
             Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
@@ -871,6 +898,17 @@ class PosSupportController extends Controller
 
         $order->refresh();
 
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::OrderDeliveryFeeUpdated,
+            description: 'Delivery fee updated for Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id),
+            subject: $order,
+            properties: [
+                'order_id' => $order->id,
+                'delivery_fee' => (float) ($order->delivery_fee ?? 0),
+            ],
+            branchId: $order->branch_id ? (int) $order->branch_id : null,
+        );
+
         return response()->json([
             'success' => true,
             'message' => __('messages.updateSuccess'),
@@ -923,6 +961,19 @@ class PosSupportController extends Controller
 
         $order->refresh();
 
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::OrderDiscountApplied,
+            description: 'Discount applied to Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id),
+            subject: $order,
+            properties: [
+                'order_id' => $order->id,
+                'discount_type' => $order->discount_type,
+                'discount_value' => $order->discount_value,
+                'discount_amount' => $order->discount_amount,
+            ],
+            branchId: $order->branch_id ? (int) $order->branch_id : null,
+        );
+
         return response()->json([
             'success' => true,
             'message' => __('messages.updateSuccess'),
@@ -959,6 +1010,14 @@ class PosSupportController extends Controller
         });
 
         $order->refresh();
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::OrderDiscountRemoved,
+            description: 'Discount removed from Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id),
+            subject: $order,
+            properties: ['order_id' => $order->id],
+            branchId: $order->branch_id ? (int) $order->branch_id : null,
+        );
 
         return response()->json([
             'success' => true,
@@ -1202,6 +1261,14 @@ class PosSupportController extends Controller
         if ($order->table_id) {
             Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
         }
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::OrderDeleted,
+            description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' deleted',
+            subject: $order,
+            properties: ['order_id' => $order->id],
+            branchId: $order->branch_id ? (int) $order->branch_id : null,
+        );
 
         // Mirror legacy delete: detach modifier pivots on each KotItem, then remove rows.
         $kotIds = Kot::query()->where('order_id', $order->id)->pluck('id');

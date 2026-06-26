@@ -3,6 +3,8 @@
 namespace App\Livewire\Forms;
 
 use App\Models\DeliveryExecutive;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
 
@@ -22,11 +24,24 @@ class AddExecutive extends Component
             'memberPhone' => 'required|unique:delivery_executives,phone'
         ]);
 
-        DeliveryExecutive::create([
+        $executive = DeliveryExecutive::create([
             'name' => $this->memberName,
             'phone' => $this->memberPhone,
             'status' => $this->status,
         ]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::DeliveryExecutiveCreated,
+            description: "Delivery executive created: {$executive->name}",
+            subject: $executive,
+            properties: [
+                'delivery_executive_id' => $executive->id,
+                'name' => $executive->name,
+                'phone' => $executive->phone,
+                'status' => $executive->status,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
 
         // Reset the value
         $this->memberName = '';
