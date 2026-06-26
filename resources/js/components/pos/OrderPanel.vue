@@ -3134,9 +3134,10 @@ const handleSaveOrder = (...actions) => {
 </script>
 
 <style scoped>
-/* ~6 item rows visible; 7th+ scrolls inside this block only */
+/* ~5 item rows visible; 6th+ scrolls inside this block only */
 .pos-cart-items-scroll {
-    max-height: calc(2.75rem + (6 * 4.25rem));
+    /* 4.25rem/row was too tall (~6 rows fit); ~3.5rem matches actual row height (+ Add Note rows) */
+    max-height: calc(2.75rem + (5 * 3.5rem));
     overflow-x: hidden;
     overflow-y: auto;
 }
