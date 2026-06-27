@@ -2,18 +2,20 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Traits\HasRestaurant;
+use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Modules\Hotel\Entities\HotelSetting;
 
 class RoomType extends Model
 {
-    use HasFactory, HasRestaurant;
+    use HasFactory, HasBranch;
 
     protected $table = 'hotel_room_types';
 
     protected $fillable = [
+        'branch_id',
         'restaurant_id',
         'name',
         'description',
@@ -52,7 +54,7 @@ class RoomType extends Model
     {
         // Check if dynamic pricing is enabled from settings
         if ($respectDynamicPricingSetting) {
-            $setting = $this->restaurant()->first()?->hotelSettings ?? null;
+            $setting = HotelSetting::where('branch_id', $this->branch_id)->first();
             if ($setting && !$setting->enable_dynamic_pricing) {
                 return $this->base_price;
             }

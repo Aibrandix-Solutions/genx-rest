@@ -24,13 +24,13 @@ class PosHotelSupport
             return false;
         }
 
-        $restaurant = restaurant();
-        if (! $restaurant?->id) {
+        $branch = branch();
+        if (! $branch?->id) {
             return false;
         }
 
         $settings = HotelSetting::query()
-            ->where('restaurant_id', $restaurant->id)
+            ->where('branch_id', $branch->id)
             ->first();
 
         return $settings ? (bool) $settings->enable_room_service : true;
@@ -50,14 +50,14 @@ class PosHotelSupport
             return collect();
         }
 
-        $restaurant = restaurant();
-        if (! $restaurant?->id) {
+        $branch = branch();
+        if (! $branch?->id) {
             return collect();
         }
 
         return Reservation::query()
             ->with(['guest', 'room.roomType'])
-            ->where('restaurant_id', $restaurant->id)
+            ->where('branch_id', $branch->id)
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->orderBy('room_id')
             ->get()
