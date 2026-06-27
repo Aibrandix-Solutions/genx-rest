@@ -2,10 +2,10 @@ name: Deploy digierp.cloud VPS
 
 on:
   push:
-    branches: [sharaf]
+    branches: [chaivps]
   workflow_dispatch:
 
-# Only one deploy at a time; cancel older runs so the latest sharaf code wins.
+# Only one deploy at a time; cancel older runs so the latest chaivps code wins.
 concurrency:
   group: deploy-digierp-cloud
   cancel-in-progress: true
@@ -16,11 +16,11 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # Always deploy the sharaf branch, no matter how the workflow was triggered.
-      - name: Checkout sharaf branch
+      # Always deploy the chaivps branch, no matter how the workflow was triggered.
+      - name: Checkout chaivps branch
         uses: actions/checkout@v4
         with:
-          ref: sharaf
+          ref: chaivps
 
       - name: Confirm branch
         run: |
@@ -53,7 +53,7 @@ jobs:
             --exclude="storage" \
             --exclude="bootstrap/cache" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
+            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/mrchai.digierp.cloud/public_html/
 
       - name: SSH - Laravel Deploy Commands
         uses: appleboy/ssh-action@v1.0.3
@@ -65,7 +65,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/admin/domains/digierp.cloud/public_html
+            cd /home/admin/domains/mrchai.digierp.cloud/public_html
 
             if [ ! -f .env ]; then
               echo "Missing .env file"
@@ -89,6 +89,6 @@ jobs:
             php artisan view:cache
 
             chmod -R 775 storage bootstrap/cache
-            chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
+            chown -R admin:admin /home/admin/domains/mrchai.digierp.cloud/public_html || true
 
             echo "Deployment completed successfully"
