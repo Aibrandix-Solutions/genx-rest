@@ -81,5 +81,7 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
         Route::get('forecasting', [ReportController::class, 'forecasting'])->name('forecasting');
         Route::get('cogs', [ReportController::class, 'cogs'])->name('cogs');
         Route::get('profit-and-loss', [ReportController::class, 'profitAndLoss'])->name('profit-and-loss');
+        Route::get('item-inventory', [ReportController::class, 'itemInventory'])->name('item-inventory');
+        Route::get('item-inventory/pdf', [ReportController::class, 'itemInventoryPdf'])->name('item-inventory.pdf');
     });
 });

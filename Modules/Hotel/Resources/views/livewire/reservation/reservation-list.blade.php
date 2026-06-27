@@ -454,17 +454,21 @@
                         </div>
                     </div>
 
-                    {{-- Billing --}}
+                    {{-- Billing (totals include any pending extended-stay charge + its tax) --}}
+                    @php
+                        $displayTotal   = (float) $checkout_total_amount + (float) $checkout_extended_amount + (float) $checkout_extended_tax;
+                        $displayBalance = (float) $checkout_balance_due  + (float) $checkout_extended_amount + (float) $checkout_extended_tax;
+                    @endphp
                     <div>
                         <div class="flex justify-between items-center mb-2 border-b pb-2 dark:border-gray-600">
                             <span class="text-lg font-bold text-gray-900 dark:text-white">Total Charges</span>
-                            <span class="text-lg font-bold text-blue-600 dark:text-blue-400">{{ currency_format($checkout_total_amount, restaurant()->currency_id) }}</span>
+                            <span class="text-lg font-bold text-blue-600 dark:text-blue-400">{{ currency_format($displayTotal, restaurant()->currency_id) }}</span>
                         </div>
 
-                        @if($checkout_balance_due > 0)
+                        @if($displayBalance > 0)
                         <div class="bg-red-50 dark:bg-red-900/30 p-3 rounded-lg mb-4 flex justify-between items-center">
                             <span class="font-semibold text-red-800 dark:text-red-200">Balance Due</span>
-                            <span class="font-bold text-red-800 dark:text-red-200">{{ currency_format($checkout_balance_due, restaurant()->currency_id) }}</span>
+                            <span class="font-bold text-red-800 dark:text-red-200">{{ currency_format($displayBalance, restaurant()->currency_id) }}</span>
                         </div>
                         @else
                         <div class="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg mb-4 flex justify-between items-center">
@@ -482,9 +486,106 @@
                         <div class="space-y-4">
                             <div>
                                 <x-label for="checkout_date_actual" value="Checkout Date" />
-                                <x-input id="checkout_date_actual" type="date" class="block w-full mt-1" wire:model="checkout_date_actual" required />
+                                <x-input id="checkout_date_actual" type="date" class="block w-full mt-1" wire:model.live="checkout_date_actual" required />
                                 <x-input-error for="checkout_date_actual" class="mt-2" />
                             </div>
+
+                            {{-- Extended Stay Charge panel ─────────────────────────────── --}}
+                            @if($checkout_extended_days > 0)
+                            <div class="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded-lg p-3"
+                                 x-data="{ editingRate: false, editingAmt: false }">
+
+                                <div class="flex items-center gap-1.5 mb-3">
+                                    <svg class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    <span class="text-sm font-semibold text-amber-800 dark:text-amber-200">Extended Stay Charge</span>
+                                </div>
+
+                                <div class="flex items-start gap-3 flex-wrap">
+
+                                    {{-- Days stepper --}}
+                                    <div>
+                                        <label class="block text-xs text-amber-700 dark:text-amber-300 mb-1.5">Extra Days</label>
+                                        <div class="flex items-center gap-1">
+                                            <button type="button" wire:click="decrementExtendedDays"
+                                                class="w-7 h-7 flex items-center justify-center rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 font-bold text-base leading-none select-none">−</button>
+                                            <input type="number" step="0.5" min="0"
+                                                wire:model.lazy="checkout_extended_days"
+                                                class="w-14 text-center text-sm font-semibold border-amber-300 dark:border-amber-700 dark:bg-gray-700 dark:text-white rounded focus:border-amber-400 focus:ring-amber-400 py-1 px-1" />
+                                            <button type="button" wire:click="incrementExtendedDays"
+                                                class="w-7 h-7 flex items-center justify-center rounded border border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-700 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 font-bold text-base leading-none select-none">+</button>
+                                        </div>
+                                    </div>
+
+                                    {{-- Rate per day (pencil-editable) --}}
+                                    <div class="flex-1 min-w-[100px]">
+                                        <label class="block text-xs text-amber-700 dark:text-amber-300 mb-1.5">Rate / Day</label>
+                                        <div class="flex items-center gap-1">
+                                            <span x-show="!editingRate"
+                                                class="flex-1 text-sm font-medium text-gray-900 dark:text-white px-2 py-1">
+                                                {{ number_format((float) $checkout_extended_rate, 2) }}
+                                            </span>
+                                            <input x-show="editingRate" x-cloak type="number" step="0.01" min="0"
+                                                wire:model.lazy="checkout_extended_rate"
+                                                x-ref="rateInput"
+                                                @blur="editingRate = false"
+                                                class="flex-1 min-w-0 text-sm border-amber-300 dark:border-amber-700 dark:bg-gray-700 dark:text-white rounded focus:border-amber-400 focus:ring-amber-400 px-2 py-1" />
+                                            <button type="button" x-show="!editingRate"
+                                                @click="editingRate = true; $nextTick(() => $refs.rateInput.focus())"
+                                                class="flex-shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300" title="Edit rate">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {{-- Total amount (pencil-editable) --}}
+                                    <div class="min-w-[100px]">
+                                        <label class="block text-xs text-amber-700 dark:text-amber-300 mb-1.5">Amount</label>
+                                        <div class="flex items-center gap-1">
+                                            <span x-show="!editingAmt"
+                                                class="text-sm font-bold text-amber-800 dark:text-amber-200 px-2 py-1">
+                                                {{ number_format((float) $checkout_extended_amount, 2) }}
+                                            </span>
+                                            <input x-show="editingAmt" x-cloak type="number" step="0.01" min="0"
+                                                wire:model.lazy="checkout_extended_amount"
+                                                x-ref="amtInput"
+                                                @blur="editingAmt = false"
+                                                class="w-28 text-sm border-amber-300 dark:border-amber-700 dark:bg-gray-700 dark:text-white rounded focus:border-amber-400 focus:ring-amber-400 px-2 py-1" />
+                                            <button type="button" x-show="!editingAmt"
+                                                @click="editingAmt = true; $nextTick(() => $refs.amtInput.focus())"
+                                                class="flex-shrink-0 text-amber-400 hover:text-amber-600 dark:hover:text-amber-300" title="Override amount">
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                </div>
+
+                                @if($checkout_extended_tax > 0)
+                                <div class="mt-2.5 pt-2 border-t border-amber-200 dark:border-amber-700/50 flex justify-between items-center text-xs">
+                                    <span class="text-amber-700 dark:text-amber-300">
+                                        Tax ({{ number_format($checkout_reservation->getEffectiveTaxRate(), 2) }}%)
+                                    </span>
+                                    <span class="font-semibold text-amber-800 dark:text-amber-200">
+                                        + {{ number_format($checkout_extended_tax, 2) }}
+                                    </span>
+                                </div>
+                                @endif
+
+                                <p class="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-center gap-1">
+                                    <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                    Added to folio as a room-night charge. Tax &amp; service charges are recalculated automatically.
+                                </p>
+                            </div>
+                            @endif
+                            {{-- ─────────────────────────────────────────────────────────── --}}
 
                             @if($paymentSurchargeEnabled)
                             <div

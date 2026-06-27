@@ -15,6 +15,7 @@ use Livewire\Livewire;
 use Modules\Inventory\Livewire\Reports\UsageReport;
 use Modules\Inventory\Livewire\Reports\TurnoverReport;
 use Modules\Inventory\Livewire\Reports\ForecastingReport;
+use Modules\Inventory\Livewire\Reports\ItemInventoryReport;
 use Modules\Inventory\Livewire\StockTransfer\CreateStockTransfer;
 use Modules\Inventory\Livewire\StockTransfer\EditStockTransfer;
 use Modules\Inventory\Livewire\StockTransfer\StockTransferList;
@@ -36,6 +37,8 @@ use Modules\Inventory\Entities\InventoryStock;
 use Modules\Inventory\Observers\InventoryStockObserver;
 use Modules\Inventory\Entities\InventoryMovement;
 use Modules\Inventory\Observers\InventoryMovementObserver;
+use Modules\Inventory\Entities\SupplierPayment;
+use Modules\Inventory\Observers\SupplierPaymentObserver;
 use App\Events\NewRestaurantCreatedEvent;
 use Modules\Inventory\Listeners\CreateInventoryOnRestaurantCreatedListener;
 use App\Models\Branch;
@@ -70,6 +73,7 @@ class InventoryServiceProvider extends ServiceProvider
         Livewire::component('inventory::reports.usage-report', UsageReport::class);
         Livewire::component('inventory::reports.turnover-report', TurnoverReport::class);
         Livewire::component('inventory::reports.forecasting-report', ForecastingReport::class);
+        Livewire::component('inventory::reports.item-inventory-report', ItemInventoryReport::class);
         
         Livewire::component('inventory::stock-transfer.create-stock-transfer', CreateStockTransfer::class);
         Livewire::component('inventory::stock-transfer.edit-stock-transfer', EditStockTransfer::class);
@@ -84,6 +88,7 @@ class InventoryServiceProvider extends ServiceProvider
         Supplier::observe(SupplierObserver::class);
         InventoryStock::observe(InventoryStockObserver::class);
         InventoryMovement::observe(InventoryMovementObserver::class);
+        SupplierPayment::observe(SupplierPaymentObserver::class);
         Branch::observe(BranchObserver::class);
     }
 

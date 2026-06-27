@@ -24,6 +24,8 @@ use Maatwebsite\Excel\Facades\Excel;
 use Modules\Inventory\Exports\PurchaseItemsImportTemplateExport;
 use Modules\Inventory\Entities\PurchaseAttachment;
 use Modules\Inventory\Services\PurchaseOrderService;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 
 class EditDirectPurchase extends Component
 {
@@ -773,6 +775,8 @@ class EditDirectPurchase extends Component
 
         $this->validate();
 
+        $wasReceivedBefore = $this->purchase->status === 'received';
+
         try {
         DB::transaction(function () {
             $previousStatus = $this->purchase->status;
@@ -953,6 +957,22 @@ class EditDirectPurchase extends Component
         } catch (\RuntimeException $e) {
             $this->alert('error', $e->getMessage());
             return;
+        }
+
+        $this->purchase->refresh();
+
+        if (!$wasReceivedBefore && in_array($this->purchase->status, ['received', 'partially_received'], true)) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PurchaseOrderReceived,
+                description: "Purchase order {$this->purchase->po_number} marked as {$this->purchase->status}",
+                subject: $this->purchase,
+                properties: [
+                    'purchase_order_id' => $this->purchase->id,
+                    'po_number' => $this->purchase->po_number,
+                    'status' => $this->purchase->status,
+                ],
+                branchId: $this->purchase->branch_id ? (int) $this->purchase->branch_id : null,
+            );
         }
 
         $this->alert('success', 'Purchase updated successfully!');

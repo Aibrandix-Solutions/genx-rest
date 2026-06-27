@@ -281,6 +281,7 @@ return [
         'kotAndPrint' => 'KOT & Print',
         'print_kot' => 'Print KOT',
         'newKot' => 'New KOT',
+        'decreaseQty' => 'Decrease quantity',
         'bill' => 'BILL',
         'draft' => 'Waiting KOT',
         'billed' => 'Billed',
