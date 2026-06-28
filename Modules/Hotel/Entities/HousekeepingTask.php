@@ -3,18 +3,19 @@
 namespace Modules\Hotel\Entities;
 
 use App\Models\User;
-use App\Traits\HasRestaurant;
+use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HousekeepingTask extends Model
 {
-    use HasFactory, HasRestaurant;
+    use HasFactory, HasBranch;
 
     protected $table = 'hotel_housekeeping_tasks';
 
     protected $fillable = [
+        'branch_id',
         'restaurant_id',
         'room_id',
         'assigned_to_user_id',

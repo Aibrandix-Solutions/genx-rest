@@ -498,7 +498,7 @@ class PosVueOrderController extends Controller
 
             $hotelReservation = HotelReservation::query()
                 ->where('id', $hotelReservationId)
-                ->where('restaurant_id', $restaurant->id)
+                ->where('branch_id', branch()->id)
                 ->where('status', HotelReservation::STATUS_CHECKED_IN)
                 ->first();
 

@@ -14,6 +14,7 @@ class RoomCharge extends Model
     protected $table = 'hotel_room_charges';
 
     protected $fillable = [
+        'branch_id',
         'reservation_id',
         'charge_type',
         'order_id',

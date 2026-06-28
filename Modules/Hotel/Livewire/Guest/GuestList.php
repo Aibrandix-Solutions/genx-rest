@@ -68,7 +68,7 @@ class GuestList extends Component
 
     private function guestForTenant(int|string $id): ?Guest
     {
-        return Guest::where('restaurant_id', restaurant()->id)->find($id);
+        return Guest::find($id);
     }
 
     public function editGuest($id)
@@ -106,6 +106,7 @@ class GuestList extends Component
         $preferences = array_filter(array_map('trim', explode(',', $this->preferencesInput ?? '')));
 
         $data = [
+            'branch_id'     => branch()->id,
             'restaurant_id' => restaurant()->id,
             'first_name'    => $this->first_name,
             'last_name'     => $this->last_name,
@@ -175,7 +176,7 @@ class GuestList extends Component
     {
         $id = $id ?? $this->pendingDeleteGuestId;
         abort_unless(user_can('delete_guest'), 403);
-        $guest = Guest::where('restaurant_id', restaurant()->id)->find($id);
+        $guest = Guest::find($id);
         if ($guest) {
             // Check if guest has active reservations
             if ($guest->reservations()->whereIn('status', ['confirmed', 'checked_in'])->count() > 0) {
@@ -190,7 +191,6 @@ class GuestList extends Component
     public function render()
     {
         $guests = Guest::with(['customer', 'reservations'])
-            ->where('restaurant_id', restaurant()->id)
             ->when($this->search, function ($query) {
                 $query->where(function ($q) {
                     $q->where('first_name', 'like', '%' . $this->search . '%')

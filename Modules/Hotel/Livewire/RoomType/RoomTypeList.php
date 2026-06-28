@@ -93,6 +93,7 @@ class RoomTypeList extends Component
         $amenities = array_filter($amenities); // Remove empty values
 
         $data = [
+            'branch_id'     => branch()->id,
             'restaurant_id' => restaurant()->id,
             'name' => $this->name,
             'description' => $this->description,
