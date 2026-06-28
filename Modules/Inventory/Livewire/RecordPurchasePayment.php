@@ -8,6 +8,7 @@ use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\SupplierPayment;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
@@ -100,7 +101,7 @@ class RecordPurchasePayment extends Component
             return;
         }
 
-        $lock = Cache::lock('po-payment:' . ($this->purchase?->id) . ':' . Auth::id(), 30);
+        $lock = Cache::lock('po-payment:' . $this->purchaseId, 30);
         if (! $lock->get()) {
             return;
         }
@@ -110,51 +111,57 @@ class RecordPurchasePayment extends Component
         try {
             $this->validate();
 
-            $this->purchase = PurchaseOrder::with('payments')->findOrFail($this->purchaseId);
+            DB::transaction(function () {
+                $purchase = PurchaseOrder::query()
+                    ->whereKey($this->purchaseId)
+                    ->lockForUpdate()
+                    ->firstOrFail();
 
-            $dueAmount = max(0, (float) $this->purchase->due_amount);
-            if ($this->paymentAmount > $dueAmount) {
-                $this->alert('error', 'Payment amount cannot exceed the due amount.');
-                return;
-            }
-
-            $paidOn = $this->paymentDate ?: now();
-            $paymentAccountId = $this->paymentAccountId
-                ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
-
-            $paymentData = [
-                'supplier_id' => $this->purchase->supplier_id,
-                'payment_batch_id' => (string) Str::uuid(),
-                'purchase_order_id' => $this->purchase->id,
-                'amount' => $this->paymentAmount,
-                'paid_on' => $paidOn,
-                'payment_method' => $this->paymentMethod,
-                'note' => $this->paymentNote,
-                'added_by' => Auth::id(),
-            ];
-
-            if ($paymentAccountId) {
-                $paymentData['payment_account_id'] = $paymentAccountId;
-            }
-
-            $payment = SupplierPayment::create($paymentData);
-
-            if ($paymentAccountId) {
-                $account = PaymentAccount::find($paymentAccountId);
-                if ($account) {
-                    $account->decrement('current_balance', $this->paymentAmount);
-
-                    AccountTransaction::create([
-                        'payment_account_id' => $account->id,
-                        'amount' => $this->paymentAmount,
-                        'type' => 'credit',
-                        'reference_type' => get_class($payment),
-                        'reference_id' => $payment->id,
-                        'description' => 'Payment for Purchase Order: ' . $this->purchase->po_number . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
-                        'transaction_date' => $paidOn,
-                    ]);
+                $dueAmount = max(0, (float) $purchase->due_amount);
+                if ((float) $this->paymentAmount > $dueAmount) {
+                    throw new \RuntimeException('Payment amount cannot exceed the due amount.');
                 }
-            }
+
+                $paidOn = $this->paymentDate ?: now();
+                $paymentAccountId = $this->paymentAccountId
+                    ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
+                $paymentData = [
+                    'supplier_id' => $purchase->supplier_id,
+                    'payment_batch_id' => (string) Str::uuid(),
+                    'purchase_order_id' => $purchase->id,
+                    'amount' => $this->paymentAmount,
+                    'paid_on' => $paidOn,
+                    'payment_method' => $this->paymentMethod,
+                    'note' => $this->paymentNote,
+                    'added_by' => Auth::id(),
+                ];
+
+                if ($paymentAccountId) {
+                    $paymentData['payment_account_id'] = $paymentAccountId;
+                }
+
+                $payment = SupplierPayment::create($paymentData);
+
+                if ($paymentAccountId) {
+                    $account = PaymentAccount::find($paymentAccountId);
+                    if ($account) {
+                        $account->decrement('current_balance', $this->paymentAmount);
+
+                        AccountTransaction::create([
+                            'payment_account_id' => $account->id,
+                            'amount' => $this->paymentAmount,
+                            'type' => 'credit',
+                            'reference_type' => get_class($payment),
+                            'reference_id' => $payment->id,
+                            'description' => 'Payment for Purchase Order: ' . $purchase->po_number . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
+                            'transaction_date' => $paidOn,
+                        ]);
+                    }
+                }
+
+                $this->purchase = $purchase->fresh(['payments']);
+            });
 
             $this->alert('success', 'Payment recorded successfully!');
             $this->dispatch('paymentRecorded');
@@ -163,6 +170,8 @@ class RecordPurchasePayment extends Component
             $this->resetForm();
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;
+        } catch (\RuntimeException $e) {
+            $this->alert('error', $e->getMessage());
         } catch (\Throwable $e) {
             $this->alert('error', 'Failed to record payment: ' . $e->getMessage());
         } finally {

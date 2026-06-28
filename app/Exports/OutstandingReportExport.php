@@ -3,7 +3,7 @@
 namespace App\Exports;
 
 use Carbon\Carbon;
-use App\Models\Expenses;
+use App\Services\ReportBranchScope;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Style;
 use Maatwebsite\Excel\Concerns\WithStyles;
@@ -17,17 +17,22 @@ class OutstandingReportExport implements WithMapping, FromCollection, WithHeadin
 {
     protected $startDate;
     protected $endDate;
+    protected string $branchFilter;
 
-    public function __construct($startDate, $endDate)
+    public function __construct($startDate, $endDate, string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDate = Carbon::createFromFormat('m/d/Y', $startDate)->toDateString();
         $this->endDate = Carbon::createFromFormat('m/d/Y', $endDate)->toDateString();
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
     }
 
     public function headings(): array
     {
         return [
-            [__('modules.expenses.reports.outstandingPaymentReport') . ' ' . $this->startDate .' - ' . $this->endDate],
+            [ReportBranchScope::appendExportScope(
+                __('modules.expenses.reports.outstandingPaymentReport') . ' ' . $this->startDate . ' - ' . $this->endDate,
+                $this->branchFilter
+            )],
             [
                 __('modules.expenses.totalPaymentDue'),
                 __('modules.expenses.lastDueDate'),
@@ -65,7 +70,8 @@ class OutstandingReportExport implements WithMapping, FromCollection, WithHeadin
      */
     public function collection()
     {
-        return Expenses::where('payment_status', '=', 'pending')
+        return ReportBranchScope::expensesBaseQuery($this->branchFilter)
+            ->where('payment_status', '=', 'pending')
             ->whereBetween('payment_due_date', [$this->startDate, $this->endDate])
             ->selectRaw('SUM(expenses.amount) as total_amount, MAX(expenses.expense_date) as last_due_date')
             ->groupBy('expenses.payment_status')

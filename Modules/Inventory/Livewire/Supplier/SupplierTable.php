@@ -261,11 +261,19 @@ class SupplierTable extends Component
             ->selectRaw('supplier_id, COALESCE(SUM(total_amount), 0) as total')
             ->pluck('total', 'supplier_id');
 
+        $refunds = SupplierPayment::query()
+            ->whereIn('supplier_id', $supplierIds)
+            ->whereNotNull('purchase_return_id')
+            ->groupBy('supplier_id')
+            ->selectRaw('supplier_id, COALESCE(SUM(amount), 0) as total')
+            ->pluck('total', 'supplier_id');
+
         $balances = [];
         foreach ($supplierIds as $id) {
             $balances[$id] = (float) ($purchased[$id] ?? 0)
                 - (float) ($paid[$id] ?? 0)
-                - (float) ($returned[$id] ?? 0);
+                - (float) ($returned[$id] ?? 0)
+                - (float) ($refunds[$id] ?? 0);
         }
 
         return $balances;

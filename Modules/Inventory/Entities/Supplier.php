@@ -70,6 +70,6 @@ class Supplier extends Model
     // Calculate outstanding balance owed to supplier
     public function getBalanceAttribute()
     {
-        return $this->total_purchased - $this->total_paid - $this->total_returned;
+        return $this->total_purchased - $this->total_paid - $this->total_returned - $this->total_refunds;
     }
 }

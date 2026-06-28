@@ -6,6 +6,8 @@ use Carbon\Carbon;
 use App\Models\Tax;
 use App\Models\Order;
 use App\Models\RestaurantCharge;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Style\{Fill, Style};
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
@@ -20,8 +22,9 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
     protected $currencyId;
     protected string $filterByWaiter;
     protected string $filterPaymentMethod;
+    protected string $branchFilter;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $filterByWaiter = '', string $filterPaymentMethod = '')
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $filterByWaiter = '', string $filterPaymentMethod = '', string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
@@ -30,6 +33,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $this->timezone = $timezone;
         $this->filterByWaiter = $filterByWaiter;
         $this->filterPaymentMethod = $filterPaymentMethod;
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -51,12 +55,18 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
             ? __('modules.report.salesDataFor') . " {$this->headingDateTime}, " . __('modules.report.timePeriod') . " {$this->headingStartTime} - {$this->headingEndTime}"
             : __('modules.report.salesDataFrom') . " {$this->headingDateTime} " . __('app.to') . " {$this->headingEndDateTime}, " . __('modules.report.timePeriodEachDay') . " {$this->headingStartTime} - {$this->headingEndTime}";
 
-        return [
-            [__('menu.detailedSalesReport') . ' ' . $headingTitle],
-            array_merge(
-            [
+        $headings = [
                 __('modules.order.orderNumber'),
                 __('app.date'),
+        ];
+
+        if ($this->branchFilter === ReportBranchScope::FILTER_ALL) {
+            $headings[] = __('app.branch');
+        }
+
+        $headings = array_merge(
+            $headings,
+            [
                 __('modules.customer.customerName'),
                 __('modules.table.staff'),
                 __('modules.order.subTotal'),
@@ -71,7 +81,11 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
                 __('modules.order.total'),
                 __('modules.order.paymentMethod'),
             ]
-            )
+        );
+
+        return [
+            [ReportBranchScope::appendExportScope(__('menu.detailedSalesReport') . ' ' . $headingTitle, $this->branchFilter)],
+            $headings
         ];
     }
 
@@ -80,10 +94,17 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $mappedItem = [
             $order->order_number,
             $order->date_time->format('M d, Y h:i A'),
+        ];
+
+        if ($this->branchFilter === ReportBranchScope::FILTER_ALL) {
+            $mappedItem[] = $order->branch->name ?? '--';
+        }
+
+        $mappedItem = array_merge($mappedItem, [
             $order->customer->name ?? '--',
             $order->waiter->name ?? '--',
             currency_format($order->sub_total, $this->currencyId),
-        ];
+        ]);
 
         foreach ($this->charges as $chargeName) {
             // We passed charges as array of values in collection()
@@ -121,9 +142,10 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $charges = RestaurantCharge::all();
         $taxes = Tax::all();
 
-        $orders = Order::with(['payments', 'items', 'items.menuItem', 'waiter', 'customer'])
+        $orders = SalesReportData::ordersBaseQuery($this->branchFilter)
+            ->with(ReportBranchScope::eagerLoadsForOrderReport())
             ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
-            ->whereIn('orders.status', ['paid', 'payment_due'])
+            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
             ->where(function ($q) {
                 if ($this->startTime < $this->endTime) {
                     $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$this->startTime, $this->endTime]);
@@ -144,14 +166,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
 
         // Filter by payment method if selected
         if ($this->filterPaymentMethod !== '') {
-            if ($this->filterPaymentMethod === 'due') {
-                $orders->where('orders.status', 'payment_due')
-                    ->whereDoesntHave('payments');
-            } else {
-                $orders->whereHas('payments', function($q) {
-                    $q->where('payment_method', $this->filterPaymentMethod);
-                });
-            }
+            ReportBranchScope::applyOrderPaymentMethodFilter($orders, $this->filterPaymentMethod);
         }
 
         $orders = $orders->orderBy('orders.date_time', 'desc')
