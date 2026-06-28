@@ -44,14 +44,9 @@ class HotelDashboard extends Component
         };
     }
 
-    private function restaurantId(): int
-    {
-        return (int) restaurant()->id;
-    }
-
     private function getRoomStats()
     {
-        $query = Room::where('restaurant_id', $this->restaurantId());
+        $query = Room::query();
 
         return [
             'total' => $query->count(),
@@ -64,7 +59,7 @@ class HotelDashboard extends Component
 
     private function getReservationStats()
     {
-        $query = Reservation::where('restaurant_id', $this->restaurantId());
+        $query = Reservation::query();
 
         [$startDate, $endDate] = $this->getPeriodRange();
 
@@ -104,7 +99,7 @@ class HotelDashboard extends Component
     {
         [$startDate, $endDate] = $this->getPeriodRange();
         $daysInPeriod = max(1, $startDate->diffInDays($endDate) + 1);
-        $totalRooms = Room::where('restaurant_id', $this->restaurantId())->count();
+        $totalRooms = Room::count();
 
         if ($totalRooms === 0) {
             return 0;
@@ -112,7 +107,7 @@ class HotelDashboard extends Component
 
         $maxRoomNights = $totalRooms * $daysInPeriod;
 
-        $totalNights = Reservation::where('restaurant_id', $this->restaurantId())
+        $totalNights = Reservation::query()
             ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
             ->where('check_in_date', '<', $endDate->copy()->addDay())
             ->where('checkout_date', '>', $startDate)
@@ -142,7 +137,6 @@ class HotelDashboard extends Component
         [$startDate, $endDate] = $this->getPeriodRange();
 
         return Reservation::with(['guest', 'room.roomType'])
-            ->where('restaurant_id', $this->restaurantId())
             ->where('status', Reservation::STATUS_CONFIRMED)
             ->whereBetween('check_in_date', [$startDate, $endDate])
             ->orderBy('check_in_date')
@@ -156,7 +150,6 @@ class HotelDashboard extends Component
         [$startDate, $endDate] = $this->getPeriodRange();
 
         return Reservation::with(['guest', 'room.roomType'])
-            ->where('restaurant_id', $this->restaurantId())
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->whereBetween('checkout_date', [$startDate, $endDate])
             ->orderBy('checkout_date')
@@ -168,9 +161,8 @@ class HotelDashboard extends Component
     private function getInHouseGuests()
     {
         return Reservation::with(['guest', 'room.roomType'])
-            ->where('restaurant_id', $this->restaurantId())
             ->where('status', Reservation::STATUS_CHECKED_IN)
-            ->orderBy('checkout_date') // Show those leaving soonest first
+            ->orderBy('checkout_date')
             ->limit(10)
             ->get();
     }
@@ -178,7 +170,6 @@ class HotelDashboard extends Component
     private function getPendingHousekeeping()
     {
         return HousekeepingTask::with(['room'])
-            ->where('restaurant_id', $this->restaurantId())
             ->where('status', HousekeepingTask::STATUS_PENDING)
             ->orderBy('priority', 'desc')
             ->limit(10)
@@ -215,7 +206,7 @@ class HotelDashboard extends Component
         $daysInPeriod = max(1, $startDate->diffInDays($endDate) + 1);
 
         // Total room revenue in the selected period
-        $roomRevenue = Reservation::where('restaurant_id', $this->restaurantId())
+        $roomRevenue = Reservation::query()
             ->whereIn('status', [
                 Reservation::STATUS_CHECKED_IN,
                 Reservation::STATUS_CHECKED_OUT,
@@ -227,7 +218,7 @@ class HotelDashboard extends Component
             ->sum('total_amount');
 
         // Rooms sold in the period (reservation count)
-        $roomsSold = Reservation::where('restaurant_id', $this->restaurantId())
+        $roomsSold = Reservation::query()
             ->whereIn('status', [
                 Reservation::STATUS_CHECKED_IN,
                 Reservation::STATUS_CHECKED_OUT,
@@ -238,7 +229,7 @@ class HotelDashboard extends Component
             })
             ->count();
 
-        $totalRooms = Room::where('restaurant_id', $this->restaurantId())->count();
+        $totalRooms = Room::count();
 
         // ADR = Room Revenue / Rooms Sold
         $adr = $roomsSold > 0 ? $roomRevenue / $roomsSold : 0;
