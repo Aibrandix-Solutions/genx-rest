@@ -6,6 +6,8 @@ use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\SupplierPayment;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
@@ -24,6 +26,7 @@ class RecordPurchasePayment extends Component
     public $paymentNote = '';
     public $paymentMethods = ['cash', 'card', 'bank_transfer', 'cheque', 'other'];
     public $paymentAccounts = [];
+    public bool $isSaving = false;
 
     protected function rules()
     {
@@ -78,11 +81,43 @@ class RecordPurchasePayment extends Component
         }
     }
 
+    public function updatedPaymentAmount()
+    {
+        if (! $this->purchase) {
+            return;
+        }
+
+        $maxAmount = max(0, (float) $this->purchase->due_amount);
+        if ($this->paymentAmount > $maxAmount) {
+            $this->paymentAmount = $maxAmount;
+            $this->alert('warning', 'Payment amount cannot exceed the due amount of ' . number_format($maxAmount, 2));
+        }
+    }
+
     public function recordPayment()
     {
-        $this->validate();
+        if ($this->isSaving) {
+            return;
+        }
+
+        $lock = Cache::lock('po-payment:' . ($this->purchase?->id) . ':' . Auth::id(), 30);
+        if (! $lock->get()) {
+            return;
+        }
+
+        $this->isSaving = true;
 
         try {
+            $this->validate();
+
+            $this->purchase = PurchaseOrder::with('payments')->findOrFail($this->purchaseId);
+
+            $dueAmount = max(0, (float) $this->purchase->due_amount);
+            if ($this->paymentAmount > $dueAmount) {
+                $this->alert('error', 'Payment amount cannot exceed the due amount.');
+                return;
+            }
+
             $paidOn = $this->paymentDate ?: now();
             $paymentAccountId = $this->paymentAccountId
                 ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
@@ -95,27 +130,24 @@ class RecordPurchasePayment extends Component
                 'paid_on' => $paidOn,
                 'payment_method' => $this->paymentMethod,
                 'note' => $this->paymentNote,
-                'added_by' => user()->id,
+                'added_by' => Auth::id(),
             ];
-            
-            // Add payment_account_id only if set and payment_accounts table exists
+
             if ($paymentAccountId) {
                 $paymentData['payment_account_id'] = $paymentAccountId;
             }
 
             $payment = SupplierPayment::create($paymentData);
 
-            // Update Payment Account Balance and log transaction if account selected
             if ($paymentAccountId) {
                 $account = PaymentAccount::find($paymentAccountId);
                 if ($account) {
                     $account->decrement('current_balance', $this->paymentAmount);
 
-                    // Log Transaction (credit = money out for purchase payment)
                     AccountTransaction::create([
                         'payment_account_id' => $account->id,
                         'amount' => $this->paymentAmount,
-                        'type' => 'credit', // Money Out
+                        'type' => 'credit',
                         'reference_type' => get_class($payment),
                         'reference_id' => $payment->id,
                         'description' => 'Payment for Purchase Order: ' . $this->purchase->po_number . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
@@ -127,9 +159,15 @@ class RecordPurchasePayment extends Component
             $this->alert('success', 'Payment recorded successfully!');
             $this->dispatch('paymentRecorded');
             $this->dispatch('refreshPurchaseList');
+            $this->dispatch('purchaseOrderPaymentSaved');
             $this->resetForm();
-        } catch (\Exception $e) {
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
             $this->alert('error', 'Failed to record payment: ' . $e->getMessage());
+        } finally {
+            $this->isSaving = false;
+            $lock->release();
         }
     }
 
