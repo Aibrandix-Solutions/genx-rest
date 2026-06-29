@@ -62,7 +62,7 @@
                                 @if ($order->order_type == 'dine_in')
                                     @if (!is_null($order->table))
                                         <div
-                                            @if(user_can('Update Order'))
+                                            @if(user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                                 wire:click="$toggle('showTableModal'); $dispatch('refreshSetTableComponent')"
                                             @endif
                                             @class([
@@ -73,7 +73,7 @@
                                                 {{ $order->table->table_code ?? '--' }}
                                             </h3>
                                         </div>
-                                    @elseif(user_can('Update Order'))
+                                    @elseif(user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                         <x-secondary-button wire:click="$toggle('showTableModal')">@lang('modules.order.setTable')</x-secondary-button>
                                     @endif
                                 @endif
@@ -98,7 +98,7 @@
                                     @elseif ($order->customer_id)
                                         <div class="flex items-center gap-2">
                                             <div class="font-semibold text-gray-700 dark:text-gray-300">{{ $order->customer ? ($order->customer->name ? $order->customer->name : __('modules.customer.walkin')) : '--' }}</div>
-                                            @if(user_can('Update Order'))
+                                            @if(user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                                 <button  wire:click="$dispatch('showAddCustomerModal', { id: {{ $order->id }}, customerId: {{ $order->customer_id }} })" title="{{__('modules.order.updateCustomerDetails')}}" class="p-1 text-gray-500 transition-colors bg-gray-100 rounded-md hover:text-gray-700 hover:bg-gray-200 rtl:ml-2 ltr:mr-2 dark:text-gray-300 dark:bg-gray-600 dark:hover:text-gray-200 dark:hover:bg-gray-700">
                                                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-square" viewBox="0 0 16 16">
                                                         <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
@@ -107,7 +107,7 @@
                                                 </button>
                                             @endif
                                         </div>
-                                    @elseif(user_can('Update Order'))
+                                    @elseif(user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                         <a href="javascript:;"
                                             wire:click="$dispatch('showAddCustomerModal', { id: {{ $order->id }} })"
                                             class="text-sm underline underline-offset-2">&plus; @lang('modules.order.addCustomerDetails')</a>
@@ -137,6 +137,7 @@
                                             <div class="text-sm">{{ $order->deliveryExecutive->name }}</div>
                                         </div>
                                     @else
+                                        @unless($readOnlyCrossBranch ?? false)
                                         <x-select class="w-full text-sm" wire:model.live='deliveryExecutive'
                                             wire:change='saveDeliveryExecutive'>
                                             <option value="">@lang('modules.order.selectDeliveryExecutive')</option>
@@ -145,13 +146,14 @@
                                                 </option>
                                             @endforeach
                                         </x-select>
+                                        @endunless
                                     @endif
                                 </div>
                             @endif
 
                             <!-- Select Waiter section moved to next line below (block style, mt-2 for spacing) -->
                             <div class="flex-col mt-4">
-                                @if (user_can('Update Order') && !auth()->user()->roles->pluck('display_name')->contains('Waiter'))
+                                @if (user_can('Update Order') && !($readOnlyCrossBranch ?? false) && !auth()->user()->roles->pluck('display_name')->contains('Waiter'))
                                     <div class="gap-2">
                                         <x-select class="text-sm w-36 xl:w-fit" wire:model.live='selectWaiter'>
                                             <option value="">@lang('modules.order.selectWaiter')</option>
@@ -377,7 +379,7 @@
                                 </div>
                             </div>
 
-                        @if(user_can('Update Order'))
+                        @if(user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                             <div class="flex justify-end items-center mt-4 space-x-2 rtl:!space-x-reverse">
                                 @if($orderProgressStatus === 'placed')
                                     <x-danger-button class="inline-flex items-center gap-2 dark:text-gray-200" wire:click="$toggle('confirmDeleteModal')">
@@ -406,6 +408,11 @@
 
         <x-slot name="content">
             @if ($order)
+                @if ($readOnlyCrossBranch ?? false)
+                    <div class="p-3 mb-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-800">
+                        Viewing order from {{ $order->branch->name ?? '--' }} (read only)
+                    </div>
+                @endif
                 <div class="flex flex-col rounded">
                     <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
                         <thead class="bg-gray-100 dark:bg-gray-700">
@@ -428,7 +435,8 @@
                                 </th>
 
                                 @php
-                                    $canManageItems = $order->status !== 'canceled'
+                                    $canManageItems = !($readOnlyCrossBranch ?? false)
+                                        && $order->status !== 'canceled'
                                         && user_can('Delete KOT Item')
                                         && (
                                             !in_array($order->status, ['billed', 'paid', 'payment_due'], true)
@@ -810,6 +818,7 @@
                     </div>
 
                     <div class="w-full h-auto pt-3 pb-4 select-none">
+                        @unless($readOnlyCrossBranch ?? false)
                         <!-- Primary Actions - Large prominent buttons -->
                         <div class="grid grid-cols-2 gap-3 mb-3">
                             @if ($order->status == 'kot' && !is_null($order->table_id))
@@ -941,6 +950,20 @@
                                 <span class="text-sm font-medium">{{ __('app.close') }}</span>
                             </button>
                         </div>
+                        @else
+                        <div class="flex justify-end">
+                            <button
+                                class="min-h-[50px] rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 p-3 inline-flex flex-col items-center justify-center gap-1 transition-colors dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                                wire:click="$toggle('showOrderDetail')" wire:loading.attr="disabled">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" fill="none"
+                                    viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                <span class="text-sm font-medium">{{ __('app.close') }}</span>
+                            </button>
+                        </div>
+                        @endunless
                     </div>
                 </div>
 
@@ -978,7 +1001,7 @@
                                             'p-2 text-base text-gray-900 whitespace-nowrap text-center dark:text-gray-400',
                                         ])>
                                             <div class="inline-flex items-center justify-center gap-2">
-                                                @if($order->status !== 'pending_verification' && user_can('Update Order'))
+                                                @if($order->status !== 'pending_verification' && user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                                     <x-select wire:change="updatePaymentMethod({{ $item->id }}, $event.target.value)"
                                                             class="w-32 text-sm">
                                                         @foreach(['cash', 'card', 'upi', 'due' , 'bank_transfer'] as $method)
@@ -1009,9 +1032,9 @@
                                         </td>
                                         <td
                                             class="p-2 text-sm text-base text-right text-gray-900 whitespace-nowrap dark:text-gray-400">
-                                            @if ($item->payment_method == 'due' && user_can('Update Order'))
+                                            @if ($item->payment_method == 'due' && user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                                 <x-secondary-button wire:click='showPayment({{ $order->id }})'>@lang('modules.order.addPayment')</x-secondary-button>
-                                            @elseif ($order->status == 'pending_verification' && user_can('Update Order'))
+                                            @elseif ($order->status == 'pending_verification' && user_can('Update Order') && !($readOnlyCrossBranch ?? false))
                                                 <x-secondary-button class="me-1" wire:click="paymentReceived({{ $order->id }}, 'received')">
                                                     @lang('modules.order.confirmPayment')
                                                 </x-secondary-button>

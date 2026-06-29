@@ -12,6 +12,8 @@ use Modules\Hotel\Services\OrderFolioSettlement;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\HotelSetting;
 use Modules\Hotel\Support\HotelPaymentRecorder;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -62,7 +64,7 @@ class ReservationList extends Component
         $this->checkInTotalAmount = $this->calculateStayTotal($this->checkInReservation);
 
         // Determine suggested advance based on hotel settings
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
         $this->checkInAdvanceAmount = $settings ? $settings->calculateDeposit($this->checkInTotalAmount) : 0;
         $this->checkInPaymentMethod = 'cash';
         $this->checkInProcessingRate = 0;
@@ -86,7 +88,7 @@ class ReservationList extends Component
 
         DB::transaction(function () {
             $reservation = $this->checkInReservation;
-            $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+            $settings = HotelSetting::first();
 
             // 1. Generate room night charges
             $this->generateRoomNightCharges($reservation);
@@ -103,6 +105,7 @@ class ReservationList extends Component
                     $earlyCharge = $hoursEarly * (float) $settings->early_checkin_charge_per_hour;
 
                     RoomCharge::create([
+                        'branch_id'      => $reservation->branch_id,
                         'reservation_id' => $reservation->id,
                         'charge_type'    => RoomCharge::TYPE_SERVICE,
                         'description'    => "Early check-in surcharge ({$hoursEarly}h before " . ($settings->default_check_in_time ?? '14:00') . ')',
@@ -114,7 +117,7 @@ class ReservationList extends Component
 
             // 2. Record advance payment if amount > 0
             if ($this->checkInAdvanceAmount > 0) {
-                $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+                $settings = HotelSetting::first();
                 HotelPaymentRecorder::record(
                     $reservation,
                     (float) $this->checkInAdvanceAmount,
@@ -144,6 +147,19 @@ class ReservationList extends Component
             }
         });
 
+        if ($this->checkInReservation) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::GuestCheckedIn,
+                description: 'Guest checked in to room ' . ($this->checkInReservation->room?->room_number ?? 'N/A'),
+                subject: $this->checkInReservation->fresh(),
+                properties: [
+                    'reservation_id' => $this->checkInReservation->id,
+                    'reservation_number' => $this->checkInReservation->reservation_number ?? null,
+                ],
+                restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+            );
+        }
+
         $this->showCheckInModal = false;
         $this->checkInReservation = null;
 
@@ -159,7 +175,7 @@ class ReservationList extends Component
         $roomType = $reservation->room->roomType;
         $checkIn  = $reservation->check_in_date->copy();
         $checkOut = $reservation->checkout_date->copy();
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
 
         $roomChargesTotal = 0;
         $currentDate = $checkIn->copy();
@@ -167,6 +183,7 @@ class ReservationList extends Component
             $nightlyRate = $roomType->getPriceForDate($currentDate);
 
             RoomCharge::create([
+                'branch_id'      => $reservation->branch_id,
                 'reservation_id' => $reservation->id,
                 'charge_type'    => RoomCharge::TYPE_ROOM_NIGHT,
                 'description'    => 'Room ' . $reservation->room->room_number . ' - ' . $currentDate->format('d M Y'),
@@ -184,6 +201,7 @@ class ReservationList extends Component
             $taxAmount = round($roomChargesTotal * ($taxRate / 100), 2);
             if ($taxAmount > 0) {
                 RoomCharge::create([
+                    'branch_id'      => $reservation->branch_id,
                     'reservation_id' => $reservation->id,
                     'charge_type'    => RoomCharge::TYPE_TAX,
                     'description'    => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
@@ -198,6 +216,7 @@ class ReservationList extends Component
             $serviceAmount = $settings->calculateServiceCharge($roomChargesTotal);
             if ($serviceAmount > 0) {
                 RoomCharge::create([
+                    'branch_id'      => $reservation->branch_id,
                     'reservation_id' => $reservation->id,
                     'charge_type'    => RoomCharge::TYPE_SERVICE,
                     'description'    => 'Service charge (' . $settings->service_charge_rate . '%)',
@@ -304,6 +323,7 @@ class ReservationList extends Component
         ]);
 
         $guest = \Modules\Hotel\Entities\Guest::create([
+            'branch_id'     => branch()->id,
             'restaurant_id' => restaurant()->id,
             'first_name' => $this->new_guest_first_name,
             'last_name' => $this->new_guest_last_name,
@@ -363,14 +383,10 @@ class ReservationList extends Component
     {
         abort_unless(user_can('create_reservation'), 403);
         $this->resetForm();
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
         $this->create_check_in_date = Carbon::today()->format('Y-m-d');
         $this->create_check_out_date = Carbon::tomorrow()->format('Y-m-d');
-
-        // Load max rooms setting
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
         $this->maxRoomsPerBooking = $settings->max_rooms_per_booking ?? 10;
-
         $this->findAvailableRooms();
         $this->showCreateReservation = true;
     }
@@ -472,7 +488,7 @@ class ReservationList extends Component
 
         $checkIn = Carbon::parse($this->create_check_in_date);
         $checkOut = Carbon::parse($this->create_check_out_date);
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
 
         // Generate group booking ID only if multiple rooms
         $groupBookingId = count($this->selected_rooms) > 1
@@ -511,7 +527,7 @@ class ReservationList extends Component
                 $checkInTime = $settings ? $settings->default_check_in_time : '14:00';
                 $checkOutTime = $settings ? $settings->default_checkout_time : '12:00';
 
-                Reservation::create([
+                $reservation = Reservation::create([
                     'guest_id' => $this->create_guest_id,
                     'room_id' => $entry['room_id'],
                     'group_booking_id' => $groupBookingId,
@@ -528,6 +544,19 @@ class ReservationList extends Component
                     'balance_due' => $totalAmount,
                     'created_by_user_id' => auth()->id(),
                 ]);
+
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::ReservationCreated,
+                    description: "Reservation created for room {$room->room_number}",
+                    subject: $reservation,
+                    properties: [
+                        'reservation_id' => $reservation->id,
+                        'reservation_number' => $reservation->reservation_number ?? null,
+                        'room_id' => $entry['room_id'],
+                        'group_booking_id' => $groupBookingId,
+                    ],
+                    restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                );
 
                 // Update room status to 'reserved' when reservation is created
                 $room->update(['status' => 'reserved']);
@@ -752,7 +781,7 @@ class ReservationList extends Component
         }
 
         DB::transaction(function () {
-            $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+            $settings = HotelSetting::first();
             $surchargeEnabled = (bool) ($settings?->enable_payment_surcharge ?? false);
 
             // ── Extended stay room charge ───────────────────────────────
@@ -765,6 +794,7 @@ class ReservationList extends Component
                     : number_format($extDays, 1) . ' nights';
 
                 RoomCharge::create([
+                    'branch_id'      => $this->checkout_reservation->branch_id,
                     'reservation_id' => $this->checkout_reservation->id,
                     'charge_type'    => RoomCharge::TYPE_ROOM_NIGHT,
                     'description'    => "Extended stay ({$daysLabel})",
@@ -791,6 +821,7 @@ class ReservationList extends Component
                     $lateCharge = $hoursLate * (float) $settings->late_checkout_charge_per_hour;
 
                     RoomCharge::create([
+                        'branch_id'      => $this->checkout_reservation->branch_id,
                         'reservation_id' => $this->checkout_reservation->id,
                         'charge_type'    => RoomCharge::TYPE_SERVICE,
                         'description'    => "Late checkout surcharge ({$hoursLate}h after " . ($settings->default_checkout_time ?? '12:00') . ')',
@@ -836,6 +867,20 @@ class ReservationList extends Component
             }
         });
 
+        if ($this->checkout_reservation) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::GuestCheckedOut,
+                description: 'Guest checked out from room ' . ($this->checkout_reservation->room?->room_number ?? 'N/A'),
+                subject: $this->checkout_reservation->fresh(),
+                properties: [
+                    'reservation_id' => $this->checkout_reservation->id,
+                    'reservation_number' => $this->checkout_reservation->reservation_number ?? null,
+                    'amount_paid' => $this->checkout_amount_paid,
+                ],
+                restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+            );
+        }
+
         $this->alert('success', 'Guest successfully checked out. Balance updated.');
 
         $this->showEditReservation = false;
@@ -862,8 +907,8 @@ class ReservationList extends Component
     {
         $id = $id ?? $this->pendingCancelId;
         abort_unless(user_can('edit_reservation'), 403);
-        $reservation = Reservation::where('restaurant_id', restaurant()->id)->find($id);
-        
+        $reservation = Reservation::find($id);
+
         if (!$reservation) {
             return;
         }
@@ -875,6 +920,17 @@ class ReservationList extends Component
         }
 
         $reservation->update(['status' => Reservation::STATUS_CANCELLED]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::ReservationCancelled,
+            description: 'Reservation cancelled' . ($reservation->reservation_number ? " (#{$reservation->reservation_number})" : ''),
+            subject: $reservation,
+            properties: [
+                'reservation_id' => $reservation->id,
+                'reservation_number' => $reservation->reservation_number ?? null,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
 
         // If room was occupied (checked in), free it up
         if ($reservation->room) {
@@ -926,7 +982,7 @@ class ReservationList extends Component
         $id = $id ?? $this->pendingNoShowId;
         abort_unless(user_can('edit_reservation'), 403);
 
-        $reservation = Reservation::where('restaurant_id', restaurant()->id)->find($id);
+        $reservation = Reservation::find($id);
 
         if (!$reservation) {
             return;
@@ -990,6 +1046,7 @@ class ReservationList extends Component
         }
 
         RoomCharge::create([
+            'branch_id'      => $reservation->branch_id,
             'reservation_id' => $reservation->id,
             'charge_type' => $this->charge_type,
             'description' => $description,
@@ -1031,7 +1088,7 @@ class ReservationList extends Component
 
         $guests = \Modules\Hotel\Entities\Guest::orderBy('first_name')->get();
         $roomTypes = \Modules\Hotel\Entities\RoomType::all();
-        $hotelSettings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $hotelSettings = HotelSetting::first();
 
         return view('hotel::livewire.reservation.reservation-list', [
             'reservations' => $reservations,
@@ -1089,7 +1146,7 @@ class ReservationList extends Component
 
     protected function paymentSurchargeEnabledForView(): bool
     {
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
 
         return (bool) ($settings->enable_payment_surcharge ?? false);
     }

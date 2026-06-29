@@ -4,6 +4,8 @@ namespace App\Livewire\Reservations;
 
 use App\Models\Reservation;
 use App\Models\ReservationSetting;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Carbon\Carbon;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
@@ -45,7 +47,21 @@ class ReservationCard extends Component
 
     public function updatedReservationStatus($status)
     {
+        $previousStatus = $this->reservation->reservation_status;
+
         $this->reservation->update(['reservation_status' => $status]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::TableReservationStatusChanged,
+            description: "Table reservation status changed from {$previousStatus} to {$status}",
+            subject: $this->reservation,
+            properties: [
+                'reservation_id' => $this->reservation->id,
+                'previous_status' => $previousStatus,
+                'new_status' => $status,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
 
         if ($status === 'Cancelled' && $this->reservation->table_id) {
             $this->reservation->table->update(['available_status' => 'available']);
@@ -143,6 +159,19 @@ class ReservationCard extends Component
             'special_requests' => $this->editSpecialRequests,
         ]);
 
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::TableReservationUpdated,
+            description: 'Table reservation updated',
+            subject: $this->reservation,
+            properties: [
+                'reservation_id' => $this->reservation->id,
+                'party_size' => $this->editPartySize,
+                'reservation_date_time' => $this->editDate . ' ' . $this->editTime,
+                'slot_type' => $this->editSlotType,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
+
         $this->reservation->refresh();
         $this->reservationStatus = $this->reservation->reservation_status;
         $this->showEditModal = false;
@@ -178,6 +207,16 @@ class ReservationCard extends Component
         if ($this->reservation->table_id) {
             $this->reservation->table->update(['available_status' => 'available']);
         }
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::TableReservationDeleted,
+            description: 'Table reservation deleted',
+            properties: [
+                'reservation_id' => $this->reservation->id,
+                'reservation_status' => $this->reservation->reservation_status,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
 
         $this->reservation->delete();
 

@@ -37,6 +37,8 @@ use Modules\Inventory\Entities\InventoryStock;
 use Modules\Inventory\Observers\InventoryStockObserver;
 use Modules\Inventory\Entities\InventoryMovement;
 use Modules\Inventory\Observers\InventoryMovementObserver;
+use Modules\Inventory\Entities\SupplierPayment;
+use Modules\Inventory\Observers\SupplierPaymentObserver;
 use App\Events\NewRestaurantCreatedEvent;
 use Modules\Inventory\Listeners\CreateInventoryOnRestaurantCreatedListener;
 use App\Models\Branch;
@@ -86,6 +88,7 @@ class InventoryServiceProvider extends ServiceProvider
         Supplier::observe(SupplierObserver::class);
         InventoryStock::observe(InventoryStockObserver::class);
         InventoryMovement::observe(InventoryMovementObserver::class);
+        SupplierPayment::observe(SupplierPaymentObserver::class);
         Branch::observe(BranchObserver::class);
     }
 

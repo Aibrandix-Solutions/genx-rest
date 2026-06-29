@@ -6,6 +6,8 @@ use App\Models\Order;
 use App\Models\Payment;
 use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 
 class OrderFolioSettlement
 {
@@ -84,7 +86,7 @@ class OrderFolioSettlement
     {
         $reservation = Reservation::query()
             ->where('id', $reservationId)
-            ->where('restaurant_id', restaurant()->id)
+            ->where('branch_id', branch()->id)
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->firstOrFail();
 
@@ -99,6 +101,19 @@ class OrderFolioSettlement
         ]);
 
         FolioOrderChargeSync::sync($order->fresh());
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::FolioOrderCharged,
+            description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' charged to folio',
+            subject: $reservation,
+            properties: [
+                'order_id' => $order->id,
+                'reservation_id' => $reservation->id,
+                'reservation_number' => $reservation->reservation_number ?? null,
+                'order_total' => $order->total,
+            ],
+            restaurantId: $reservation->restaurant_id ? (int) $reservation->restaurant_id : null,
+        );
     }
 
     /**
@@ -111,13 +126,24 @@ class OrderFolioSettlement
             ->whereNotNull('charged_to_folio_at')
             ->whereNull('folio_settled_at')
             ->whereIn('status', ['billed', self::STATUS_FOLIO_SETTLED])
-            ->each(function (Order $order) {
+            ->each(function (Order $order) use ($reservation) {
                 $order->update([
                     'folio_settled_at' => now(),
                     'status' => self::STATUS_FOLIO_SETTLED,
                     'amount_paid' => 0,
                 ]);
             });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::FolioSettled,
+            description: 'Folio orders settled at checkout for reservation ' . ($reservation->reservation_number ?? $reservation->id),
+            subject: $reservation,
+            properties: [
+                'reservation_id' => $reservation->id,
+                'reservation_number' => $reservation->reservation_number ?? null,
+            ],
+            restaurantId: $reservation->restaurant_id ? (int) $reservation->restaurant_id : null,
+        );
     }
 
     public static function markChargedToFolioIfNeeded(Order $order): void

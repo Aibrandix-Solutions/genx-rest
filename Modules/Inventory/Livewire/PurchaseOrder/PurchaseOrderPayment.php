@@ -11,6 +11,7 @@ use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class PurchaseOrderPayment extends Component
@@ -155,6 +156,7 @@ class PurchaseOrderPayment extends Component
 
         $payment = SupplierPayment::create([
             'supplier_id' => $this->purchaseOrder->supplier_id,
+            'payment_batch_id' => (string) Str::uuid(),
             'purchase_order_id' => $this->purchaseOrder->id,
             'payment_account_id' => $paymentAccount,
             'amount' => $this->paymentAmount,
@@ -188,6 +190,8 @@ class PurchaseOrderPayment extends Component
         $this->alert('success', 'Payment recorded successfully');
         $this->showModal = false;
         $this->dispatch('purchaseOrderPaymentSaved');
+        $this->dispatch('paymentRecorded');
+        $this->dispatch('refreshPurchaseList');
         $this->resetForm();
         } catch (\Illuminate\Validation\ValidationException $e) {
             throw $e;

@@ -8,6 +8,7 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Services\PurchaseOrderService;
@@ -249,13 +250,30 @@ class SupplierTable extends Component
 
         $paid = SupplierPayment::query()
             ->whereIn('supplier_id', $supplierIds)
+            ->whereNull('purchase_return_id')
+            ->groupBy('supplier_id')
+            ->selectRaw('supplier_id, COALESCE(SUM(amount), 0) as total')
+            ->pluck('total', 'supplier_id');
+
+        $returned = PurchaseReturn::query()
+            ->whereIn('supplier_id', $supplierIds)
+            ->groupBy('supplier_id')
+            ->selectRaw('supplier_id, COALESCE(SUM(total_amount), 0) as total')
+            ->pluck('total', 'supplier_id');
+
+        $refunds = SupplierPayment::query()
+            ->whereIn('supplier_id', $supplierIds)
+            ->whereNotNull('purchase_return_id')
             ->groupBy('supplier_id')
             ->selectRaw('supplier_id, COALESCE(SUM(amount), 0) as total')
             ->pluck('total', 'supplier_id');
 
         $balances = [];
         foreach ($supplierIds as $id) {
-            $balances[$id] = (float) ($purchased[$id] ?? 0) - (float) ($paid[$id] ?? 0);
+            $balances[$id] = (float) ($purchased[$id] ?? 0)
+                - (float) ($paid[$id] ?? 0)
+                - (float) ($returned[$id] ?? 0)
+                - (float) ($refunds[$id] ?? 0);
         }
 
         return $balances;

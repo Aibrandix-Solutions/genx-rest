@@ -3,12 +3,15 @@
 namespace App\Livewire\Reports;
 
 use App\Models\KotItemAdjustment;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Livewire\Component;
 use Livewire\WithPagination;
 
 class KotAdjustmentLog extends Component
 {
+    use HasReportBranchFilter;
     use WithPagination;
 
     public string $dateRangeType = 'last7Days';
@@ -32,6 +35,11 @@ class KotAdjustmentLog extends Component
 
     public function mount(): void
     {
+        abort_unless(in_array('Report', restaurant_modules()), 403);
+        abort_unless(user_can('Show Reports'), 403);
+
+        $this->mountReportBranchFilter();
+
         if ($this->fromDate || $this->toDate) {
             $this->dateRangeType = 'custom';
             $this->fromDate = $this->fromDate ?: now()->subDays(7)->format('Y-m-d');
@@ -121,7 +129,7 @@ class KotAdjustmentLog extends Component
 
     public function updated($field): void
     {
-        if (in_array($field, ['fromDate', 'toDate', 'dateRangeType', 'actionType', 'performedBy', 'comboOnly', 'perPage'])) {
+        if (in_array($field, ['fromDate', 'toDate', 'dateRangeType', 'actionType', 'performedBy', 'comboOnly', 'perPage', 'branchFilter'])) {
             $this->resetPage();
         }
     }
@@ -140,8 +148,10 @@ class KotAdjustmentLog extends Component
     protected function buildFilteredQuery()
     {
         $query = KotItemAdjustment::query()
-            ->with('performedBy')
+            ->with(['performedBy', 'branch'])
             ->forCurrentRestaurant();
+
+        ReportBranchScope::applyToColumn($query, 'kot_item_adjustments.branch_id', $this->branchFilter);
 
         if ($this->fromDate) {
             $query->whereDate('created_at', '>=', $this->fromDate);
@@ -220,11 +230,16 @@ class KotAdjustmentLog extends Component
         $fileName = 'kot-adjustments-' . now()->format('Ymd_His') . '.csv';
         $query = $this->buildFilteredQuery()->orderByDesc('created_at');
 
-        return response()->streamDownload(function () use ($query) {
+        $branchFilter = $this->branchFilter;
+
+        return response()->streamDownload(function () use ($query, $branchFilter) {
             $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, [ReportBranchScope::exportScopeLabel($branchFilter)]);
 
             fputcsv($handle, [
                 'Date Time',
+                'Branch',
                 'Order Number',
                 'Order ID',
                 'Table',
@@ -241,6 +256,7 @@ class KotAdjustmentLog extends Component
                 foreach ($rows as $row) {
                     fputcsv($handle, [
                         optional($row->created_at)->timezone(timezone())->format('Y-m-d H:i:s'),
+                        $row->branch->name ?? '',
                         $row->formatted_order_number ?? $row->order_number,
                         $row->order_id,
                         $row->table_code,
@@ -273,7 +289,9 @@ class KotAdjustmentLog extends Component
         ];
 
         $performedByOptions = KotItemAdjustment::query()
-            ->forCurrentRestaurant()
+            ->forCurrentRestaurant();
+        ReportBranchScope::applyToColumn($performedByOptions, 'kot_item_adjustments.branch_id', $this->branchFilter);
+        $performedByOptions = $performedByOptions
             ->whereNotNull('performed_by')
             ->whereNotNull('performed_by_name')
             ->select('performed_by', 'performed_by_name')
@@ -292,6 +310,9 @@ class KotAdjustmentLog extends Component
             'groupedAdjustments' => $groupedAdjustments,
             'summary' => $summary,
             'performedByOptions' => $performedByOptions,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
+            'showBranchColumn' => $this->showBranchColumn(),
         ]);
     }
 }

@@ -5,6 +5,8 @@ namespace App\Livewire\Forms;
 use App\Models\Customer;
 use App\Models\Reservation;
 use App\Models\ReservationSetting;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Carbon\Carbon;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
@@ -162,7 +164,7 @@ class NewReservation extends Component
             ]);
         }
 
-        Reservation::create([
+        $reservation = Reservation::create([
             'reservation_date_time' => $this->date . ' ' . $this->availableTimeSlots,
             'customer_id' => $customer->id,
             'party_size' => $this->numberOfGuests,
@@ -170,6 +172,20 @@ class NewReservation extends Component
             'special_requests' => $this->specialRequest,
             'slot_time_difference' => ReservationSetting::where('slot_type', $this->slotType)->first()->time_slot_difference
         ]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::TableReservationCreated,
+            description: "Table reservation created for {$customer->name} ({$this->numberOfGuests} guests)",
+            subject: $reservation,
+            properties: [
+                'reservation_id' => $reservation->id,
+                'customer_id' => $customer->id,
+                'party_size' => $this->numberOfGuests,
+                'reservation_date_time' => $reservation->reservation_date_time,
+                'slot_type' => $this->slotType,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
 
         $this->alert('success', __('messages.reservationConfirmed'), [
             'toast' => false,
