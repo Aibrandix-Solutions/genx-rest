@@ -60,5 +60,6 @@ return array(
     'customerDisplay' => 'Customer Display',
     'deliveryAppReport' => 'Delivery App Report',
     'kotAdjustmentLog' => 'KOT Adjustment Log',
+    'activityLog' => 'Activity Log',
     'menuItemReport' => 'Menu Item Report',
 );

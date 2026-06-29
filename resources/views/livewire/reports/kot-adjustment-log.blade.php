@@ -123,6 +123,14 @@
                 <x-input type="text" class="mt-1 w-full" placeholder="{{ __('app.search') }}..."
                     wire:model.live.debounce.500ms="search" />
             </div>
+            @if($showBranchFilter ?? false)
+            <div>
+                <x-label :value="__('app.branch')" />
+                <div class="mt-1">
+                    @include('livewire.reports.partials.branch-filter')
+                </div>
+            </div>
+            @endif
             <div>
                 <x-label :value="__('app.perPage')" />
                 <x-select class="mt-1 w-full" wire:model.live="perPage">
@@ -145,7 +153,7 @@
     </div>
 
     <div class="bg-white rounded-lg shadow dark:bg-gray-800">
-        <div class="overflow-x-auto p-4 space-y-3">
+        <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4 p-4 space-y-3">
             @forelse ($groupedAdjustments as $group)
                 @php
                     $header = $group['header'];
@@ -175,6 +183,9 @@
                                     @lang('modules.table.tableCode'): {{ $header->table_code ?? '—' }} ·
                                     {{ $header->performed_by_name ?? $header->performedBy?->name ?? __('app.system') }} ·
                                     {{ count($items) }} item(s)
+                                    @if($showBranchColumn ?? false)
+                                        · {{ $header->branch->name ?? '--' }}
+                                    @endif
                                     @if($isComboGroup)
                                         · <span class="font-semibold text-indigo-600">Combo group deletion</span>
                                     @endif

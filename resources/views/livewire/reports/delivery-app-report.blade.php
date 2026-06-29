@@ -159,12 +159,13 @@
                         @endforeach
                     </x-select>
                 </div>
+                @include('livewire.reports.partials.branch-filter')
             </div>
         </div>
     </div>
 
     <!-- Delivery Apps Table -->
-    <div class="overflow-x-auto bg-white dark:bg-gray-800 p-4 rounded-lg">
+    <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4 bg-white dark:bg-gray-800 p-4 rounded-lg">
         <table class="min-w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>

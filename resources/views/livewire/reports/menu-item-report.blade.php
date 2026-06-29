@@ -132,18 +132,26 @@
                         <option value="{{ $cat->id }}">{{ $cat->category_name }}</option>
                     @endforeach
                 </select>
+
+                @include('livewire.reports.partials.branch-filter')
             </div>
         </div>
     </div>
 
     {{-- ── Table ── --}}
-    <div class="overflow-x-auto bg-white dark:bg-gray-800 p-4">
+    @php $menuItemColspan = 8 + (($showBranchColumn ?? false) ? 1 : 0); @endphp
+    <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4 bg-white dark:bg-gray-800 p-4">
         <table class="min-w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>
                     <th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
                         @lang('modules.menu.itemName')
                     </th>
+                    @if($showBranchColumn ?? false)
+                    <th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
+                        @lang('app.branch')
+                    </th>
+                    @endif
                     <th class="px-4 py-3 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
                         Item Code
                     </th>
@@ -179,6 +187,11 @@
                     <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">
                         {{ $item->item_name }}
                     </td>
+                    @if($showBranchColumn ?? false)
+                    <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+                        {{ $item->branch_name ?? '--' }}
+                    </td>
+                    @endif
                     <td class="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">
                         @if($item->item_code)
                             <span class="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{{ $item->item_code }}</span>
@@ -226,7 +239,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="8" class="px-4 py-6 text-sm text-center text-gray-500 dark:text-gray-400">
+                    <td colspan="{{ $menuItemColspan }}" class="px-4 py-6 text-sm text-center text-gray-500 dark:text-gray-400">
                         @lang('messages.noItemAdded')
                     </td>
                 </tr>
@@ -310,7 +323,7 @@
                                     <td class="px-4 py-3 text-center">
                                         <button
                                             type="button"
-                                            @click="close(); $dispatch('showOrderDetail', { id: row.order_id })"
+                                            @click="close(); $dispatch('showOrderDetail', { id: row.order_id, fromReport: true })"
                                             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 rounded-lg transition"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

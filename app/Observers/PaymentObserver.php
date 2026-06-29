@@ -2,6 +2,8 @@
 
 namespace App\Observers;
 
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use App\Models\BranchPaymentAccountSetting;
 use App\Models\Payment;
 use Modules\Inventory\Entities\PaymentAccount;
@@ -65,6 +67,22 @@ class PaymentObserver
                 Log::error('Error creating account transaction for payment ' . $payment->id . ': ' . $e->getMessage());
                 // Don't throw - payment should still be created even if transaction fails
             }
+        }
+
+        if ($payment->payment_method !== 'due') {
+            $payment->loadMissing('order');
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PaymentCreated,
+                description: 'Payment recorded for Order #' . ($payment->order->order_number ?? $payment->order_id),
+                subject: $payment->order,
+                properties: [
+                    'payment_id' => $payment->id,
+                    'order_id' => $payment->order_id,
+                    'amount' => $payment->amount,
+                    'payment_method' => $payment->payment_method,
+                ],
+                branchId: $payment->branch_id ? (int) $payment->branch_id : null,
+            );
         }
     }
 
@@ -133,10 +151,43 @@ class PaymentObserver
                 Log::error('Error updating account transaction for payment ' . $payment->id . ': ' . $e->getMessage());
             }
         }
+
+        if ($payment->wasChanged(['amount', 'payment_method', 'payment_account_id'])) {
+            $payment->loadMissing('order');
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PaymentUpdated,
+                description: 'Payment updated for Order #' . ($payment->order->order_number ?? $payment->order_id),
+                subject: $payment->order,
+                properties: [
+                    'payment_id' => $payment->id,
+                    'order_id' => $payment->order_id,
+                    'amount' => $payment->amount,
+                    'old_amount' => $payment->getOriginal('amount'),
+                    'payment_method' => $payment->payment_method,
+                ],
+                branchId: $payment->branch_id ? (int) $payment->branch_id : null,
+            );
+        }
     }
 
     public function deleting(Payment $payment)
     {
+        if ($payment->payment_method !== 'due') {
+            $payment->loadMissing('order');
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PaymentDeleted,
+                description: 'Payment removed from Order #' . ($payment->order->order_number ?? $payment->order_id),
+                subject: $payment->order,
+                properties: [
+                    'payment_id' => $payment->id,
+                    'order_id' => $payment->order_id,
+                    'amount' => $payment->amount,
+                    'payment_method' => $payment->payment_method,
+                ],
+                branchId: $payment->branch_id ? (int) $payment->branch_id : null,
+            );
+        }
+
         // Revert account transaction when payment is deleted
         if ($payment->payment_account_id && $payment->payment_method !== 'due') {
             try {

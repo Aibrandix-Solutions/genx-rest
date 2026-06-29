@@ -3213,6 +3213,10 @@ onMounted(async () => {
     orderType.value = defaultOrderType;
 
     // Load order data if present in bootstrap or URL
+    if (bootstrapData.value?.initial_show_order_detail) {
+        showOrderDetailMode.value = true;
+    }
+
     if (initialOrderData.value) {
         applyOrderPayload(initialOrderData.value, initialOrderData.value.id);
 
@@ -3220,7 +3224,7 @@ onMounted(async () => {
             !Array.isArray(initialOrderData.value.kots) ||
             !initialOrderData.value.permissions;
 
-        if (missingExtendedContract) {
+        if (showOrderDetailMode.value || missingExtendedContract) {
             await loadOrderData(initialOrderData.value.id);
         }
     } else if (orderId.value) {

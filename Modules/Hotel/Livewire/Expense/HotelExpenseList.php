@@ -65,8 +65,7 @@ class HotelExpenseList extends Component
 
     public function getSummaryProperty()
     {
-        $query = HotelExpense::where('restaurant_id', restaurant()->id)
-            ->whereBetween('expense_date', [$this->dateFrom ?: '2000-01-01', $this->dateTo ?: now()->toDateString()]);
+        $query = HotelExpense::whereBetween('expense_date', [$this->dateFrom ?: '2000-01-01', $this->dateTo ?: now()->toDateString()]);
 
         return [
             'total'    => $query->sum('amount'),
@@ -88,7 +87,7 @@ class HotelExpenseList extends Component
     public function openEdit($id)
     {
         abort_unless(user_can('edit_hotel_expense'), 403);
-        $expense = HotelExpense::where('restaurant_id', restaurant()->id)->findOrFail($id);
+        $expense = HotelExpense::findOrFail($id);
 
         $this->editingId      = $expense->id;
         $this->title          = $expense->title;
@@ -113,11 +112,11 @@ class HotelExpenseList extends Component
         }
 
         $data = $this->validate();
+        $data['branch_id']     = branch()->id;
         $data['restaurant_id'] = restaurant()->id;
 
         if ($this->editingId) {
-            HotelExpense::where('restaurant_id', restaurant()->id)
-                ->where('id', $this->editingId)
+            HotelExpense::where('id', $this->editingId)
                 ->update($data);
             $this->alert('success', 'Expense updated successfully.');
         } else {
@@ -150,9 +149,7 @@ class HotelExpenseList extends Component
         $id = $id ?? $this->pendingDeleteId;
         abort_unless(user_can('delete_hotel_expense'), 403);
 
-        HotelExpense::where('restaurant_id', restaurant()->id)
-            ->where('id', $id)
-            ->delete();
+        HotelExpense::where('id', $id)->delete();
 
         $this->pendingDeleteId = null;
         $this->alert('success', 'Expense deleted.');
@@ -175,8 +172,7 @@ class HotelExpenseList extends Component
 
     public function render()
     {
-        $expenses = HotelExpense::where('restaurant_id', restaurant()->id)
-            ->when($this->search, function ($q) {
+        $expenses = HotelExpense::when($this->search, function ($q) {
                 $q->where(function ($q2) {
                     $q2->where('title', 'like', '%' . $this->search . '%')
                        ->orWhere('vendor', 'like', '%' . $this->search . '%')

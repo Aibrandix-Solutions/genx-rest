@@ -3,6 +3,8 @@
 namespace App\Livewire\Forms;
 
 use App\Models\DeliveryExecutive;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
 
@@ -35,6 +37,19 @@ class EditExecutive extends Component
             'phone' => $this->memberPhone,
             'status' => $this->status,
         ]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::DeliveryExecutiveUpdated,
+            description: "Delivery executive updated: {$this->memberName}",
+            subject: $this->member,
+            properties: [
+                'delivery_executive_id' => $this->member->id,
+                'name' => $this->memberName,
+                'phone' => $this->memberPhone,
+                'status' => $this->status,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
 
         // Reset the value
         $this->memberName = '';

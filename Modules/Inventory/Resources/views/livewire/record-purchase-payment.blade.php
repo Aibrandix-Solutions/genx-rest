@@ -90,8 +90,8 @@
             </div>
 
             <div class="flex items-center justify-end gap-2">
-                <x-secondary-button type="button" wire:click="resetForm">{{ trans('inventory::modules.payments.clear') }}</x-secondary-button>
-                <x-button type="submit" wire:loading.attr="disabled">{{ trans('inventory::modules.payments.record') }}</x-button>
+                <x-secondary-button type="button" wire:click="resetForm" @disabled($isSaving)>{{ trans('inventory::modules.payments.clear') }}</x-secondary-button>
+                <x-button type="submit" wire:loading.attr="disabled" wire:target="recordPayment" :disabled="$isSaving">{{ trans('inventory::modules.payments.record') }}</x-button>
             </div>
         </form>
     </div>

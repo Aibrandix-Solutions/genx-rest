@@ -3,14 +3,16 @@
 namespace App\Livewire\Reports;
 
 use App\Exports\ExpenseSummaryReportExport;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
 use Livewire\Component;
-use App\Models\Expenses;
 use Carbon\Carbon;
 use Livewire\Attributes\On;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ExpenseSummaryReport extends Component
 {
+    use HasReportBranchFilter;
 
     public $dateRangeType;
     public $startDate;
@@ -26,6 +28,7 @@ class ExpenseSummaryReport extends Component
            $this->dateRangeType = 'currentWeek';
            $this->startDate = now()->startOfWeek()->format('m/d/Y');
            $this->endDate = now()->endOfWeek()->format('m/d/Y');
+           $this->mountReportBranchFilter();
     }
 
     public function setDateRange()
@@ -97,7 +100,7 @@ class ExpenseSummaryReport extends Component
             $this->dispatch('showUpgradeLicense');
         }
         else {
-            return Excel::download(new ExpenseSummaryReportExport($this->startDate, $this->endDate), 'item-report-' . now()->toDateTimeString() . '.xlsx');
+            return Excel::download(new ExpenseSummaryReportExport($this->startDate, $this->endDate, $this->branchFilter), 'expense-summary-report-' . now()->toDateTimeString() . '.xlsx');
         }
     }
 
@@ -106,7 +109,8 @@ class ExpenseSummaryReport extends Component
          $start = Carbon::createFromFormat('m/d/Y', $this->startDate)->startOfDay();
         $end = Carbon::createFromFormat('m/d/Y', $this->endDate)->endOfDay();
 
-        $this->expenses = Expenses::with(['category'])
+        $this->expenses = ReportBranchScope::expensesBaseQuery($this->branchFilter)
+            ->with(ReportBranchScope::eagerLoadExpenseCategoryForReport())
             ->whereBetween('expense_date', [$start, $end])
             ->selectRaw('expense_category_id, SUM(amount) as total_amount')
             ->groupBy('expense_category_id')
@@ -114,7 +118,9 @@ class ExpenseSummaryReport extends Component
 
         $this->totalAmount = $this->expenses->sum('total_amount');
         return view('livewire.reports.expense-summary-report', [
-        'expenses' => $this->expenses
+            'expenses' => $this->expenses,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 

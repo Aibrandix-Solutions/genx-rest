@@ -19,6 +19,7 @@ class ReceiveStockTransfer extends Component
     public $transfer;
     public $receivedItems = [];
     public $showModal = false;
+    public bool $isProcessing = false;
 
     protected $listeners = [
         'openReceiveTransferModal' => 'openModal',
@@ -123,6 +124,9 @@ class ReceiveStockTransfer extends Component
         abort_if(!user_can('Update Stock Transfer'), 403);
 
         if (!$this->transfer) return;
+
+        if ($this->isProcessing) return;
+        $this->isProcessing = true;
 
         $this->validate();
 
@@ -243,10 +247,12 @@ class ReceiveStockTransfer extends Component
             $this->alert('success', __('inventory::modules.transfers.transfer_confirmed_successfully'));
             $this->dispatch('transferReceived');
             $this->dispatch('closeReceiveModal');
-            
+
         } catch (\Exception $e) {
             Log::error('Stock transfer receive failed: ' . $e->getMessage());
             $this->alert('error', __('inventory::modules.transfers.transfer_confirmation_failed'));
+        } finally {
+            $this->isProcessing = false;
         }
     }
 

@@ -10,6 +10,8 @@ use Modules\CashRegister\Entities\CashRegisterCount;
 use Modules\CashRegister\Entities\CashDenomination;
 use Modules\CashRegister\Entities\Denomination;
 use Modules\CashRegister\Services\RegisterForceOpenService;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -185,6 +187,17 @@ class CashierWidget extends Component
             'status' => 'open',
         ]);
 
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::CashSessionOpened,
+            description: 'Cash register session opened',
+            properties: [
+                'cash_register_session_id' => $this->session->id,
+                'opening_float' => $this->openingFloat,
+            ],
+            restaurantId: (int) ($this->session->restaurant_id ?: restaurant()?->id),
+            branchId: (int) ($this->session->branch_id ?: branch()?->id),
+        );
+
         // If there is an intended URL after opening, redirect there
         if (session()->has('intended_after_register')) {
             $url = session()->pull('intended_after_register');
@@ -212,7 +225,7 @@ class CashierWidget extends Component
 
         $this->validate();
         $amount = (float) $this->amount;
-        CashRegisterTransaction::create([
+        $transaction = CashRegisterTransaction::create([
             'cash_register_session_id' => $this->session->id,
             'restaurant_id' => $this->session->restaurant_id,
             'branch_id' => $this->session->branch_id,
@@ -222,6 +235,7 @@ class CashierWidget extends Component
             'amount' => $amount,
             'created_by' => user()->id,
         ]);
+        $this->logCashTransaction($transaction);
         // Refresh the totals to reflect the new cash_in transaction
         $this->refreshTotals();
         $this->reset(['amount', 'reason']);
@@ -247,7 +261,7 @@ class CashierWidget extends Component
             $this->addError('amount', 'Amount exceeds expected cash.');
             return;
         }
-        CashRegisterTransaction::create([
+        $transaction = CashRegisterTransaction::create([
             'cash_register_session_id' => $this->session->id,
             'restaurant_id' => $this->session->restaurant_id,
             'branch_id' => $this->session->branch_id,
@@ -257,6 +271,7 @@ class CashierWidget extends Component
             'amount' => $amount,
             'created_by' => user()->id,
         ]);
+        $this->logCashTransaction($transaction);
         $this->refreshTotals();
         $this->reset(['amount', 'reason']);
         session()->flash('message', 'Cash Out recorded.');
@@ -281,7 +296,7 @@ class CashierWidget extends Component
             $this->addError('amount', 'Amount exceeds expected cash.');
             return;
         }
-        CashRegisterTransaction::create([
+        $transaction = CashRegisterTransaction::create([
             'cash_register_session_id' => $this->session->id,
             'restaurant_id' => $this->session->restaurant_id,
             'branch_id' => $this->session->branch_id,
@@ -291,6 +306,7 @@ class CashierWidget extends Component
             'amount' => $amount,
             'created_by' => user()->id,
         ]);
+        $this->logCashTransaction($transaction);
         $this->refreshTotals();
         $this->reset(['amount', 'reason']);
         session()->flash('message', 'Safe Drop recorded.');
@@ -461,11 +477,12 @@ class CashierWidget extends Component
             return;
         }
 
-        DB::transaction(function () {
-            $expected = $this->expectedCash;
-            $this->session->expected_cash = $expected;
+        $expectedCash = (float) $this->expectedCash;
+
+        DB::transaction(function () use ($expectedCash) {
+            $this->session->expected_cash = $expectedCash;
             $this->session->counted_cash = $this->countedCash;
-            $this->session->discrepancy = $this->countedCash - $expected;
+            $this->session->discrepancy = $this->countedCash - $expectedCash;
             $this->session->closing_note = $this->closingNote;
             $this->session->status = 'pending_approval';
             $this->session->closed_by = user()->id;
@@ -488,6 +505,19 @@ class CashierWidget extends Component
             }
         });
 
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::CashSessionClosed,
+            description: 'Cash register session closed for approval',
+            properties: [
+                'cash_register_session_id' => $this->session->id,
+                'expected_cash' => $expectedCash,
+                'counted_cash' => $this->countedCash,
+                'discrepancy' => $this->countedCash - $expectedCash,
+            ],
+            restaurantId: (int) $this->session->restaurant_id,
+            branchId: (int) $this->session->branch_id,
+        );
+
         // Reset UI state after closing
         $this->reset(['amount', 'reason', 'showClose', 'countedCash', 'denoms', 'closingNote']);
         $this->openingFloat = 0;
@@ -496,5 +526,35 @@ class CashierWidget extends Component
         $this->safeDrop = 0;
         $this->session = null;
         session()->flash('message', 'Closing submitted for approval. Register is now closed.');
+    }
+
+    protected function logCashTransaction(CashRegisterTransaction $transaction): void
+    {
+        $event = match ($transaction->type) {
+            'cash_in' => ActivityEvent::CashIn,
+            'cash_out' => ActivityEvent::CashOut,
+            'safe_drop' => ActivityEvent::CashSafeDrop,
+            default => ActivityEvent::CashIn,
+        };
+
+        ActivityLogger::recordEvent(
+            activityEvent: $event,
+            description: sprintf(
+                'Cash register %s: %s',
+                str_replace('_', ' ', (string) $transaction->type),
+                number_format((float) $transaction->amount, 2)
+            ),
+            properties: [
+                'type' => $transaction->type,
+                'amount' => $transaction->amount,
+                'reason' => $transaction->reason,
+                'cash_register_session_id' => $transaction->cash_register_session_id,
+            ],
+            restaurantId: (int) $transaction->restaurant_id,
+            branchId: (int) $transaction->branch_id,
+            legacySource: 'cash_register_transactions',
+            legacyId: (int) $transaction->id,
+            createdAt: $transaction->happened_at ?? $transaction->created_at,
+        );
     }
 }

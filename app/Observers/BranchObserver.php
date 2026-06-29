@@ -6,6 +6,7 @@ use App\Models\Branch;
 use App\Models\MenuItem;
 use App\Models\OrderType;
 use App\Models\OnboardingStep;
+use App\Services\ReportBranchScope;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Models\ExpenseCategory;
@@ -186,6 +187,8 @@ class BranchObserver
                 'updated_at'  => now(),
             ]);
         }
+
+        ReportBranchScope::clearRestaurantBranchIdsCache((int) $branch->restaurant_id);
 
         // Auto-create purchase location for this branch (only if Inventory module table exists)
         if (\Illuminate\Support\Facades\Schema::hasTable('purchase_locations')) {

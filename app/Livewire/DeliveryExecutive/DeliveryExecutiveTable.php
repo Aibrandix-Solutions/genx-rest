@@ -3,6 +3,8 @@
 namespace App\Livewire\DeliveryExecutive;
 
 use App\Models\DeliveryExecutive;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -44,7 +46,23 @@ class DeliveryExecutiveTable extends Component
 
     public function deleteCustomer($id)
     {
-        DeliveryExecutive::destroy($id);
+        $executive = DeliveryExecutive::find($id);
+
+        if ($executive) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::DeliveryExecutiveDeleted,
+                description: "Delivery executive deleted: {$executive->name}",
+                properties: [
+                    'delivery_executive_id' => $executive->id,
+                    'name' => $executive->name,
+                    'phone' => $executive->phone,
+                ],
+                branchId: branch()?->id ? (int) branch()->id : null,
+            );
+
+            $executive->delete();
+        }
+
         $this->customer = null;
 
         $this->confirmDeleteCustomerModal = false;

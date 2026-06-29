@@ -412,9 +412,9 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div ref="cartContainer" class="flex flex-col rounded max-md:max-h-none max-md:overflow-visible md:max-h-[250px] md:overflow-y-auto">
-            <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
-                <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
+        <div ref="cartContainer" class="pos-cart-items-scroll rounded">
+            <table class="w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <thead class="pos-cart-items-thead">
                     <tr>
                         <th scope="col"
                             class="p-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 rtl:text-right ltr:text-left">
@@ -2303,7 +2303,7 @@ const linkedKotGroups = computed(() => {
     const sourceGroups = Array.isArray(props.kotGroups) ? props.kotGroups : [];
     const seenLinkedKeys = new Set();
 
-    return sourceGroups.map((group, groupIndex) => {
+    const groups = sourceGroups.map((group, groupIndex) => {
         const lines = Array.isArray(group?.lines) ? group.lines : [];
 
         const normalizedLines = lines.map((line, lineIndex) => {
@@ -2425,6 +2425,66 @@ const linkedKotGroups = computed(() => {
             lines: normalizedLines,
         };
     });
+
+    if (groups.length === 0 && cartSource.length > 0) {
+        const fallbackLines = cartSource.map((item, lineIndex) => {
+            const resolvedKey = item.line_key || item.id || `fallback_${lineIndex}`;
+            const quantity = Number(item.quantity || 1);
+            const price = Number(item.price || 0);
+            const packId = item.combo_pack_id ? Number(item.combo_pack_id) : null;
+            const displayName = [
+                item.name || "Unknown Item",
+                item.variation_name || "",
+            ].filter(Boolean).join(" — ");
+
+            const cached = linkedLineReactiveCache.get(resolvedKey);
+            if (cached) {
+                Object.assign(cached, {
+                    id: resolvedKey,
+                    line_key: resolvedKey,
+                    order_item_id: item.order_item_id || null,
+                    kot_item_id: item.kot_item_id || null,
+                    name: displayName,
+                    quantity,
+                    price,
+                    note: item.note || "",
+                    combo_pack_id: packId,
+                    _linkedKey: resolvedKey,
+                    _isCombo: !!packId,
+                });
+                return cached;
+            }
+
+            const row = reactive({
+                id: resolvedKey,
+                line_key: resolvedKey,
+                order_item_id: item.order_item_id || null,
+                kot_item_id: item.kot_item_id || null,
+                name: displayName,
+                quantity,
+                price,
+                note: item.note || "",
+                combo_pack_id: packId,
+                _linkedKey: resolvedKey,
+                _isCombo: !!packId,
+                _showNoteInput: false,
+                _activeNote: "",
+                _showNotePreview: false,
+            });
+            linkedLineReactiveCache.set(resolvedKey, row);
+            return row;
+        });
+
+        return [{
+            key: "fallback_order_lines",
+            id: null,
+            title: "Order items",
+            createdAt: "",
+            lines: fallbackLines,
+        }];
+    }
+
+    return groups;
 });
 
 // Drop reactive line entries whose backing KOT row no longer exists, so the
@@ -3073,4 +3133,30 @@ const handleSaveOrder = (...actions) => {
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+/* ~5 item rows visible; 6th+ scrolls inside this block only */
+.pos-cart-items-scroll {
+    /* 4.25rem/row was too tall (~6 rows fit); ~3.5rem matches actual row height (+ Add Note rows) */
+    max-height: calc(2.75rem + (5 * 3.5rem));
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.pos-cart-items-scroll table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: rgb(243 244 246);
+    box-shadow: inset 0 -1px 0 rgb(229 231 235);
+}
+
+:global(.dark) .pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
+    background-color: rgb(55 65 81);
+    box-shadow: inset 0 -1px 0 rgb(75 85 99);
+}
+</style>
