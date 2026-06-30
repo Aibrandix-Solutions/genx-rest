@@ -9,9 +9,9 @@ class HotelSidebarComposer
 {
     public function compose(View $view): void
     {
-        $restaurant = restaurant();
-        $settings = $restaurant
-            ? HotelSetting::where('restaurant_id', $restaurant->id)->first()
+        $branch = branch();
+        $settings = $branch
+            ? HotelSetting::where('branch_id', $branch->id)->first()
             : null;
 
         $view->with([

@@ -705,7 +705,8 @@
                 <x-button-cancel class="flex-1 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-100 rounded-lg" wire:click="$toggle('showAddPaymentModal')">
                     {{ __('app.cancel') }}
                 </x-button-cancel>
-                <x-button wire:click="submitForm" wire:loading.attr="disabled" wire:target="submitForm" class="flex-1 px-6 py-3 text-base font-medium bg-skin-base text-white rounded-lg hover:bg-skin-base-600">
+                <x-button wire:click="submitForm" wire:loading.attr="disabled" wire:target="submitForm" class="flex-1 px-6 py-3 text-base font-medium bg-skin-base text-white rounded-lg hover:bg-skin-base-600"
+                    @click="if (@js((bool) (restaurant()->receiptSetting?->direct_print_after_payment ?? false))) { window.preparePosPrintPlaceholder?.(); }">
                     {{ __('modules.order.completePayment') }}
                 </x-button>
                 </div>

@@ -3,18 +3,19 @@
 namespace Modules\Hotel\Entities;
 
 use App\Models\User;
-use App\Traits\HasRestaurant;
+use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class HotelPayment extends Model
 {
-    use HasFactory, HasRestaurant;
+    use HasFactory, HasBranch;
 
     protected $table = 'hotel_payments';
 
     protected $fillable = [
+        'branch_id',
         'reservation_id',
         'restaurant_id',
         'amount',

@@ -8,6 +8,8 @@ use Livewire\Component;
 use Livewire\Attributes\On;
 use App\Models\RestaurantCharge;
 use App\Exports\SalesReportExport;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
 use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
@@ -16,6 +18,7 @@ use App\Models\User;
 
 class SalesReport extends Component
 {
+    use HasReportBranchFilter;
     public $dateRangeType = 'currentWeek';
 
     public $startDate;
@@ -61,11 +64,21 @@ class SalesReport extends Component
             $this->setDateRange();
         }
 
-        $this->waiters = User::whereHas('roles', function ($query) {
-            $query->where('name', 'Waiter_' . restaurant()->id);
-        })->get();
+        $this->mountReportBranchFilter();
+        $this->loadReportWaiters();
 
         $this->selectedWaiter = '';
+    }
+
+    protected function loadReportWaiters(): void
+    {
+        $restaurantId = (int) restaurant()->id;
+        $this->waiters = User::assignableWaitersForBranchFilter($restaurantId, $this->branchFilter)->get();
+
+        if ($this->selectedWaiter && ! $this->waiters->contains('id', (int) $this->selectedWaiter)) {
+            $this->selectedWaiter = '';
+            $this->filterByWaiter = '';
+        }
     }
 
     public function setDateRange()
@@ -190,6 +203,7 @@ class SalesReport extends Component
                 $dateTimeData['startTime'],
                 $dateTimeData['endTime'],
                 $dateTimeData['timezone'],
+                $this->branchFilter,
             ),
             'sales-report-' . now()->format('Y-m-d_His') . '.xlsx'
         );
@@ -219,22 +233,24 @@ class SalesReport extends Component
         $taxMode = $restaurant->tax_mode ?? 'order';
         $waiterId = $this->filterByWaiter ? (int) $this->filterByWaiter : null;
 
-        $dailyRows = SalesReportData::fetchDailyAggregates($dateTimeData, $waiterId);
-        $outstandingData = SalesReportData::fetchOutstandingByDate($dateTimeData, $waiterId);
+        $branchFilter = $this->branchFilter;
 
-        $groupedData = $dailyRows->map(function ($item) use ($charges, $taxes, $outstandingData) {
+        $dailyRows = SalesReportData::fetchDailyAggregates($dateTimeData, $waiterId, $branchFilter);
+        $outstandingData = SalesReportData::fetchOutstandingByDate($dateTimeData, $waiterId, $branchFilter);
+
+        $groupedData = $dailyRows->map(function ($item) use ($charges, $taxes, $outstandingData, $branchFilter) {
             $outstandingInfo = $outstandingData->get($item->date);
             $chargeAmounts = [];
 
             foreach ($charges as $charge) {
-                $chargeAmounts[$charge->charge_name] = DB::table('order_charges')
+                $chargeQuery = DB::table('order_charges')
                     ->join('orders', 'order_charges.order_id', '=', 'orders.id')
                     ->join('restaurant_charges', 'order_charges.charge_id', '=', 'restaurant_charges.id')
                     ->where('order_charges.charge_id', $charge->id)
                     ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                    ->whereDate('orders.date_time', $item->date)
-                    ->where('orders.branch_id', branch()->id)
-                    ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
+                    ->whereDate('orders.date_time', $item->date);
+                ReportBranchScope::applyToColumn($chargeQuery, 'orders.branch_id', $branchFilter);
+                $chargeAmounts[$charge->charge_name] = $chargeQuery->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
                 THEN (restaurant_charges.charge_value / 100) * GREATEST(0, (orders.sub_total + COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0)) - COALESCE(orders.discount_amount, 0))
                 ELSE restaurant_charges.charge_value END')) ?? 0;
             }
@@ -253,15 +269,15 @@ class SalesReport extends Component
                 ];
             }
 
-            $itemTaxData = DB::table('order_items')
+            $itemTaxQuery = DB::table('order_items')
                 ->join('orders', 'order_items.order_id', '=', 'orders.id')
                 ->join('menu_items', 'order_items.menu_item_id', '=', 'menu_items.id')
                 ->join('menu_item_tax', 'menu_items.id', '=', 'menu_item_tax.menu_item_id')
                 ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
                 ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                ->where('orders.branch_id', branch()->id)
-                ->whereDate('orders.date_time', $item->date)
-                ->select(
+                ->whereDate('orders.date_time', $item->date);
+            ReportBranchScope::applyToColumn($itemTaxQuery, 'orders.branch_id', $branchFilter);
+            $itemTaxData = $itemTaxQuery->select(
                     'taxes.tax_name',
                     'taxes.tax_percent',
                     'order_items.tax_amount',
@@ -294,13 +310,13 @@ class SalesReport extends Component
                 }
             }
 
-            $orderTaxData = DB::table('order_taxes')
+            $orderTaxQuery = DB::table('order_taxes')
                 ->join('orders', 'order_taxes.order_id', '=', 'orders.id')
                 ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
                 ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                ->where('orders.branch_id', branch()->id)
-                ->whereDate('orders.date_time', $item->date)
-                ->select(
+                ->whereDate('orders.date_time', $item->date);
+            ReportBranchScope::applyToColumn($orderTaxQuery, 'orders.branch_id', $branchFilter);
+            $orderTaxData = $orderTaxQuery->select(
                     'taxes.tax_name',
                     'taxes.tax_percent',
                     'orders.sub_total',
@@ -322,15 +338,15 @@ class SalesReport extends Component
 
             if ($itemTaxData->isEmpty() && $orderTaxData->isEmpty()) {
                 foreach ($taxes as $tax) {
-                    $itemTaxAmount = DB::table('order_items')
+                    $fallbackTaxQuery = DB::table('order_items')
                         ->join('orders', 'order_items.order_id', '=', 'orders.id')
                         ->join('menu_item_tax', 'order_items.menu_item_id', '=', 'menu_item_tax.menu_item_id')
                         ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
                         ->where('taxes.id', $tax->id)
                         ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                        ->where('orders.branch_id', branch()->id)
-                        ->whereDate('orders.date_time', $item->date)
-                        ->sum(DB::raw('
+                        ->whereDate('orders.date_time', $item->date);
+                    ReportBranchScope::applyToColumn($fallbackTaxQuery, 'orders.branch_id', $branchFilter);
+                    $itemTaxAmount = $fallbackTaxQuery->sum(DB::raw('
                             CASE
                                 WHEN (SELECT COUNT(*) FROM menu_item_tax WHERE menu_item_id = order_items.menu_item_id) > 1
                                 THEN (order_items.tax_amount * (taxes.tax_percent /
@@ -419,6 +435,8 @@ class SalesReport extends Component
             'currencyId' => $this->currencyId,
             'waiters' => $this->waiters,
             'filterByWaiter' => $this->filterByWaiter,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 }

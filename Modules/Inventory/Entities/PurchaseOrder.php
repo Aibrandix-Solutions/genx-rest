@@ -88,10 +88,10 @@ class PurchaseOrder extends Model
         return (float) ($this->total_amount ?? $this->final_total);
     }
 
-    // Helper to get paid amount
+    // Helper to get paid amount (purchase payments only; excludes return refunds)
     public function getPaidAmountAttribute()
     {
-        return $this->payments()->sum('amount');
+        return (float) $this->payments()->whereNull('purchase_return_id')->sum('amount');
     }
 
     // Helper to get due amount

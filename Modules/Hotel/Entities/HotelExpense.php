@@ -3,7 +3,7 @@
 namespace Modules\Hotel\Entities;
 
 use App\Models\User;
-use App\Traits\HasRestaurant;
+use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,11 +11,12 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class HotelExpense extends Model
 {
-    use HasFactory, HasRestaurant, SoftDeletes;
+    use HasFactory, HasBranch, SoftDeletes;
 
     protected $table = 'hotel_expenses';
 
     protected $fillable = [
+        'branch_id',
         'restaurant_id',
         'title',
         'department',

@@ -54,64 +54,60 @@ class UnifiedFinanceReport extends Component
     // ──────────────────────────────────────────────
     public function getSummaryProperty(): array
     {
-        $restaurantId = restaurant()->id;
+        $branchId = branch()->id;
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
         // --- Restaurant dine-in / pickup / delivery sales (NOT room-service) ---
-        $restaurantSales = Order::where('branch_id', branch()->id)
+        $restaurantSales = Order::where('branch_id', $branchId)
             ->whereNull('hotel_reservation_id')
             ->whereIn('status', ['paid', 'payment_due'])
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
         // --- Room-service orders (tagged to a hotel reservation) ---
-        $roomServiceSales = Order::where('branch_id', branch()->id)
+        $roomServiceSales = Order::where('branch_id', $branchId)
             ->whereNotNull('hotel_reservation_id')
             ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
-        // --- Room Night charges ---
-        $roomNightRevenue = RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+        // --- Room Night charges (filtered by branch_id directly) ---
+        $roomNightRevenue = RoomCharge::where('branch_id', $branchId)
             ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
             ->sum('amount');
 
         // --- Other hotel add-on charges (minibar, laundry, service, tax, other — NOT room_night / restaurant) ---
-        $hotelAddOns = RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+        $hotelAddOns = RoomCharge::where('branch_id', $branchId)
             ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
             ->sum('amount');
 
-        // --- Hotel Payments received ---
-        $hotelPaymentsReceived = HotelPayment::where('restaurant_id', $restaurantId)
-            ->where('payment_type', '!=', HotelPayment::TYPE_REFUND)
+        // --- Hotel Payments received (HasBranch scope auto-applies) ---
+        $hotelPaymentsReceived = HotelPayment::where('payment_type', '!=', HotelPayment::TYPE_REFUND)
             ->whereBetween('created_at', [$from, $to])
             ->sum('amount');
 
-        $hotelRefunds = HotelPayment::where('restaurant_id', $restaurantId)
-            ->where('payment_type', HotelPayment::TYPE_REFUND)
+        $hotelRefunds = HotelPayment::where('payment_type', HotelPayment::TYPE_REFUND)
             ->whereBetween('created_at', [$from, $to])
             ->sum('amount');
 
         // --- Restaurant Payments received ---
-        $restaurantPaymentsReceived = Payment::whereHas('order', function ($q) use ($from, $to) {
-            $q->where('branch_id', branch()->id)
+        $restaurantPaymentsReceived = Payment::whereHas('order', function ($q) use ($from, $to, $branchId) {
+            $q->where('branch_id', $branchId)
               ->whereNull('hotel_reservation_id')
               ->whereBetween('date_time', [$from, $to]);
         })->sum('amount');
 
-        // --- Hotel Expenses ---
-        $hotelExpenses = HotelExpense::where('restaurant_id', $restaurantId)
-            ->whereIn('status', ['paid', 'pending'])
+        // --- Hotel Expenses (HasBranch scope auto-applies) ---
+        $hotelExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->sum('amount');
 
-        $hotelExpensesByDept = HotelExpense::where('restaurant_id', $restaurantId)
-            ->whereIn('status', ['paid', 'pending'])
+        $hotelExpensesByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->groupBy('department')
             ->select('department', DB::raw('SUM(amount) as total'))
@@ -120,7 +116,7 @@ class UnifiedFinanceReport extends Component
 
         // --- Outstanding hotel balances ---
         $hotelOutstanding = DB::table('hotel_reservations')
-            ->where('restaurant_id', $restaurantId)
+            ->where('branch_id', $branchId)
             ->whereIn('status', ['confirmed', 'checked_in'])
             ->whereRaw('COALESCE(balance_due, 0) > 0')
             ->sum('balance_due');
@@ -149,12 +145,12 @@ class UnifiedFinanceReport extends Component
     // ──────────────────────────────────────────────
     public function getDailyBreakdownProperty(): \Illuminate\Support\Collection
     {
-        $restaurantId = restaurant()->id;
+        $branchId = branch()->id;
         $from = $this->startDate;
         $to   = $this->endDate;
 
         // Restaurant sales per day
-        $restaurantByDay = Order::where('branch_id', branch()->id)
+        $restaurantByDay = Order::where('branch_id', $branchId)
             ->whereNull('hotel_reservation_id')
             ->whereIn('status', ['paid', 'payment_due'])
             ->whereBetween(DB::raw('DATE(date_time)'), [$from, $to])
@@ -163,7 +159,7 @@ class UnifiedFinanceReport extends Component
             ->get()->keyBy('day');
 
         // Room-service per day
-        $roomServiceByDay = Order::where('branch_id', branch()->id)
+        $roomServiceByDay = Order::where('branch_id', $branchId)
             ->whereNotNull('hotel_reservation_id')
             ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween(DB::raw('DATE(date_time)'), [$from, $to])
@@ -172,16 +168,15 @@ class UnifiedFinanceReport extends Component
             ->get()->keyBy('day');
 
         // Room charges per day (exclude restaurant lines — counted via room-service orders above)
-        $roomChargesByDay = RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+        $roomChargesByDay = RoomCharge::where('branch_id', $branchId)
             ->where('charge_type', '!=', RoomCharge::TYPE_RESTAURANT)
             ->whereBetween(DB::raw('DATE(charge_date)'), [$from, $to])
             ->groupBy(DB::raw('DATE(charge_date)'))
             ->select(DB::raw('DATE(charge_date) as day'), DB::raw('SUM(amount) as amount'))
             ->get()->keyBy('day');
 
-        // Expenses per day
-        $expensesByDay = HotelExpense::where('restaurant_id', $restaurantId)
-            ->whereIn('status', ['paid', 'pending'])
+        // Expenses per day (HasBranch scope auto-applies)
+        $expensesByDay = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$from, $to])
             ->groupBy('expense_date')
             ->select(DB::raw('DATE(expense_date) as day'), DB::raw('SUM(amount) as amount'))
