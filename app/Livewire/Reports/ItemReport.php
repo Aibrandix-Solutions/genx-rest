@@ -6,11 +6,14 @@ use Carbon\Carbon;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use App\Exports\ItemReportExport;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ItemReport extends Component
 {
+    use HasReportBranchFilter;
 
     public $dateRangeType;
     public $startDate;
@@ -26,6 +29,7 @@ class ItemReport extends Component
 
         $this->dateRangeType = request()->cookie('item_report_date_range_type', 'currentWeek');
         $this->setDateRange();
+        $this->mountReportBranchFilter();
     }
 
     public function updatedDateRangeType($value)
@@ -104,7 +108,7 @@ class ItemReport extends Component
             $data = $this->prepareDateTimeData();
 
             return Excel::download(
-                new ItemReportExport($data['startDateTime'], $data['endDateTime'], $data['startTime'], $data['endTime'], $data['timezone'], $this->searchTerm),
+                new ItemReportExport($data['startDateTime'], $data['endDateTime'], $data['startTime'], $data['endTime'], $data['timezone'], $this->searchTerm, $this->branchFilter),
                 'item-report-' . now()->toDateTimeString() . '.xlsx'
             );
         }
@@ -187,29 +191,10 @@ class ItemReport extends Component
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
             ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
-            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id')
-            ->join('branches', 'branches.id', '=', 'orders.branch_id')
-            ->where('branches.restaurant_id', restaurant()->id)
-            ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-            ->where('orders.status', 'paid')
-            ->where(function ($q) use ($dateTimeData) {
-                if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                    $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                } else {
-                    $q->where(function ($sub) use ($dateTimeData) {
-                        $sub->whereRaw('TIME(orders.date_time) >= ?', [$dateTimeData['startTime']])
-                            ->orWhereRaw('TIME(orders.date_time) <= ?', [$dateTimeData['endTime']]);
-                    });
-                }
-            });
+            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id');
 
-        if ($this->searchTerm) {
-            $query->where(function ($q) {
-                $q->where('menu_items.item_name', 'like', '%' . $this->searchTerm . '%')
-                    ->orWhere('item_categories.category_name', 'like', '%' . $this->searchTerm . '%')
-                    ->orWhere('menu_item_variations.variation', 'like', '%' . $this->searchTerm . '%');
-            });
-        }
+        SalesReportData::applyItemReportOrderFilters($query, $dateTimeData, $this->branchFilter);
+        SalesReportData::applyItemReportSearchFilter($query, $this->searchTerm);
 
         $reportRows = $query
             ->select(
@@ -240,13 +225,16 @@ class ItemReport extends Component
             return $row;
         });
 
-        $totalRevenue = $reportRows->sum('total_revenue');
-        $totalQuantitySold = $reportRows->sum('quantity_sold');
+        $totals = SalesReportData::fetchItemRevenueTotal($dateTimeData, $this->branchFilter, $this->searchTerm);
+        $totalRevenue = $totals->total_revenue ?? 0;
+        $totalQuantitySold = $totals->total_qty ?? 0;
 
         return view('livewire.reports.item-report', [
             'reportRows' => $reportRows,
             'totalRevenue' => $totalRevenue,
             'totalQuantitySold' => $totalQuantitySold,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 

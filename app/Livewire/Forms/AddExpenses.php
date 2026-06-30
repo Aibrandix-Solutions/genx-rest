@@ -6,6 +6,8 @@ use App\Helper\Files;
 use App\Models\Expenses;
 use Livewire\Component;
 use App\Models\ExpenseCategory;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\WithFileUploads;
 use Livewire\Attributes\On;
@@ -80,6 +82,19 @@ class AddExpenses extends Component
             $receiptPath = Files::uploadLocalOrS3($this->expense_receipt, 'expense');
             $expense->update(['receipt_path' => $receiptPath]);
         }
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::ExpenseCreated,
+            description: "Expense created: {$expense->expense_title}",
+            subject: $expense,
+            properties: [
+                'expense_id' => $expense->id,
+                'expense_title' => $expense->expense_title,
+                'amount' => $expense->amount,
+                'payment_status' => $expense->payment_status,
+            ],
+            branchId: branch()?->id ? (int) branch()->id : null,
+        );
 
         $this->reset();
         $this->dispatch('expenseAdded');

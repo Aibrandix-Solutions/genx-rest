@@ -8,6 +8,8 @@ use Livewire\Component;
 use Livewire\WithPagination;
 use App\Scopes\AvailableMenuItemScope;
 use App\Models\Expenses as ModelsExpenses;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\On;
 use Maatwebsite\Excel\Imports\ModelManager;
@@ -70,7 +72,23 @@ class Expenses extends Component
 
     public function deleteExpenseData($id)
     {
-        ModelExpense::find($id)->delete();
+        $expense = ModelExpense::find($id);
+
+        if ($expense) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::ExpenseDeleted,
+                description: "Expense deleted: {$expense->expense_title}",
+                properties: [
+                    'expense_id' => $expense->id,
+                    'expense_title' => $expense->expense_title,
+                    'amount' => $expense->amount,
+                ],
+                branchId: branch()?->id ? (int) branch()->id : null,
+            );
+
+            $expense->delete();
+        }
+
         $this->confirmDeleteExpense = false;
         $this->deleteExpense = null;
 

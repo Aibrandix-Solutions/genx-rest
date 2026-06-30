@@ -70,13 +70,15 @@
                         @lang('app.export')
                     </a>
 
+                    @include('livewire.reports.partials.branch-filter')
+
                 </div>
             </div>
 
         </div>
 
         <div class="flex flex-col">
-            <div class="overflow-x-auto">
+            <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4">
                 <div class="inline-block min-w-full align-middle">
                     <div class="overflow-hidden shadow">
 

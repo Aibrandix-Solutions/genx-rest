@@ -176,17 +176,37 @@ class PurchaseOrderController extends Controller
      */
     public function generatePdf(PurchaseOrder $purchaseOrder)
     {
-        abort_if($purchaseOrder->branch_id !== auth()->user()->branch_id, 403);
+        abort_if(!in_array('Inventory', restaurant_modules()), 403);
+        abort_if(!user_can('Show Purchase Order'), 403);
 
-        $pdf = PDF::loadView('inventory::purchase-orders.pdf', [
-            'purchaseOrder' => $purchaseOrder->load(['supplier', 'location.branch', 'items.inventoryItem.unit', 'creator', 'branch.restaurant'])
+        abort_unless(
+            $purchaseOrder->branch()->where('restaurant_id', restaurant()->id)->exists(),
+            403
+        );
+
+        if (!user_can('View Admin Purchases')) {
+            abort_if($purchaseOrder->branch_id !== branch()->id, 403);
+        }
+
+        $purchaseOrder->load([
+            'supplier',
+            'location.branch',
+            'items.inventoryItem.unit',
+            'items.inventoryItem.category',
+            'creator',
+            'payments.account',
+            'attachments',
         ]);
+
+        $pdf = PDF::loadView('inventory::pdfs.purchase-order', [
+            'purchaseOrder' => $purchaseOrder,
+        ])->setPaper('a4');
 
         $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
         $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
         $pdf->getDomPDF()->set_option('isPhpEnabled', true);
 
-        return $pdf->download("PURCHASE-{$purchaseOrder->po_number}.pdf");
+        return $pdf->download("PO-{$purchaseOrder->po_number}.pdf");
     }
 
     public function edit(Request $request, PurchaseOrder $purchase)

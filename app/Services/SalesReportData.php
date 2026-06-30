@@ -30,6 +30,52 @@ class SalesReportData
         }
     }
 
+    /**
+     * Align item-level reports (Item, Category export rows) with Sales Report scope:
+     * branch filter, same statuses, same date/time window.
+     */
+    public static function applyItemReportOrderFilters($query, array $dateTimeData, ?string $branchFilter = ReportBranchScope::FILTER_CURRENT): void
+    {
+        ReportBranchScope::applyToColumn($query, 'orders.branch_id', $branchFilter);
+
+        $query->whereIn('orders.status', self::reportOrderStatuses());
+        self::applyOrderDateTimeWindow($query, $dateTimeData);
+    }
+
+    public static function applyItemReportSearchFilter($query, ?string $searchTerm): void
+    {
+        $searchTerm = trim((string) ($searchTerm ?? ''));
+
+        if ($searchTerm === '') {
+            return;
+        }
+
+        $query->where(function ($q) use ($searchTerm) {
+            $q->where('menu_items.item_name', 'like', '%' . $searchTerm . '%')
+                ->orWhere('item_categories.category_name', 'like', '%' . $searchTerm . '%')
+                ->orWhere('menu_item_variations.variation', 'like', '%' . $searchTerm . '%');
+        });
+    }
+
+    /**
+     * Item line revenue for the same orders included in Sales Report totals.
+     */
+    public static function fetchItemRevenueTotal(array $dateTimeData, ?string $branchFilter = ReportBranchScope::FILTER_CURRENT, ?string $searchTerm = null): object
+    {
+        $query = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
+            ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
+            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id');
+
+        self::applyItemReportOrderFilters($query, $dateTimeData, $branchFilter);
+        self::applyItemReportSearchFilter($query, $searchTerm);
+
+        return $query->selectRaw('COALESCE(SUM(order_items.quantity), 0) as total_qty')
+            ->selectRaw('COALESCE(SUM(order_items.amount), 0) as total_revenue')
+            ->first();
+    }
+
     public static function paymentsByOrderSubquery()
     {
         return DB::table('payments')
@@ -61,11 +107,16 @@ class SalesReportData
         END)';
     }
 
-    public static function fetchDailyAggregates(array $dateTimeData, ?int $waiterId = null): Collection
+    public static function ordersBaseQuery(?string $branchFilter = ReportBranchScope::FILTER_CURRENT)
+    {
+        return ReportBranchScope::ordersBaseQuery($branchFilter);
+    }
+
+    public static function fetchDailyAggregates(array $dateTimeData, ?int $waiterId = null, ?string $branchFilter = ReportBranchScope::FILTER_CURRENT): Collection
     {
         $paymentsByOrder = self::paymentsByOrderSubquery();
 
-        $query = Order::query()
+        $query = self::ordersBaseQuery($branchFilter)
             ->leftJoinSub($paymentsByOrder, 'pay', 'orders.id', '=', 'pay.order_id');
 
         self::applyOrderDateTimeWindow($query, $dateTimeData);
@@ -96,25 +147,68 @@ class SalesReportData
             ->get();
     }
 
-    public static function fetchOutstandingByDate(array $dateTimeData, ?int $waiterId = null): Collection
+    public static function fetchOutstandingByDate(array $dateTimeData, ?int $waiterId = null, ?string $branchFilter = ReportBranchScope::FILTER_CURRENT): Collection
     {
-        $query = Order::query();
-        self::applyOrderDateTimeWindow($query, $dateTimeData, 'date_time');
-        $query->where('status', 'payment_due');
+        $query = self::ordersBaseQuery($branchFilter);
+        self::applyOrderDateTimeWindow($query, $dateTimeData, 'orders.date_time');
+        $query->where('orders.status', 'payment_due');
 
         if ($waiterId) {
-            $query->where('waiter_id', $waiterId);
+            $query->where('orders.waiter_id', $waiterId);
         }
 
         return $query
             ->select(
-                DB::raw('DATE(date_time) as date'),
+                DB::raw('DATE(orders.date_time) as date'),
                 DB::raw('COUNT(*) as outstanding_orders'),
-                DB::raw('SUM(total) as outstanding_amount')
+                DB::raw('SUM(orders.total) as outstanding_amount')
             )
             ->groupBy('date')
             ->orderBy('date')
             ->get()
             ->keyBy('date');
+    }
+
+    /**
+     * Category sales keyed by item_categories.id (bypasses session BranchScope on menu_items).
+     */
+    public static function fetchCategorySalesAggregates(array $dateTimeData, ?string $branchFilter = ReportBranchScope::FILTER_CURRENT): Collection
+    {
+        $query = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
+            ->join('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id');
+
+        self::applyItemReportOrderFilters($query, $dateTimeData, $branchFilter);
+        ReportBranchScope::applyToColumn($query, 'item_categories.branch_id', $branchFilter);
+        ReportBranchScope::applyToColumn($query, 'menu_items.branch_id', $branchFilter);
+
+        return $query
+            ->select('item_categories.id as category_id')
+            ->selectRaw('COALESCE(SUM(order_items.quantity), 0) as quantity_sold')
+            ->selectRaw('COALESCE(SUM(order_items.amount), 0) as total_revenue')
+            ->groupBy('item_categories.id')
+            ->get()
+            ->keyBy('category_id');
+    }
+
+    /**
+     * Category report rows: categories for the report branch scope with pre-aggregated sales.
+     */
+    public static function fetchCategoryReportRows(array $dateTimeData, ?string $branchFilter = ReportBranchScope::FILTER_CURRENT): Collection
+    {
+        $categories = ReportBranchScope::categoriesBaseQuery($branchFilter)
+            ->orderBy('category_name')
+            ->get();
+
+        $aggregates = self::fetchCategorySalesAggregates($dateTimeData, $branchFilter);
+
+        return $categories->map(function ($category) use ($aggregates) {
+            $stats = $aggregates->get($category->id);
+            $category->quantity_sold = (int) ($stats->quantity_sold ?? 0);
+            $category->total_revenue = (float) ($stats->total_revenue ?? 0);
+
+            return $category;
+        });
     }
 }

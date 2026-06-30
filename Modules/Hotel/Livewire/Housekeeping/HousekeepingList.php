@@ -7,6 +7,8 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\HousekeepingTask;
 use Modules\Hotel\Entities\Room;
 use App\Models\User;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 
 class HousekeepingList extends Component
@@ -31,7 +33,7 @@ class HousekeepingList extends Component
         abort_unless(user_can('view_hotel_housekeeping'), 403);
 
         // Respect enable_housekeeping_module setting
-        $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $hotelSettings = \Modules\Hotel\Entities\HotelSetting::first();
         if ($hotelSettings && !$hotelSettings->enable_housekeeping_module) {
             abort(403, 'Housekeeping module is disabled. Enable it in Hotel Settings.');
         }
@@ -42,9 +44,7 @@ class HousekeepingList extends Component
 
     public function loadReferenceData()
     {
-        $this->rooms = Room::where('restaurant_id', restaurant()->id)
-            ->orderBy('room_number')
-            ->get();
+        $this->rooms = Room::orderBy('room_number')->get();
 
         $this->users = User::where('restaurant_id', restaurant()->id)
             ->orderBy('name')
@@ -59,7 +59,6 @@ class HousekeepingList extends Component
     public function loadTasks()
     {
         $query = HousekeepingTask::with(['room', 'assignedTo'])
-            ->where('restaurant_id', restaurant()->id)
             ->orderBy('created_at', 'desc');
 
         if ($this->statusFilter !== 'all') {
@@ -79,7 +78,7 @@ class HousekeepingList extends Component
     public function editTask($id)
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
-        $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($id);
+        $task = HousekeepingTask::find($id);
         if (!$task) {
             return;
         }
@@ -105,13 +104,14 @@ class HousekeepingList extends Component
             'notes' => 'nullable|string|max:500',
         ]);
 
-        DB::transaction(function () {
+        $isEditing = (bool) $this->editingTaskId;
+
+        DB::transaction(function () use ($isEditing) {
             if ($this->editingTaskId) {
                 // Preserve existing status on edit — do not reset to pending
-                $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($this->editingTaskId);
+                $task = HousekeepingTask::find($this->editingTaskId);
                 if ($task) {
                     $task->update([
-                        'restaurant_id'        => restaurant()->id,
                         'room_id'              => $this->room_id,
                         'task_type'            => $this->task_type,
                         'priority'             => $this->priority,
@@ -119,9 +119,22 @@ class HousekeepingList extends Component
                         'notes'                => $this->notes ?: null,
                         // status intentionally omitted — keep whatever it already is
                     ]);
+
+                    ActivityLogger::recordEvent(
+                        activityEvent: ActivityEvent::HousekeepingTaskUpdated,
+                        description: "Housekeeping task updated for room {$task->room?->room_number}",
+                        properties: [
+                            'task_id' => $task->id,
+                            'room_id' => $this->room_id,
+                            'task_type' => $this->task_type,
+                            'priority' => $this->priority,
+                        ],
+                        restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                    );
                 }
             } else {
-                HousekeepingTask::create([
+                $task = HousekeepingTask::create([
+                    'branch_id'            => branch()->id,
                     'restaurant_id'        => restaurant()->id,
                     'room_id'              => $this->room_id,
                     'task_type'            => $this->task_type,
@@ -131,8 +144,20 @@ class HousekeepingList extends Component
                     'status'               => HousekeepingTask::STATUS_PENDING,
                 ]);
 
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::HousekeepingTaskCreated,
+                    description: "Housekeeping task created for room {$task->room?->room_number}",
+                    properties: [
+                        'task_id' => $task->id,
+                        'room_id' => $this->room_id,
+                        'task_type' => $this->task_type,
+                        'priority' => $this->priority,
+                    ],
+                    restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                );
+
                 // Set room status only when creating (not on edit, to avoid overriding existing flow)
-                $room = Room::where('restaurant_id', restaurant()->id)->find($this->room_id);
+                $room = Room::find($this->room_id);
                 if ($room) {
                     if ($this->task_type === HousekeepingTask::TYPE_CLEANING) {
                         $room->update(['status' => Room::STATUS_CLEANING]);
@@ -142,23 +167,35 @@ class HousekeepingList extends Component
                 }
             }
         });
-        $isEditing = (bool) $this->editingTaskId;
 
         $this->showTaskModal = false;
         $this->resetForm();
         $this->loadTasks();
 
-        $this->alert('success', $isEditing ? 'Task updated successfully.' : 'Task created successfully.');    }
+        $this->alert('success', $isEditing ? 'Task updated successfully.' : 'Task created successfully.');
+    }
 
     public function startTask($id)
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
-        $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($id);
+        $task = HousekeepingTask::find($id);
         if (!$task) {
             return;
         }
 
         $task->start();
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::HousekeepingTaskStarted,
+            description: "Housekeeping task started for room {$task->room?->room_number}",
+            properties: [
+                'task_id' => $task->id,
+                'room_id' => $task->room_id,
+                'task_type' => $task->task_type,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
+
         $this->loadTasks();
         $this->alert('success', 'Task marked as in progress.');
     }
@@ -166,13 +203,24 @@ class HousekeepingList extends Component
     public function completeTask($id)
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
-        $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($id);
+        $task = HousekeepingTask::find($id);
         if (!$task) {
             return;
         }
 
         // complete() internally sets room to available for cleaning tasks
         $task->complete();
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::HousekeepingTaskCompleted,
+            description: "Housekeeping task completed for room {$task->room?->room_number}",
+            properties: [
+                'task_id' => $task->id,
+                'room_id' => $task->room_id,
+                'task_type' => $task->task_type,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
 
         // Handle maintenance separately — entity only handles cleaning internally
         if ($task->room && $task->task_type === HousekeepingTask::TYPE_MAINTENANCE) {

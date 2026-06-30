@@ -56,7 +56,7 @@ class HotelPaymentRecorder
         ?bool $surchargeEnabled = null,
     ): array {
         if ($surchargeEnabled === null) {
-            $settings = HotelSetting::where('restaurant_id', $reservation->restaurant_id)->first();
+            $settings = HotelSetting::where('branch_id', $reservation->branch_id)->first();
             $surchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
         }
 
@@ -82,7 +82,8 @@ class HotelPaymentRecorder
         $totalCollected = round($paymentAmount + $surcharge, 2);
 
         $payment = HotelPayment::create([
-            'restaurant_id' => $reservation->restaurant_id,
+            'branch_id'      => $reservation->branch_id,
+            'restaurant_id'  => $reservation->restaurant_id,
             'reservation_id' => $reservation->id,
             'amount' => $totalCollected,
             'payment_method' => $paymentMethod,

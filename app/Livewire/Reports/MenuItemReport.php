@@ -4,14 +4,17 @@ namespace App\Livewire\Reports;
 
 use Carbon\Carbon;
 use App\Models\MenuItem;
-use App\Models\ItemCategory;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
+use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Livewire\Attributes\On;
-use Illuminate\Support\Facades\DB;
 
 class MenuItemReport extends Component
 {
+    use HasReportBranchFilter;
     use WithPagination;
 
     public $dateRangeType = 'currentWeek';
@@ -33,10 +36,28 @@ class MenuItemReport extends Component
 
         $this->dateRangeType = request()->cookie('menu_item_report_date_range_type', 'currentWeek');
         $this->setDateRange();
+        $this->mountReportBranchFilter();
+        $this->loadReportCategories();
+    }
 
-        $this->categories = ItemCategory::where('branch_id', branch()->id)
+    protected function loadReportCategories(): void
+    {
+        $this->categories = ReportBranchScope::categoriesBaseQuery($this->branchFilter)
             ->orderBy('category_name')
             ->get();
+
+        if ($this->filterCategoryId && ! $this->categories->contains('id', (int) $this->filterCategoryId)) {
+            $this->filterCategoryId = '';
+        }
+    }
+
+    public function updatedBranchFilter(): void
+    {
+        $restaurantId = (int) restaurant()->id;
+        $this->branchFilter = ReportBranchScope::validateFilter($this->branchFilter, $restaurantId);
+        cookie()->queue(cookie('report_branch_filter', $this->branchFilter, 60 * 24 * 30));
+        $this->loadReportCategories();
+        $this->resetPage();
     }
 
     public function updatedDateRangeType($value)
@@ -150,18 +171,21 @@ class MenuItemReport extends Component
     public function render()
     {
         $dt = $this->prepareDateTimeData();
+        $branchFilter = $this->branchFilter;
 
-        // ── All menu items for this branch (paginated) ──────────────────────
-        $itemsQuery = MenuItem::withoutGlobalScopes()
-            ->where('menu_items.branch_id', branch()->id)
-            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id')
+        $itemsQuery = MenuItem::withoutGlobalScopes();
+        ReportBranchScope::applyToColumn($itemsQuery, 'menu_items.branch_id', $branchFilter);
+        $itemsQuery->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id')
+            ->leftJoin('branches', 'branches.id', '=', 'menu_items.branch_id')
             ->select(
                 'menu_items.id',
                 'menu_items.item_name',
                 'menu_items.item_code',
                 'menu_items.price',
                 'menu_items.is_available',
+                'menu_items.branch_id',
                 'item_categories.category_name',
+                'branches.name as branch_name',
             );
 
         if ($this->searchTerm) {
@@ -180,12 +204,13 @@ class MenuItemReport extends Component
         // ── Sales summary per item within the selected date range ────────────
         $menuItemIds = $items->pluck('id');
 
-        $salesByItem = DB::table('order_items')
+        $salesByItemQuery = DB::table('order_items')
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->whereIn('order_items.menu_item_id', $menuItemIds)
-            ->where('orders.status', 'paid')
-            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']])
-            ->where(function ($q) use ($dt) {
+            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
+            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']]);
+        ReportBranchScope::applyToColumn($salesByItemQuery, 'orders.branch_id', $branchFilter);
+        $salesByItem = $salesByItemQuery->where(function ($q) use ($dt) {
                 if ($dt['startTime'] < $dt['endTime']) {
                     $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dt['startTime'], $dt['endTime']]);
                 } else {
@@ -206,12 +231,13 @@ class MenuItemReport extends Component
             ->keyBy('menu_item_id');
 
         // ── Sales detail rows per item (for the Alpine modal) ────────────────
-        $salesDetailByItem = DB::table('order_items')
+        $salesDetailQuery = DB::table('order_items')
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->whereIn('order_items.menu_item_id', $menuItemIds)
-            ->where('orders.status', 'paid')
-            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']])
-            ->where(function ($q) use ($dt) {
+            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
+            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']]);
+        ReportBranchScope::applyToColumn($salesDetailQuery, 'orders.branch_id', $branchFilter);
+        $salesDetailByItem = $salesDetailQuery->where(function ($q) use ($dt) {
                 if ($dt['startTime'] < $dt['endTime']) {
                     $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dt['startTime'], $dt['endTime']]);
                 } else {
@@ -249,13 +275,14 @@ class MenuItemReport extends Component
         });
 
         // Overall totals for the stat cards (across all pages, not just current page)
-        $totals = DB::table('order_items')
+        $totalsQuery = DB::table('order_items')
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->join('menu_items as mi', 'mi.id', '=', 'order_items.menu_item_id')
-            ->where('mi.branch_id', branch()->id)
-            ->where('orders.status', 'paid')
-            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']])
-            ->where(function ($q) use ($dt) {
+            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
+            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']]);
+        ReportBranchScope::applyToColumn($totalsQuery, 'orders.branch_id', $branchFilter);
+        ReportBranchScope::applyToColumn($totalsQuery, 'mi.branch_id', $branchFilter);
+        $totals = $totalsQuery->where(function ($q) use ($dt) {
                 if ($dt['startTime'] < $dt['endTime']) {
                     $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dt['startTime'], $dt['endTime']]);
                 } else {
@@ -278,6 +305,9 @@ class MenuItemReport extends Component
             'endDate'           => $this->endDate,
             'startTime'         => $dt['startTime'],
             'endTime'           => $dt['endTime'],
+            'showBranchFilter'  => $this->showBranchFilter(),
+            'reportBranches'    => $this->reportBranches(),
+            'showBranchColumn'  => $this->showBranchColumn(),
         ]);
     }
 }

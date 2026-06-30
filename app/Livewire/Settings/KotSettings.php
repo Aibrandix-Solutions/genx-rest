@@ -16,10 +16,24 @@ class KotSettings extends Component
 
     public function mount()
     {
-        $this->kotSettings = KotSetting::first();
+        $this->kotSettings = $this->resolveKotSettings();
         $this->enableItemLevelStatus = (bool) $this->kotSettings->enable_item_level_status;
-        
+
         $this->defaultKotStatus = $this->kotSettings->default_status;
+    }
+
+    protected function resolveKotSettings(): KotSetting
+    {
+        $settings = KotSetting::first();
+
+        if (! $settings && branch()) {
+            branch()->generateKotSetting();
+            $settings = KotSetting::first();
+        }
+
+        abort_if(! $settings, 404);
+
+        return $settings;
     }
 
     public function submitForm()
