@@ -752,6 +752,9 @@ class AddPayment extends Component
 
             $this->order->amount_paid = $orderPaidAmount;
             $this->order->status = $nextFinancialStatus;
+            if (auth()->id()) {
+                $this->order->pos_user_id = auth()->id();
+            }
             if (
                 $nextFinancialStatus === 'paid'
                 && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
@@ -815,6 +818,7 @@ class AddPayment extends Component
         if ($directPrint) {
             $this->dispatch('receiptPrintFromPayment', id: $this->order->id)->to(OrderDetail::class);
         } else {
+            $this->dispatch('closePosPrintPlaceholder');
             $this->dispatch('showOrderDetail', id: $this->order->id);
         }
         $this->dispatch('refreshOrders');

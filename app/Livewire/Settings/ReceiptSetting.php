@@ -18,6 +18,7 @@ class ReceiptSetting extends Component
     public bool $tableNumber;
     public $paymentQrCode;
     public bool $waiter;
+    public bool $showUserName;
     public bool $totalGuest;
     public bool $restaurantLogo;
     public $receiptSetting;
@@ -37,6 +38,7 @@ class ReceiptSetting extends Component
         $this->tableNumber = (bool)$this->receiptSetting->show_table_number;
         $this->showPaymentQrCode = (bool)$this->receiptSetting->show_payment_qr_code;
         $this->waiter = (bool)$this->receiptSetting->show_waiter;
+        $this->showUserName = (bool)($this->receiptSetting->show_user_name ?? false);
         $this->totalGuest = (bool)$this->receiptSetting->show_total_guest;
         $this->restaurantLogo = (bool)$this->receiptSetting->show_restaurant_logo;
         $this->restaurantTax = (bool)$this->receiptSetting->show_tax;
@@ -56,6 +58,7 @@ class ReceiptSetting extends Component
             'show_table_number' => $this->tableNumber,
             'show_payment_qr_code' => $this->showPaymentQrCode,
             'show_waiter' => $this->waiter,
+            'show_user_name' => $this->showUserName,
             'show_total_guest' => $this->totalGuest,
             'show_restaurant_logo' => $this->restaurantLogo,
             'show_tax' => $this->restaurantTax,

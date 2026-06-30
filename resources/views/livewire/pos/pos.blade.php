@@ -462,6 +462,11 @@
         });
 
         $wire.on('print_location', (url) => {
+            if (typeof window.openPosPrintTab === 'function') {
+                window.openPosPrintTab(url);
+                return;
+            }
+
             const anchor = document.createElement('a');
             anchor.href = url;
             anchor.target = '_blank';
