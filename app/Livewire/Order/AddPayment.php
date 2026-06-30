@@ -815,6 +815,7 @@ class AddPayment extends Component
         if ($directPrint) {
             $this->dispatch('receiptPrintFromPayment', id: $this->order->id)->to(OrderDetail::class);
         } else {
+            $this->dispatch('closePosPrintPlaceholder');
             $this->dispatch('showOrderDetail', id: $this->order->id);
         }
         $this->dispatch('refreshOrders');

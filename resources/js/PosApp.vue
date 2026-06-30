@@ -1813,6 +1813,10 @@ const openPrintUrl = (url, existingWindow = null) => {
         return false;
     }
 
+    if (typeof window.openPosPrintTab === "function") {
+        return window.openPosPrintTab(url, existingWindow);
+    }
+
     if (existingWindow && !existingWindow.closed) {
         existingWindow.location.href = url;
 
@@ -1908,13 +1912,16 @@ const handleSaveOrder = async (...actions) => {
         actionList.includes("kot") &&
         actionList.includes("print") &&
         !actionList.includes("bill");
+    const wantsReceiptPrint =
+        actionList.includes("bill") && actionList.includes("print");
     // Open a tab synchronously on click so print is not blocked after await.
-    let kotPrintPlaceholder = wantsKotPrint ? window.open("about:blank", "_blank") : null;
+    let printPlaceholder =
+        wantsKotPrint || wantsReceiptPrint ? window.open("about:blank", "_blank") : null;
     try {
         // Validate cart has items
         // In linked-order mode, existing items are on the server — cart may be empty if no NEW items are added
         if (!isLinkedOrderMode.value && (!cartItems.value || cartItems.value.length === 0)) {
-            kotPrintPlaceholder?.close();
+            printPlaceholder?.close();
             showPosAlert("error", "Cart is empty. Please add items before saving.");
             savingAction.value = null;
             return;
@@ -1945,13 +1952,13 @@ const handleSaveOrder = async (...actions) => {
 
         if (selectedSlug === "room_service") {
             if (!roomServiceEnabled.value) {
-                kotPrintPlaceholder?.close();
+                printPlaceholder?.close();
                 showPosAlert("error", "Room service is not available.");
                 savingAction.value = null;
                 return;
             }
             if (!hotelReservationId.value) {
-                kotPrintPlaceholder?.close();
+                printPlaceholder?.close();
                 showPosAlert("error", "Please select a room for room service.");
                 showRoomServiceModal.value = true;
                 savingAction.value = null;
@@ -2088,7 +2095,7 @@ const handleSaveOrder = async (...actions) => {
         );
 
         if (result.offline) {
-            kotPrintPlaceholder?.close();
+            printPlaceholder?.close();
             console.log("Order queued for sync:", result.operationId);
 
             if (isExistingOrder) {
@@ -2126,10 +2133,10 @@ const handleSaveOrder = async (...actions) => {
             );
 
             if (shouldPrintKot) {
-                triggerKotPrint(resultPayload, kotPrintPlaceholder);
-                kotPrintPlaceholder = null;
+                triggerKotPrint(resultPayload, printPlaceholder);
+                printPlaceholder = null;
             } else {
-                kotPrintPlaceholder?.close();
+                printPlaceholder?.close();
             }
 
             console.log("[POS DEBUG] saveOrder decoded response", {
@@ -2284,7 +2291,7 @@ const handleSaveOrder = async (...actions) => {
             }
         }
     } catch (error) {
-        kotPrintPlaceholder?.close();
+        printPlaceholder?.close();
         const errorMessage = error?.response?.data?.message || error?.message || "Failed to save order";
         const errors = error?.response?.data?.errors || {};
         console.error("Error saving order:", {

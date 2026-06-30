@@ -638,9 +638,25 @@
     </div>
 
     <script>
-        window.onload = function() {
-            window.print();
-        }
+        (function () {
+            function closePrintTab() {
+                window.close();
+
+                if (!window.closed && window.opener && !window.opener.closed) {
+                    try {
+                        window.opener.focus();
+                    } catch (e) {
+                        // noop
+                    }
+                }
+            }
+
+            window.addEventListener('afterprint', closePrintTab);
+
+            window.onload = function () {
+                window.print();
+            };
+        })();
     </script>
 </body>
 
