@@ -36,6 +36,11 @@ class Supplier extends Model
         return $this->hasMany(SupplierDocument::class);
     }
 
+    public function returns(): HasMany
+    {
+        return $this->hasMany(PurchaseReturn::class);
+    }
+
     // Calculate total amount purchased from received POs (uses persisted total_amount, fast DB aggregate)
     public function getTotalPurchasedAttribute()
     {
@@ -56,9 +61,15 @@ class Supplier extends Model
         return (float) $this->payments()->whereNotNull('purchase_return_id')->sum('amount');
     }
 
+    // Total returned goods (reduces amount owed; matches supplier ledger credits)
+    public function getTotalReturnedAttribute()
+    {
+        return (float) $this->returns()->sum('total_amount');
+    }
+
     // Calculate outstanding balance owed to supplier
     public function getBalanceAttribute()
     {
-        return $this->total_purchased - $this->total_paid;
+        return $this->total_purchased - $this->total_paid - $this->total_returned - $this->total_refunds;
     }
 }

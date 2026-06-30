@@ -84,11 +84,13 @@
                 <svg class="w-5 h-5 mr-2 -ml-1" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" d="M6 2a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.414A2 2 0 0 0 15.414 6L12 2.586A2 2 0 0 0 10.586 2zm5 6a1 1 0 1 0-2 0v3.586l-1.293-1.293a1 1 0 1 0-1.414 1.414l3 3a1 1 0 0 0 1.414 0l3-3a1 1 0 0 0-1.414-1.414L11 11.586z" clip-rule="evenodd"/></svg>
                 @lang('app.export')
             </a>
+
+            @include('livewire.reports.partials.branch-filter')
         </div>
     </div>
 
     <!-- Sales Table -->
-    <div class="overflow-x-auto bg-white dark:bg-gray-800 p-4">
+    <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4 bg-white dark:bg-gray-800 p-4">
         <table class="min-w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <thead class="bg-gray-100 dark:bg-gray-700">
                 <tr>
@@ -110,10 +112,10 @@
                         {{ $item->category_name }}
                     </td>
                     <td class="p-4 text-sm text-center text-gray-900 dark:text-white">
-                        {{ $item->orders->sum('quantity') }}
+                        {{ $item->quantity_sold }}
                     </td>
                     <td class="p-4 text-sm text-center text-gray-900 dark:text-white">
-                        {{ currency_format($item->orders->sum(function($order) { return $order->quantity * $order->price; }), restaurant()->currency_id) }}
+                        {{ currency_format($item->total_revenue, restaurant()->currency_id) }}
                     </td>
                 </tr>
                 @empty

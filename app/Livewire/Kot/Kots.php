@@ -38,9 +38,9 @@ class Kots extends Component
     public function mount($kotPlace = null, $showAllKitchens = false)
     {
         // Load date range type from cookie
-        $this->kotSettings = KotSetting::first();
+        $this->kotSettings = $this->resolveKotSettings();
         $this->dateRangeType = request()->cookie('kots_date_range_type', 'today');
-        $this->filterOrders = ($this->kotSettings->default_status == 'pending') ? 'pending_confirmation' : 'in_kitchen';
+        $this->filterOrders = ($this->kotSettings->default_status === 'pending') ? 'pending_confirmation' : 'in_kitchen';
         $this->startDate = now()->startOfWeek()->format('m/d/Y');
         $this->endDate = now()->endOfWeek()->format('m/d/Y');
         $this->cancelReasons = KotCancelReason::where('cancel_kot', true)->get();
@@ -56,6 +56,25 @@ class Kots extends Component
         }
 
         $this->setDateRange();
+    }
+
+    protected function resolveKotSettings(): KotSetting
+    {
+        $settings = KotSetting::first();
+
+        if (! $settings && branch()) {
+            branch()->generateKotSetting();
+            $settings = KotSetting::first();
+        }
+
+        if (! $settings) {
+            $settings = new KotSetting([
+                'default_status' => 'pending',
+                'enable_item_level_status' => true,
+            ]);
+        }
+
+        return $settings;
     }
 
     public function setDateRange()

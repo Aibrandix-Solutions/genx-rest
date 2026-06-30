@@ -438,6 +438,7 @@ class PosVueOrderController extends Controller
         $branch = branch();
         $restaurant = restaurant();
         abort_if(! $branch || ! $restaurant, 422, 'Branch/restaurant context is required');
+        $posUserId = auth()->id();
 
         if (! empty($validated['waiter_id'])) {
             abort_unless(
@@ -498,7 +499,7 @@ class PosVueOrderController extends Controller
 
             $hotelReservation = HotelReservation::query()
                 ->where('id', $hotelReservationId)
-                ->where('restaurant_id', $restaurant->id)
+                ->where('branch_id', branch()->id)
                 ->where('status', HotelReservation::STATUS_CHECKED_IN)
                 ->first();
 
@@ -546,7 +547,7 @@ class PosVueOrderController extends Controller
             $resolvedTableId = (int) $table->id;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId, $posUserId) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -588,6 +589,7 @@ class PosVueOrderController extends Controller
                 $updatePayload = [
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
+                    'pos_user_id' => $posUserId,
                     'customer_id' => $orderTypeValue === 'room_service' ? null : ($validated['customer_id'] ?? null),
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,
@@ -626,6 +628,7 @@ class PosVueOrderController extends Controller
                     'formatted_order_number' => $numberData['formatted_order_number'],
                     'date_time' => now(),
                     'waiter_id' => $validated['waiter_id'] ?? null,
+                    'pos_user_id' => $posUserId,
                     'customer_id' => $orderTypeValue === 'room_service' ? null : ($validated['customer_id'] ?? null),
                     'delivery_app_id' => $deliveryAppId,
                     'delivery_executive_id' => ($orderTypeValue === 'delivery') ? ($validated['delivery_executive_id'] ?? null) : null,

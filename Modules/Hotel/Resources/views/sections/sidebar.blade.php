@@ -14,7 +14,7 @@
     || user_can('manage_hotel_settings');
 
   // Read feature flags from hotel settings (cached to avoid N+1)
-  $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
+  $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('branch_id', branch()->id)->first();
   $housekeepingEnabled    = $hotelSettings ? (bool) $hotelSettings->enable_housekeeping_module : true;
   $dynamicPricingEnabled  = $hotelSettings ? (bool) $hotelSettings->enable_dynamic_pricing    : false;
   $roomServiceEnabled     = $hotelSettings ? (bool) $hotelSettings->enable_room_service        : true;

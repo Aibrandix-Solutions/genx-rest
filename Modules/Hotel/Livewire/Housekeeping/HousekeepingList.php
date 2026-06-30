@@ -33,7 +33,7 @@ class HousekeepingList extends Component
         abort_unless(user_can('view_hotel_housekeeping'), 403);
 
         // Respect enable_housekeeping_module setting
-        $hotelSettings = \Modules\Hotel\Entities\HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $hotelSettings = \Modules\Hotel\Entities\HotelSetting::first();
         if ($hotelSettings && !$hotelSettings->enable_housekeeping_module) {
             abort(403, 'Housekeeping module is disabled. Enable it in Hotel Settings.');
         }
@@ -44,9 +44,7 @@ class HousekeepingList extends Component
 
     public function loadReferenceData()
     {
-        $this->rooms = Room::where('restaurant_id', restaurant()->id)
-            ->orderBy('room_number')
-            ->get();
+        $this->rooms = Room::orderBy('room_number')->get();
 
         $this->users = User::where('restaurant_id', restaurant()->id)
             ->orderBy('name')
@@ -61,7 +59,6 @@ class HousekeepingList extends Component
     public function loadTasks()
     {
         $query = HousekeepingTask::with(['room', 'assignedTo'])
-            ->where('restaurant_id', restaurant()->id)
             ->orderBy('created_at', 'desc');
 
         if ($this->statusFilter !== 'all') {
@@ -81,7 +78,7 @@ class HousekeepingList extends Component
     public function editTask($id)
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
-        $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($id);
+        $task = HousekeepingTask::find($id);
         if (!$task) {
             return;
         }
@@ -112,10 +109,9 @@ class HousekeepingList extends Component
         DB::transaction(function () use ($isEditing) {
             if ($this->editingTaskId) {
                 // Preserve existing status on edit — do not reset to pending
-                $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($this->editingTaskId);
+                $task = HousekeepingTask::find($this->editingTaskId);
                 if ($task) {
                     $task->update([
-                        'restaurant_id'        => restaurant()->id,
                         'room_id'              => $this->room_id,
                         'task_type'            => $this->task_type,
                         'priority'             => $this->priority,
@@ -138,6 +134,7 @@ class HousekeepingList extends Component
                 }
             } else {
                 $task = HousekeepingTask::create([
+                    'branch_id'            => branch()->id,
                     'restaurant_id'        => restaurant()->id,
                     'room_id'              => $this->room_id,
                     'task_type'            => $this->task_type,
@@ -160,7 +157,7 @@ class HousekeepingList extends Component
                 );
 
                 // Set room status only when creating (not on edit, to avoid overriding existing flow)
-                $room = Room::where('restaurant_id', restaurant()->id)->find($this->room_id);
+                $room = Room::find($this->room_id);
                 if ($room) {
                     if ($this->task_type === HousekeepingTask::TYPE_CLEANING) {
                         $room->update(['status' => Room::STATUS_CLEANING]);
@@ -181,7 +178,7 @@ class HousekeepingList extends Component
     public function startTask($id)
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
-        $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($id);
+        $task = HousekeepingTask::find($id);
         if (!$task) {
             return;
         }
@@ -206,7 +203,7 @@ class HousekeepingList extends Component
     public function completeTask($id)
     {
         abort_unless(user_can('view_hotel_housekeeping'), 403);
-        $task = HousekeepingTask::where('restaurant_id', restaurant()->id)->find($id);
+        $task = HousekeepingTask::find($id);
         if (!$task) {
             return;
         }

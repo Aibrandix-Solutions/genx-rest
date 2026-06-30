@@ -86,7 +86,7 @@ class OrderFolioSettlement
     {
         $reservation = Reservation::query()
             ->where('id', $reservationId)
-            ->where('restaurant_id', restaurant()->id)
+            ->where('branch_id', branch()->id)
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->firstOrFail();
 

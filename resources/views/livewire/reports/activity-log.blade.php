@@ -87,6 +87,14 @@
                 <x-input type="text" class="mt-1 w-full" placeholder="{{ __('app.search') }}..."
                     wire:model.live.debounce.500ms="search" />
             </div>
+            @if($showBranchFilter ?? false)
+            <div>
+                <x-label :value="__('app.branch')" />
+                <div class="mt-1">
+                    @include('livewire.reports.partials.branch-filter')
+                </div>
+            </div>
+            @endif
         </div>
         <div class="flex flex-wrap items-center justify-between mt-4 gap-3">
             <div>
@@ -105,11 +113,14 @@
     </div>
 
     <div class="bg-white rounded-lg shadow dark:bg-gray-800">
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4">
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead class="bg-gray-50 dark:bg-gray-700/50">
                     <tr>
                         <th class="px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">@lang('app.dateTime')</th>
+                        @if($showBranchColumn ?? false)
+                        <th class="px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">@lang('app.branch')</th>
+                        @endif
                         <th class="px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">@lang('app.user')</th>
                         <th class="px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">@lang('app.activityLog.module')</th>
                         <th class="px-4 py-3 text-xs font-semibold tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">@lang('app.description')</th>
@@ -122,6 +133,11 @@
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">
                                 {{ optional($activity->created_at)->timezone(timezone())->format('d M Y, h:i:s A') }}
                             </td>
+                            @if($showBranchColumn ?? false)
+                            <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                                {{ $activity->branch->name ?? '--' }}
+                            </td>
+                            @endif
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
                                 {{ $activity->causer_name ?? $activity->causer?->name ?? __('app.system') }}
                             </td>
@@ -170,7 +186,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="px-4 py-8 text-sm text-center text-gray-500 dark:text-gray-300">
+                            <td colspan="{{ 5 + (($showBranchColumn ?? false) ? 1 : 0) }}" class="px-4 py-8 text-sm text-center text-gray-500 dark:text-gray-300">
                                 @lang('app.activityLog.noEvents')
                             </td>
                         </tr>

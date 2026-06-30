@@ -283,6 +283,16 @@
                             <span>@lang('modules.order.waiter'): <span class="">{{ $order->waiter->name }}</span></span>
                     </div>
                 @endif
+                @if ($receiptSettings->show_user_name)
+                    @php
+                        $receiptPosUserName = $order->posUser?->name ?? auth()->user()?->name;
+                    @endphp
+                    @if ($receiptPosUserName)
+                    <div class="summary-row">
+                            <span>@lang('modules.order.user'): <span class="">{{ $receiptPosUserName }}</span></span>
+                    </div>
+                    @endif
+                @endif
                 @if ($receiptSettings->show_order_type )
                     <div class="summary-row">
 
@@ -638,9 +648,25 @@
     </div>
 
     <script>
-        window.onload = function() {
-            window.print();
-        }
+        (function () {
+            function closePrintTab() {
+                window.close();
+
+                if (!window.closed && window.opener && !window.opener.closed) {
+                    try {
+                        window.opener.focus();
+                    } catch (e) {
+                        // noop
+                    }
+                }
+            }
+
+            window.addEventListener('afterprint', closePrintTab);
+
+            window.onload = function () {
+                window.print();
+            };
+        })();
     </script>
 </body>
 

@@ -212,13 +212,29 @@
         @endif
     </div>
 
-        <script >
-        window.onload = function() {
-            // Only call print if not in an iframe
-            if (window.self === window.top) {
-                window.print();
+        <script>
+        (function () {
+            function closePrintTab() {
+                window.close();
+
+                if (!window.closed && window.opener && !window.opener.closed) {
+                    try {
+                        window.opener.focus();
+                    } catch (e) {
+                        // noop
+                    }
+                }
             }
-        }
+
+            window.addEventListener('afterprint', closePrintTab);
+
+            window.onload = function () {
+                // Only call print if not in an iframe
+                if (window.self === window.top) {
+                    window.print();
+                }
+            };
+        })();
     </script>
 
 

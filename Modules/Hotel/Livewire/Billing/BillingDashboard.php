@@ -21,20 +21,17 @@ class BillingDashboard extends Component
     public function loadData()
     {
         $this->outstandingReservations = Reservation::with(['guest', 'room'])
-            ->where('restaurant_id', restaurant()->id)
             ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
             ->where('balance_due', '>', 0)
             ->orderBy('balance_due', 'desc')
             ->limit(15)
             ->get();
 
-        $this->totalOutstandingBalance = Reservation::where('restaurant_id', restaurant()->id)
-            ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+        $this->totalOutstandingBalance = Reservation::whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
             ->where('balance_due', '>', 0)
             ->sum('balance_due');
 
         $this->recentPayments = HotelPayment::with(['reservation', 'receivedBy'])
-            ->where('restaurant_id', restaurant()->id)
             ->orderBy('created_at', 'desc')
             ->limit(15)
             ->get();
