@@ -752,6 +752,9 @@ class AddPayment extends Component
 
             $this->order->amount_paid = $orderPaidAmount;
             $this->order->status = $nextFinancialStatus;
+            if (auth()->id()) {
+                $this->order->pos_user_id = auth()->id();
+            }
             if (
                 $nextFinancialStatus === 'paid'
                 && !in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
