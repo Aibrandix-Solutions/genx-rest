@@ -491,4 +491,18 @@
 
     @include('livewire.pos.room-selection-modal')
 
+    @once
+        @push('styles')
+            <style>
+                .pos-cart-table col:nth-child(2) { width: 6.5rem; }
+                .pos-cart-table col:nth-child(3) { width: 4rem; }
+                .pos-cart-table col:nth-child(4) { width: 5.5rem; }
+                .pos-cart-table col:nth-child(5) { width: 2.75rem; }
+                @media (max-width: 1023px) {
+                    .pos-cart-table col:nth-child(3) { width: 0; }
+                }
+            </style>
+        @endpush
+    @endonce
+
 </div>

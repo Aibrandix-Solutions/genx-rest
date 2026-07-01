@@ -413,7 +413,14 @@
 
         <!-- Cart Items Table -->
         <div ref="cartContainer" class="pos-cart-items-scroll rounded">
-            <table class="w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+            <table class="pos-cart-table w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <colgroup>
+                    <col>
+                    <col style="width: 6.5rem">
+                    <col style="width: 4rem">
+                    <col style="width: 5.5rem">
+                    <col style="width: 2.75rem">
+                </colgroup>
                 <thead class="pos-cart-items-thead">
                     <tr>
                         <th scope="col"
@@ -647,11 +654,11 @@
                                     </div>
                                 </td>
 
-                                <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                                    <div class="relative flex items-center max-w-[8rem] mx-auto">
+                                <td class="p-1 text-center align-middle overflow-hidden">
+                                    <div class="relative flex items-center w-full max-w-full mx-auto">
                                         <button type="button" @click="requestDecreaseKotItem(item)"
                                             :disabled="!canManageLineItems || !canDeleteKotItem || item._isCombo"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -662,12 +669,12 @@
                                             :readonly="true"
                                             :title="linkedOrderNewKotMessage"
                                             @click="notifyLinkedOrderUseNewKot"
-                                            class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
+                                            class="min-w-0 w-full h-7 border-b border-t bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
                                             min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                         <button type="button" @click="handleLinkedIncreaseBlocked"
                                             :disabled="item._isCombo"
                                             :title="linkedOrderNewKotMessage"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -680,7 +687,7 @@
                                 <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right">
@@ -790,7 +797,7 @@
                                 <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right text-gray-400 text-xs">
@@ -870,20 +877,20 @@
                             </td>
 
                             <!-- Quantity Control -->
-                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                                <div class="relative flex items-center max-w-[8rem] mx-auto">
+                            <td class="p-1 text-center align-middle overflow-hidden">
+                                <div class="relative flex items-center w-full max-w-full mx-auto">
                                     <button type="button" @click="$emit('decrease-quantity', group.item.line_key || group.item.id)"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
                                     </button>
                                     <input type="text" v-model.lazy="group.item.quantity"
                                         @change="$emit('update-quantity', { line_key: group.item.line_key || group.item.id, id: group.item.id, quantity: group.item.quantity, variant_id: group.item.variant_id || 0, modifier_id: group.item.modifier_id || 0 })"
-                                        class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        class="min-w-0 w-full h-7 border-b border-t bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                     <button type="button" @click="$emit('increase-quantity', group.item.line_key || group.item.id)"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
@@ -894,7 +901,7 @@
                             <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                 {{ currencySymbol }} {{ formatPrice(group.item.price) }}
                             </td>
-                            <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                            <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                 {{ currencySymbol }} {{ formatPrice(group.item.price * group.item.quantity) }}
                             </td>
                             <td class="p-2 whitespace-nowrap text-right">
@@ -3145,6 +3152,28 @@ const handleSaveOrder = (...actions) => {
 .pos-cart-items-scroll table {
     border-collapse: separate;
     border-spacing: 0;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(2) {
+    width: 6.5rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(3) {
+    width: 4rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(4) {
+    width: 5.5rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(5) {
+    width: 2.75rem;
+}
+
+@media (max-width: 1023px) {
+    .pos-cart-items-scroll .pos-cart-table col:nth-child(3) {
+        width: 0;
+    }
 }
 
 .pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
