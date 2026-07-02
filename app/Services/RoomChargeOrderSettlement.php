@@ -3,49 +3,37 @@
 namespace App\Services;
 
 use App\Models\Order;
-use Modules\Hotel\Services\OrderFolioSettlement;
 
 class RoomChargeOrderSettlement
 {
     public const STATUS_OUTSTANDING = 'outstanding';
-
     public const STATUS_PARTIALLY_PAID = 'partially_paid';
-
     public const STATUS_PAID = 'paid';
 
     public static function status(Order $order): string
     {
-        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isFolioSettled($order)) {
+        $paid = self::settledAmount($order);
+        $outstanding = self::outstandingAmount($order);
+
+        if ($outstanding <= 0.0001) {
             return self::STATUS_PAID;
         }
 
-        if ($order->status === 'paid' || $order->isFullyPaid()) {
-            return self::STATUS_PAID;
+        if ($paid > 0.0001) {
+            return self::STATUS_PARTIALLY_PAID;
         }
 
-        if (self::settledAmount($order) <= 0.01) {
-            return self::STATUS_OUTSTANDING;
-        }
-
-        return self::STATUS_PARTIALLY_PAID;
+        return self::STATUS_OUTSTANDING;
     }
 
     public static function settledAmount(Order $order): float
     {
-        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isFolioSettled($order)) {
-            return round((float) $order->total, 2);
-        }
-
-        return round($order->nonDuePaymentsSum(), 2);
+        return round((float) $order->payments()->where('payment_method', '!=', 'due')->sum('amount'), 2);
     }
 
     public static function outstandingAmount(Order $order): float
     {
-        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isFolioSettled($order)) {
-            return 0.0;
-        }
-
-        return round($order->outstandingAmount(), 2);
+        return max(0, round((float) $order->total - self::settledAmount($order), 2));
     }
 
     public static function taxTotal(Order $order): float

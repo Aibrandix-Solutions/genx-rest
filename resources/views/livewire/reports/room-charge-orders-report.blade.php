@@ -69,6 +69,25 @@
                     <option value="partially_paid">@lang('modules.report.settlementPartiallyPaid')</option>
                     <option value="paid">@lang('modules.report.settlementPaid')</option>
                 </select>
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('reports.roomChargeOrders.print', $this->exportQuery()) }}" target="_blank"
+                        class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700">
+                        @lang('app.print')
+                    </a>
+                    <button type="button" wire:click="exportPdf"
+                        class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700">
+                        @lang('modules.report.exportPdf')
+                    </button>
+                    <button type="button" wire:click="exportExcel"
+                        class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700">
+                        @lang('modules.report.exportExcel')
+                    </button>
+                    <button type="button" wire:click="exportCsv"
+                        class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700">
+                        @lang('modules.report.exportCsv')
+                    </button>
+                </div>
             </div>
         </div>
     </div>

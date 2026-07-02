@@ -2167,6 +2167,10 @@ return [
         'orderAmount' => 'Order Amount',
         'settledAmount' => 'Settled Amount',
         'outstandingAmount' => 'Outstanding Amount',
+        'exportPdf' => 'PDF',
+        'exportExcel' => 'Excel',
+        'exportCsv' => 'CSV',
+        'printedAt' => 'Printed at',
     ],
 
     'kot' => [
