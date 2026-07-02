@@ -89,7 +89,7 @@ class OrderPaymentBalanceSync
                 'amount_paid' => 0,
                 'status' => OrderFolioSettlement::isFolioSettled($order)
                     ? OrderFolioSettlement::STATUS_FOLIO_SETTLED
-                    : 'billed',
+                    : 'payment_due',
             ]);
 
             return;

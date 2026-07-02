@@ -61,6 +61,11 @@ class ReportController extends Controller
         return view('reports.detailed-sales');
     }
 
+    public function roomChargeOrdersReport()
+    {
+        return view('reports.room-charge-orders');
+    }
+
     public function menuItemReport()
     {
         return view('reports.menu-item-report');

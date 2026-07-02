@@ -69,7 +69,7 @@ class OrderFolioSettlement
             ];
         }
 
-        if (self::isChargedToFolio($order) && in_array($order->status, ['billed', self::STATUS_FOLIO_SETTLED], true)) {
+        if (self::isChargedToFolio($order) && in_array($order->status, ['billed', 'payment_due', self::STATUS_FOLIO_SETTLED], true)) {
             return [
                 'label' => __('modules.order.billed_to_room'),
                 'tone' => 'folio',
@@ -97,7 +97,7 @@ class OrderFolioSettlement
             'charged_to_folio_at' => now(),
             'folio_settled_at' => null,
             'amount_paid' => 0,
-            'status' => 'billed',
+            'status' => 'payment_due',
         ]);
 
         FolioOrderChargeSync::sync($order->fresh());
@@ -125,7 +125,7 @@ class OrderFolioSettlement
             ->where('hotel_reservation_id', $reservation->id)
             ->whereNotNull('charged_to_folio_at')
             ->whereNull('folio_settled_at')
-            ->whereIn('status', ['billed', self::STATUS_FOLIO_SETTLED])
+            ->whereIn('status', ['billed', 'payment_due', self::STATUS_FOLIO_SETTLED])
             ->each(function (Order $order) use ($reservation) {
                 $order->update([
                     'folio_settled_at' => now(),
