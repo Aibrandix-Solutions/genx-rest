@@ -976,6 +976,7 @@ return [
         'transfer_items' => 'Transfer Items',
         'add_item' => 'Add Item',
         'item' => 'Item',
+        'item_code' => 'Item Code',
         'source_item' => 'Source Item',
         'destination_item' => 'Destination Item',
         'select_item' => 'Select Item',
