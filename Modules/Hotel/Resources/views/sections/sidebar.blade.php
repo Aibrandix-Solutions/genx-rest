@@ -51,6 +51,7 @@
 
   @if(user_can('view_hotel_billing'))
     @livewire('sidebar-dropdown-menu', ['name' => 'Billing', 'link' => route('hotel.billing'), 'active' => request()->routeIs('hotel.billing')])
+    @livewire('sidebar-dropdown-menu', ['name' => __('hotel::modules.menu.restaurantDues'), 'link' => route('hotel.restaurant-dues'), 'active' => request()->routeIs('hotel.restaurant-dues')])
   @endif
 
   @if(user_can('view_hotel_housekeeping') && $housekeepingEnabled)
