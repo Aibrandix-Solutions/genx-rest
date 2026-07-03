@@ -53,10 +53,10 @@
         </div>
         <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-900/30 dark:to-emerald-800/30 rounded-lg shadow-sm p-4">
             <p class="text-sm font-medium text-gray-600 dark:text-gray-400">
-                @lang('inventory::modules.consumption.branchesActive')
+                @lang('inventory::modules.stock.location')
             </p>
             <h3 class="mt-1 text-xl font-bold text-gray-800 dark:text-white">
-                {{ number_format($stats['unique_branches']) }}
+                {{ number_format($stats['unique_locations']) }}
             </h3>
         </div>
     </div>
@@ -87,11 +87,11 @@
         </div>
 
         <div>
-            <select wire:model.live="branchFilter"
+            <select wire:model.live="locationFilter"
                     class="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white py-2 px-3 focus:ring-2 focus:ring-purple-600 focus:border-transparent">
-                <option value="all">@lang('inventory::modules.consumption.allBranches')</option>
-                @foreach($branches as $branch)
-                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                <option value="all">@lang('inventory::modules.stock.allLocations')</option>
+                @foreach($locations as $location)
+                    <option value="{{ $location->id }}">{{ $location->display_name ?? $location->name }}</option>
                 @endforeach
             </select>
         </div>
@@ -106,7 +106,7 @@
             </select>
         </div>
 
-        @if($search || $branchFilter !== 'all' || $itemFilter)
+        @if($search || $locationFilter !== 'all' || $itemFilter)
             <div>
                 <button wire:click="clearFilters"
                         class="inline-flex items-center justify-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200">
@@ -160,16 +160,16 @@
         <div class="bg-white dark:bg-gray-800 rounded-lg shadow">
             <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                 <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
-                    @lang('inventory::modules.consumption.perBranchBreakdown')
+                    @lang('inventory::modules.stock.location')
                 </h3>
             </div>
             <div class="overflow-y-auto max-h-72">
                 <table class="min-w-full text-sm">
                     <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
-                        @forelse($branchTotals as $row)
+                        @forelse($locationTotals as $row)
                             <tr>
                                 <td class="px-4 py-2 text-gray-900 dark:text-white">
-                                    {{ $row->branch->name ?? '--' }}
+                                    {{ $row->location?->display_name ?? $row->location?->name ?? '--' }}
                                 </td>
                                 <td class="px-4 py-2 text-right text-gray-900 dark:text-white">
                                     {{ number_format((float) $row->total_qty, 2) }}
@@ -233,7 +233,7 @@
                     <tr>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.consumption.date')</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.consumption.item')</th>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.consumption.branch')</th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.stock.location')</th>
                         <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.consumption.quantity')</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.consumption.menusUsed')</th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">@lang('inventory::modules.consumption.note')</th>
@@ -253,7 +253,7 @@
                                 @endif
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
-                                {{ $row->branch->name ?? '--' }}
+                                {{ $row->location?->display_name ?? $row->location?->name ?? '--' }}
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap text-right text-sm text-gray-900 dark:text-white">
                                 {{ number_format((float) $row->quantity, 2) }}

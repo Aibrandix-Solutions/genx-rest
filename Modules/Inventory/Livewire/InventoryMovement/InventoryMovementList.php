@@ -4,11 +4,10 @@ namespace Modules\Inventory\Livewire\InventoryMovement;
 
 use Livewire\Component;
 use Livewire\WithPagination;
-use Illuminate\Support\Collection;
-use Illuminate\Pagination\LengthAwarePaginator;
 use Carbon\Carbon;
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\InventoryMovement;
-use Illuminate\Support\Facades\DB;
+use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\InventoryItemCategory;
 use Livewire\Attributes\On;
 
@@ -22,6 +21,7 @@ class InventoryMovementList extends Component
     public $dateRange = 'month';
     public $startDate = null;
     public $endDate = null;
+    public $locationFilter = '';
     public $perPage = 20;
     public $sortField = 'created_at';
     public $sortDirection = 'desc';
@@ -61,18 +61,24 @@ class InventoryMovementList extends Component
 
     public function viewDetails($movementId)
     {
-        $this->selectedMovement = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier', 'location'])
-            ->findOrFail($movementId);
+        $this->selectedMovement = $this->findMovement($movementId);
         $this->showViewModal = true;
     }
 
     #[On('showEditMovementModal')]
     public function edit($movementId)
     {
-        $this->selectedMovement = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier', 'location'])
-            ->findOrFail($movementId);
+        $this->selectedMovement = $this->findMovement($movementId);
         $this->showViewModal = false;
         $this->showEditModal = true;
+    }
+
+    protected function findMovement(int $movementId): InventoryMovement
+    {
+        return InventoryMovement::withoutGlobalScope(BranchScope::class)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier', 'location'])
+            ->findOrFail($movementId);
     }
 
     #[On('hideAddStockEntryModal')]
@@ -103,8 +109,13 @@ class InventoryMovementList extends Component
     {
         $dateFilter = $this->getDateRangeFilter();
 
-        $query = InventoryMovement::with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'location'])
-            ->where('branch_id', branch()->id);
+        $query = InventoryMovement::withoutGlobalScope(BranchScope::class)
+            ->with(['item', 'item.unit', 'item.category', 'addedBy', 'sourceBranch', 'transferBranch', 'supplier', 'location'])
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id));
+
+        if ($this->locationFilter !== '' && $this->locationFilter !== null) {
+            $query->where('location_id', $this->locationFilter);
+        }
 
         if ($this->startDate && $this->endDate) {
             $query->whereBetween('created_at', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
@@ -164,6 +175,7 @@ class InventoryMovementList extends Component
         return view('inventory::livewire.inventory-movement.inventory-movement-list', [
             'movements' => $movements,
             'categories' => $categories,
+            'locations' => PurchaseLocation::getForRestaurant(restaurant()->id),
             'totalStockIn' => $stats['totalStockIn'],
             'totalStockOut' => $stats['totalStockOut'],
             'totalWaste' => $stats['totalWaste'],
@@ -187,15 +199,20 @@ class InventoryMovementList extends Component
         $this->resetPage();
     }
 
+    public function updatingLocationFilter()
+    {
+        $this->resetPage();
+    }
+
     public function clearFilters()
     {
-        $this->reset(['search', 'filterType', 'category', 'dateRange', 'startDate', 'endDate']);
+        $this->reset(['search', 'filterType', 'category', 'dateRange', 'startDate', 'endDate', 'locationFilter']);
         $this->dateRange = 'month'; // Reset to default value
         $this->resetPage();
     }
 
     public function export()
     {
-        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\InventoryMovementExport($this->search, $this->startDate, $this->endDate, $this->filterType, $this->category), 'inventory-movements.xlsx');
+        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\InventoryMovementExport($this->search, $this->startDate, $this->endDate, $this->filterType, $this->category, $this->locationFilter), 'inventory-movements.xlsx');
     }
 }

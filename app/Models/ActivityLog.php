@@ -53,6 +53,11 @@ class ActivityLog extends Model
         return $this->belongsTo(User::class, 'causer_id')->withoutGlobalScopes();
     }
 
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
+
     public function subject(): MorphTo
     {
         return $this->morphTo();

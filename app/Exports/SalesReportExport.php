@@ -5,6 +5,7 @@ namespace App\Exports;
 use Carbon\Carbon;
 use App\Models\Tax;
 use App\Models\RestaurantCharge;
+use App\Services\ReportBranchScope;
 use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Style\{Fill, Style};
@@ -18,14 +19,16 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
+    protected string $branchFilter;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone)
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -48,7 +51,7 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             : __('modules.report.salesDataFrom') . " {$this->headingDateTime} " . __('app.to') . " {$this->headingEndDateTime}, " . __('modules.report.timePeriodEachDay') . " {$this->headingStartTime} - {$this->headingEndTime}";
 
         return [
-            [__('menu.salesReport') . ' ' . $headingTitle],
+            [ReportBranchScope::appendExportScope(__('menu.salesReport') . ' ' . $headingTitle, $this->branchFilter)],
             array_merge(
             [__('app.date'), __('modules.report.totalOrders')],
             $this->charges,
@@ -125,9 +128,10 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             'endTime' => $this->endTime,
         ];
 
-        $dailyRows = SalesReportData::fetchDailyAggregates($dateTimeData);
+        $dailyRows = SalesReportData::fetchDailyAggregates($dateTimeData, null, $this->branchFilter);
 
         $data = $dailyRows->map(function ($item) use ($charges, $taxes) {
+            $branchFilter = $this->branchFilter;
             $ordersTotal = $item->orders_total ?? 0;
             $row = [
                 'date' => $item->date,
@@ -148,14 +152,14 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
 
             $chargeAmounts = [];
             foreach ($charges as $charge) {
-                $chargeAmounts[$charge->charge_name] = DB::table('order_charges')
+                $chargeQuery = DB::table('order_charges')
                     ->join('orders', 'order_charges.order_id', '=', 'orders.id')
                     ->join('restaurant_charges', 'order_charges.charge_id', '=', 'restaurant_charges.id')
                     ->where('order_charges.charge_id', $charge->id)
                     ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                    ->whereDate('orders.date_time', $item->date)
-                    ->where('orders.branch_id', branch()->id)
-                    ->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
+                    ->whereDate('orders.date_time', $item->date);
+                ReportBranchScope::applyToColumn($chargeQuery, 'orders.branch_id', $branchFilter);
+                $chargeAmounts[$charge->charge_name] = $chargeQuery->sum(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
                 THEN (restaurant_charges.charge_value / 100) * GREATEST(0, (orders.sub_total + COALESCE((SELECT SUM(amount) FROM order_extras WHERE order_extras.order_id = orders.id), 0)) - COALESCE(orders.discount_amount, 0))
                 ELSE restaurant_charges.charge_value END')) ?? 0;
             }
@@ -177,15 +181,15 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             }
 
             // First, try to get item-level tax data (regardless of current tax mode)
-            $itemTaxData = DB::table('order_items')
+            $itemTaxQuery = DB::table('order_items')
                 ->join('orders', 'order_items.order_id', '=', 'orders.id')
                 ->join('menu_items', 'order_items.menu_item_id', '=', 'menu_items.id')
                 ->join('menu_item_tax', 'menu_items.id', '=', 'menu_item_tax.menu_item_id')
                 ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
                 ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                ->where('orders.branch_id', branch()->id)
-                ->whereDate('orders.date_time', $item->date)
-                ->select(
+                ->whereDate('orders.date_time', $item->date);
+            ReportBranchScope::applyToColumn($itemTaxQuery, 'orders.branch_id', $branchFilter);
+            $itemTaxData = $itemTaxQuery->select(
                     'taxes.tax_name',
                     'taxes.tax_percent',
                     'order_items.tax_amount',
@@ -222,13 +226,13 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             }
 
             // Second, try to get order-level tax data (regardless of current tax mode)
-            $orderTaxData = DB::table('order_taxes')
+            $orderTaxQuery = DB::table('order_taxes')
                 ->join('orders', 'order_taxes.order_id', '=', 'orders.id')
                 ->join('taxes', 'order_taxes.tax_id', '=', 'taxes.id')
                 ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                ->where('orders.branch_id', branch()->id)
-                ->whereDate('orders.date_time', $item->date)
-                ->select(
+                ->whereDate('orders.date_time', $item->date);
+            ReportBranchScope::applyToColumn($orderTaxQuery, 'orders.branch_id', $branchFilter);
+            $orderTaxData = $orderTaxQuery->select(
                     'taxes.tax_name',
                     'taxes.tax_percent',
                     'orders.sub_total',
@@ -251,18 +255,18 @@ class SalesReportExport implements WithMapping, FromCollection, WithHeadings, Wi
             }
 
             // If neither item nor order taxes found, try fallback calculation
-            if (empty($itemTaxData) && empty($orderTaxData)) {
+            if ($itemTaxData->isEmpty() && $orderTaxData->isEmpty()) {
                 foreach ($taxes as $tax) {
                     // Try item-level calculation using direct tax amount from order_items
-                    $itemTaxAmount = DB::table('order_items')
+                    $fallbackTaxQuery = DB::table('order_items')
                         ->join('orders', 'order_items.order_id', '=', 'orders.id')
                         ->join('menu_item_tax', 'order_items.menu_item_id', '=', 'menu_item_tax.menu_item_id')
                         ->join('taxes', 'menu_item_tax.tax_id', '=', 'taxes.id')
                         ->where('taxes.id', $tax->id)
                         ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-                        ->where('orders.branch_id', branch()->id)
-                        ->whereDate('orders.date_time', $item->date)
-                        ->sum(DB::raw('
+                        ->whereDate('orders.date_time', $item->date);
+                    ReportBranchScope::applyToColumn($fallbackTaxQuery, 'orders.branch_id', $branchFilter);
+                    $itemTaxAmount = $fallbackTaxQuery->sum(DB::raw('
                             CASE
                                 WHEN (SELECT COUNT(*) FROM menu_item_tax WHERE menu_item_id = order_items.menu_item_id) > 1
                                 THEN (order_items.tax_amount * (taxes.tax_percent /

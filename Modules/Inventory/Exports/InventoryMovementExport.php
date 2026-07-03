@@ -2,6 +2,7 @@
 
 namespace Modules\Inventory\Exports;
 
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\InventoryMovement;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromCollection;
@@ -22,14 +23,16 @@ class InventoryMovementExport implements WithMapping, FromCollection, WithHeadin
     protected $endDate;
     protected $type;
     protected $category;
+    protected $locationFilter;
 
-    public function __construct($search = null, $startDate = null, $endDate = null, $type = null, $category = null)
+    public function __construct($search = null, $startDate = null, $endDate = null, $type = null, $category = null, $locationFilter = null)
     {
         $this->search = $search;
         $this->startDate = $startDate;
         $this->endDate = $endDate;
         $this->type = $type;
         $this->category = $category;
+        $this->locationFilter = $locationFilter;
     }
 
     public function headings(): array
@@ -86,7 +89,8 @@ class InventoryMovementExport implements WithMapping, FromCollection, WithHeadin
 
     public function collection()
      {
-        return InventoryMovement::with([
+        $query = InventoryMovement::withoutGlobalScope(BranchScope::class)
+            ->with([
                 'item',
                 'location',
                 'inventoryTransfer.sourceLocation',
@@ -96,7 +100,13 @@ class InventoryMovementExport implements WithMapping, FromCollection, WithHeadin
                 'sourceBranch',
                 'transferBranch'
             ])
-            ->where('branch_id', branch()->id)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id));
+
+        if ($this->locationFilter !== '' && $this->locationFilter !== null) {
+            $query->where('location_id', $this->locationFilter);
+        }
+
+        return $query
             ->when($this->search, function($query) {
                 $query->whereHas('item', function($q) {
                     $q->where('name', 'like', '%' . $this->search . '%');

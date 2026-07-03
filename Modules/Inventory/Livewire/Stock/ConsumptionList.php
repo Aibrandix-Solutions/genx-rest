@@ -2,20 +2,20 @@
 
 namespace Modules\Inventory\Livewire\Stock;
 
-use App\Models\Branch;
 use Carbon\Carbon;
 use Livewire\Attributes\On;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Inventory\Entities\InventoryConsumption;
 use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\PurchaseLocation;
 
 class ConsumptionList extends Component
 {
     use WithPagination;
 
     public string $search = '';
-    public string $branchFilter = 'all';
+    public string $locationFilter = 'all';
     public ?int $itemFilter = null;
     public string $startDate = '';
     public string $endDate = '';
@@ -23,7 +23,7 @@ class ConsumptionList extends Component
 
     protected $queryString = [
         'search' => ['except' => ''],
-        'branchFilter' => ['except' => 'all'],
+        'locationFilter' => ['except' => 'all'],
         'itemFilter' => ['except' => null],
         'startDate' => ['except' => ''],
         'endDate' => ['except' => ''],
@@ -36,7 +36,7 @@ class ConsumptionList extends Component
     }
 
     public function updatingSearch(): void { $this->resetPage(); }
-    public function updatingBranchFilter(): void { $this->resetPage(); }
+    public function updatingLocationFilter(): void { $this->resetPage(); }
     public function updatingItemFilter(): void { $this->resetPage(); }
     public function updatingStartDate(): void { $this->resetPage(); }
     public function updatingEndDate(): void { $this->resetPage(); }
@@ -49,8 +49,8 @@ class ConsumptionList extends Component
 
     public function clearFilters(): void
     {
-        $this->reset(['search', 'branchFilter', 'itemFilter']);
-        $this->branchFilter = 'all';
+        $this->reset(['search', 'locationFilter', 'itemFilter']);
+        $this->locationFilter = 'all';
         $this->startDate = Carbon::now()->startOfMonth()->format('Y-m-d');
         $this->endDate = Carbon::now()->format('Y-m-d');
         $this->resetPage();
@@ -70,8 +70,8 @@ class ConsumptionList extends Component
         if ($this->endDate) {
             $query->whereDate('consumption_date', '<=', $this->endDate);
         }
-        if ($this->branchFilter !== 'all' && $this->branchFilter !== '') {
-            $query->where('branch_id', $this->branchFilter);
+        if ($this->locationFilter !== 'all' && $this->locationFilter !== '') {
+            $query->where('location_id', $this->locationFilter);
         }
         if (!empty($this->itemFilter)) {
             $query->where('inventory_item_id', $this->itemFilter);
@@ -92,7 +92,7 @@ class ConsumptionList extends Component
     public function getConsumptionsProperty()
     {
         return $this->baseQuery()
-            ->with(['item.unit', 'branch:id,name', 'menuItems:id,item_name', 'addedBy:id,name'])
+            ->with(['item.unit', 'location', 'menuItems:id,item_name', 'addedBy:id,name'])
             ->orderByDesc('consumption_date')
             ->orderByDesc('id')
             ->paginate($this->perPage);
@@ -115,12 +115,12 @@ class ConsumptionList extends Component
     /**
      * Per-branch breakdown.
      */
-    public function getBranchTotalsProperty()
+    public function getLocationTotalsProperty()
     {
         return $this->baseQuery()
-            ->selectRaw('branch_id, SUM(quantity) as total_qty, COUNT(*) as entries')
-            ->groupBy('branch_id')
-            ->with(['branch:id,name'])
+            ->selectRaw('location_id, SUM(quantity) as total_qty, COUNT(*) as entries')
+            ->groupBy('location_id')
+            ->with(['location'])
             ->orderByDesc('total_qty')
             ->get();
     }
@@ -142,11 +142,9 @@ class ConsumptionList extends Component
         return $rows;
     }
 
-    public function getBranchesProperty()
+    public function getLocationsProperty()
     {
-        return Branch::where('restaurant_id', restaurant()->id)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        return PurchaseLocation::getForRestaurant(restaurant()->id);
     }
 
     public function getItemsProperty()
@@ -164,7 +162,7 @@ class ConsumptionList extends Component
             'total_qty' => (float) (clone $base)->sum('quantity'),
             'entries' => (int) (clone $base)->count(),
             'unique_items' => (int) (clone $base)->distinct('inventory_item_id')->count('inventory_item_id'),
-            'unique_branches' => (int) (clone $base)->distinct('branch_id')->count('branch_id'),
+            'unique_locations' => (int) (clone $base)->distinct('location_id')->count('location_id'),
         ];
     }
 
@@ -173,9 +171,9 @@ class ConsumptionList extends Component
         return view('inventory::livewire.stock.consumption-list', [
             'consumptions' => $this->consumptions,
             'itemTotals' => $this->itemTotals,
-            'branchTotals' => $this->branchTotals,
+            'locationTotals' => $this->locationTotals,
             'menuTotals' => $this->menuTotals,
-            'branches' => $this->branches,
+            'locations' => $this->locations,
             'items' => $this->items,
             'stats' => $this->stats,
         ]);

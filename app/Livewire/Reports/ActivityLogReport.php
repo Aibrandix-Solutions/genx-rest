@@ -4,6 +4,8 @@ namespace App\Livewire\Reports;
 
 use App\Enums\ActivityEvent;
 use App\Models\ActivityLog;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
 use App\Support\ActivityLogPropertyFormatter;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Livewire\Component;
@@ -11,6 +13,7 @@ use Livewire\WithPagination;
 
 class ActivityLogReport extends Component
 {
+    use HasReportBranchFilter;
     use WithPagination;
 
     public string $dateRangeType = 'last7Days';
@@ -38,6 +41,8 @@ class ActivityLogReport extends Component
     {
         abort_unless(in_array('Report', restaurant_modules()), 403);
         abort_unless(user_can('View Activity Log'), 403);
+
+        $this->mountReportBranchFilter();
 
         if ($this->fromDate || $this->toDate) {
             $this->dateRangeType = 'custom';
@@ -129,7 +134,7 @@ class ActivityLogReport extends Component
 
     public function updated($field): void
     {
-        if (in_array($field, ['fromDate', 'toDate', 'dateRangeType', 'moduleFilter', 'categoryFilter', 'eventFilter', 'causerFilter', 'perPage'])) {
+        if (in_array($field, ['fromDate', 'toDate', 'dateRangeType', 'moduleFilter', 'categoryFilter', 'eventFilter', 'causerFilter', 'perPage', 'branchFilter'])) {
             $this->resetPage();
         }
     }
@@ -148,8 +153,10 @@ class ActivityLogReport extends Component
     protected function buildFilteredQuery()
     {
         $query = ActivityLog::query()
-            ->with('causer')
+            ->with(['causer', 'branch'])
             ->forCurrentRestaurant();
+
+        ReportBranchScope::applyToColumn($query, 'activity_logs.branch_id', $this->branchFilter);
 
         if ($this->fromDate) {
             $query->whereDate('created_at', '>=', $this->fromDate);
@@ -193,11 +200,16 @@ class ActivityLogReport extends Component
         $fileName = 'activity-log-' . now()->format('Ymd_His') . '.csv';
         $query = $this->buildFilteredQuery()->orderByDesc('created_at');
 
-        return response()->streamDownload(function () use ($query) {
+        $branchFilter = $this->branchFilter;
+
+        return response()->streamDownload(function () use ($query, $branchFilter) {
             $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, [ReportBranchScope::exportScopeLabel($branchFilter)]);
 
             fputcsv($handle, [
                 'Date Time',
+                'Branch',
                 'User',
                 'Module',
                 'Category',
@@ -210,6 +222,7 @@ class ActivityLogReport extends Component
                 foreach ($rows as $row) {
                     fputcsv($handle, [
                         optional($row->created_at)->timezone(timezone())->format('Y-m-d H:i:s'),
+                        $row->branch->name ?? '',
                         $row->causer_name ?? $row->causer?->name,
                         $row->module,
                         $row->category,
@@ -234,8 +247,10 @@ class ActivityLogReport extends Component
             'modules' => (clone $baseQuery)->distinct('module')->count('module'),
         ];
 
-        $causerOptions = ActivityLog::query()
-            ->forCurrentRestaurant()
+        $optionQuery = ActivityLog::query()->forCurrentRestaurant();
+        ReportBranchScope::applyToColumn($optionQuery, 'activity_logs.branch_id', $this->branchFilter);
+
+        $causerOptions = (clone $optionQuery)
             ->whereNotNull('causer_id')
             ->whereNotNull('causer_name')
             ->select('causer_id', 'causer_name')
@@ -243,15 +258,13 @@ class ActivityLogReport extends Component
             ->orderBy('causer_name')
             ->get();
 
-        $moduleOptions = ActivityLog::query()
-            ->forCurrentRestaurant()
+        $moduleOptions = (clone $optionQuery)
             ->whereNotNull('module')
             ->distinct()
             ->orderBy('module')
             ->pluck('module');
 
-        $categoryOptions = ActivityLog::query()
-            ->forCurrentRestaurant()
+        $categoryOptions = (clone $optionQuery)
             ->whereNotNull('category')
             ->distinct()
             ->orderBy('category')
@@ -271,6 +284,9 @@ class ActivityLogReport extends Component
             'moduleOptions' => $moduleOptions,
             'categoryOptions' => $categoryOptions,
             'eventOptions' => $eventOptions,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
+            'showBranchColumn' => $this->showBranchColumn(),
         ]);
     }
 }

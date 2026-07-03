@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Livewire\PurchaseReturn;
 
 use Livewire\Component;
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\PurchaseReturnItem;
 use Modules\Inventory\Entities\PurchaseOrder;
@@ -494,12 +495,13 @@ class ManagePurchaseReturn extends Component
                 return $item;
             });
 
-        $purchaseOrders = PurchaseOrder::where('branch_id', branch()->id)
+        $purchaseOrders = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
             ->whereIn('status', ['received', 'partially_received'])
             ->when($this->supplierId, function ($query) {
                 $query->where('supplier_id', $this->supplierId);
             })
-            ->with('supplier')
+            ->with(['supplier', 'location'])
             ->orderBy('po_number')
             ->get();
 

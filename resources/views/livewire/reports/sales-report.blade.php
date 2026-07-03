@@ -303,6 +303,8 @@
                     @lang('app.export')
                 </a>
 
+                @include('livewire.reports.partials.branch-filter')
+
                 <select wire:model.live="selectedWaiter" wire:change="filterWaiter" class="px-3 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg focus:ring-4 focus:ring-primary-300 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-600 dark:hover:text-white dark:hover:bg-gray-600 dark:focus:ring-gray-700">
                     <option value="">@lang('app.reportByWaiter')</option>
                     @foreach($waiters ?? [] as $waiter)
@@ -314,7 +316,7 @@
     </div>
 
     <!-- Sales Table -->
-    <div class="overflow-x-auto bg-white dark:bg-gray-800 p-4">
+    <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4 bg-white dark:bg-gray-800 p-4">
         <table class="min-w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
