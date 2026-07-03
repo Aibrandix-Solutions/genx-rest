@@ -80,7 +80,7 @@
 
             @if(count($transferItems) > 0)
                 <div class="space-y-4">
-                    @php $availableItemsJson = $availableItems->map(fn($i) => ['id' => $i->id, 'name' => $i->name, 'unit_id' => $i->unit_id, 'unit_symbol' => $i->unit?->symbol ?? ''])->toJson(); @endphp
+                    @php $availableItemsJson = $availableItems->map(fn($i) => ['id' => $i->id, 'name' => $i->name, 'item_code' => $i->item_code ?? '', 'unit_id' => $i->unit_id, 'unit_symbol' => $i->unit?->symbol ?? ''])->toJson(); @endphp
                     @foreach($transferItems as $index => $item)
                         <div wire:key="transfer-item-{{ $index }}" class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
                             <div class="flex items-center justify-between mb-4">
@@ -96,20 +96,26 @@
                                 @endif
                             </div>
 
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                                 <!-- Source Item (searchable) -->
                                 <div x-data="{
                                         open: false,
                                         search: '',
                                         selectedLabel: '',
                                         items: {{ $availableItemsJson }},
+                                        formatLabel(item) {
+                                            return item.item_code ? `[${item.item_code}] ${item.name}` : item.name;
+                                        },
                                         get filtered() {
                                             if (!this.search) return this.items;
                                             const q = this.search.toLowerCase();
-                                            return this.items.filter(i => i.name.toLowerCase().includes(q));
+                                            return this.items.filter(i =>
+                                                i.name.toLowerCase().includes(q)
+                                                || (i.item_code && i.item_code.toLowerCase().includes(q))
+                                            );
                                         },
                                         selectItem(item) {
-                                            this.selectedLabel = item.name;
+                                            this.selectedLabel = this.formatLabel(item);
                                             this.open = false;
                                             this.search = '';
                                             $wire.set('transferItems.{{ $index }}.source_item_id', item.id);
@@ -118,7 +124,7 @@
                                             const currentId = $wire.get('transferItems.{{ $index }}.source_item_id');
                                             if (currentId) {
                                                 const found = this.items.find(i => i.id == currentId);
-                                                if (found) this.selectedLabel = found.name;
+                                                if (found) this.selectedLabel = this.formatLabel(found);
                                             }
                                         }
                                     }" x-init="init()" @click.away="open = false" class="relative">
@@ -142,7 +148,7 @@
                                             <template x-for="item in filtered" :key="item.id">
                                                 <li @click="selectItem(item)"
                                                     class="px-4 py-2 text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
-                                                    x-text="item.name"></li>
+                                                    x-text="formatLabel(item)"></li>
                                             </template>
                                             <li x-show="filtered.length === 0" class="px-4 py-2 text-sm text-gray-400">{{ __('app.noResultFound') }}</li>
                                         </ul>
@@ -153,6 +159,25 @@
                                             {{ __('inventory::modules.transfers.available_stock') }}: <span class="font-medium">{{ number_format($item['available_stock'], 2) }}</span>
                                         </p>
                                     @endif
+                                </div>
+
+                                <!-- Item Code (informational — auto-filled from selected item) -->
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                        {{ __('inventory::modules.transfers.item_code') }}
+                                    </label>
+                                    <div class="w-full border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-2.5 bg-gray-100 dark:bg-gray-900/40 text-gray-700 dark:text-gray-300 min-h-[42px] flex items-center">
+                                        @if(isset($item['source_item_id']) && $item['source_item_id'])
+                                            @php $itemCode = $availableItems->find($item['source_item_id'])?->item_code; @endphp
+                                            @if($itemCode)
+                                                <span class="font-mono text-sm">{{ $itemCode }}</span>
+                                            @else
+                                                <span class="text-gray-400">—</span>
+                                            @endif
+                                        @else
+                                            <span class="text-gray-400 text-sm">{{ __('inventory::modules.transfers.select_item') }}</span>
+                                        @endif
+                                    </div>
                                 </div>
 
                                 <!-- Unit (informational — auto-filled from selected item) -->
