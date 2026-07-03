@@ -3,13 +3,13 @@
 namespace Modules\Inventory\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Models\Branch;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Modules\Inventory\Entities\InventoryConsumption;
 use Modules\Inventory\Entities\InventoryDisposal;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryStock;
+use Modules\Inventory\Entities\PurchaseLocation;
 
 class InventoryStockController extends Controller
 {
@@ -56,7 +56,7 @@ class InventoryStockController extends Controller
 
         $startDate = $request->query('startDate') ?: Carbon::now()->startOfMonth()->format('Y-m-d');
         $endDate = $request->query('endDate') ?: Carbon::now()->format('Y-m-d');
-        $branchFilter = (string) $request->query('branchFilter', 'all');
+        $locationFilter = (string) $request->query('locationFilter', 'all');
         $itemFilter = $request->query('itemFilter');
         $itemFilter = is_numeric($itemFilter) ? (int) $itemFilter : null;
         $search = (string) $request->query('search', '');
@@ -67,8 +67,8 @@ class InventoryStockController extends Controller
             ->whereDate('consumption_date', '>=', $startDate)
             ->whereDate('consumption_date', '<=', $endDate);
 
-        if ($branchFilter !== 'all' && $branchFilter !== '') {
-            $base->where('branch_id', $branchFilter);
+        if ($locationFilter !== 'all' && $locationFilter !== '') {
+            $base->where('location_id', $locationFilter);
         }
         if (!empty($itemFilter)) {
             $base->where('inventory_item_id', $itemFilter);
@@ -147,15 +147,15 @@ class InventoryStockController extends Controller
             });
         } else {
             $detailRows = (clone $base)
-                ->with(['item.unit:id,symbol,name', 'branch:id,name', 'addedBy:id,name'])
+                ->with(['item.unit:id,symbol,name', 'location', 'addedBy:id,name'])
                 ->orderByDesc('consumption_date')
                 ->orderByDesc('id')
                 ->get();
         }
 
-        $branchName = null;
-        if ($branchFilter !== 'all' && $branchFilter !== '') {
-            $branchName = optional(Branch::where('restaurant_id', restaurant()->id)->find($branchFilter))->name;
+        $locationName = null;
+        if ($locationFilter !== 'all' && $locationFilter !== '') {
+            $locationName = PurchaseLocation::where('restaurant_id', restaurant()->id)->find($locationFilter)?->display_name;
         }
         $itemName = null;
         if ($itemFilter) {
@@ -168,8 +168,8 @@ class InventoryStockController extends Controller
             ->whereDate('disposal_date', '>=', $startDate)
             ->whereDate('disposal_date', '<=', $endDate);
 
-        if ($branchFilter !== 'all' && $branchFilter !== '') {
-            $disposalBase->where('branch_id', $branchFilter);
+        if ($locationFilter !== 'all' && $locationFilter !== '') {
+            $disposalBase->where('location_id', $locationFilter);
         }
         if (!empty($itemFilter)) {
             $disposalBase->where('inventory_item_id', $itemFilter);
@@ -223,7 +223,7 @@ class InventoryStockController extends Controller
             });
         } else {
             $disposalDetailRows = (clone $disposalBase)
-                ->with(['item.unit:id,symbol,name', 'branch:id,name', 'addedBy:id,name'])
+                ->with(['item.unit:id,symbol,name', 'location', 'addedBy:id,name'])
                 ->orderByDesc('disposal_date')
                 ->orderByDesc('id')
                 ->get();
@@ -234,8 +234,8 @@ class InventoryStockController extends Controller
             'viewMode'            => $viewMode,
             'startDate'           => $startDate,
             'endDate'             => $endDate,
-            'branchFilter'        => $branchFilter,
-            'branchName'          => $branchName,
+            'locationFilter'        => $locationFilter,
+            'locationName'          => $locationName,
             'itemFilter'          => $itemFilter,
             'itemName'            => $itemName,
             'search'              => $search,

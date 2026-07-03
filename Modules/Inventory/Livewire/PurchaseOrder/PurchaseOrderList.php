@@ -5,8 +5,10 @@ namespace Modules\Inventory\Livewire\PurchaseOrder;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\Supplier;
 use Illuminate\Support\Carbon;
+use App\Scopes\BranchScope;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
@@ -23,8 +25,7 @@ class PurchaseOrderList extends Component
     public $startDate = null;
     public $endDate = null;
     public $perPage = 20;
-    public $showAdminView = false;
-    public $branchFilter = '';
+    public $locationFilter = '';
     public $confirmingDeletion = false;
     public $purchaseOrderToDelete;
     public $confirmingSend = false;
@@ -46,7 +47,12 @@ class PurchaseOrderList extends Component
 
     public function mount()
     {
-        $this->showAdminView = user_can('View Admin Purchases');
+        //
+    }
+
+    public function updatingLocationFilter()
+    {
+        $this->resetPage();
     }
 
     public function updatingSearch()
@@ -66,13 +72,30 @@ class PurchaseOrderList extends Component
 
     public function clearFilters()
     {
-        $this->reset(['search', 'supplierId', 'status', 'startDate', 'endDate']);
+        $this->reset(['search', 'supplierId', 'status', 'startDate', 'endDate', 'locationFilter']);
         $this->resetPage();
     }
 
-    public function confirmDelete(PurchaseOrder $purchaseOrder)
+    protected function basePurchaseOrderQuery()
     {
-        $this->purchaseOrderToDelete = $purchaseOrder;
+        $query = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id));
+
+        if ($this->locationFilter !== '' && $this->locationFilter !== null) {
+            $query->where('location_id', $this->locationFilter);
+        }
+
+        return $query;
+    }
+
+    protected function findPurchaseOrder(int $purchaseOrderId): PurchaseOrder
+    {
+        return $this->basePurchaseOrderQuery()->findOrFail($purchaseOrderId);
+    }
+
+    public function confirmDelete(int $purchaseOrderId)
+    {
+        $this->purchaseOrderToDelete = $this->findPurchaseOrder($purchaseOrderId);
         $this->confirmingDeletion = true;
     }
 
@@ -93,9 +116,9 @@ class PurchaseOrderList extends Component
         $this->purchaseOrderToDelete = null;
     }
 
-    public function confirmSend(PurchaseOrder $purchaseOrder)
+    public function confirmSend(int $purchaseOrderId)
     {
-        $this->purchaseOrderToSend = $purchaseOrder;
+        $this->purchaseOrderToSend = $this->findPurchaseOrder($purchaseOrderId);
         $this->confirmingSend = true;
     }
 
@@ -113,9 +136,9 @@ class PurchaseOrderList extends Component
         $this->purchaseOrderToSend = null;
     }
 
-    public function confirmCancel(PurchaseOrder $purchaseOrder)
+    public function confirmCancel(int $purchaseOrderId)
     {
-        $this->purchaseOrderToCancel = $purchaseOrder;
+        $this->purchaseOrderToCancel = $this->findPurchaseOrder($purchaseOrderId);
         $this->confirmingCancel = true;
     }
 
@@ -137,8 +160,9 @@ class PurchaseOrderList extends Component
         $this->purchaseOrderToCancel = null;
     }
 
-    public function downloadPdf(PurchaseOrder $purchaseOrder)
+    public function downloadPdf(int $purchaseOrderId)
     {
+        $purchaseOrder = $this->findPurchaseOrder($purchaseOrderId);
         $purchaseOrder->load([
             'supplier',
             'location.branch',
@@ -166,12 +190,8 @@ class PurchaseOrderList extends Component
 
     protected function getStats()
     {
-        $query = PurchaseOrder::query();
-        
-        if (!$this->showAdminView) {
-            $query->where('branch_id', branch()->id);
-        }
-        
+        $query = $this->basePurchaseOrderQuery();
+
         return [
             'total_orders' => $query->count(),
             'pending_orders' => $query->clone()
@@ -198,14 +218,8 @@ class PurchaseOrderList extends Component
 
     public function render()
     {
-        $query = PurchaseOrder::query()
+        $query = $this->basePurchaseOrderQuery()
             ->with(['supplier', 'items.inventoryItem', 'payments', 'branch', 'location'])
-            ->when(!$this->showAdminView, function ($query) {
-                $query->where('branch_id', branch()->id);
-            })
-            ->when($this->showAdminView && $this->branchFilter, function ($query) {
-                $query->where('branch_id', $this->branchFilter);
-            })
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
                     $query->where('id', 'like', '%' . $this->search . '%')
@@ -232,7 +246,7 @@ class PurchaseOrderList extends Component
             'suppliers' => Supplier::where('restaurant_id', restaurant()->id)
                 ->orderBy('name')
                 ->get(),
-            'branches' => $this->showAdminView ? \App\Models\Branch::where('restaurant_id', restaurant()->id)->orderBy('name')->get() : [],
+            'locations' => PurchaseLocation::getForRestaurant(restaurant()->id),
             'statuses' => [
                 'ordered' => trans('inventory::modules.purchaseOrder.status.ordered'),
                 'pending' => trans('inventory::modules.purchaseOrder.status.pending'),
@@ -246,6 +260,16 @@ class PurchaseOrderList extends Component
 
     public function export()
     {
-        return \Maatwebsite\Excel\Facades\Excel::download(new \Modules\Inventory\Exports\PurchaseOrderExport($this->search, $this->startDate, $this->endDate, $this->supplierId, $this->status), 'purchases.xlsx');
+        return \Maatwebsite\Excel\Facades\Excel::download(
+            new \Modules\Inventory\Exports\PurchaseOrderExport(
+                $this->search,
+                $this->startDate,
+                $this->endDate,
+                $this->supplierId,
+                $this->status,
+                $this->locationFilter,
+            ),
+            'purchases.xlsx'
+        );
     }
 } 

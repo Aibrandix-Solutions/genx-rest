@@ -58,20 +58,20 @@
                        class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                        placeholder="{{ trans('inventory::modules.purchaseOrder.search_placeholder') }}" />
             </div>
-            @if($showAdminView)
-            <div class="w-full sm:w-auto">
+            <div class="w-full sm:w-auto min-w-[220px]">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ trans('app.branch') }}
+                    {{ trans('inventory::modules.stock.location') }}
                 </label>
-                <x-select wire:model.live="branchFilter" 
+                <x-select wire:model.live="locationFilter" 
                         class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                     <option value="">{{ trans('app.all') }}</option>
-                    @foreach($branches as $branch)
-                        <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">
+                            {{ $location->display_name ?? $location->name }}
+                        </option>
                     @endforeach
                 </x-select>
             </div>
-            @endif
             <div class="w-full sm:w-auto min-w-[220px]">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ trans('inventory::modules.purchaseOrder.supplier') }}
@@ -251,7 +251,7 @@
                 </x-dropdown>
             </div>
 
-            @if($search || $startDate || $endDate || $supplierId || $status)
+            @if($search || $startDate || $endDate || $supplierId || $status || $locationFilter)
                 <div>
                     <x-secondary-button wire:click="clearFilters" class="mb-1">
                         {{ trans('inventory::modules.purchaseOrder.clear_filters') }}
@@ -269,7 +269,7 @@
             'status' => $status,
             'startDate' => $startDate,
             'endDate' => $endDate,
-            'branchFilter' => $branchFilter,
+            'locationFilter' => $locationFilter,
         ], fn ($value) => $value !== null && $value !== '');
     @endphp
 
@@ -309,6 +309,9 @@
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.supplier') }}
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.stock.location') }}
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.order_date') }}
@@ -354,6 +357,9 @@
                                 <a href="{{ route('suppliers.show', $purchaseOrder->supplier->id) }}" class="underline underline-offset-1" wire:navigate>
                                     {{ $purchaseOrder->supplier->name }}
                                 </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $purchaseOrder->location?->display_name ?? $purchaseOrder->location?->name ?? '-' }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 {{ $purchaseOrder->order_date->translatedFormat('M d, Y') }}
@@ -497,7 +503,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                            <td colspan="11" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
                                 {{ trans('inventory::modules.purchaseOrder.no_records') }}
                             </td>
                         </tr>
