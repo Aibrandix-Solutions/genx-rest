@@ -27,6 +27,7 @@ class EditInventoryItem extends Component
     public $suppliers;
     // Removed: reorder_quantity (auto-purchase disabled)
     public $unitPurchasePrice = 0;
+    public $isActive = true;
 
     protected $listeners = [
         'preferredSupplier-selected' => 'onPreferredSupplierSelected'
@@ -43,6 +44,7 @@ class EditInventoryItem extends Component
         $this->preferredSupplier = $inventoryItem->preferred_supplier_id;
 
         $this->unitPurchasePrice = $inventoryItem->unit_purchase_price;
+        $this->isActive = (bool) ($inventoryItem->is_active ?? true);
         $this->itemCategories = InventoryItemCategory::all();
         $this->units = Unit::all();
         $this->suppliers = Supplier::all();
@@ -73,6 +75,7 @@ class EditInventoryItem extends Component
             'preferredSupplier' => 'nullable|exists:suppliers,id',
 
             'unitPurchasePrice' => 'required|numeric|min:0',
+            'isActive' => 'boolean',
         ];
     }
 
@@ -106,6 +109,7 @@ class EditInventoryItem extends Component
             'threshold_quantity' => $this->thresholdQuantity,
             'preferred_supplier_id' => $this->preferredSupplier,
             'unit_purchase_price' => $this->unitPurchasePrice,
+            'is_active' => (bool) $this->isActive,
         ];
 
         $maxAttempts = 15;

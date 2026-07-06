@@ -109,6 +109,9 @@ return [
         'reorderQuantity' => 'Auto Reorder Quantity',
         'reorderQuantityPlaceholder' => 'Enter reorder quantity',
         'purchasePrice' => 'Purchase Price',
+        'allowPurchase' => 'Allow Purchase',
+        'allowPurchaseHelp' => 'When unchecked, this item will not appear when searching items on Add Purchase.',
+        'disabledForPurchase' => 'Disabled for purchase',
     ],
     'itemCategory' => [
         'addItemCategory' => 'Add Item Category',
