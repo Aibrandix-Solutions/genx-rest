@@ -252,10 +252,10 @@
             <dd>{{ $start->format('M d, Y') }} &mdash; {{ $end->format('M d, Y') }}</dd>
         </div>
         <div class="row">
-            <dt>@lang('inventory::modules.consumption.branch'):</dt>
+            <dt>@lang('inventory::modules.stock.location'):</dt>
             <dd>
-                @if($branchName)
-                    {{ $branchName }}
+                @if($locationName)
+                    {{ $locationName }}
                 @else
                     @lang('inventory::modules.consumption.allBranches')
                 @endif
@@ -434,7 +434,7 @@
                     <th style="width: 6%;">#</th>
                     <th>@lang('inventory::modules.consumption.date')</th>
                     <th>@lang('inventory::modules.consumption.item')</th>
-                    <th>@lang('inventory::modules.consumption.branch')</th>
+                    <th>@lang('inventory::modules.stock.location')</th>
                     <th class="text-right">@lang('inventory::modules.consumption.report.beforeConsumption')</th>
                     <th class="text-right">@lang('inventory::modules.consumption.report.consumed')</th>
                     <th class="text-right">@lang('inventory::modules.consumption.report.afterConsumption')</th>
@@ -453,7 +453,7 @@
                                 <div class="muted mono" style="font-size: 10px;">{{ $row->item->item_code }}</div>
                             @endif
                         </td>
-                        <td>{{ $row->branch->name ?? '--' }}</td>
+                        <td>{{ $row->location?->display_name ?? $row->location?->name ?? '--' }}</td>
                         <td class="text-right">
                             @if($row->stock_before !== null)
                                 {{ number_format((float) $row->stock_before, 2) }}
@@ -505,7 +505,7 @@
                     <th style="width: 6%;">#</th>
                     <th>@lang('inventory::modules.disposal.date')</th>
                     <th>@lang('inventory::modules.disposal.item')</th>
-                    <th>@lang('inventory::modules.disposal.branch')</th>
+                    <th>@lang('inventory::modules.stock.location')</th>
                     <th class="text-right">@lang('inventory::modules.disposal.quantity')</th>
                     <th>@lang('inventory::modules.disposal.reason')</th>
                     <th>@lang('inventory::modules.disposal.recordedBy')</th>
@@ -523,7 +523,7 @@
                                 <div class="muted mono" style="font-size: 10px;">{{ $row->item->item_code }}</div>
                             @endif
                         </td>
-                        <td>{{ $row->branch->name ?? '--' }}</td>
+                        <td>{{ $row->location?->display_name ?? $row->location?->name ?? '--' }}</td>
                         <td class="text-right">
                             <span class="chip-red">- {{ number_format((float) $row->quantity, 2) }} {{ $unitSymbol }}</span>
                         </td>

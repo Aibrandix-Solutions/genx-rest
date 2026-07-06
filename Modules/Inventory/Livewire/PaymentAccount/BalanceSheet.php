@@ -5,6 +5,7 @@ namespace Modules\Inventory\Livewire\PaymentAccount;
 use Livewire\Component;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\SupplierPayment;
 use App\Models\Branch;
@@ -52,7 +53,8 @@ class BalanceSheet extends Component
         // Liability = Total Purchases (Received POs) - Total Payments (Supplier Payments)
         
         // A. Total Purchases (Liability Increases)
-        $poQuery = PurchaseOrder::where('status', 'received')
+        $poQuery = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->where('status', 'received')
             ->whereDate('order_date', '<=', $this->date);
             
         if ($this->branchId) {

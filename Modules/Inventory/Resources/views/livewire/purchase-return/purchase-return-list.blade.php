@@ -9,6 +9,18 @@
                        placeholder="Search by reference, supplier, PO..." />
             </div>
             <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 sr-only">
+                    {{ trans('inventory::modules.stock.location') }}
+                </label>
+                <x-select wire:model.live="locationFilter" 
+                        class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="">{{ trans('app.all') }} {{ trans('inventory::modules.stock.location') }}</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">{{ $location->display_name ?? $location->name }}</option>
+                    @endforeach
+                </x-select>
+            </div>
+            <div>
                 <x-select wire:model.live="supplierId" 
                         class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                     <option value="">All Suppliers</option>
@@ -49,7 +61,7 @@
                  </x-select>
             </div>
             <div class="flex items-center">
-                @if($search || $supplierId || $purchaseOrderId || $status || $startDate || $endDate)
+                @if($search || $supplierId || $purchaseOrderId || $status || $startDate || $endDate || $locationFilter)
                     <button wire:click="clearFilters" class="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 underline">
                         Clear Filters
                     </button>
@@ -80,6 +92,7 @@
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Reference</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Supplier</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Purchase Order</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.stock.location') }}</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Return Date</th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
                         <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Total Amount</th>
@@ -106,6 +119,9 @@
                                 @else
                                     -
                                 @endif
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $purchaseReturn->purchaseOrder?->location?->display_name ?? $purchaseReturn->purchaseOrder?->location?->name ?? '-' }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 {{ $purchaseReturn->return_date->format('M d, Y') }}
