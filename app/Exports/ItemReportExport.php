@@ -13,14 +13,17 @@ use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use App\Helper\Common;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
 
 class ItemReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
     protected string $startTime, $endTime, $timezone, $searchTerm;
+    protected string $branchFilter;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, ?string $searchTerm = '')
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, ?string $searchTerm = '', string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
@@ -28,6 +31,7 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
         $this->endTime = $endTime;
         $this->timezone = $timezone;
         $this->searchTerm = $searchTerm ?? '';
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
         $this->headingEndDateTime = Carbon::parse($endDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -42,7 +46,7 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
             : __('modules.report.salesDataFrom') . " {$this->headingDateTime} " . __('app.to') . " {$this->headingEndDateTime}, " . __('modules.report.timePeriodEachDay') . " {$this->headingStartTime} - {$this->headingEndTime}";
 
         return [
-            [__('menu.itemReport') . ' ' . $headingTitle],
+            [ReportBranchScope::appendExportScope(__('menu.itemReport') . ' ' . $headingTitle, $this->branchFilter)],
             [
                 __('modules.menu.itemName'),
                 __('modules.menu.categoryName'),
@@ -123,21 +127,14 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
             ->join('orders', 'orders.id', '=', 'order_items.order_id')
             ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
             ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
-            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id')
-            ->join('branches', 'branches.id', '=', 'orders.branch_id')
-            ->where('branches.restaurant_id', restaurant()->id)
-            ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
-            ->where('orders.status', 'paid')
-            ->where(function ($q) {
-                if ($this->startTime < $this->endTime) {
-                    $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$this->startTime, $this->endTime]);
-                } else {
-                    $q->where(function ($sub) {
-                        $sub->whereRaw('TIME(orders.date_time) >= ?', [$this->startTime])
-                            ->orWhereRaw('TIME(orders.date_time) <= ?', [$this->endTime]);
-                    });
-                }
-            });
+            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id');
+
+        SalesReportData::applyItemReportOrderFilters($query, [
+            'startDateTime' => $this->startDateTime,
+            'endDateTime' => $this->endDateTime,
+            'startTime' => $this->startTime,
+            'endTime' => $this->endTime,
+        ], $this->branchFilter);
 
         if ($this->searchTerm) {
             $safeTerm = Common::safeString($this->searchTerm);

@@ -69,7 +69,7 @@ class OrderFolioSettlement
             ];
         }
 
-        if (self::isChargedToFolio($order) && in_array($order->status, ['billed', self::STATUS_FOLIO_SETTLED], true)) {
+        if (self::isChargedToFolio($order) && in_array($order->status, ['billed', 'payment_due', self::STATUS_FOLIO_SETTLED], true)) {
             return [
                 'label' => __('modules.order.billed_to_room'),
                 'tone' => 'folio',
@@ -86,7 +86,7 @@ class OrderFolioSettlement
     {
         $reservation = Reservation::query()
             ->where('id', $reservationId)
-            ->where('restaurant_id', restaurant()->id)
+            ->where('branch_id', branch()->id)
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->firstOrFail();
 
@@ -97,7 +97,7 @@ class OrderFolioSettlement
             'charged_to_folio_at' => now(),
             'folio_settled_at' => null,
             'amount_paid' => 0,
-            'status' => 'billed',
+            'status' => 'payment_due',
         ]);
 
         FolioOrderChargeSync::sync($order->fresh());
@@ -117,30 +117,19 @@ class OrderFolioSettlement
     }
 
     /**
-     * Mark folio-charged orders as settled when the guest checks out (hotel collects payment).
+     * Guest folio settlement must not auto-settle restaurant orders.
+     * Hotel-to-restaurant settlement is tracked separately via Restaurant Dues FIFO allocations.
      */
     public static function settleReservationOrders(Reservation $reservation): void
     {
-        Order::query()
-            ->where('hotel_reservation_id', $reservation->id)
-            ->whereNotNull('charged_to_folio_at')
-            ->whereNull('folio_settled_at')
-            ->whereIn('status', ['billed', self::STATUS_FOLIO_SETTLED])
-            ->each(function (Order $order) use ($reservation) {
-                $order->update([
-                    'folio_settled_at' => now(),
-                    'status' => self::STATUS_FOLIO_SETTLED,
-                    'amount_paid' => 0,
-                ]);
-            });
-
         ActivityLogger::recordEvent(
             activityEvent: ActivityEvent::FolioSettled,
-            description: 'Folio orders settled at checkout for reservation ' . ($reservation->reservation_number ?? $reservation->id),
+            description: 'Guest folio settled at checkout for reservation ' . ($reservation->reservation_number ?? $reservation->id),
             subject: $reservation,
             properties: [
                 'reservation_id' => $reservation->id,
                 'reservation_number' => $reservation->reservation_number ?? null,
+                'restaurant_order_settlement' => 'handled_separately_via_restaurant_dues',
             ],
             restaurantId: $reservation->restaurant_id ? (int) $reservation->restaurant_id : null,
         );

@@ -94,6 +94,11 @@ class Order extends BaseModel
         return $this->belongsTo(User::class)->withoutGlobalScope(BranchScope::class);
     }
 
+    public function posUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'pos_user_id')->withoutGlobalScope(BranchScope::class);
+    }
+
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);

@@ -290,6 +290,17 @@
                         <span>{{ $order->waiter->name }}</span>
                     </div>
                 @endif
+                @if ($receiptSettings->show_user_name)
+                    @php
+                        $receiptPosUserName = $order->posUser?->name ?? auth()->user()?->name;
+                    @endphp
+                    @if ($receiptPosUserName)
+                    <div class="info-item">
+                        <span class="info-label">@lang('modules.order.user'):</span>
+                        <span>{{ $receiptPosUserName }}</span>
+                    </div>
+                    @endif
+                @endif
                 @if ($receiptSettings->show_customer_name && $order->customer && $order->customer->name)
                     <div class="info-item">
                         <span class="info-label">@lang('modules.customer.customer'):</span>

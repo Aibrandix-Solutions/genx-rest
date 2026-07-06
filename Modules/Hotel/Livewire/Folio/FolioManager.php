@@ -81,7 +81,7 @@ class FolioManager extends Component
             ->firstOrFail();
 
         // Load hotel name from settings
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
         $this->hotelName = $settings->hotel_name ?? restaurant()->name ?? '';
         $this->paymentSurchargeEnabled = (bool) ($settings->enable_payment_surcharge ?? false);
 
@@ -152,7 +152,7 @@ class FolioManager extends Component
             $roomType = $this->reservation->room->roomType;
             $checkIn = Carbon::parse($this->reservation->check_in_date);
             $checkOut = Carbon::parse($this->reservation->checkout_date);
-            $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+            $settings = HotelSetting::first();
 
             $roomChargesTotal = 0;
             $currentDate = $checkIn->copy();
@@ -160,6 +160,7 @@ class FolioManager extends Component
                 $nightlyRate = $roomType->getPriceForDate($currentDate);
 
                 RoomCharge::create([
+                    'branch_id'      => $this->reservation->branch_id,
                     'reservation_id' => $this->reservation->id,
                     'charge_type' => RoomCharge::TYPE_ROOM_NIGHT,
                     'description' => 'Room ' . $this->reservation->room->room_number . ' - ' . $currentDate->format('d M Y'),
@@ -181,6 +182,7 @@ class FolioManager extends Component
 
             if ($extraOccupancyPerNight > 0 && $nights > 0) {
                 RoomCharge::create([
+                    'branch_id'      => $this->reservation->branch_id,
                     'reservation_id' => $this->reservation->id,
                     'charge_type' => RoomCharge::TYPE_OTHER,
                     'description' => 'Extra occupancy charges (' . $nights . ' nights)',
@@ -196,6 +198,7 @@ class FolioManager extends Component
                 $taxAmount = round($roomChargesTotal * ($taxRate / 100), 2);
                 if ($taxAmount > 0) {
                     RoomCharge::create([
+                        'branch_id'      => $this->reservation->branch_id,
                         'reservation_id' => $this->reservation->id,
                         'charge_type' => RoomCharge::TYPE_TAX,
                         'description' => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
@@ -211,6 +214,7 @@ class FolioManager extends Component
                 $serviceAmount = $settings->calculateServiceCharge($roomChargesTotal);
                 if ($serviceAmount > 0) {
                     RoomCharge::create([
+                        'branch_id'      => $this->reservation->branch_id,
                         'reservation_id' => $this->reservation->id,
                         'charge_type' => RoomCharge::TYPE_SERVICE,
                         'description' => 'Service charge (' . $settings->service_charge_rate . '%)',
@@ -631,7 +635,7 @@ class FolioManager extends Component
     {
         abort_unless(user_can('add_room_charge'), 403);
 
-        $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+        $settings = HotelSetting::where('branch_id', $this->reservation->branch_id)->first();
         $this->defaultTaxRate = $settings ? (float) $settings->tax_rate : 0;
         $this->editTaxRate = $this->reservation->getEffectiveTaxRate();
         $this->showTaxRateModal = true;
@@ -646,7 +650,7 @@ class FolioManager extends Component
         ]);
 
         DB::transaction(function () {
-            $settings = HotelSetting::where('restaurant_id', $this->reservation->restaurant_id)->first();
+            $settings = HotelSetting::where('branch_id', $this->reservation->branch_id)->first();
             $defaultRate = $settings ? (float) $settings->tax_rate : 0.0;
             $newRate = round((float) $this->editTaxRate, 2);
 

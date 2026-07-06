@@ -2,7 +2,7 @@
 
 namespace Modules\Hotel\Entities;
 
-use App\Traits\HasRestaurant;
+use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,11 +10,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Room extends Model
 {
-    use HasFactory, HasRestaurant;
+    use HasFactory, HasBranch;
 
     protected $table = 'hotel_rooms';
 
     protected $fillable = [
+        'branch_id',
         'restaurant_id',
         'room_type_id',
         'room_number',

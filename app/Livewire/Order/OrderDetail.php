@@ -23,6 +23,7 @@ use App\Support\KotAdjustmentLogger;
 use App\Support\ActivityLogger;
 use App\Enums\ActivityEvent;
 use App\Services\OrderPaymentBalanceSync;
+use App\Services\ReportBranchScope;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use App\Livewire\Customer\AddCustomer;
 use Illuminate\Support\Facades\DB;
@@ -47,6 +48,22 @@ class OrderDetail extends Component
         return false;
     }
 
+    private function abortIfReadOnlyCrossBranch(): bool
+    {
+        if (! $this->readOnlyCrossBranch) {
+            return false;
+        }
+
+        $this->alert('error', 'This order belongs to another branch and cannot be edited from this view.', [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close'),
+        ]);
+
+        return true;
+    }
+
     public $order;
     public $taxes;
     public $total = 0;
@@ -64,6 +81,7 @@ class OrderDetail extends Component
     public $deliveryExecutive;
     public $orderProgressStatus;
     public $fromPos = null;
+    public bool $readOnlyCrossBranch = false;
     public $confirmDeleteModal = false;
     public $cancelReasons;
     public $cancelReason;
@@ -143,43 +161,69 @@ class OrderDetail extends Component
     }
 
     #[On('showOrderDetail')]
-    public function showOrder($id, $fromPos = null)
+    public function showOrder($id, $fromPos = null, $fromReport = null)
     {
-        $resolvedOrderId = Order::findIdByIdentifier($id);
-
-        if (!$resolvedOrderId) {
-            $this->resetOrderDetailState();
-            $this->alert('error', __('messages.orderNotFound'), [
-                'toast' => true,
-                'position' => 'top-end',
-            ]);
-
-            return;
+        if (is_array($id)) {
+            $fromReport = $fromReport ?? ($id['fromReport'] ?? null);
+            $fromPos = $fromPos ?? ($id['fromPos'] ?? null);
+            $id = $id['id'] ?? null;
         }
 
-        // Track latest requested id and clear stale order state before loading.
-        $this->requestedOrderId = (int) $resolvedOrderId;
-        $this->order = null;
+        if ($fromReport) {
+            abort_unless(user_can('Show Reports'), 403);
 
-        $order = Order::with(
-            'items',
-            'items.menuItem',
-            'items.menuItemVariation',
-            'items.comboPack',
-            'payments',
-            'cancelReason',
-            'hotelReservation.room',
-            'hotelReservation.guest'
-        )->find($this->requestedOrderId);
+            $order = ReportBranchScope::findOrderForReport($id);
 
-        if (! $order) {
-            $this->resetOrderDetailState();
-            $this->alert('error', __('messages.orderNotFound'), [
-                'toast' => true,
-                'position' => 'top-end',
-            ]);
+            if (! $order) {
+                $this->resetOrderDetailState();
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
 
-            return;
+                return;
+            }
+
+            $this->requestedOrderId = (int) $order->id;
+            $this->order = null;
+            $this->readOnlyCrossBranch = (int) $order->branch_id !== (int) (branch()?->id ?? 0);
+        } else {
+            $resolvedOrderId = Order::findIdByIdentifier($id);
+
+            if (! $resolvedOrderId) {
+                $this->resetOrderDetailState();
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+
+                return;
+            }
+
+            $this->requestedOrderId = (int) $resolvedOrderId;
+            $this->order = null;
+            $this->readOnlyCrossBranch = false;
+
+            $order = Order::with(
+                'items',
+                'items.menuItem',
+                'items.menuItemVariation',
+                'items.comboPack',
+                'payments',
+                'cancelReason',
+                'hotelReservation.room',
+                'hotelReservation.guest'
+            )->find($this->requestedOrderId);
+
+            if (! $order) {
+                $this->resetOrderDetailState();
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+
+                return;
+            }
         }
 
         // If another request arrived while this one was resolving, ignore stale load.
@@ -217,6 +261,7 @@ class OrderDetail extends Component
         $this->requestedOrderId = null;
         $this->orderStatus = null;
         $this->orderProgressStatus = null;
+        $this->readOnlyCrossBranch = false;
         $this->showTableModal = false;
         $this->cancelOrderModal = false;
         $this->deleteOrderModal = false;
@@ -243,6 +288,10 @@ class OrderDetail extends Component
     #[On('setTable')]
     public function setTable(Table $table)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->tableNo = $table->table_code;
         $this->tableId = $table->id;
 
@@ -274,6 +323,10 @@ class OrderDetail extends Component
 
     public function saveOrderStatus()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->order) {
             Order::where('id', $this->order->id)->update(['status' => $this->orderStatus]);
 
@@ -285,6 +338,10 @@ class OrderDetail extends Component
 
     public function showAddCustomer($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->order = Order::find($id);
         $this->showAddCustomerModal = true;
     }
@@ -296,6 +353,10 @@ class OrderDetail extends Component
 
     public function promptOrderItemRemoval($id): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!user_can('Delete KOT Item')) {
             $this->alert('error', __('messages.kotDeletePermissionDenied'), [
                 'toast' => true,
@@ -326,6 +387,10 @@ class OrderDetail extends Component
 
     public function promptOrderItemQuantityDecrease(int $id): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->abortIfFolioSettled()) {
             return;
         }
@@ -387,6 +452,10 @@ class OrderDetail extends Component
 
     public function confirmOrderItemRemoval(): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->validate([
             'removalReason' => 'required|string|min:3',
         ]);
@@ -410,6 +479,10 @@ class OrderDetail extends Component
 
     public function deleteOrderItems($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->abortIfFolioSettled()) {
             return;
         }
@@ -429,6 +502,10 @@ class OrderDetail extends Component
 
     public function removeComboGroup(string $comboGroupKey): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!$this->order) {
             return;
         }
@@ -476,6 +553,10 @@ class OrderDetail extends Component
 
     public function removeComboGroupByOrderItem(int $orderItemId): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!$this->order) {
             return;
         }
@@ -774,6 +855,10 @@ class OrderDetail extends Component
 
     public function updatedOrderProgressStatus($value)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (empty($this->order) || is_null($value)) {
             return;
         }
@@ -855,6 +940,9 @@ class OrderDetail extends Component
 
     public function saveOrder($action)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
 
         switch ($action) {
         case 'bill':
@@ -998,11 +1086,19 @@ class OrderDetail extends Component
 
     public function showPayment($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->dispatch('showPaymentModal', id: $id);
     }
 
     public function cancelOrderStatus($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         // Validate that a cancel reason is provided
         if (!$this->cancelReason && !$this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
@@ -1062,6 +1158,10 @@ class OrderDetail extends Component
 
     public function cancelOrder($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         // Validate that a cancel reason is provided
         if (!$this->cancelReason && !$this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
@@ -1129,6 +1229,10 @@ class OrderDetail extends Component
 
     public function paymentReceived($orderId, $status)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $order = Order::with('payments')->find($orderId);
 
         if (!$order) {
@@ -1169,6 +1273,10 @@ class OrderDetail extends Component
 
     public function deleteOrder($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $order = Order::find($id);
 
         if (!$order) {
@@ -1252,6 +1360,10 @@ class OrderDetail extends Component
 
     public function saveDeliveryExecutive()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->order->update(['delivery_executive_id' => $this->deliveryExecutive]);
         $this->order->fresh();
         $this->alert('success', __('messages.deliveryExecutiveAssigned'), [
@@ -1264,6 +1376,10 @@ class OrderDetail extends Component
 
     public function removeCharge($chargeId)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
@@ -1291,6 +1407,10 @@ class OrderDetail extends Component
 
     public function updatePaymentMethod($id, $paymentMethod)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!$id || !$paymentMethod || !$this->order) {
             return;
         }
@@ -1348,6 +1468,10 @@ class OrderDetail extends Component
 
     public function updatedSelectWaiter($value)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->order) {
             $this->order->update(['waiter_id' => $value ?: null]);
 
@@ -1503,6 +1627,10 @@ class OrderDetail extends Component
 
     public function showAddDiscount()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.noPermission'), [
                 'toast' => true, 'position' => 'top-end',
@@ -1517,6 +1645,10 @@ class OrderDetail extends Component
 
     public function applyDiscount()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->abortIfFolioSettled()) {
             return;
         }
@@ -1594,6 +1726,10 @@ class OrderDetail extends Component
 
     public function removeDiscount()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->abortIfFolioSettled()) {
             return;
         }

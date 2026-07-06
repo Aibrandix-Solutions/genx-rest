@@ -791,33 +791,33 @@ if (!function_exists('custom_module_plugins')) {
 if (!function_exists('forget_hotel_business_mode_cache')) {
 
     /**
-     * Clear cached business mode for a restaurant (call after hotel settings change).
+     * Clear cached business mode for a branch (call after hotel settings change).
      */
-    function forget_hotel_business_mode_cache(?int $restaurantId = null): void
+    function forget_hotel_business_mode_cache(?int $branchId = null): void
     {
-        $restaurantId = $restaurantId ?? (restaurant() ? restaurant()->id : 0);
-        cache()->forget('hotel_business_mode_' . $restaurantId);
+        $branchId = $branchId ?? (branch() ? branch()->id : 0);
+        cache()->forget('hotel_business_mode_branch_' . $branchId);
     }
 }
 
 if (!function_exists('hotel_business_mode')) {
 
     /**
-     * Get the business mode for the current restaurant's hotel settings.
+     * Get the business mode for the current branch's hotel settings.
      * Returns 'hotel_primary', 'restaurant_primary', or 'equal'.
      */
     function hotel_business_mode(): string
     {
-        $restaurantId = restaurant() ? restaurant()->id : 0;
-        $cacheKey = 'hotel_business_mode_' . $restaurantId;
+        $branchId = branch() ? branch()->id : 0;
+        $cacheKey = 'hotel_business_mode_branch_' . $branchId;
 
-        return cache()->remember($cacheKey, 60, function () use ($restaurantId) {
+        return cache()->remember($cacheKey, 60, function () use ($branchId) {
             if (!in_array('hotel', array_map('strtolower', custom_module_plugins()))) {
                 return 'restaurant_primary';
             }
 
             $settings = \Modules\Hotel\Entities\HotelSetting::withoutGlobalScopes()->where(
-                'restaurant_id', $restaurantId
+                'branch_id', $branchId
             )->first();
 
             return $settings?->business_mode ?? 'restaurant_primary';

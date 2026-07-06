@@ -7,6 +7,7 @@ namespace App\Models;
 use App\Helper\Files;
 use App\Scopes\BranchScope;
 use App\Services\PosBootstrapService;
+use App\Services\ReportBranchScope;
 use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -292,6 +293,32 @@ class User extends Authenticatable
             ->role(static::waiterRoleName($restaurantId))
             ->select('id', 'name')
             ->orderBy('name');
+    }
+
+    public static function assignableWaitersForBranchFilter(int $restaurantId, string $branchFilter): Builder
+    {
+        $filter = ReportBranchScope::validateFilter($branchFilter, $restaurantId);
+
+        if ($filter === ReportBranchScope::FILTER_ALL) {
+            $branchIds = ReportBranchScope::restaurantBranchIds($restaurantId);
+
+            return static::withoutGlobalScope(BranchScope::class)
+                ->where('restaurant_id', $restaurantId)
+                ->where(function ($q) use ($branchIds) {
+                    $q->whereIn('branch_id', $branchIds)->orWhereNull('branch_id');
+                })
+                ->role(static::waiterRoleName($restaurantId))
+                ->select('id', 'name')
+                ->orderBy('name');
+        }
+
+        $branchId = ReportBranchScope::resolveBranchId($filter, $restaurantId);
+
+        if (! $branchId) {
+            return static::withoutGlobalScope(BranchScope::class)->whereRaw('1 = 0');
+        }
+
+        return static::assignableWaitersQuery($restaurantId, $branchId);
     }
 
     public static function isAssignableWaiter(int $userId, int $restaurantId, int $branchId): bool

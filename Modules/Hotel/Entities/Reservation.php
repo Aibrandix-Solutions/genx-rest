@@ -3,7 +3,7 @@
 namespace Modules\Hotel\Entities;
 
 use App\Models\User;
-use App\Traits\HasRestaurant;
+use App\Traits\HasBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,11 +11,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Reservation extends Model
 {
-    use HasFactory, HasRestaurant;
+    use HasFactory, HasBranch;
 
     protected $table = 'hotel_reservations';
 
     protected $fillable = [
+        'branch_id',
         'restaurant_id',
         'guest_id',
         'room_id',
@@ -59,8 +60,11 @@ class Reservation extends Model
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($reservation) {
+            if (!$reservation->branch_id && branch()) {
+                $reservation->branch_id = branch()->id;
+            }
             if (!$reservation->restaurant_id && restaurant()) {
                 $reservation->restaurant_id = restaurant()->id;
             }
@@ -119,6 +123,11 @@ class Reservation extends Model
         return $this->hasMany(HotelPayment::class);
     }
 
+    public function restaurantSettlementPayments(): HasMany
+    {
+        return $this->hasMany(RestaurantSettlementPayment::class, 'reservation_id');
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
@@ -126,7 +135,7 @@ class Reservation extends Model
 
     public function hotelSettings(): BelongsTo
     {
-        return $this->belongsTo(HotelSetting::class, 'restaurant_id', 'restaurant_id');
+        return $this->belongsTo(HotelSetting::class, 'branch_id', 'branch_id');
     }
 
     /**
@@ -159,7 +168,7 @@ class Reservation extends Model
             return (float) $this->tax_rate_override;
         }
 
-        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+        $settings = HotelSetting::where('branch_id', $this->branch_id)->first();
 
         return $settings ? (float) $settings->tax_rate : 0.0;
     }
@@ -204,6 +213,7 @@ class Reservation extends Model
         }
 
         RoomCharge::create([
+            'branch_id'      => $this->branch_id,
             'reservation_id' => $this->id,
             'charge_type' => RoomCharge::TYPE_TAX,
             'description' => $description,
@@ -217,7 +227,7 @@ class Reservation extends Model
      */
     public function recalculateLinkedServiceCharge(): void
     {
-        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+        $settings = HotelSetting::where('branch_id', $this->branch_id)->first();
 
         if (!$settings || (float) $settings->service_charge_rate <= 0) {
             return;
@@ -254,7 +264,7 @@ class Reservation extends Model
         }
 
         $impliedRate = round(($taxAmount / $base) * 100, 2);
-        $settings = HotelSetting::where('restaurant_id', $this->restaurant_id)->first();
+        $settings = HotelSetting::where('branch_id', $this->branch_id)->first();
         $defaultRate = $settings ? (float) $settings->tax_rate : 0.0;
 
         $this->update([

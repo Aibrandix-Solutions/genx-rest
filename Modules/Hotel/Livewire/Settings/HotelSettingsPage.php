@@ -55,7 +55,7 @@ class HotelSettingsPage extends Component
 
     public function loadSettings()
     {
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
 
         if ($settings) {
             $this->business_mode = $settings->business_mode ?? 'restaurant_primary';
@@ -99,8 +99,9 @@ class HotelSettingsPage extends Component
         ]);
 
         $settings = HotelSetting::updateOrCreate(
-            ['restaurant_id' => restaurant()->id],
+            ['branch_id' => branch()->id],
             [
+                'restaurant_id' => restaurant()->id,
                 'business_mode' => $this->business_mode,
                 'hotel_name' => $this->hotel_name,
                 'default_check_in_time' => $this->default_check_in_time,
@@ -134,7 +135,7 @@ class HotelSettingsPage extends Component
         }
 
         if (function_exists('forget_hotel_business_mode_cache')) {
-            forget_hotel_business_mode_cache(restaurant()->id);
+            forget_hotel_business_mode_cache(branch()->id ?? null);
         }
 
         $this->alert('success', __('hotel::modules.settings.saved'));
@@ -156,7 +157,7 @@ class HotelSettingsPage extends Component
     {
         abort_unless(user_can('manage_hotel_settings'), 403);
 
-        $settings = HotelSetting::where('restaurant_id', restaurant()->id)->first();
+        $settings = HotelSetting::first();
 
         if ($settings && $settings->hotel_logo) {
             Files::deleteFile($settings->hotel_logo, 'hotel-logo');

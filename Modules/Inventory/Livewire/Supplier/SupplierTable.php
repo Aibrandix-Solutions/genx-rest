@@ -7,7 +7,9 @@ use Livewire\Attributes\Reactive;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Services\PurchaseOrderService;
@@ -50,7 +52,7 @@ class SupplierTable extends Component
         if ($this->confirmDeleteSupplierModal) {
             $supplier = Supplier::find($id);
             if ($supplier) {
-                $hasActiveOrders = $supplier->orders()
+                $hasActiveOrders = $supplier->restaurantOrders()
                     ->whereNotIn('status', ['cancelled'])
                     ->exists();
 
@@ -99,7 +101,7 @@ class SupplierTable extends Component
 
         $currencyId = restaurant()->currency_id;
 
-        $this->supplierPurchaseOrders = PurchaseOrder::query()
+        $this->supplierPurchaseOrders = PurchaseOrder::withoutGlobalScope(BranchScope::class)
             ->where('supplier_id', $this->purchasePickerSupplierId)
             ->whereNotIn('status', ['cancelled'])
             ->orderByDesc('order_date')
@@ -169,7 +171,7 @@ class SupplierTable extends Component
             return;
         }
 
-        $purchaseOrder = PurchaseOrder::query()
+        $purchaseOrder = PurchaseOrder::withoutGlobalScope(BranchScope::class)
             ->where('supplier_id', $this->purchasePickerSupplierId)
             ->find($this->selectedPurchaseOrderId);
 
@@ -208,7 +210,7 @@ class SupplierTable extends Component
             return;
         }
 
-        $purchaseOrder = PurchaseOrder::query()
+        $purchaseOrder = PurchaseOrder::withoutGlobalScope(BranchScope::class)
             ->where('supplier_id', $this->purchasePickerSupplierId)
             ->find($this->selectedPurchaseOrderId);
 
@@ -240,7 +242,7 @@ class SupplierTable extends Component
             return [];
         }
 
-        $purchased = PurchaseOrder::query()
+        $purchased = PurchaseOrder::withoutGlobalScope(BranchScope::class)
             ->whereIn('supplier_id', $supplierIds)
             ->where('status', 'received')
             ->groupBy('supplier_id')
@@ -249,13 +251,30 @@ class SupplierTable extends Component
 
         $paid = SupplierPayment::query()
             ->whereIn('supplier_id', $supplierIds)
+            ->whereNull('purchase_return_id')
+            ->groupBy('supplier_id')
+            ->selectRaw('supplier_id, COALESCE(SUM(amount), 0) as total')
+            ->pluck('total', 'supplier_id');
+
+        $returned = PurchaseReturn::withoutGlobalScope(BranchScope::class)
+            ->whereIn('supplier_id', $supplierIds)
+            ->groupBy('supplier_id')
+            ->selectRaw('supplier_id, COALESCE(SUM(total_amount), 0) as total')
+            ->pluck('total', 'supplier_id');
+
+        $refunds = SupplierPayment::query()
+            ->whereIn('supplier_id', $supplierIds)
+            ->whereNotNull('purchase_return_id')
             ->groupBy('supplier_id')
             ->selectRaw('supplier_id, COALESCE(SUM(amount), 0) as total')
             ->pluck('total', 'supplier_id');
 
         $balances = [];
         foreach ($supplierIds as $id) {
-            $balances[$id] = (float) ($purchased[$id] ?? 0) - (float) ($paid[$id] ?? 0);
+            $balances[$id] = (float) ($purchased[$id] ?? 0)
+                - (float) ($paid[$id] ?? 0)
+                - (float) ($returned[$id] ?? 0)
+                - (float) ($refunds[$id] ?? 0);
         }
 
         return $balances;
