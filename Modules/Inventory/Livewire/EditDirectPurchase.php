@@ -212,10 +212,29 @@ class EditDirectPurchase extends Component
     {
         $this->suppliers = Supplier::where('restaurant_id', restaurant()->id)->orderBy('name')->get();
         $this->locations = PurchaseLocation::getForRestaurant(restaurant()->id);
-        $this->inventoryItems = InventoryItem::where('restaurant_id', restaurant()->id)->orderBy('name')->get();
+        $this->loadInventoryItems();
         $this->itemCategories = InventoryItemCategory::orderBy('name')->get();
         $this->units = Unit::orderBy('name')->get();
         $this->loadPaymentAccounts();
+    }
+
+    public function loadInventoryItems()
+    {
+        $selectedItemIds = collect($this->items)
+            ->pluck('inventory_item_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        $this->inventoryItems = InventoryItem::where('restaurant_id', restaurant()->id)
+            ->where(function ($query) use ($selectedItemIds) {
+                $query->activeForPurchase();
+                if ($selectedItemIds->isNotEmpty()) {
+                    $query->orWhereIn('id', $selectedItemIds);
+                }
+            })
+            ->orderBy('name')
+            ->get();
     }
 
     public function loadPaymentAccounts()
@@ -310,6 +329,11 @@ class EditDirectPurchase extends Component
 
             if (!$item) {
                 $errors[] = "Row {$excelRow}: item '{$itemName}' not found.";
+                continue;
+            }
+
+            if (!$item->is_active) {
+                $errors[] = "Row {$excelRow}: item '{$itemName}' is disabled for purchase.";
                 continue;
             }
 
@@ -430,6 +454,7 @@ class EditDirectPurchase extends Component
         $this->filteredItems = InventoryItem::query()
             ->select(['id', 'name', 'item_code', 'unit_purchase_price'])
             ->where('restaurant_id', restaurant()->id)
+            ->activeForPurchase()
             ->where(function ($q) use ($term) {
                 $q->where('name', 'like', '%' . $term . '%')
                   ->orWhere('item_code', 'like', '%' . $term . '%');
@@ -454,51 +479,53 @@ class EditDirectPurchase extends Component
     public function selectItem($itemId)
     {
         $item = InventoryItem::find($itemId);
-        
-        if ($item) {
-            $targetIndex = null;
-            foreach ($this->items as $index => $row) {
-                if (empty($row['inventory_item_id'])) {
-                    $targetIndex = $index;
-                    break;
-                }
-            }
 
-            if ($targetIndex === null) {
-                $targetIndex = count($this->items);
-                $this->items[] = $this->makePurchaseItemRow();
-            }
-
-            if (empty($this->items[$targetIndex]['_key'])) {
-                $this->items[$targetIndex]['_key'] = (string) Str::uuid();
-            }
-
-            $this->items[$targetIndex]['inventory_item_id'] = $itemId;
-            $this->items[$targetIndex]['quantity'] = (float) ($this->items[$targetIndex]['quantity'] ?? 0) > 0
-                ? $this->items[$targetIndex]['quantity']
-                : 1;
-
-            if (!isset($this->items[$targetIndex]['unit_price']) || (float) $this->items[$targetIndex]['unit_price'] <= 0) {
-                $this->items[$targetIndex]['unit_price'] = $item->unit_purchase_price ?? 0;
-            }
-
-            if (!isset($this->items[$targetIndex]['discount'])) {
-                $this->items[$targetIndex]['discount'] = 0;
-            }
-            if (empty($this->items[$targetIndex]['discount_type'])) {
-                $this->items[$targetIndex]['discount_type'] = 'fixed';
-            }
-
-            // Store the last purchased price for info display
-            $this->items[$targetIndex]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
-                ->orderBy('created_at', 'desc')
-                ->value('unit_price');
-            
-            // Clear search
-            $this->searchItem = '';
-            $this->filteredItems = [];
-            $this->showSearchResults = false;
+        if (!$item || !$item->is_active) {
+            return;
         }
+
+        $targetIndex = null;
+        foreach ($this->items as $index => $row) {
+            if (empty($row['inventory_item_id'])) {
+                $targetIndex = $index;
+                break;
+            }
+        }
+
+        if ($targetIndex === null) {
+            $targetIndex = count($this->items);
+            $this->items[] = $this->makePurchaseItemRow();
+        }
+
+        if (empty($this->items[$targetIndex]['_key'])) {
+            $this->items[$targetIndex]['_key'] = (string) Str::uuid();
+        }
+
+        $this->items[$targetIndex]['inventory_item_id'] = $itemId;
+        $this->items[$targetIndex]['quantity'] = (float) ($this->items[$targetIndex]['quantity'] ?? 0) > 0
+            ? $this->items[$targetIndex]['quantity']
+            : 1;
+
+        if (!isset($this->items[$targetIndex]['unit_price']) || (float) $this->items[$targetIndex]['unit_price'] <= 0) {
+            $this->items[$targetIndex]['unit_price'] = $item->unit_purchase_price ?? 0;
+        }
+
+        if (!isset($this->items[$targetIndex]['discount'])) {
+            $this->items[$targetIndex]['discount'] = 0;
+        }
+        if (empty($this->items[$targetIndex]['discount_type'])) {
+            $this->items[$targetIndex]['discount_type'] = 'fixed';
+        }
+
+        // Store the last purchased price for info display
+        $this->items[$targetIndex]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+            ->orderBy('created_at', 'desc')
+            ->value('unit_price');
+
+        // Clear search
+        $this->searchItem = '';
+        $this->filteredItems = [];
+        $this->showSearchResults = false;
     }
 
     public function removeItem($index)
@@ -517,7 +544,18 @@ class EditDirectPurchase extends Component
         if (isset($this->items[$index]['inventory_item_id']) && $this->items[$index]['inventory_item_id']) {
             $itemId = $this->items[$index]['inventory_item_id'];
             $item = InventoryItem::find($itemId);
-            if ($item && $item->unit_purchase_price !== null) {
+            if (!$item) {
+                $this->items[$index]['inventory_item_id'] = '';
+                return;
+            }
+            if (!$item->is_active) {
+                $wasOnPurchase = $this->purchase?->items->contains('inventory_item_id', (int) $itemId) ?? false;
+                if (!$wasOnPurchase) {
+                    $this->items[$index]['inventory_item_id'] = '';
+                    return;
+                }
+            }
+            if ($item->unit_purchase_price !== null) {
                 $this->items[$index]['unit_price'] = $item->unit_purchase_price;
             }
             $this->items[$index]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
