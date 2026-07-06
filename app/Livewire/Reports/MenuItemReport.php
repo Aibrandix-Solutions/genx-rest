@@ -199,6 +199,8 @@ class MenuItemReport extends Component
             $itemsQuery->where('menu_items.item_category_id', $this->filterCategoryId);
         }
 
+        $filteredMenuItemIds = (clone $itemsQuery)->pluck('menu_items.id');
+
         $items = $itemsQuery->orderBy('menu_items.item_name')->paginate(15);
 
         // ── Sales summary per item within the selected date range ────────────
@@ -274,33 +276,40 @@ class MenuItemReport extends Component
             return $item;
         });
 
-        // Overall totals for the stat cards (across all pages, not just current page)
-        $totalsQuery = DB::table('order_items')
-            ->join('orders', 'orders.id', '=', 'order_items.order_id')
-            ->join('menu_items as mi', 'mi.id', '=', 'order_items.menu_item_id')
-            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
-            ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']]);
-        ReportBranchScope::applyToColumn($totalsQuery, 'orders.branch_id', $branchFilter);
-        ReportBranchScope::applyToColumn($totalsQuery, 'mi.branch_id', $branchFilter);
-        $totals = $totalsQuery->where(function ($q) use ($dt) {
-                if ($dt['startTime'] < $dt['endTime']) {
-                    $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dt['startTime'], $dt['endTime']]);
-                } else {
-                    $q->where(function ($sub) use ($dt) {
-                        $sub->whereRaw('TIME(orders.date_time) >= ?', [$dt['startTime']])
-                            ->orWhereRaw('TIME(orders.date_time) <= ?', [$dt['endTime']]);
-                    });
-                }
-            })
-            ->selectRaw('SUM(order_items.quantity) as total_qty, SUM(order_items.amount) as total_revenue')
-            ->first();
+        // Overall totals for the stat cards (all filtered items, across all pages)
+        $totalRevenue = 0;
+        $totalQtySold = 0;
+
+        if ($filteredMenuItemIds->isNotEmpty()) {
+            $totalsQuery = DB::table('order_items')
+                ->join('orders', 'orders.id', '=', 'order_items.order_id')
+                ->whereIn('order_items.menu_item_id', $filteredMenuItemIds)
+                ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
+                ->whereBetween('orders.date_time', [$dt['startDateTime'], $dt['endDateTime']]);
+            ReportBranchScope::applyToColumn($totalsQuery, 'orders.branch_id', $branchFilter);
+            $totals = $totalsQuery->where(function ($q) use ($dt) {
+                    if ($dt['startTime'] < $dt['endTime']) {
+                        $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dt['startTime'], $dt['endTime']]);
+                    } else {
+                        $q->where(function ($sub) use ($dt) {
+                            $sub->whereRaw('TIME(orders.date_time) >= ?', [$dt['startTime']])
+                                ->orWhereRaw('TIME(orders.date_time) <= ?', [$dt['endTime']]);
+                        });
+                    }
+                })
+                ->selectRaw('COALESCE(SUM(order_items.quantity), 0) as total_qty, COALESCE(SUM(order_items.amount), 0) as total_revenue')
+                ->first();
+
+            $totalRevenue = $totals->total_revenue ?? 0;
+            $totalQtySold = $totals->total_qty ?? 0;
+        }
 
         return view('livewire.reports.menu-item-report', [
             'items'             => $items,
             'salesByItem'       => $salesByItem,
             'salesDetailByItem' => $salesDetailByItem,
-            'totalRevenue'      => $totals->total_revenue ?? 0,
-            'totalQtySold'      => $totals->total_qty ?? 0,
+            'totalRevenue'      => $totalRevenue,
+            'totalQtySold'      => $totalQtySold,
             'startDate'         => $this->startDate,
             'endDate'           => $this->endDate,
             'startTime'         => $dt['startTime'],

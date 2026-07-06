@@ -80,7 +80,6 @@
 
             @if(count($transferItems) > 0)
                 <div class="space-y-4">
-                    @php $availableItemsJson = $availableItems->map(fn($i) => ['id' => $i->id, 'name' => $i->name, 'item_code' => $i->item_code ?? '', 'unit_id' => $i->unit_id, 'unit_symbol' => $i->unit?->symbol ?? ''])->toJson(); @endphp
                     @foreach($transferItems as $index => $item)
                         <div wire:key="transfer-item-{{ $index }}" class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
                             <div class="flex items-center justify-between mb-4">
@@ -102,17 +101,34 @@
                                         open: false,
                                         search: '',
                                         selectedLabel: '',
-                                        items: {{ $availableItemsJson }},
+                                        items: @js($availableItems->map(fn($i) => [
+                                            'id' => $i->id,
+                                            'name' => $i->name,
+                                            'item_code' => $i->item_code ?? '',
+                                            'unit_id' => $i->unit_id,
+                                            'unit_symbol' => $i->unit?->symbol ?? '',
+                                        ])->values()),
                                         formatLabel(item) {
-                                            return item.item_code ? `[${item.item_code}] ${item.name}` : item.name;
+                                            const code = String(item.item_code ?? '').trim();
+                                            return code ? `[${code}] ${item.name}` : item.name;
+                                        },
+                                        matchesSearch(item, term) {
+                                            const name = String(item.name ?? '').toLowerCase();
+                                            const code = String(item.item_code ?? '').toLowerCase();
+                                            const label = this.formatLabel(item).toLowerCase();
+                                            return name.includes(term) || code.includes(term) || label.includes(term);
                                         },
                                         get filtered() {
-                                            if (!this.search) return this.items;
-                                            const q = this.search.toLowerCase();
-                                            return this.items.filter(i =>
-                                                i.name.toLowerCase().includes(q)
-                                                || (i.item_code && i.item_code.toLowerCase().includes(q))
-                                            );
+                                            const term = this.search.trim().toLowerCase();
+                                            if (!term) return this.items;
+                                            return this.items.filter(i => this.matchesSearch(i, term));
+                                        },
+                                        toggleOpen() {
+                                            this.open = !this.open;
+                                            if (this.open) {
+                                                this.search = '';
+                                                this.$nextTick(() => this.$refs.itemSearch?.focus());
+                                            }
                                         },
                                         selectItem(item) {
                                             this.selectedLabel = this.formatLabel(item);
@@ -132,7 +148,7 @@
                                         {{ __('inventory::modules.transfers.item') }} <span class="text-red-500">*</span>
                                     </label>
                                     <!-- Trigger button -->
-                                    <button type="button" @click="open = !open"
+                                    <button type="button" @click="toggleOpen()"
                                         class="w-full text-left border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-blue-500">
                                         <span x-text="selectedLabel || '{{ __('inventory::modules.transfers.select_item') }}'" class="truncate" :class="selectedLabel ? '' : 'text-gray-400'"></span>
                                         <svg class="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -140,7 +156,7 @@
                                     <!-- Dropdown -->
                                     <div x-show="open" x-cloak class="absolute z-50 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
                                         <div class="p-2 border-b border-gray-100 dark:border-gray-600">
-                                            <input x-model="search" type="text" placeholder="{{ __('app.search') }}..."
+                                            <input x-ref="itemSearch" x-model="search" type="text" placeholder="{{ __('inventory::modules.stock.searchByNameOrCode') }}"
                                                 class="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                                 @click.stop />
                                         </div>
