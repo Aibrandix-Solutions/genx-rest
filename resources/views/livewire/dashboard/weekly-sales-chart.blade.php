@@ -1,5 +1,6 @@
 <div
-    class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800">
+    class="p-4 bg-white border border-gray-200 rounded-lg shadow-sm 2xl:col-span-2 dark:border-gray-700 sm:p-6 dark:bg-gray-800"
+    wire:key="weekly-sales-chart-{{ $chartElementId }}-{{ md5(json_encode($chartConfig['values'])) }}">
     <div class="flex items-center justify-between mb-4">
         <div class="flex-shrink-0">
             <span class="text-xl font-bold leading-none text-gray-900 sm:text-2xl dark:text-white">{{ currency_format($monthlyEarnings, restaurant()->currency_id) }}</span>
@@ -27,167 +28,148 @@
         </div>
 
     </div>
-    <div id="main-chart"></div>
-    <!-- Card Footer -->
 
+    <div id="{{ $chartElementId }}" class="min-h-[360px]"></div>
 
     @script
     <script>
+        const chartConfig = @json($chartConfig);
+        let dashboardSalesChart = null;
 
-        if (document.getElementById('main-chart')) {
-            const chart = new ApexCharts(document.getElementById('main-chart'), getMainChartOptions());
-            chart.render();
-
-            // init again when toggling dark mode
-            document.addEventListener('dark-mode', function () {
-                chart.updateOptions(getMainChartOptions());
-            });
-
-            
-        }
-
-        function getMainChartOptions()
-        {
-            let mainChartColors = {}
-
+        function dashboardSalesChartColors() {
             if (document.documentElement.classList.contains('dark')) {
-                mainChartColors = {
+                return {
                     borderColor: '#374151',
                     labelColor: '#9CA3AF',
                     opacityFrom: 0,
                     opacityTo: 0.15,
                 };
-            } else {
-                mainChartColors = {
-                    borderColor: '#F3F4F6',
-                    labelColor: '#6B7280',
-                    opacityFrom: 0.45,
-                    opacityTo: 0,
-                }
             }
+
+            return {
+                borderColor: '#F3F4F6',
+                labelColor: '#6B7280',
+                opacityFrom: 0.45,
+                opacityTo: 0,
+            };
+        }
+
+        function buildDashboardSalesChartOptions() {
+            const colors = dashboardSalesChartColors();
 
             return {
                 chart: {
                     height: 420,
                     type: 'area',
                     fontFamily: 'Inter, sans-serif',
-                    foreColor: mainChartColors.labelColor,
-                    toolbar: {
-                        show: false
-                    }
+                    foreColor: colors.labelColor,
+                    toolbar: { show: false },
+                    zoom: { enabled: false },
                 },
                 fill: {
                     type: 'gradient',
                     gradient: {
                         enabled: true,
-                        opacityFrom: mainChartColors.opacityFrom,
-                        opacityTo: mainChartColors.opacityTo
-                    }
-                },
-                dataLabels: {
-                    enabled: false
-                },
-                tooltip: {
-                    style: {
-                        fontSize: '14px',
-                        fontFamily: 'Inter, sans-serif',
+                        opacityFrom: colors.opacityFrom,
+                        opacityTo: colors.opacityTo,
                     },
                 },
-                grid: {
-                    show: true,
-                    borderColor: mainChartColors.borderColor,
-                    strokeDashArray: 1,
-                    padding: {
-                        left: 35,
-                        bottom: 15
-                    }
-                },
+                dataLabels: { enabled: false },
+                stroke: { curve: 'smooth', width: 2 },
                 series: [
                     {
-                        name: "{{ __('modules.dashboard.earnings') }}",
-                        data: [
-                            @foreach ($salesData as $label)
-                                {{ $label->total_sales }},
-                            @endforeach
-                        ],
-                        color: '{{ restaurant()->theme_hex }}'
-                    }
+                        name: chartConfig.seriesName,
+                        data: chartConfig.values,
+                        color: chartConfig.color,
+                    },
                 ],
                 markers: {
                     size: 5,
                     strokeColors: '#ffffff',
-                    hover: {
-                        size: undefined,
-                        sizeOffset: 3
-                    }
                 },
                 xaxis: {
-                    categories: [
-                        @foreach ($salesData as $label)
-                            "{{ \Carbon\Carbon::parse($label->date)->translatedFormat('d M') }}",
-                        @endforeach
-                    ],
+                    categories: chartConfig.categories,
+                    tickPlacement: 'between',
                     labels: {
+                        show: true,
+                        rotate: 0,
+                        hideOverlappingLabels: false,
+                        trim: false,
                         style: {
-                            colors: [mainChartColors.labelColor],
-                            fontSize: '14px',
+                            colors: [colors.labelColor],
+                            fontSize: '12px',
                             fontWeight: 500,
                         },
                     },
-                    axisBorder: {
-                        color: mainChartColors.borderColor,
-                    },
-                    axisTicks: {
-                        color: mainChartColors.borderColor,
-                    },
-                    crosshairs: {
-                        show: true,
-                        position: 'back',
-                        stroke: {
-                            color: mainChartColors.borderColor,
-                            width: 1,
-                            dashArray: 10,
-                        },
-                    },
+                    axisBorder: { color: colors.borderColor },
+                    axisTicks: { color: colors.borderColor },
                 },
                 yaxis: {
+                    min: 0,
+                    forceNiceScale: true,
                     labels: {
                         style: {
-                            colors: [mainChartColors.labelColor],
+                            colors: [colors.labelColor],
                             fontSize: '14px',
                             fontWeight: 500,
                         },
                         formatter: function (value) {
-                            return '{{ currency() }}' + value;
-                        }
+                            return chartConfig.currency + Math.round(value);
+                        },
                     },
                 },
-                legend: {
-                    fontSize: '14px',
-                    fontWeight: 500,
-                    fontFamily: 'Inter, sans-serif',
-                    labels: {
-                        colors: [mainChartColors.labelColor]
-                    },
-                    itemMargin: {
-                        horizontal: 10
-                    }
+                grid: {
+                    show: true,
+                    borderColor: colors.borderColor,
+                    strokeDashArray: 1,
+                    padding: { left: 20, right: 20, bottom: 10 },
                 },
-                responsive: [
-                    {
-                        breakpoint: 1024,
-                        options: {
-                            xaxis: {
-                                labels: {
-                                    show: false
-                                }
-                            }
-                        }
-                    }
-                ]
+                tooltip: {
+                    y: {
+                        formatter: function (value) {
+                            return chartConfig.currency + value;
+                        },
+                    },
+                },
+                legend: { show: false },
+            };
+        }
+
+        function renderDashboardSalesChart() {
+            const el = document.getElementById(chartConfig.elementId);
+            if (!el || typeof ApexCharts === 'undefined') {
+                return;
+            }
+
+            if (dashboardSalesChart) {
+                dashboardSalesChart.destroy();
+                dashboardSalesChart = null;
+            }
+
+            el.innerHTML = '';
+            dashboardSalesChart = new ApexCharts(el, buildDashboardSalesChartOptions());
+            dashboardSalesChart.render();
+        }
+
+        function teardownDashboardSalesChart() {
+            document.removeEventListener('dark-mode', onDashboardSalesChartDarkMode);
+            if (dashboardSalesChart) {
+                dashboardSalesChart.destroy();
+                dashboardSalesChart = null;
             }
         }
-        
+
+        function onDashboardSalesChartDarkMode() {
+            if (dashboardSalesChart) {
+                dashboardSalesChart.updateOptions(buildDashboardSalesChartOptions());
+            }
+        }
+
+        renderDashboardSalesChart();
+
+        document.addEventListener('dark-mode', onDashboardSalesChartDarkMode);
+
+        $wire.__instance.addCleanup(teardownDashboardSalesChart);
     </script>
     @endscript
 

@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Enums\ActivityEvent;
 use App\Models\KotItem;
 use App\Models\KotItemAdjustment;
 use App\Models\OrderItem;
@@ -54,7 +55,8 @@ class KotAdjustmentLogger
             'note' => $note,
         ];
 
-        KotItemAdjustment::create(self::filterPayload($payload, $columns));
+        $adjustment = KotItemAdjustment::create(self::filterPayload($payload, $columns));
+        self::logToActivity($adjustment, $payload, $order);
     }
 
     /**
@@ -100,7 +102,52 @@ class KotAdjustmentLogger
             'note'                      => $note,
         ];
 
-        KotItemAdjustment::create(self::filterPayload($payload, $columns));
+        $adjustment = KotItemAdjustment::create(self::filterPayload($payload, $columns));
+        self::logToActivity($adjustment, $payload, $order);
+    }
+
+    protected static function logToActivity(KotItemAdjustment $adjustment, array $payload, $order = null): void
+    {
+        $event = match ($payload['action'] ?? '') {
+            'deleted' => ActivityEvent::KotItemDeleted,
+            'quantity_updated' => ActivityEvent::KotItemQuantityUpdated,
+            'deleted_from_order' => ActivityEvent::KotItemDeletedFromOrder,
+            default => ActivityEvent::KotItemDeleted,
+        };
+
+        $orderLabel = $payload['formatted_order_number'] ?? $payload['order_number'] ?? $payload['order_id'] ?? 'N/A';
+
+        ActivityLogger::recordEvent(
+            activityEvent: $event,
+            description: sprintf(
+                'KOT adjustment: %s on %s (Order %s)',
+                $payload['action'] ?? 'updated',
+                $payload['menu_item_name'] ?? 'item',
+                $orderLabel
+            ),
+            subject: $order,
+            properties: Arr::only($payload, [
+                'order_id',
+                'order_number',
+                'formatted_order_number',
+                'table_code',
+                'menu_item_name',
+                'menu_item_variation_name',
+                'action',
+                'quantity_before',
+                'quantity_after',
+                'note',
+                'kot_id',
+                'kot_item_id',
+            ]),
+            restaurantId: isset($payload['restaurant_id']) ? (int) $payload['restaurant_id'] : null,
+            branchId: isset($payload['branch_id']) ? (int) $payload['branch_id'] : null,
+            causerId: isset($payload['performed_by']) ? (int) $payload['performed_by'] : null,
+            causerName: $payload['performed_by_name'] ?? null,
+            legacySource: 'kot_item_adjustments',
+            legacyId: (int) $adjustment->id,
+            createdAt: $adjustment->created_at,
+        );
     }
 
     protected static function getTableColumns(): array

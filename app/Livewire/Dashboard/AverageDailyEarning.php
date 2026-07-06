@@ -3,45 +3,48 @@
 namespace App\Livewire\Dashboard;
 
 use App\Models\Order;
-use Illuminate\Support\Facades\DB;
+use App\Services\SalesReportData;
 use Livewire\Component;
 
 class AverageDailyEarning extends Component
 {
-
     public $orderCount;
+
     public $percentChange;
-    
+
     public function mount()
     {
-        $currentMonth = now()->format('Y-m');
-        $daysInMonth = now()->format('d');
+        $statuses = SalesReportData::reportOrderStatuses();
+        $daysElapsed = max(1, (int) now()->format('j'));
 
-        $previousMonth = now()->subMonth()->format('Y-m');
-        $daysInPreviousMonth = now()->subMonth()->daysInMonth;
-    
-        $totalEarnings = Order::where('status', 'paid')
-            ->whereYear('created_at', now()->year)
-            ->whereMonth('created_at', now()->month)
+        $startOfMonth = now()->startOfMonth()->startOfDay()->toDateTimeString();
+        $tillToday = now()->endOfDay()->toDateTimeString();
+
+        $startOfLastMonth = now()->copy()->subMonth()->startOfMonth()->startOfDay()->toDateTimeString();
+        $endOfLastMonth = now()->copy()->subMonth()->endOfMonth()->endOfDay()->toDateTimeString();
+        $daysInPreviousMonth = now()->copy()->subMonth()->daysInMonth;
+
+        $totalEarnings = Order::query()
+            ->whereIn('orders.status', $statuses)
+            ->whereBetween('orders.date_time', [$startOfMonth, $tillToday])
             ->sum('total');
 
-        $totalPreviousEarnings = Order::where('status', 'paid')
-            ->whereYear('created_at', now()->subMonth()->year)
-            ->whereMonth('created_at', now()->subMonth()->month)
+        $totalPreviousEarnings = Order::query()
+            ->whereIn('orders.status', $statuses)
+            ->whereBetween('orders.date_time', [$startOfLastMonth, $endOfLastMonth])
             ->sum('total');
-    
-        $this->orderCount = ($totalEarnings / $daysInMonth);
+
+        $this->orderCount = $totalEarnings / $daysElapsed;
 
         $averageDailyPreviousEarnings = $totalPreviousEarnings / $daysInPreviousMonth;
 
         $orderDifference = ($this->orderCount - $averageDailyPreviousEarnings);
 
-        $this->percentChange  = (($orderDifference / ($averageDailyPreviousEarnings == 0 ? 1 : $averageDailyPreviousEarnings)) * 100);
+        $this->percentChange = (($orderDifference / ($averageDailyPreviousEarnings == 0 ? 1 : $averageDailyPreviousEarnings)) * 100);
     }
 
     public function render()
     {
         return view('livewire.dashboard.average-daily-earning');
     }
-
 }

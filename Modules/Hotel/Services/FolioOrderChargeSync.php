@@ -80,6 +80,7 @@ class FolioOrderChargeSync
         }
 
         RoomCharge::create([
+            'branch_id'      => $reservation->branch_id,
             'reservation_id' => $reservation->id,
             'charge_type' => RoomCharge::TYPE_RESTAURANT,
             'order_id' => $order->id,

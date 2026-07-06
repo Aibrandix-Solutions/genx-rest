@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 use App\Traits\HasBranch;
 use App\Models\User;
+use App\Scopes\BranchScope;
 
 class PurchaseOrder extends Model
 {
@@ -23,6 +24,14 @@ class PurchaseOrder extends Model
         'total_amount' => 'decimal:2',
         'discount' => 'decimal:2',
     ];
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::withoutGlobalScope(BranchScope::class)
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->first();
+    }
 
     public function supplier(): BelongsTo
     {
@@ -88,10 +97,10 @@ class PurchaseOrder extends Model
         return (float) ($this->total_amount ?? $this->final_total);
     }
 
-    // Helper to get paid amount
+    // Helper to get paid amount (purchase payments only; excludes return refunds)
     public function getPaidAmountAttribute()
     {
-        return $this->payments()->sum('amount');
+        return (float) $this->payments()->whereNull('purchase_return_id')->sum('amount');
     }
 
     // Helper to get due amount

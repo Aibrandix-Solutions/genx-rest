@@ -4,6 +4,8 @@ namespace App\Livewire\Staff;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use App\Scopes\BranchScope;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\On;
@@ -51,6 +53,22 @@ class StaffTable extends Component
 
     public function deleteCustomer($id)
     {
+        $user = User::find($id);
+
+        if ($user) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::StaffDeleted,
+                description: "Staff member {$user->name} deleted",
+                subject: $user,
+                properties: [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ],
+                restaurantId: $user->restaurant_id ? (int) $user->restaurant_id : null,
+                branchId: $user->branch_id ? (int) $user->branch_id : null,
+            );
+        }
+
         User::destroy($id);
 
         $this->confirmDeleteCustomerModal = false;
@@ -68,7 +86,22 @@ class StaffTable extends Component
     public function setUserRole($role, $userID)
     {
         $employee = User::find($userID);
+        $previousRole = $employee->roles->pluck('name')->first();
         $employee->syncRoles([$role]);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::StaffRoleChanged,
+            description: "Staff role changed for {$employee->name}",
+            subject: $employee,
+            properties: [
+                'user_id' => $employee->id,
+                'previous_role' => $previousRole,
+                'new_role' => $role,
+            ],
+            restaurantId: $employee->restaurant_id ? (int) $employee->restaurant_id : null,
+            branchId: $employee->branch_id ? (int) $employee->branch_id : null,
+        );
+
         $this->redirect(route('staff.index'), navigate: true);
     }
 

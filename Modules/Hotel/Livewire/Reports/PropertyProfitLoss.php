@@ -50,30 +50,30 @@ class PropertyProfitLoss extends Component
 
     public function getPnlDataProperty(): array
     {
-        $restaurantId = restaurant()->id;
+        $branchId = branch()->id;
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
         // ── REVENUE ──
-        $restaurantSales = Order::where('branch_id', branch()->id)
+        $restaurantSales = Order::where('branch_id', $branchId)
             ->whereNull('hotel_reservation_id')
             ->whereIn('status', ['paid', 'payment_due'])
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
-        $roomServiceSales = Order::where('branch_id', branch()->id)
+        $roomServiceSales = Order::where('branch_id', $branchId)
             ->whereNotNull('hotel_reservation_id')
             ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
-        $roomNightRevenue = RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+        $roomNightRevenue = RoomCharge::where('branch_id', $branchId)
             ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
             ->sum('amount');
 
-        $hotelAddOns = RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+        $hotelAddOns = RoomCharge::where('branch_id', $branchId)
             ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
@@ -81,9 +81,8 @@ class PropertyProfitLoss extends Component
 
         $totalRevenue = $restaurantSales + $roomServiceSales + $roomNightRevenue + $hotelAddOns;
 
-        // ── EXPENSES ──
-        $hotelExpenses = HotelExpense::where('restaurant_id', $restaurantId)
-            ->whereIn('status', ['paid', 'pending'])
+        // ── EXPENSES (HasBranch scope auto-applies for HotelExpense) ──
+        $hotelExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->sum('amount');
 
@@ -100,8 +99,7 @@ class PropertyProfitLoss extends Component
         $profitMargin = $totalRevenue > 0 ? round(($netProfit / $totalRevenue) * 100, 1) : 0;
 
         // ── HOTEL EXPENSES BY DEPARTMENT ──
-        $hotelExpByDept = HotelExpense::where('restaurant_id', $restaurantId)
-            ->whereIn('status', ['paid', 'pending'])
+        $hotelExpByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->groupBy('department')
             ->select('department', DB::raw('SUM(amount) as total'))
@@ -123,17 +121,16 @@ class PropertyProfitLoss extends Component
             $mFrom = $monthStart . ' 00:00:00';
             $mTo   = $monthEnd   . ' 23:59:59';
 
-            $mRevenue = Order::where('branch_id', branch()->id)
+            $mRevenue = Order::where('branch_id', $branchId)
                 ->whereIn('status', ['paid', 'payment_due'])
                 ->whereBetween('date_time', [$mFrom, $mTo])
                 ->sum('total');
-            $mRevenue += RoomCharge::whereHas('reservation', fn($q) => $q->where('restaurant_id', $restaurantId))
+            $mRevenue += RoomCharge::where('branch_id', $branchId)
                 ->whereDate('charge_date', '>=', $monthStart)
                 ->whereDate('charge_date', '<=', $monthEnd)
                 ->sum('amount');
 
-            $mExpenses = HotelExpense::where('restaurant_id', $restaurantId)
-                ->whereIn('status', ['paid', 'pending'])
+            $mExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
                 ->whereBetween('expense_date', [$monthStart, $monthEnd])
                 ->sum('amount');
             $mExpenses += DB::table('expenses')

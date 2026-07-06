@@ -3,15 +3,17 @@
 namespace App\Livewire\Reports;
 
 use App\Exports\OutstandingReportExport;
-use App\Models\Expenses;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
 use Carbon\Carbon;
 use Livewire\Component;
 use Livewire\Attributes\On;
-use App\Exports\ItemReportExport;
 use Maatwebsite\Excel\Facades\Excel;
 
 class OutstandingPaymentReport extends Component
 {
+    use HasReportBranchFilter;
+
     public $dateRangeType;
     public $startDate;
     public $endDate;
@@ -26,6 +28,7 @@ class OutstandingPaymentReport extends Component
         $this->dateRangeType = 'currentWeek';
         $this->startDate = now()->startOfWeek()->format('m/d/Y');
         $this->endDate = now()->endOfWeek()->format('m/d/Y');
+        $this->mountReportBranchFilter();
     }
 
     public function setDateRange()
@@ -97,7 +100,7 @@ class OutstandingPaymentReport extends Component
             $this->dispatch('showUpgradeLicense');
         }
         else {
-            return Excel::download(new OutstandingReportExport($this->startDate, $this->endDate), 'item-report-' . now()->toDateTimeString() . '.xlsx');
+            return Excel::download(new OutstandingReportExport($this->startDate, $this->endDate, $this->branchFilter), 'outstanding-payment-report-' . now()->toDateTimeString() . '.xlsx');
         }
     }
 
@@ -106,7 +109,8 @@ class OutstandingPaymentReport extends Component
         $start = Carbon::createFromFormat('m/d/Y', $this->startDate)->startOfDay();
         $end = Carbon::createFromFormat('m/d/Y', $this->endDate)->endOfDay();
 
-        $this->expenses = Expenses::with(['category'])
+        $this->expenses = ReportBranchScope::expensesBaseQuery($this->branchFilter)
+            ->with(ReportBranchScope::eagerLoadExpenseCategoryForReport())
             ->where('payment_status', '=', 'pending')
             ->whereBetween('payment_due_date', [$start, $end])
             ->get();
@@ -114,7 +118,9 @@ class OutstandingPaymentReport extends Component
         $this->totalAmount = $this->expenses->sum('amount');
 
         return view('livewire.reports.outstanding-payment-report', [
-        'expenses' => $this->expenses
+            'expenses' => $this->expenses,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 

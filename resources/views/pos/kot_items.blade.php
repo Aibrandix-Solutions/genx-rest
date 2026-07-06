@@ -276,7 +276,8 @@
         </div>
 
         <div class="flex flex-col rounded">
-            <table class=" flex-1  min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+            <table class="pos-cart-table flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <x-pos.cart-table-cols />
                 <thead class="bg-gray-100 dark:bg-gray-700">
                     <tr>
                         <th scope="col"
@@ -409,13 +410,13 @@
 
                                 <x-pos.item-note :id="$key" :note="$itemNotes[$key] ?? ''" />
                             </td>
-                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
+                            <td class="p-1 text-center align-middle overflow-hidden">
 
-                                <div class="relative flex items-center max-w-[8rem] mx-auto"
+                                <div class="relative flex items-center w-full max-w-full mx-auto"
                                     wire:key='orderItemQty-{{ $key }}-counter'>
                                     <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;"
                                         @disabled($comboId)
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round"
@@ -431,12 +432,12 @@
                                             window.posClient?.queueQtySet(@js((string) $key), normalized, this);
                                             return false;
                                         "
-                                        class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                        class="min-w-0 w-full h-7 bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
                                     <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;"
                                         @disabled($comboId)
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round"
@@ -456,10 +457,10 @@
                                 {{ currency_format($displayPrice, restaurant()->currency_id) }}
                             </td>
                             <td
-                                class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
-                            <td class="p-2 whitespace-nowrap text-right">
+                            <td class="p-1 whitespace-nowrap text-right">
                                 @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"

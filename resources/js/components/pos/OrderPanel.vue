@@ -412,9 +412,16 @@
         </div>
 
         <!-- Cart Items Table -->
-        <div ref="cartContainer" class="flex flex-col rounded max-md:max-h-none max-md:overflow-visible md:max-h-[250px] md:overflow-y-auto">
-            <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
-                <thead class="bg-gray-100 dark:bg-gray-700 sticky top-0 z-10">
+        <div ref="cartContainer" class="pos-cart-items-scroll rounded">
+            <table class="pos-cart-table w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <colgroup>
+                    <col>
+                    <col style="width: 6.5rem">
+                    <col style="width: 4rem">
+                    <col style="width: 5.5rem">
+                    <col style="width: 2.75rem">
+                </colgroup>
+                <thead class="pos-cart-items-thead">
                     <tr>
                         <th scope="col"
                             class="p-2 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 rtl:text-right ltr:text-left">
@@ -647,11 +654,11 @@
                                     </div>
                                 </td>
 
-                                <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                                    <div class="relative flex items-center max-w-[8rem] mx-auto">
+                                <td class="p-1 text-center align-middle overflow-hidden">
+                                    <div class="relative flex items-center w-full max-w-full mx-auto">
                                         <button type="button" @click="requestDecreaseKotItem(item)"
                                             :disabled="!canManageLineItems || !canDeleteKotItem || item._isCombo"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -662,12 +669,12 @@
                                             :readonly="true"
                                             :title="linkedOrderNewKotMessage"
                                             @click="notifyLinkedOrderUseNewKot"
-                                            class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
+                                            class="min-w-0 w-full h-7 border-b border-t bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
                                             min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                         <button type="button" @click="handleLinkedIncreaseBlocked"
                                             :disabled="item._isCombo"
                                             :title="linkedOrderNewKotMessage"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -680,7 +687,7 @@
                                 <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right">
@@ -790,7 +797,7 @@
                                 <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right text-gray-400 text-xs">
@@ -870,20 +877,20 @@
                             </td>
 
                             <!-- Quantity Control -->
-                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                                <div class="relative flex items-center max-w-[8rem] mx-auto">
+                            <td class="p-1 text-center align-middle overflow-hidden">
+                                <div class="relative flex items-center w-full max-w-full mx-auto">
                                     <button type="button" @click="$emit('decrease-quantity', group.item.line_key || group.item.id)"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
                                     </button>
                                     <input type="text" v-model.lazy="group.item.quantity"
                                         @change="$emit('update-quantity', { line_key: group.item.line_key || group.item.id, id: group.item.id, quantity: group.item.quantity, variant_id: group.item.variant_id || 0, modifier_id: group.item.modifier_id || 0 })"
-                                        class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        class="min-w-0 w-full h-7 border-b border-t bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                     <button type="button" @click="$emit('increase-quantity', group.item.line_key || group.item.id)"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
@@ -894,7 +901,7 @@
                             <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                 {{ currencySymbol }} {{ formatPrice(group.item.price) }}
                             </td>
-                            <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                            <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                 {{ currencySymbol }} {{ formatPrice(group.item.price * group.item.quantity) }}
                             </td>
                             <td class="p-2 whitespace-nowrap text-right">
@@ -2303,7 +2310,7 @@ const linkedKotGroups = computed(() => {
     const sourceGroups = Array.isArray(props.kotGroups) ? props.kotGroups : [];
     const seenLinkedKeys = new Set();
 
-    return sourceGroups.map((group, groupIndex) => {
+    const groups = sourceGroups.map((group, groupIndex) => {
         const lines = Array.isArray(group?.lines) ? group.lines : [];
 
         const normalizedLines = lines.map((line, lineIndex) => {
@@ -2425,6 +2432,66 @@ const linkedKotGroups = computed(() => {
             lines: normalizedLines,
         };
     });
+
+    if (groups.length === 0 && cartSource.length > 0) {
+        const fallbackLines = cartSource.map((item, lineIndex) => {
+            const resolvedKey = item.line_key || item.id || `fallback_${lineIndex}`;
+            const quantity = Number(item.quantity || 1);
+            const price = Number(item.price || 0);
+            const packId = item.combo_pack_id ? Number(item.combo_pack_id) : null;
+            const displayName = [
+                item.name || "Unknown Item",
+                item.variation_name || "",
+            ].filter(Boolean).join(" — ");
+
+            const cached = linkedLineReactiveCache.get(resolvedKey);
+            if (cached) {
+                Object.assign(cached, {
+                    id: resolvedKey,
+                    line_key: resolvedKey,
+                    order_item_id: item.order_item_id || null,
+                    kot_item_id: item.kot_item_id || null,
+                    name: displayName,
+                    quantity,
+                    price,
+                    note: item.note || "",
+                    combo_pack_id: packId,
+                    _linkedKey: resolvedKey,
+                    _isCombo: !!packId,
+                });
+                return cached;
+            }
+
+            const row = reactive({
+                id: resolvedKey,
+                line_key: resolvedKey,
+                order_item_id: item.order_item_id || null,
+                kot_item_id: item.kot_item_id || null,
+                name: displayName,
+                quantity,
+                price,
+                note: item.note || "",
+                combo_pack_id: packId,
+                _linkedKey: resolvedKey,
+                _isCombo: !!packId,
+                _showNoteInput: false,
+                _activeNote: "",
+                _showNotePreview: false,
+            });
+            linkedLineReactiveCache.set(resolvedKey, row);
+            return row;
+        });
+
+        return [{
+            key: "fallback_order_lines",
+            id: null,
+            title: "Order items",
+            createdAt: "",
+            lines: fallbackLines,
+        }];
+    }
+
+    return groups;
 });
 
 // Drop reactive line entries whose backing KOT row no longer exists, so the
@@ -3073,4 +3140,52 @@ const handleSaveOrder = (...actions) => {
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+/* ~5 item rows visible; 6th+ scrolls inside this block only */
+.pos-cart-items-scroll {
+    /* 4.25rem/row was too tall (~6 rows fit); ~3.5rem matches actual row height (+ Add Note rows) */
+    max-height: calc(2.75rem + (5 * 3.5rem));
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.pos-cart-items-scroll table {
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(2) {
+    width: 6.5rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(3) {
+    width: 4rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(4) {
+    width: 5.5rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(5) {
+    width: 2.75rem;
+}
+
+@media (max-width: 1023px) {
+    .pos-cart-items-scroll .pos-cart-table col:nth-child(3) {
+        width: 0;
+    }
+}
+
+.pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: rgb(243 244 246);
+    box-shadow: inset 0 -1px 0 rgb(229 231 235);
+}
+
+:global(.dark) .pos-cart-items-scroll :deep(.pos-cart-items-thead th) {
+    background-color: rgb(55 65 81);
+    box-shadow: inset 0 -1px 0 rgb(75 85 99);
+}
+</style>

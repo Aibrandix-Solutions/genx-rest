@@ -228,10 +228,16 @@
                                 <x-sidebar-dropdown-menu :name='__("menu.reports")' icon='reports' :active='request()->routeIs(["reports.*"])'>
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.salesReport'), 'link' => route('reports.sales'), 'active' => request()->routeIs('reports.sales')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.detailedSalesReport'), 'link' => route('reports.detailedSales'), 'active' => request()->routeIs('reports.detailedSales')])
+                                    @if (module_enabled('Hotel'))
+                                        @livewire('sidebar-dropdown-menu', ['name' => __('menu.roomChargeOrdersReport'), 'link' => route('reports.roomChargeOrders'), 'active' => request()->routeIs('reports.roomChargeOrders')])
+                                    @endif
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.itemReport'), 'link' => route('reports.item'), 'active' => request()->routeIs('reports.item')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.categoryReport'), 'link' => route('reports.category'), 'active' => request()->routeIs('reports.category')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.deliveryAppReport'), 'link' => route('reports.delivery'), 'active' => request()->routeIs('reports.delivery')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.kotAdjustmentLog'), 'link' => route('reports.kotAdjustments'), 'active' => request()->routeIs('reports.kotAdjustments')])
+                                    @if (user_can('View Activity Log'))
+                                        @livewire('sidebar-dropdown-menu', ['name' => __('menu.activityLog'), 'link' => route('reports.activityLog'), 'active' => request()->routeIs('reports.activityLog')])
+                                    @endif
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.menuItemReport'), 'link' => route('reports.menuItem'), 'active' => request()->routeIs('reports.menuItem')])
                                     @if ($this->hasModule('Expense'))
                                         @livewire('sidebar-dropdown-menu', ['name' => __('menu.expenseReports'), 'link' => route('reports.expenseReports'), 'active' => request()->routeIs('reports.expenseReports')])

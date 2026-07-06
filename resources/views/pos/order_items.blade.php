@@ -312,7 +312,8 @@
             </div>
 
             <div class="flex flex-col rounded">
-                <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <table class="pos-cart-table flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <x-pos.cart-table-cols />
                     <thead>
                         <tr>
                             <th scope="col" class="p-3 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-left">
@@ -322,7 +323,7 @@
                                 @lang('modules.order.qty')
                             </th>
                             <th scope="col"
-                                class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
+                                class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400 hidden lg:table-cell">
                                 @lang('modules.order.price')
                             </th>
                             <th scope="col"
@@ -438,18 +439,18 @@
                                 @endif
                             </td>
 
-                                <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
+                                <td class="p-1 text-center align-middle overflow-hidden">
 
-                                <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                <div class="relative flex items-center w-full max-w-full mx-auto" wire:key='orderItemQty-{{ $key }}-counter'>
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;" @disabled($isComboItem) class="shrink-0 flex items-center justify-center h-7 w-7 p-0 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                         </svg>
                                     </button>
 
-                                    <input type="text" data-pos-qty-key="{{ $key }}" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly  />
+                                    <input type="text" data-pos-qty-key="{{ $key }}" wire:model='orderItemQty.{{ $key }}' class="block min-w-0 w-full h-7 text-sm text-center text-gray-900 bg-white border-gray-300 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white py-0" value="1" readonly  />
 
-                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;" @disabled($isComboItem) class="shrink-0 flex items-center justify-center h-7 w-7 p-0 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                         </svg>
@@ -458,11 +459,11 @@
 
                             </td>
 
-                            <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
+                            <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white hidden lg:table-cell">
                                 {{ currency_format($displayPrice, restaurant()->currency_id) }}
                             </td>
 
-                            <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
+                            <td class="p-2 pl-1 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
                             @if ($showActionColumn)
@@ -511,7 +512,8 @@
             </div>
 
             <div class="flex flex-col rounded">
-                <table class="flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <table class="pos-cart-table flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <x-pos.cart-table-cols />
                     <thead>
                         <tr>
                             <th scope="col" class="p-3 text-xs font-medium text-gray-500 uppercase dark:text-gray-400 text-left">
@@ -520,7 +522,7 @@
                             <th scope="col" class="p-3 text-xs font-medium text-center text-gray-500 uppercase dark:text-gray-400">
                                 @lang('modules.order.qty')
                             </th>
-                            <th scope="col" class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
+                            <th scope="col" class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400 hidden lg:table-cell">
                                 @lang('modules.order.price')
                             </th>
                             <th scope="col" class="p-2 text-xs font-medium text-right text-gray-500 uppercase dark:text-gray-400">
@@ -631,25 +633,25 @@
                                         </div>
                                     @endif
                                 </td>
-                                <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
-                                    <div class="relative flex items-center max-w-[8rem] mx-auto" wire:key='orderItemQty-existing-{{ $key }}-counter'>
-                                        <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
+                                <td class="p-1 text-center align-middle overflow-hidden">
+                                    <div class="relative flex items-center w-full max-w-full mx-auto" wire:key='orderItemQty-existing-{{ $key }}-counter'>
+                                        <button type="button" wire:click="subQty('{{ $key }}')" @disabled($isComboItem) class="shrink-0 flex items-center justify-center h-7 w-7 p-0 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-s-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16"/>
                                             </svg>
                                         </button>
-                                        <input type="text" wire:model='orderItemQty.{{ $key }}' class="block py-2.5 w-full h-8 text-sm text-center text-gray-900 bg-white border-gray-300 min-w-10 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white" value="1" readonly />
-                                        <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="h-8 p-3 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
+                                        <input type="text" wire:model='orderItemQty.{{ $key }}' class="block min-w-0 w-full h-7 text-sm text-center text-gray-900 bg-white border-gray-300 border-x-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white py-0" value="1" readonly />
+                                        <button type="button" wire:click="addQty('{{ $key }}')" @disabled($isComboItem) class="shrink-0 flex items-center justify-center h-7 w-7 p-0 border border-gray-300 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 rounded-e-md">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16"/>
                                             </svg>
                                         </button>
                                     </div>
                                 </td>
-                                <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white">
+                                <td class="p-2 text-xs font-medium text-right text-gray-700 whitespace-nowrap dark:text-white hidden lg:table-cell">
                                     {{ currency_format($displayPrice, restaurant()->currency_id) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
+                                <td class="p-2 pl-1 text-xs font-medium text-right text-gray-900 whitespace-nowrap dark:text-white">
                                     {{ currency_format($totalAmount, restaurant()->currency_id) }}
                                 </td>
                                 @if ($showActionColumn)

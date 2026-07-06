@@ -27,6 +27,7 @@ return array(
     'categoryReport' => 'Category Report',
     'salesReport' => 'Sales Report',
     'detailedSalesReport' => 'Detailed Sales Report',
+    'roomChargeOrdersReport' => 'Room Charge Orders',
     'deliveryAppReport' => 'Delivery App Report',
     'settings' => 'Settings',
     'signOut' => 'Sign Out',
@@ -60,5 +61,6 @@ return array(
     'customerDisplay' => 'Customer Display',
     'deliveryAppReport' => 'Delivery App Report',
     'kotAdjustmentLog' => 'KOT Adjustment Log',
+    'activityLog' => 'Activity Log',
     'menuItemReport' => 'Menu Item Report',
 );
