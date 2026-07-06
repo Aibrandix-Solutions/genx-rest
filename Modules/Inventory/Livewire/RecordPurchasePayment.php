@@ -12,6 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
+use App\Scopes\BranchScope;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class RecordPurchasePayment extends Component
@@ -52,10 +53,17 @@ class RecordPurchasePayment extends Component
         'paymentAccountId.exists' => 'Selected payment account does not exist',
     ];
 
+    protected function findPurchaseOrder(int $purchaseId): PurchaseOrder
+    {
+        return PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->findOrFail($purchaseId);
+    }
+
     public function mount($purchaseId)
     {
         $this->purchaseId = $purchaseId;
-        $this->purchase = PurchaseOrder::findOrFail($purchaseId);
+        $this->purchase = $this->findPurchaseOrder($purchaseId);
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentAmount = $this->purchase->due_amount;
 
@@ -112,7 +120,8 @@ class RecordPurchasePayment extends Component
             $this->validate();
 
             DB::transaction(function () {
-                $purchase = PurchaseOrder::query()
+                $purchase = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+                    ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
                     ->whereKey($this->purchaseId)
                     ->lockForUpdate()
                     ->firstOrFail();

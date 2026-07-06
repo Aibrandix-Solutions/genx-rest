@@ -2,6 +2,7 @@
 
 namespace Modules\Inventory\Exports;
 
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\PurchaseReturn;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromCollection;
@@ -23,8 +24,9 @@ class PurchaseReturnExport implements WithMapping, FromCollection, WithHeadings,
     protected $supplierId;
     protected $purchaseOrderId;
     protected $status;
+    protected $locationFilter;
 
-    public function __construct($search = null, $startDate = null, $endDate = null, $supplierId = null, $purchaseOrderId = null, $status = null)
+    public function __construct($search = null, $startDate = null, $endDate = null, $supplierId = null, $purchaseOrderId = null, $status = null, $locationFilter = null)
     {
         $this->search = $search;
         $this->startDate = $startDate;
@@ -32,6 +34,7 @@ class PurchaseReturnExport implements WithMapping, FromCollection, WithHeadings,
         $this->supplierId = $supplierId;
         $this->purchaseOrderId = $purchaseOrderId;
         $this->status = $status;
+        $this->locationFilter = $locationFilter;
     }
 
     public function headings(): array
@@ -75,9 +78,17 @@ class PurchaseReturnExport implements WithMapping, FromCollection, WithHeadings,
 
     public function collection()
     {
-        return PurchaseReturn::query()
+        $query = PurchaseReturn::withoutGlobalScope(BranchScope::class)
             ->with(['supplier', 'purchaseOrder'])
-            ->where('branch_id', branch()->id)
+            ->whereHas('supplier', fn ($q) => $q->where('restaurant_id', restaurant()->id));
+
+        if ($this->locationFilter !== '' && $this->locationFilter !== null) {
+            $query->whereHas('purchaseOrder', fn ($q) => $q
+                ->withoutGlobalScope(BranchScope::class)
+                ->where('location_id', $this->locationFilter));
+        }
+
+        return $query
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
                     $query->where('return_number', 'like', '%' . $this->search . '%')

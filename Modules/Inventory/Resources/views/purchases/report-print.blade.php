@@ -226,12 +226,10 @@
     </div>
 
     <dl class="filters">
-        @if($showAdminView)
-            <div class="row">
-                <dt>@lang('app.branch'):</dt>
-                <dd>{{ $branchName }}</dd>
-            </div>
-        @endif
+        <div class="row">
+            <dt>@lang('inventory::modules.stock.location'):</dt>
+            <dd>{{ $locationName }}</dd>
+        </div>
         <div class="row">
             <dt>@lang('inventory::modules.purchaseOrder.supplier'):</dt>
             <dd>{{ $supplierName }}</dd>

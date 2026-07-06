@@ -123,6 +123,11 @@ class Reservation extends Model
         return $this->hasMany(HotelPayment::class);
     }
 
+    public function restaurantSettlementPayments(): HasMany
+    {
+        return $this->hasMany(RestaurantSettlementPayment::class, 'reservation_id');
+    }
+
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');

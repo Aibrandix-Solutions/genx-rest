@@ -5,6 +5,7 @@ namespace Modules\Inventory\Entities;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\User;
+use App\Scopes\BranchScope;
 
 class SupplierPayment extends Model
 {
@@ -32,7 +33,7 @@ class SupplierPayment extends Model
 
     public function purchaseOrder(): BelongsTo
     {
-        return $this->belongsTo(PurchaseOrder::class);
+        return $this->belongsTo(PurchaseOrder::class)->withoutGlobalScope(BranchScope::class);
     }
 
     public function purchaseReturn(): BelongsTo

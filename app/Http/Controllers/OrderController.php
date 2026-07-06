@@ -56,6 +56,7 @@ class OrderController extends Controller
             'kot',
             'table',
             'waiter',
+            'posUser',
             'customer',
         ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
@@ -96,6 +97,7 @@ class OrderController extends Controller
             'kot',
             'table',
             'waiter',
+            'posUser',
             'customer',
         ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
@@ -134,6 +136,7 @@ class OrderController extends Controller
             'kot',
             'table',
             'waiter',
+            'posUser',
             'customer',
         ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
