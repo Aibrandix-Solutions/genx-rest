@@ -553,6 +553,16 @@
                                             </div>
                                         @endif
 
+                                        @if ((float) ($item->item_discount_amount ?? 0) > 0)
+                                            <div class="text-xs text-green-600 dark:text-green-400">
+                                                @lang('modules.order.itemDiscount'):
+                                                -{{ currency_format($item->item_discount_amount, $currencyId) }}
+                                                @if ($item->discount_type === 'percent')
+                                                    ({{ rtrim(rtrim(number_format((float) $item->discount_value, 2), '0'), '.') }}%)
+                                                @endif
+                                            </div>
+                                        @endif
+
                                     </td>
                                     <td
                                         class="p-2 text-xs text-center text-gray-900 whitespace-nowrap dark:text-gray-400">
