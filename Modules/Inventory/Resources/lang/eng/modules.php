@@ -152,6 +152,7 @@ return [
         'outOfStock' => 'Out of Stock',
         'searchPlaceholder' => 'Search items...',
         'searchByNameOrCode' => 'Search by item name or item code...',
+        'searchByCode' => 'Search by item code...',
         'allCategories' => 'All Categories',
         'allLocations' => 'All Locations',
         'location' => 'Location',
