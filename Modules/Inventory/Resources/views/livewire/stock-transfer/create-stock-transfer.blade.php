@@ -62,14 +62,6 @@
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {{ __('inventory::modules.transfers.transfer_items') }} <span class="text-red-500">*</span>
                 </label>
-                @if($sourceLocation)
-                    <button type="button" wire:click="addTransferItem" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
-                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-                        </svg>
-                        {{ __('inventory::modules.transfers.add_item') }}
-                    </button>
-                @endif
             </div>
 
             @if(!$sourceLocation)
@@ -275,10 +267,7 @@
                 </div>
             @else
                 <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
-                    <p class="text-gray-500 dark:text-gray-400 mb-4">{{ __('inventory::modules.transfers.no_items_added') }}</p>
-                    <button type="button" wire:click="addTransferItem" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                        {{ __('inventory::modules.transfers.add_first_item') }}
-                    </button>
+                    <p class="text-gray-500 dark:text-gray-400">{{ __('inventory::modules.transfers.no_items_added') }}</p>
                 </div>
             @endif
             @error('transferItems') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
@@ -286,7 +275,15 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end space-x-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div class="flex justify-end items-center gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            @if($sourceLocation)
+                <button type="button" wire:click="addTransferItem" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                    </svg>
+                    {{ __('inventory::modules.transfers.add_item') }}
+                </button>
+            @endif
             <button type="button" wire:click="closeModal" class="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                 {{ __('app.cancel') }}
             </button>
