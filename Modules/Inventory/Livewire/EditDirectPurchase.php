@@ -95,6 +95,7 @@ class EditDirectPurchase extends Component
         'notes' => 'nullable|string',
         'items' => 'required|array|min:1',
         'items.*.inventory_item_id' => 'required|exists:inventory_items,id',
+        'items.*.unit_id' => 'required|exists:units,id',
         'items.*.quantity' => 'required|numeric|min:0.01',
         'items.*.unit_price' => 'required|numeric|min:0',
         'items.*.discount' => 'nullable|numeric|min:0',
@@ -117,7 +118,7 @@ class EditDirectPurchase extends Component
 
     public function loadPurchase()
     {
-        $this->purchase = PurchaseOrder::with('items', 'attachments', 'payments.account')->findOrFail($this->purchaseId);
+        $this->purchase = PurchaseOrder::with('items.inventoryItem', 'attachments', 'payments.account')->findOrFail($this->purchaseId);
         
         $this->supplierId = $this->purchase->supplier_id;
         $this->invoiceNo = $this->purchase->invoice_no;
@@ -135,6 +136,7 @@ class EditDirectPurchase extends Component
                 '_key' => 'po_item_' . $item->id,
                 'id' => $item->id,
                 'inventory_item_id' => $item->inventory_item_id,
+                'unit_id' => $item->unit_id ?? $item->inventoryItem?->unit_id,
                 'quantity' => $item->quantity,
                 'unit_price' => $item->unit_price,
                 'discount' => $item->discount ?? 0,
@@ -344,6 +346,7 @@ class EditDirectPurchase extends Component
             $this->items[] = [
                 ...$this->makePurchaseItemRow(),
                 'inventory_item_id' => $item->id,
+                'unit_id' => $item->unit_id,
                 'quantity' => $quantity,
                 'unit_price' => max(0, $unitPrice),
                 'discount' => max(0, $discount),
@@ -373,6 +376,7 @@ class EditDirectPurchase extends Component
         return [
             '_key' => (string) Str::uuid(),
             'inventory_item_id' => '',
+            'unit_id' => '',
             'quantity' => 1,
             'unit_price' => 0,
             'discount' => 0,
@@ -426,6 +430,7 @@ class EditDirectPurchase extends Component
             $this->items[] = [
                 ...$this->makePurchaseItemRow(),
                 'inventory_item_id' => $item->id,
+                'unit_id' => $item->unit_id,
                 'unit_price' => $item->unit_purchase_price ?? 0,
                 'last_purchase_price' => null,
             ];
@@ -502,6 +507,7 @@ class EditDirectPurchase extends Component
         }
 
         $this->items[$targetIndex]['inventory_item_id'] = $itemId;
+        $this->items[$targetIndex]['unit_id'] = $item->unit_id;
         $this->items[$targetIndex]['quantity'] = (float) ($this->items[$targetIndex]['quantity'] ?? 0) > 0
             ? $this->items[$targetIndex]['quantity']
             : 1;
@@ -558,6 +564,7 @@ class EditDirectPurchase extends Component
             if ($item->unit_purchase_price !== null) {
                 $this->items[$index]['unit_price'] = $item->unit_purchase_price;
             }
+            $this->items[$index]['unit_id'] = $item->unit_id;
             $this->items[$index]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
                 ->orderBy('created_at', 'desc')
                 ->value('unit_price');
@@ -856,6 +863,7 @@ class EditDirectPurchase extends Component
                 
                 $this->purchase->items()->create([
                     'inventory_item_id' => $item['inventory_item_id'],
+                    'unit_id' => $item['unit_id'],
                     'quantity' => $qty,
                     'unit_price' => $price,
                     'subtotal' => $subtotal,

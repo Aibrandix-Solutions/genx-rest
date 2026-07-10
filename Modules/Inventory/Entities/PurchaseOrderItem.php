@@ -25,4 +25,16 @@ class PurchaseOrderItem extends Model
     {
         return $this->belongsTo(InventoryItem::class);
     }
+
+    public function unit(): BelongsTo
+    {
+        return $this->belongsTo(Unit::class);
+    }
+
+    public function displayUnitSymbol(): string
+    {
+        return $this->unit?->symbol
+            ?? $this->inventoryItem?->unit?->symbol
+            ?? '-';
+    }
 }

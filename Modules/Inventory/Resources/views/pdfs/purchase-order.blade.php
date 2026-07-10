@@ -416,11 +416,12 @@
         <thead>
             <tr>
                 <th style="width: 4%;">#</th>
-                <th style="width: 38%;">{{ trans('inventory::modules.inventoryItem.name') }}</th>
-                <th style="width: 14%;" class="text-right">{{ trans('inventory::modules.purchaseOrder.unit_price') }}</th>
+                <th style="width: 32%;">{{ trans('inventory::modules.inventoryItem.name') }}</th>
+                <th style="width: 8%;">{{ trans('inventory::modules.inventoryItem.unit') }}</th>
+                <th style="width: 12%;" class="text-right">{{ trans('inventory::modules.purchaseOrder.unit_price') }}</th>
                 <th style="width: 12%;" class="text-right">{{ trans('inventory::modules.purchaseOrder.ordered_quantity') }}</th>
-                <th style="width: 14%;" class="text-right">Discount</th>
-                <th style="width: 18%;" class="text-right">{{ trans('inventory::modules.purchaseOrder.subtotal') }}</th>
+                <th style="width: 12%;" class="text-right">Discount</th>
+                <th style="width: 20%;" class="text-right">{{ trans('inventory::modules.purchaseOrder.subtotal') }}</th>
             </tr>
         </thead>
         <tbody>
@@ -439,13 +440,11 @@
                             <span class="muted" style="font-family: monospace;">[{{ $item->inventoryItem->item_code }}]</span>
                         @endif
                         {{ $item->inventoryItem->name ?? 'Item Deleted' }}
-                        @if(optional(optional($item->inventoryItem)->unit)->symbol)
-                            <span class="muted">({{ $item->inventoryItem->unit->symbol }})</span>
-                        @endif
                         @if(optional($item->inventoryItem)->category)
                             <div class="muted">{{ $item->inventoryItem->category->name }}</div>
                         @endif
                     </td>
+                    <td>{{ $item->displayUnitSymbol() }}</td>
                     <td class="text-right">{{ currency_format($item->unit_price, restaurant()->currency_id) }}</td>
                     <td class="text-right">{{ number_format($item->quantity, 2) }}</td>
                     <td class="text-right">

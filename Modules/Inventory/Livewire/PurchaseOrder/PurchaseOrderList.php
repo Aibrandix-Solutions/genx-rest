@@ -166,6 +166,7 @@ class PurchaseOrderList extends Component
         $purchaseOrder->load([
             'supplier',
             'location.branch',
+            'items.unit',
             'items.inventoryItem.unit',
             'items.inventoryItem.category',
             'creator',
