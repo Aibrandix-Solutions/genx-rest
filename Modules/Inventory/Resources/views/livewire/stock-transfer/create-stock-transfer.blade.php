@@ -62,14 +62,6 @@
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {{ __('inventory::modules.transfers.transfer_items') }} <span class="text-red-500">*</span>
                 </label>
-                @if($sourceLocation)
-                    <button type="button" wire:click="addTransferItem" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm">
-                        <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
-                        </svg>
-                        {{ __('inventory::modules.transfers.add_item') }}
-                    </button>
-                @endif
             </div>
 
             @if(!$sourceLocation)
@@ -80,7 +72,6 @@
 
             @if(count($transferItems) > 0)
                 <div class="space-y-4">
-                    @php $availableItemsJson = $availableItems->map(fn($i) => ['id' => $i->id, 'name' => $i->name, 'item_code' => $i->item_code ?? '', 'unit_id' => $i->unit_id, 'unit_symbol' => $i->unit?->symbol ?? ''])->toJson(); @endphp
                     @foreach($transferItems as $index => $item)
                         <div wire:key="transfer-item-{{ $index }}" class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-gray-50 dark:bg-gray-800">
                             <div class="flex items-center justify-between mb-4">
@@ -97,42 +88,59 @@
                             </div>
 
                             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                                <!-- Source Item (searchable) -->
+                                @php
+                                    $transferItemOptions = $availableItems->map(fn ($i) => [
+                                        'id' => $i->id,
+                                        'name' => $i->name,
+                                        'item_code' => $i->item_code ?? '',
+                                        'unit_id' => $i->unit_id,
+                                        'unit_symbol' => $i->unit?->symbol ?? '',
+                                    ])->values();
+                                @endphp
+
+                                <!-- Source Item (searchable by name) -->
                                 <div x-data="{
                                         open: false,
                                         search: '',
                                         selectedLabel: '',
-                                        items: {{ $availableItemsJson }},
-                                        formatLabel(item) {
-                                            return item.item_code ? `[${item.item_code}] ${item.name}` : item.name;
-                                        },
+                                        items: @js($transferItemOptions),
                                         get filtered() {
-                                            if (!this.search) return this.items;
-                                            const q = this.search.toLowerCase();
-                                            return this.items.filter(i =>
-                                                i.name.toLowerCase().includes(q)
-                                                || (i.item_code && i.item_code.toLowerCase().includes(q))
-                                            );
+                                            const term = this.search.trim().toLowerCase();
+                                            if (!term) return this.items;
+                                            return this.items.filter(i => String(i.name ?? '').toLowerCase().includes(term));
+                                        },
+                                        toggleOpen() {
+                                            this.open = !this.open;
+                                            if (this.open) {
+                                                this.search = '';
+                                                this.$nextTick(() => this.$refs.itemSearch?.focus());
+                                            }
                                         },
                                         selectItem(item) {
-                                            this.selectedLabel = this.formatLabel(item);
+                                            this.selectedLabel = item.name;
                                             this.open = false;
                                             this.search = '';
                                             $wire.set('transferItems.{{ $index }}.source_item_id', item.id);
                                         },
-                                        init() {
+                                        syncSelectedLabel() {
                                             const currentId = $wire.get('transferItems.{{ $index }}.source_item_id');
-                                            if (currentId) {
-                                                const found = this.items.find(i => i.id == currentId);
-                                                if (found) this.selectedLabel = this.formatLabel(found);
+                                            if (!currentId) {
+                                                this.selectedLabel = '';
+                                                return;
                                             }
+                                            const found = this.items.find(i => i.id == currentId);
+                                            this.selectedLabel = found ? found.name : '';
+                                        },
+                                        init() {
+                                            this.syncSelectedLabel();
+                                            $wire.$watch('transferItems.{{ $index }}.source_item_id', () => this.syncSelectedLabel());
                                         }
                                     }" x-init="init()" @click.away="open = false" class="relative">
                                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                         {{ __('inventory::modules.transfers.item') }} <span class="text-red-500">*</span>
                                     </label>
                                     <!-- Trigger button -->
-                                    <button type="button" @click="open = !open"
+                                    <button type="button" @click="toggleOpen()"
                                         class="w-full text-left border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-blue-500">
                                         <span x-text="selectedLabel || '{{ __('inventory::modules.transfers.select_item') }}'" class="truncate" :class="selectedLabel ? '' : 'text-gray-400'"></span>
                                         <svg class="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
@@ -140,7 +148,7 @@
                                     <!-- Dropdown -->
                                     <div x-show="open" x-cloak class="absolute z-50 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
                                         <div class="p-2 border-b border-gray-100 dark:border-gray-600">
-                                            <input x-model="search" type="text" placeholder="{{ __('app.search') }}..."
+                                            <input x-ref="itemSearch" x-model="search" type="text" placeholder="{{ __('app.search') }}..."
                                                 class="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500"
                                                 @click.stop />
                                         </div>
@@ -148,7 +156,7 @@
                                             <template x-for="item in filtered" :key="item.id">
                                                 <li @click="selectItem(item)"
                                                     class="px-4 py-2 text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100"
-                                                    x-text="formatLabel(item)"></li>
+                                                    x-text="item.name"></li>
                                             </template>
                                             <li x-show="filtered.length === 0" class="px-4 py-2 text-sm text-gray-400">{{ __('app.noResultFound') }}</li>
                                         </ul>
@@ -161,22 +169,67 @@
                                     @endif
                                 </div>
 
-                                <!-- Item Code (informational — auto-filled from selected item) -->
-                                <div>
+                                <!-- Item Code (searchable by code) -->
+                                <div x-data="{
+                                        open: false,
+                                        search: '',
+                                        selectedLabel: '',
+                                        items: @js($transferItemOptions),
+                                        get filtered() {
+                                            const term = this.search.trim().toLowerCase();
+                                            const codedItems = this.items.filter(i => String(i.item_code ?? '').trim() !== '');
+                                            if (!term) return codedItems;
+                                            return codedItems.filter(i => String(i.item_code ?? '').toLowerCase().includes(term));
+                                        },
+                                        toggleOpen() {
+                                            this.open = !this.open;
+                                            if (this.open) {
+                                                this.search = '';
+                                                this.$nextTick(() => this.$refs.itemCodeSearch?.focus());
+                                            }
+                                        },
+                                        selectItem(item) {
+                                            this.selectedLabel = String(item.item_code ?? '').trim();
+                                            this.open = false;
+                                            this.search = '';
+                                            $wire.set('transferItems.{{ $index }}.source_item_id', item.id);
+                                        },
+                                        syncSelectedLabel() {
+                                            const currentId = $wire.get('transferItems.{{ $index }}.source_item_id');
+                                            if (!currentId) {
+                                                this.selectedLabel = '';
+                                                return;
+                                            }
+                                            const found = this.items.find(i => i.id == currentId);
+                                            this.selectedLabel = found ? String(found.item_code ?? '').trim() : '';
+                                        },
+                                        init() {
+                                            this.syncSelectedLabel();
+                                            $wire.$watch('transferItems.{{ $index }}.source_item_id', () => this.syncSelectedLabel());
+                                        }
+                                    }" x-init="init()" @click.away="open = false" class="relative">
                                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                         {{ __('inventory::modules.transfers.item_code') }}
                                     </label>
-                                    <div class="w-full border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-2.5 bg-gray-100 dark:bg-gray-900/40 text-gray-700 dark:text-gray-300 min-h-[42px] flex items-center">
-                                        @if(isset($item['source_item_id']) && $item['source_item_id'])
-                                            @php $itemCode = $availableItems->find($item['source_item_id'])?->item_code; @endphp
-                                            @if($itemCode)
-                                                <span class="font-mono text-sm">{{ $itemCode }}</span>
-                                            @else
-                                                <span class="text-gray-400">—</span>
-                                            @endif
-                                        @else
-                                            <span class="text-gray-400 text-sm">{{ __('inventory::modules.transfers.select_item') }}</span>
-                                        @endif
+                                    <button type="button" @click="toggleOpen()"
+                                        class="w-full text-left border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 flex items-center justify-between focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                        <span x-text="selectedLabel || '{{ __('inventory::modules.transfers.select_item') }}'" class="truncate font-mono text-sm" :class="selectedLabel ? '' : 'text-gray-400'"></span>
+                                        <svg class="w-4 h-4 text-gray-400 ml-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                    </button>
+                                    <div x-show="open" x-cloak class="absolute z-50 mt-1 w-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg">
+                                        <div class="p-2 border-b border-gray-100 dark:border-gray-600">
+                                            <input x-ref="itemCodeSearch" x-model="search" type="text" placeholder="{{ __('inventory::modules.stock.searchByCode') }}"
+                                                class="w-full border border-gray-300 dark:border-gray-600 rounded px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                                                @click.stop />
+                                        </div>
+                                        <ul class="max-h-48 overflow-y-auto py-1">
+                                            <template x-for="item in filtered" :key="item.id">
+                                                <li @click="selectItem(item)"
+                                                    class="px-4 py-2 text-sm cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-600 text-gray-900 dark:text-gray-100 font-mono"
+                                                    x-text="item.item_code"></li>
+                                            </template>
+                                            <li x-show="filtered.length === 0" class="px-4 py-2 text-sm text-gray-400">{{ __('app.noResultFound') }}</li>
+                                        </ul>
                                     </div>
                                 </div>
 
@@ -214,10 +267,7 @@
                 </div>
             @else
                 <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-8 text-center">
-                    <p class="text-gray-500 dark:text-gray-400 mb-4">{{ __('inventory::modules.transfers.no_items_added') }}</p>
-                    <button type="button" wire:click="addTransferItem" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                        {{ __('inventory::modules.transfers.add_first_item') }}
-                    </button>
+                    <p class="text-gray-500 dark:text-gray-400">{{ __('inventory::modules.transfers.no_items_added') }}</p>
                 </div>
             @endif
             @error('transferItems') <span class="text-red-500 text-sm">{{ $message }}</span> @enderror
@@ -225,7 +275,15 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end space-x-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div class="flex justify-end items-center gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            @if($sourceLocation)
+                <button type="button" wire:click="addTransferItem" class="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+                    <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+                    </svg>
+                    {{ __('inventory::modules.transfers.add_item') }}
+                </button>
+            @endif
             <button type="button" wire:click="closeModal" class="px-6 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                 {{ __('app.cancel') }}
             </button>

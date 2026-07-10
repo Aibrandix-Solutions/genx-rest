@@ -384,6 +384,7 @@ return [
         'createBillAndPrintReceipt' => 'Bill & Print',
         'billAndPayment' => 'Bill & Payment',
         'discount' => 'Discount',
+        'itemDiscount' => 'Item Discount',
         'addDiscount' => 'Add Discount',
         'discountApplied' => 'Discount applied successfully.',
         'discountRemoved' => 'Discount removed successfully.',

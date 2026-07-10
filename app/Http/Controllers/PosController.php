@@ -459,6 +459,7 @@ class PosController extends Controller
                 'combo_pack_id' => $item->combo_pack_id ? (int) $item->combo_pack_id : null,
                 'combo_instance_key' => $comboInstanceKey,
                 'modifier_option_quantities' => $modifierQtyMap,
+                ...\App\Services\Pos\OrderItemLinePricing::linePayloadFromModel($item),
             ];
         })->values();
 

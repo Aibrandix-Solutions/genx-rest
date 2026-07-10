@@ -185,23 +185,36 @@
 
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
+                                        <x-label value="Unit" />
+                                        <x-select wire:model.live="items.{{ $index }}.unit_id" class="w-full">
+                                            <option value="">Select unit...</option>
+                                            @foreach($units as $unitOption)
+                                                <option value="{{ $unitOption->id }}">{{ $unitOption->name }} ({{ $unitOption->symbol }})</option>
+                                            @endforeach
+                                        </x-select>
+                                        @error('items.'.$index.'.unit_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div>
                                         <x-label value="Qty" />
                                         <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full text-base" />
                                         @error('items.'.$index.'.quantity') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
-                                    </div>
-                                    <div>
-                                        <x-label value="Unit Price" />
-                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full text-base" />
-                                        @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </div>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
+                                        <x-label value="Unit Price" />
+                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full text-base" />
+                                        @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div>
                                         <x-label value="Discount" />
                                         <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.discount" class="w-full text-base" />
                                         @error('items.'.$index.'.discount') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3">
                                     <div>
                                         <x-label value="Type" />
                                         <x-select wire:model.live="items.{{ $index }}.discount_type" class="w-full">
@@ -239,6 +252,7 @@
                         <thead class="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-200">
                             <tr>
                                 <th class="px-4 py-2 text-left">Item</th>
+                                <th class="px-4 py-2 text-left">Unit</th>
                                 <th class="px-4 py-2 text-left">Qty</th>
                                 <th class="px-4 py-2 text-left">Unit Price</th>
                                 <th class="px-4 py-2 text-left">Discount</th>
@@ -263,6 +277,15 @@
                                             </p>
                                         @endif
                                         @error('items.'.$index.'.inventory_item_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </td>
+                                    <td class="px-4 py-2 min-w-[140px] md:w-36">
+                                        <x-select wire:model.live="items.{{ $index }}.unit_id" class="w-full">
+                                            <option value="">Select unit...</option>
+                                            @foreach($units as $unitOption)
+                                                <option value="{{ $unitOption->id }}">{{ $unitOption->name }} ({{ $unitOption->symbol }})</option>
+                                            @endforeach
+                                        </x-select>
+                                        @error('items.'.$index.'.unit_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </td>
                                     <td class="px-4 py-2 min-w-[140px] md:w-28">
                                         <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full text-base md:text-sm" />

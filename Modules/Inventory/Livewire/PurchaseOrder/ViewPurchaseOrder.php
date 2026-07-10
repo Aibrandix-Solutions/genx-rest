@@ -36,6 +36,7 @@ class ViewPurchaseOrder extends Component
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
             'location.branch',
+            'items.unit',
             'items.inventoryItem.unit',
             'items.inventoryItem.category',
             'payments.account',
@@ -64,6 +65,7 @@ class ViewPurchaseOrder extends Component
         $this->purchaseOrder->load([
             'supplier',
             'location.branch',
+            'items.unit',
             'items.inventoryItem.unit',
             'items.inventoryItem.category',
             'creator',

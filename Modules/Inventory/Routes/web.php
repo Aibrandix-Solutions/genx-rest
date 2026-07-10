@@ -74,6 +74,8 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
             ->name('export');
     });
 
+    Route::get('item-purchases', [ReportController::class, 'itemPurchases'])->name('inventory.item-purchases.index');
+
     // New Reports Section
     Route::prefix('reports')->name('inventory.reports.')->group(function () {
         Route::get('usage', [ReportController::class, 'usage'])->name('usage');
