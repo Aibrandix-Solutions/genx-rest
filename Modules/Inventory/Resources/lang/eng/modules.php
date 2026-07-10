@@ -876,7 +876,7 @@ return [
         ],
         'item_purchases' => [
             'title' => 'Inventory Item Purchases',
-            'description' => 'View purchased quantities and total purchase amounts per item and location.',
+            'description' => 'View purchased quantities and total purchase amounts per item, location, and branch.',
             'summary' => [
                 'total_purchase_amount' => 'Total Purchase Amount',
                 'total_purchased_quantity' => 'Total Purchased Quantity',
@@ -887,6 +887,7 @@ return [
                 'start_date' => 'Start Date',
                 'end_date' => 'End Date',
                 'branch' => 'Branch',
+                'location' => 'Location',
                 'category' => 'Category',
                 'items' => 'Items',
                 'item_codes' => 'Item Codes',
@@ -894,7 +895,10 @@ return [
                 'all_item_codes' => 'All item codes',
                 'clear' => 'Clear Filters',
                 'active_branch' => 'Branch',
+                'active_location' => 'Location',
                 'active_category' => 'Category',
+                'branch_filter_hint' => 'Branch filter shows purchases delivered to that branch location.',
+                'location_filter_hint' => 'Location filter shows purchases received at the selected storage location.',
                 'date_hint' => 'Leave dates empty for all-time purchases. Only received purchase orders are included.',
             ],
             'table' => [
@@ -903,6 +907,8 @@ return [
                 'item_code' => 'Item Code',
                 'unit' => 'Unit',
                 'location' => 'Location',
+                'branch' => 'Branch',
+                'warehouse' => 'Warehouse',
                 'category' => 'Category',
                 'purchased_quantity' => 'Purchased Quantity',
                 'total_purchase_price' => 'Price (Total Purchased Price)',

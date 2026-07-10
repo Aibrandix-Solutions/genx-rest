@@ -1,11 +1,20 @@
 <div class="space-y-6 py-4">
-    <div>
-        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-            {{ __('inventory::modules.reports.item_purchases.title') }}
-        </h2>
-        <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-            {{ __('inventory::modules.reports.item_purchases.description') }}
-        </p>
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+                {{ __('inventory::modules.reports.item_purchases.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                {{ __('inventory::modules.reports.item_purchases.description') }}
+            </p>
+        </div>
+
+        <x-secondary-button wire:click="export" wire:loading.attr="disabled" wire:target="export" class="shrink-0">
+            <svg class="mr-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {{ __('app.export') }}
+        </x-secondary-button>
     </div>
 
     <!-- Summary cards -->
@@ -47,7 +56,7 @@
             <span class="text-lg font-semibold">{{ __('inventory::modules.reports.item_purchases.filters.title') }}</span>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <div>
                 <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300">
                     {{ __('inventory::modules.reports.item_purchases.filters.start_date') }}
@@ -73,6 +82,19 @@
                     <option value="all">{{ __('app.all') }}</option>
                     @foreach ($branches as $branch)
                         <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+
+            <div>
+                <label class="mb-2 block text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    {{ __('inventory::modules.reports.item_purchases.filters.location') }}
+                </label>
+                <select wire:model.live="locationFilter"
+                        class="w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <option value="all">{{ __('app.all') }}</option>
+                    @foreach ($locations as $location)
+                        <option value="{{ $location->id }}">{{ $location->display_name }}</option>
                     @endforeach
                 </select>
             </div>
@@ -221,6 +243,7 @@
 
         <div class="mt-4 flex flex-wrap gap-2 text-xs text-gray-500 dark:text-gray-400">
             <span>{{ __('inventory::modules.reports.item_purchases.filters.active_branch') }}: <strong>{{ $branchLabel }}</strong></span>
+            <span>{{ __('inventory::modules.reports.item_purchases.filters.active_location') }}: <strong>{{ $locationLabel }}</strong></span>
             <span>{{ __('inventory::modules.reports.item_purchases.filters.active_category') }}: <strong>{{ $categoryLabel }}</strong></span>
             <span>{{ __('inventory::modules.reports.item_purchases.filters.date_hint') }}</span>
         </div>
@@ -251,6 +274,9 @@
                             {{ __('inventory::modules.reports.item_purchases.table.location') }}
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            {{ __('inventory::modules.reports.item_purchases.table.branch') }}
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                             {{ __('inventory::modules.reports.item_purchases.table.category') }}
                         </th>
                         <th class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -277,6 +303,9 @@
                                 {{ $row->location }}
                             </td>
                             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
+                                {{ $row->branch }}
+                            </td>
+                            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 dark:text-gray-300">
                                 {{ $row->category }}
                             </td>
                             <td class="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900 dark:text-gray-100">
@@ -288,7 +317,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="px-6 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                            <td colspan="8" class="px-6 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                                 {{ __('inventory::modules.reports.item_purchases.table.empty') }}
                             </td>
                         </tr>

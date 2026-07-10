@@ -6,7 +6,10 @@ use App\Models\Branch;
 use Livewire\Component;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryItemCategory;
+use Modules\Inventory\Entities\PurchaseLocation;
+use Modules\Inventory\Exports\ItemPurchasesReportExport;
 use Modules\Inventory\Services\ItemPurchasesReportService;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ItemPurchasesReport extends Component
 {
@@ -15,6 +18,8 @@ class ItemPurchasesReport extends Component
     public string $endDate = '';
 
     public string $branchFilter = 'all';
+
+    public string $locationFilter = 'all';
 
     public string $categoryFilter = 'all';
 
@@ -28,6 +33,7 @@ class ItemPurchasesReport extends Component
         'startDate' => ['except' => ''],
         'endDate' => ['except' => ''],
         'branchFilter' => ['except' => 'all'],
+        'locationFilter' => ['except' => 'all'],
         'categoryFilter' => ['except' => 'all'],
         'selectedItemIds' => ['except' => []],
         'selectedItemCodes' => ['except' => []],
@@ -63,11 +69,35 @@ class ItemPurchasesReport extends Component
         }
     }
 
+    public function updatedBranchFilter(): void
+    {
+        if ($this->locationFilter === 'all') {
+            return;
+        }
+
+        $location = PurchaseLocation::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->find((int) $this->locationFilter);
+
+        if (! $location) {
+            $this->locationFilter = 'all';
+
+            return;
+        }
+
+        if ($this->branchFilter !== 'all'
+            && $location->type === 'branch'
+            && (int) $location->branch_id !== (int) $this->branchFilter) {
+            $this->locationFilter = 'all';
+        }
+    }
+
     public function clearFilters(): void
     {
         $this->startDate = '';
         $this->endDate = '';
         $this->branchFilter = 'all';
+        $this->locationFilter = 'all';
         $this->categoryFilter = 'all';
         $this->selectedItemIds = [];
         $this->selectedItemCodes = [];
@@ -79,10 +109,26 @@ class ItemPurchasesReport extends Component
             'startDate' => $this->startDate,
             'endDate' => $this->endDate,
             'branchFilter' => $this->branchFilter,
+            'locationFilter' => $this->locationFilter,
             'categoryFilter' => $this->categoryFilter,
             'selectedItemIds' => $this->selectedItemIds,
             'selectedItemCodes' => $this->selectedItemCodes,
         ]);
+    }
+
+    public function export(ItemPurchasesReportService $reportService)
+    {
+        abort_if(! in_array('Inventory', restaurant_modules()), 403);
+        abort_if(! user_can('Show Inventory Report'), 403);
+
+        $restaurantId = (int) restaurant()->id;
+        $filters = $this->filters();
+        $rows = $reportService->getAggregatedRows($restaurantId, $filters);
+
+        return Excel::download(
+            new ItemPurchasesReportExport($rows, $reportService),
+            'item-purchases-' . now()->format('Y-m-d') . '.xlsx'
+        );
     }
 
     public function render(ItemPurchasesReportService $reportService)
@@ -101,6 +147,8 @@ class ItemPurchasesReport extends Component
             ->orderBy('name')
             ->get(['id', 'name']);
 
+        $locations = $reportService->getFilterLocations($restaurantId, $this->branchFilter);
+
         $categories = InventoryItemCategory::query()
             ->where('restaurant_id', $restaurantId)
             ->orderBy('name')
@@ -117,10 +165,12 @@ class ItemPurchasesReport extends Component
             'rows' => $rows,
             'summary' => $summary,
             'branches' => $branches,
+            'locations' => $locations,
             'categories' => $categories,
             'inventoryItems' => $inventoryItems,
             'codedItems' => $codedItems,
             'branchLabel' => $reportService->resolveBranchLabel($restaurantId, $this->branchFilter),
+            'locationLabel' => $reportService->resolveLocationLabel($restaurantId, $this->locationFilter),
             'categoryLabel' => $reportService->resolveCategoryLabel(
                 $restaurantId,
                 $this->categoryFilter === 'all' ? null : (int) $this->categoryFilter

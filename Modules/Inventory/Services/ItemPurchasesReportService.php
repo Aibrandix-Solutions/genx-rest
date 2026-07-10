@@ -34,6 +34,7 @@ class ItemPurchasesReportService
             'start_date' => $input['startDate'] ?? $input['start_date'] ?? null,
             'end_date' => $input['endDate'] ?? $input['end_date'] ?? null,
             'branch_filter' => (string) ($input['branchFilter'] ?? $input['branch_filter'] ?? 'all'),
+            'location_filter' => (string) ($input['locationFilter'] ?? $input['location_filter'] ?? 'all'),
             'category_filter' => ($categoryId === '' || $categoryId === 'all' || $categoryId === null)
                 ? null
                 : (int) $categoryId,
@@ -95,6 +96,7 @@ class ItemPurchasesReportService
         $query = DB::table('purchase_order_items')
             ->join('purchase_orders', 'purchase_orders.id', '=', 'purchase_order_items.purchase_order_id')
             ->join('branches', 'branches.id', '=', 'purchase_orders.branch_id')
+            ->leftJoin('purchase_locations', 'purchase_locations.id', '=', 'purchase_orders.location_id')
             ->join('inventory_items', 'inventory_items.id', '=', 'purchase_order_items.inventory_item_id')
             ->where('branches.restaurant_id', $restaurantId)
             ->where('inventory_items.restaurant_id', $restaurantId)
@@ -107,7 +109,8 @@ class ItemPurchasesReportService
             ])
             ->groupBy('purchase_order_items.inventory_item_id', 'purchase_orders.location_id');
 
-        $this->applyBranchFilter($query, 'purchase_orders.branch_id', $filters);
+        $this->applyLocationFilter($query, 'purchase_orders.location_id', $filters);
+        $this->applyBranchLocationFilter($query, 'purchase_locations.branch_id', $filters);
         $this->applyDateRange($query, 'purchase_orders.order_date', $filters);
         $this->applyCategoryFilter($query, $filters);
 
@@ -132,6 +135,7 @@ class ItemPurchasesReportService
             ->keyBy('id');
 
         $locations = PurchaseLocation::query()
+            ->with('branch:id,name')
             ->where('restaurant_id', $restaurantId)
             ->whereIn('id', $locationIds)
             ->get()
@@ -147,12 +151,14 @@ class ItemPurchasesReportService
                 'item_code' => $item?->item_code,
                 'unit' => $item?->unit?->symbol ?? $item?->unit?->name ?? '--',
                 'location' => $location?->name ?? '--',
+                'location_type' => $location?->type ?? null,
                 'location_id' => $row->location_id ? (int) $row->location_id : null,
+                'branch' => $this->resolveLocationBranchLabel($location),
                 'category' => $item?->category?->name ?? '--',
                 'purchased_quantity' => (float) $row->purchased_quantity,
                 'total_purchase_price' => (float) $row->total_purchase_price,
             ];
-        })->sortBy('item_name')->values();
+        })->sortBy(['location', 'item_name'])->values();
     }
 
     /**
@@ -189,7 +195,8 @@ class ItemPurchasesReportService
             $query->whereIn('inventory_item_id', $itemIds);
         }
 
-        $this->applyBranchFilter($query, 'branch_id', $filters);
+        $this->applyLocationFilter($query, 'location_id', $filters);
+        $this->applyBranchStockFilter($query, $filters);
 
         return (float) $query->sum('quantity');
     }
@@ -203,6 +210,20 @@ class ItemPurchasesReportService
         return Branch::query()
             ->where('restaurant_id', $restaurantId)
             ->find((int) $branchFilter)?->name ?? trans('app.all');
+    }
+
+    public function resolveLocationLabel(int $restaurantId, string $locationFilter): string
+    {
+        if ($locationFilter === '' || $locationFilter === 'all') {
+            return trans('app.all');
+        }
+
+        $location = PurchaseLocation::query()
+            ->with('branch:id,name')
+            ->where('restaurant_id', $restaurantId)
+            ->find((int) $locationFilter);
+
+        return $location?->display_name ?? trans('app.all');
     }
 
     public function resolveCategoryLabel(int $restaurantId, ?int $categoryId): string
@@ -224,15 +245,95 @@ class ItemPurchasesReportService
     }
 
     /**
+     * @return Collection<int, PurchaseLocation>
+     */
+    public function getFilterLocations(int $restaurantId, string $branchFilter = 'all'): Collection
+    {
+        $query = PurchaseLocation::query()
+            ->with('branch:id,name')
+            ->where('restaurant_id', $restaurantId)
+            ->where('is_active', true)
+            ->orderBy('type')
+            ->orderBy('name');
+
+        if ($branchFilter !== '' && $branchFilter !== 'all') {
+            $branchId = (int) $branchFilter;
+            $query->where(function ($q) use ($branchId) {
+                $q->where('branch_id', $branchId)
+                    ->orWhere('type', 'warehouse');
+            });
+        }
+
+        return $query->get(['id', 'name', 'type', 'branch_id']);
+    }
+
+    protected function resolveLocationBranchLabel(?PurchaseLocation $location): string
+    {
+        if (! $location) {
+            return '--';
+        }
+
+        if ($location->type === 'branch' && $location->branch) {
+            return $location->branch->name;
+        }
+
+        return trans('inventory::modules.reports.item_purchases.table.warehouse');
+    }
+
+    /**
      * @param  array<string, mixed>  $filters
      */
-    protected function applyBranchFilter($query, string $column, array $filters): void
+    protected function applyLocationFilter($query, string $column, array $filters): void
+    {
+        $location = $filters['location_filter'] ?? 'all';
+
+        if ($location !== '' && $location !== 'all') {
+            $query->where($column, (int) $location);
+        }
+    }
+
+    /**
+     * Filters by the branch linked to the purchase delivery location.
+     *
+     * @param  array<string, mixed>  $filters
+     */
+    protected function applyBranchLocationFilter($query, string $column, array $filters): void
     {
         $branch = $filters['branch_filter'] ?? 'all';
 
         if ($branch !== '' && $branch !== 'all') {
             $query->where($column, (int) $branch);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    protected function applyBranchStockFilter($query, array $filters): void
+    {
+        $branch = $filters['branch_filter'] ?? 'all';
+        $location = $filters['location_filter'] ?? 'all';
+
+        if ($location !== '' && $location !== 'all') {
+            return;
+        }
+
+        if ($branch === '' || $branch === 'all') {
+            return;
+        }
+
+        $branchId = (int) $branch;
+        $locationIds = PurchaseLocation::query()
+            ->where('branch_id', $branchId)
+            ->pluck('id');
+
+        if ($locationIds->isEmpty()) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+
+        $query->whereIn('location_id', $locationIds);
     }
 
     /**
