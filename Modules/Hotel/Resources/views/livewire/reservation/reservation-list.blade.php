@@ -115,7 +115,7 @@
                                             $canFolio = in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing');
                                             $canNoShow = $reservation->status === 'confirmed' && user_can('edit_reservation');
                                             $canCancel = $reservation->status === 'confirmed' && user_can('edit_reservation');
-                                            $canDelete = $reservation->status === 'confirmed' && user_can('delete_reservation');
+                                            $canDelete = $reservation->status === 'cancelled' && user_can('delete_reservation');
                                             $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canCancel || $canDelete;
                                         @endphp
 
@@ -216,7 +216,7 @@
                                                         </button>
                                                     @endif
 
-                                                    @if($canCancel || $canDelete)
+                                                    @if($canCancel && $canDelete)
                                                         <div class="border-t border-gray-100 dark:border-gray-600 my-1"></div>
                                                     @endif
 
@@ -566,12 +566,25 @@
                     </div>
                 </div>
 
-                <div class="mt-6 flex justify-end gap-3">
+                <div class="mt-6 flex flex-wrap justify-end gap-3">
                     <x-button type="button" wire:click="$set('showCreateReservation', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
                         Cancel
                     </x-button>
-                    <x-button type="submit" wire:loading.attr="disabled">
-                        Create Reservation
+                    @if(user_can('check_in_guest'))
+                        <x-button
+                            type="button"
+                            wire:click="saveReservationAndCheckIn"
+                            wire:loading.attr="disabled"
+                            wire:target="saveReservationAndCheckIn"
+                            class="bg-green-600 hover:bg-green-700 focus:bg-green-700 active:bg-green-800"
+                        >
+                            <span wire:loading.remove wire:target="saveReservationAndCheckIn">Create Reservation and Check In</span>
+                            <span wire:loading wire:target="saveReservationAndCheckIn">Processing...</span>
+                        </x-button>
+                    @endif
+                    <x-button type="submit" wire:loading.attr="disabled" wire:target="saveReservation">
+                        <span wire:loading.remove wire:target="saveReservation">Create Reservation</span>
+                        <span wire:loading wire:target="saveReservation">Saving...</span>
                     </x-button>
                 </div>
             </form>
