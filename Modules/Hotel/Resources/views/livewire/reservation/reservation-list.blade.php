@@ -275,17 +275,63 @@
 
                                         {{-- Price (effective / overridden) --}}
                                         @php
-                                            $nightlyRate = $room->roomType->getPriceForDate($create_check_in_date);
-                                            $hasPriceOverride = (float) $nightlyRate !== (float) ($room->roomType->base_price ?? 0);
+                                            $defaultRate = $this->getDefaultRoomNightlyRate($room);
+                                            $nightlyRate = $this->getEffectiveRoomNightlyRate($room);
+                                            $hasCustomRate = $this->hasCustomRoomRate($room->id);
+                                            $hasDynamicOverride = !$hasCustomRate && (float) $defaultRate !== (float) ($room->roomType->base_price ?? 0);
+                                            $isEditingRate = (int) $editing_room_rate_id === (int) $room->id;
                                         @endphp
-                                        <div class="mt-1.5">
-                                            @if($hasPriceOverride)
-                                                <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
-                                            @endif
-                                            <span class="text-sm font-semibold {{ $hasPriceOverride ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
-                                            <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
-                                            @if($hasPriceOverride)
-                                                <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
+                                        <div class="mt-1.5" wire:click.stop>
+                                            @if($isEditingRate)
+                                                <div class="flex items-center gap-1" x-data x-init="$nextTick(() => $refs.roomRateInput?.focus())">
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0.01"
+                                                        wire:model="edit_room_rate_value"
+                                                        wire:keydown.enter.prevent="saveEditRoomRate"
+                                                        wire:keydown.escape="cancelEditRoomRate"
+                                                        x-ref="roomRateInput"
+                                                        class="w-full min-w-0 rounded border-blue-300 bg-white px-1.5 py-0.5 text-xs font-semibold text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 dark:border-blue-700 dark:bg-gray-800 dark:text-white"
+                                                    />
+                                                    <button type="button" wire:click="saveEditRoomRate" wire:loading.attr="disabled" wire:target="saveEditRoomRate" class="flex-shrink-0 p-0.5 rounded text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30" title="Save">
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                                                    </button>
+                                                    <button type="button" wire:click="cancelEditRoomRate" class="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Cancel">
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                                    </button>
+                                                </div>
+                                                @error('edit_room_rate_value')
+                                                    <p class="mt-0.5 text-[10px] text-red-600 dark:text-red-400">{{ $message }}</p>
+                                                @enderror
+                                            @else
+                                                <div class="flex items-center gap-0.5">
+                                                    <div class="min-w-0 flex-1">
+                                                        @if($hasCustomRate)
+                                                            <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($defaultRate, restaurant()->currency_id) }}</span>
+                                                        @elseif($hasDynamicOverride)
+                                                            <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
+                                                        @endif
+                                                        <span class="text-sm font-semibold {{ ($hasCustomRate || $hasDynamicOverride) ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
+                                                        <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
+                                                        @if($hasCustomRate)
+                                                            <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 uppercase tracking-wide">Custom</span>
+                                                        @elseif($hasDynamicOverride)
+                                                            <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
+                                                        @endif
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        wire:click.stop="startEditRoomRate({{ $room->id }})"
+                                                        @disabled($editing_room_rate_id !== null && !$isEditingRate)
+                                                        class="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition disabled:opacity-40 dark:hover:bg-blue-950/30"
+                                                        title="Edit nightly rate"
+                                                    >
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
                                             @endif
                                         </div>
 
@@ -353,11 +399,19 @@
                                         $entryOver = $capacityInfo['is_over'];
                                     @endphp
                                     @if($selectedRoom)
+                                        @php
+                                            $selectedNightlyRate = isset($entry['nightly_rate_override'])
+                                                ? (float) $entry['nightly_rate_override']
+                                                : $this->getEffectiveRoomNightlyRate($selectedRoom);
+                                        @endphp
                                         <div class="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-md px-2.5 py-2 border border-gray-200 dark:border-gray-600">
                                             {{-- Room info --}}
                                             <div class="flex-shrink-0 min-w-[70px]">
                                                 <span class="text-xs font-bold text-gray-900 dark:text-white">{{ $selectedRoom->room_number }}</span>
                                                 <span class="text-[10px] text-gray-500 dark:text-gray-400 ml-1">{{ $selectedRoom->roomType->name }}</span>
+                                            </div>
+                                            <div class="flex-shrink-0 text-[10px] text-gray-600 dark:text-gray-300 whitespace-nowrap" title="Nightly rate">
+                                                {{ currency_format($selectedNightlyRate, restaurant()->currency_id) }}/night
                                             </div>
                                             {{-- Adults --}}
                                             <div class="flex items-center gap-1">

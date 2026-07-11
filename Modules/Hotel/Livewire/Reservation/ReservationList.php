@@ -171,7 +171,6 @@ class ReservationList extends Component
      */
     protected function generateRoomNightCharges(Reservation $reservation)
     {
-        $roomType = $reservation->room->roomType;
         $checkIn  = $reservation->check_in_date->copy();
         $checkOut = $reservation->checkout_date->copy();
         $settings = HotelSetting::first();
@@ -179,7 +178,7 @@ class ReservationList extends Component
         $roomChargesTotal = 0;
         $currentDate = $checkIn->copy();
         while ($currentDate->lt($checkOut)) {
-            $nightlyRate = $roomType->getPriceForDate($currentDate);
+            $nightlyRate = $reservation->getNightlyRateForDate($currentDate);
 
             RoomCharge::create([
                 'branch_id'      => $reservation->branch_id,
@@ -231,18 +230,7 @@ class ReservationList extends Component
      */
     protected function calculateStayTotal(Reservation $reservation): float
     {
-        $roomType = $reservation->room->roomType;
-        $checkIn = Carbon::parse($reservation->check_in_date);
-        $checkOut = Carbon::parse($reservation->checkout_date);
-
-        $total = 0;
-        $current = $checkIn->copy();
-        while ($current->lt($checkOut)) {
-            $total += (float)$roomType->getPriceForDate($current);
-            $current->addDay();
-        }
-
-        return $total;
+        return $reservation->calculateRoomChargesTotal();
     }
 
     // --- Existing simple checkIn kept for backward compat (used by old blade) ---
@@ -269,10 +257,18 @@ class ReservationList extends Component
 
     /**
      * Multi-room selection: array of selected rooms with per-room occupancy
-     * Format: [ ['room_id' => int, 'adults' => int, 'children' => int], ... ]
+     * Format: [ ['room_id' => int, 'adults' => int, 'children' => int, 'nightly_rate_override' => ?float], ... ]
      */
     public $selected_rooms = [];
     public $maxRoomsPerBooking = 10;
+
+    /**
+     * Staff-edited nightly rates keyed by room ID (applies flat rate for all nights).
+     */
+    public $room_rate_overrides = [];
+
+    public $editing_room_rate_id = null;
+    public $edit_room_rate_value = 0;
 
     protected function rules()
     {
@@ -284,6 +280,7 @@ class ReservationList extends Component
             'selected_rooms.*.room_id' => 'required|exists:hotel_rooms,id',
             'selected_rooms.*.adults' => 'required|integer|min:1',
             'selected_rooms.*.children' => 'integer|min:0',
+            'selected_rooms.*.nightly_rate_override' => 'nullable|numeric|min:0',
             'create_notes' => 'nullable|string',
             'create_booking_source' => 'nullable|string|max:100',
         ];
@@ -419,6 +416,7 @@ class ReservationList extends Component
                 'room_id' => $roomId,
                 'adults' => (int) ($this->create_adults ?? 1),
                 'children' => (int) ($this->create_children ?? 0),
+                'nightly_rate_override' => $this->room_rate_overrides[$roomId] ?? null,
             ];
         }
     }
@@ -441,6 +439,93 @@ class ReservationList extends Component
         if (isset($this->selected_rooms[$index])) {
             array_splice($this->selected_rooms, $index, 1);
             $this->selected_rooms = array_values($this->selected_rooms);
+        }
+    }
+
+    public function getDefaultRoomNightlyRate(Room $room): float
+    {
+        if (!$this->create_check_in_date) {
+            return (float) ($room->roomType->base_price ?? 0);
+        }
+
+        return (float) $room->roomType->getPriceForDate($this->create_check_in_date);
+    }
+
+    public function getEffectiveRoomNightlyRate(Room $room): float
+    {
+        $roomId = (int) $room->id;
+
+        if (isset($this->room_rate_overrides[$roomId])) {
+            return (float) $this->room_rate_overrides[$roomId];
+        }
+
+        return $this->getDefaultRoomNightlyRate($room);
+    }
+
+    public function hasCustomRoomRate(int $roomId): bool
+    {
+        return array_key_exists($roomId, $this->room_rate_overrides);
+    }
+
+    public function startEditRoomRate(int $roomId): void
+    {
+        abort_unless(user_can('create_reservation'), 403);
+
+        $room = collect($this->available_rooms)->firstWhere('id', $roomId);
+
+        if (!$room) {
+            return;
+        }
+
+        $this->editing_room_rate_id = $roomId;
+        $this->edit_room_rate_value = $this->getEffectiveRoomNightlyRate($room);
+    }
+
+    public function saveEditRoomRate(): void
+    {
+        abort_unless(user_can('create_reservation'), 403);
+
+        if (!$this->editing_room_rate_id) {
+            return;
+        }
+
+        $this->validate([
+            'edit_room_rate_value' => 'required|numeric|min:0.01',
+        ]);
+
+        $roomId = (int) $this->editing_room_rate_id;
+        $rate = round((float) $this->edit_room_rate_value, 2);
+
+        $this->room_rate_overrides[$roomId] = $rate;
+
+        foreach ($this->selected_rooms as $index => $entry) {
+            if ((int) $entry['room_id'] === $roomId) {
+                $this->selected_rooms[$index]['nightly_rate_override'] = $rate;
+            }
+        }
+
+        $this->cancelEditRoomRate();
+    }
+
+    public function cancelEditRoomRate(): void
+    {
+        $this->editing_room_rate_id = null;
+        $this->edit_room_rate_value = 0;
+        $this->resetErrorBag('edit_room_rate_value');
+    }
+
+    public function clearRoomRateOverride(int $roomId): void
+    {
+        unset($this->room_rate_overrides[$roomId]);
+
+        foreach ($this->selected_rooms as $index => $entry) {
+            if ((int) $entry['room_id'] === $roomId) {
+                unset($this->selected_rooms[$index]['nightly_rate_override']);
+            }
+        }
+
+        if ((int) $this->editing_room_rate_id === $roomId) {
+            $this->cancelEditRoomRate();
         }
     }
 
@@ -514,11 +599,21 @@ class ReservationList extends Component
                     );
                 }
 
-                // Calculate total using dynamic pricing per night
+                $nightlyOverride = isset($entry['nightly_rate_override'])
+                    ? round((float) $entry['nightly_rate_override'], 2)
+                    : (isset($this->room_rate_overrides[$entry['room_id']])
+                        ? round((float) $this->room_rate_overrides[$entry['room_id']], 2)
+                        : null);
+
+                // Calculate total using custom rate or dynamic pricing per night
                 $totalAmount = 0;
                 $current = $checkIn->copy();
                 while ($current->lt($checkOut)) {
-                    $totalAmount += (float) $room->roomType->getPriceForDate($current);
+                    if ($nightlyOverride !== null) {
+                        $totalAmount += $nightlyOverride;
+                    } else {
+                        $totalAmount += (float) $room->roomType->getPriceForDate($current);
+                    }
                     $current->addDay();
                 }
 
@@ -541,6 +636,7 @@ class ReservationList extends Component
                     'status' => Reservation::STATUS_CONFIRMED,
                     'total_amount' => $totalAmount,
                     'balance_due' => $totalAmount,
+                    'nightly_rate_override' => $nightlyOverride,
                     'created_by_user_id' => auth()->id(),
                 ]);
 
@@ -602,6 +698,8 @@ class ReservationList extends Component
         $this->create_booking_source = 'walk-in';
         $this->available_rooms = [];
         $this->selected_rooms = [];
+        $this->room_rate_overrides = [];
+        $this->cancelEditRoomRate();
         $this->resetErrorBag();
     }
     

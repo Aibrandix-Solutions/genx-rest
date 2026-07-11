@@ -157,7 +157,7 @@ class FolioManager extends Component
             $roomChargesTotal = 0;
             $currentDate = $checkIn->copy();
             while ($currentDate->lt($checkOut)) {
-                $nightlyRate = $roomType->getPriceForDate($currentDate);
+                $nightlyRate = $this->reservation->getNightlyRateForDate($currentDate);
 
                 RoomCharge::create([
                     'branch_id'      => $this->reservation->branch_id,
