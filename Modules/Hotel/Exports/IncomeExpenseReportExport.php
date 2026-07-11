@@ -203,52 +203,37 @@ class IncomeExpenseReportExport implements FromArray, WithEvents, WithTitle, Sho
             $this->incomeEndRow = count($this->rows);
         } else {
             $sumTotal = 0;
- 
-            foreach ($this->detailedIncome as $res) {
-                $sumTotal += (float)$res->total_amount;
- 
-                $guestName = $res->guest?->name ?? '—';
-                $resNo = $res->reservation_number;
-                
-                $chargeLines = [];
-                foreach ($res->charges as $c) {
-                    $chargeType = '';
-                    if ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT) {
-                        $chargeType = 'Room Charge';
-                    } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY) {
-                        $chargeType = 'Laundry';
-                    } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR) {
-                        $chargeType = 'Minibar';
-                    } else {
-                        $chargeType = ucwords(str_replace('_', ' ', $c->charge_type));
-                    }
-                    $chargeLines[] = $chargeType . ': ' . currency_format($c->amount, $this->currencyId);
-                }
-                $chargeDetails = implode("\n", $chargeLines) ?: '—';
- 
-                $paid = (float)$res->paid_amount;
-                $unpaid = (float)$res->balance_due;
+
+            foreach ($this->detailedIncome as $row) {
+                $sumTotal += (float)$row->amount;
+
+                $guestName = $row->guest_name;
+                $resNo = $row->reservation_number;
+                $chargeDetails = $row->charge_details;
+
+                $paid = (float)$row->paid;
+                $unpaid = (float)$row->unpaid;
                 $status = 'Unpaid';
-                if ($unpaid <= 0) {
+                if ($unpaid <= 0.005) {
                     $status = 'Paid';
-                } elseif ($paid > 0) {
+                } elseif ($paid > 0.005) {
                     $status = 'Partially Paid (Paid: ' . currency_format($paid, $this->currencyId) . ', Due: ' . currency_format($unpaid, $this->currencyId) . ')';
                 } else {
                     $status = 'Unpaid (Due: ' . currency_format($unpaid, $this->currencyId) . ')';
                 }
- 
-                $roomInfo = $res->room ? 'Room ' . $res->room->room_number . "\n" . ($res->room->roomType?->name ?? '') : '—';
- 
+
+                $roomInfo = $row->room_number !== '—' ? 'Room ' . $row->room_number . "\n" . $row->room_type : '—';
+
                 $this->rows[] = [
-                    $res->check_in_date ? $res->check_in_date->format('Y-m-d') : '—',
+                    $row->date ? $row->date->format('Y-m-d') : '—',
                     $resNo . "\n" . $guestName,
                     $roomInfo,
                     $chargeDetails,
-                    $this->money($res->total_amount),
+                    $this->money($row->amount),
                     $status
                 ];
             }
- 
+
             $this->rows[] = [
                 'TOTAL', '', '', '',
                 $this->money($sumTotal),

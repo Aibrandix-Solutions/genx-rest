@@ -94,63 +94,38 @@
         </thead>
         <tbody>
             @php $sumTotal = 0; @endphp
-            @foreach($detailedIncome as $res)
+            @foreach($detailedIncome as $row)
                 @php
-                    $paid = (float)$res->paid_amount;
-                    $unpaid = (float)$res->balance_due;
-                    $sumTotal += (float)$res->total_amount;
-                    
-                    $chargeSummary = [];
-                    foreach ($res->charges as $c) {
-                        $typeLabel = '';
-                        if ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT) {
-                            $typeLabel = 'Room Charge';
-                        } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY) {
-                            $typeLabel = 'Laundry';
-                        } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR) {
-                            $typeLabel = 'Minibar';
-                        } else {
-                            $typeLabel = ucwords(str_replace('_', ' ', $c->charge_type));
-                        }
-                        if (!isset($chargeSummary[$typeLabel])) {
-                            $chargeSummary[$typeLabel] = 0;
-                        }
-                        $chargeSummary[$typeLabel] += (float)$c->amount;
-                    }
+                    $sumTotal += (float)$row->amount;
                 @endphp
                 <tr>
-                    <td>{{ $res->check_in_date ? $res->check_in_date->format('Y-m-d') : '—' }}</td>
+                    <td>{{ $row->date ? $row->date->format('Y-m-d') : '—' }}</td>
                     <td>
-                        <div style="font-weight: 700;">{{ $res->reservation_number }}</div>
-                        <div class="sub-txt">{{ $res->guest?->name ?? '—' }}</div>
+                        <div style="font-weight: 700;">{{ $row->reservation_number }}</div>
+                        <div class="sub-txt">{{ $row->guest_name }}</div>
                     </td>
                     <td>
-                        @if($res->room)
-                            <div style="font-weight: 700;">Room {{ $res->room->room_number }}</div>
-                            <div class="sub-txt">{{ $res->room->roomType?->name }}</div>
+                        @if($row->room_number !== '—')
+                            <div style="font-weight: 700;">Room {{ $row->room_number }}</div>
+                            <div class="sub-txt">{{ $row->room_type }}</div>
                         @else
                             —
                         @endif
                     </td>
                     <td>
-                        @foreach($chargeSummary as $label => $amt)
-                            <div style="font-size: 7.5px;">{{ $label }}: {{ currency_format($amt, $currencyId) }}</div>
-                        @endforeach
-                        @if(empty($chargeSummary))
-                            —
-                        @endif
+                        <div style="font-size: 7.5px;">{{ $row->charge_details }}</div>
                     </td>
-                    <td class="num" style="font-weight: 700;">{{ currency_format($res->total_amount, $currencyId) }}</td>
+                    <td class="num" style="font-weight: 700;">{{ currency_format($row->amount, $currencyId) }}</td>
                     <td style="text-align: center;">
-                        @if($unpaid <= 0)
+                        @if($row->unpaid <= 0.005)
                             <span class="status-badge status-paid">Paid</span>
-                        @elseif($paid > 0)
+                        @elseif($row->paid > 0.005)
                             <span class="status-badge status-partial">Partial</span>
-                            <div style="font-size: 6px; color: #4b5563; margin-top: 1px;">Paid: {{ currency_format($paid, $currencyId) }}</div>
-                            <div style="font-size: 6px; color: #dc2626; font-weight: 700;">Due: {{ currency_format($unpaid, $currencyId) }}</div>
+                            <div style="font-size: 6px; color: #4b5563; margin-top: 1px;">Paid: {{ currency_format($row->paid, $currencyId) }}</div>
+                            <div style="font-size: 6px; color: #dc2626; font-weight: 700;">Due: {{ currency_format($row->unpaid, $currencyId) }}</div>
                         @else
                             <span class="status-badge status-unpaid">Unpaid</span>
-                            <div style="font-size: 6px; color: #dc2626; font-weight: 700;">Due: {{ currency_format($unpaid, $currencyId) }}</div>
+                            <div style="font-size: 6px; color: #dc2626; font-weight: 700;">Due: {{ currency_format($row->unpaid, $currencyId) }}</div>
                         @endif
                     </td>
                 </tr>
