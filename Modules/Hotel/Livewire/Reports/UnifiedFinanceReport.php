@@ -23,6 +23,7 @@ class UnifiedFinanceReport extends Component
     public $dateRangeType = 'currentMonth';
     public $startDate = '';
     public $endDate   = '';
+    public $activeTab = 'daily';
 
     public function mount()
     {
@@ -246,12 +247,38 @@ class UnifiedFinanceReport extends Component
         return response()->streamDownload(fn () => print($pdf->output()), $filename);
     }
 
+    // ──────────────────────────────────────────────
+    //  Detailed Income & Expenses
+    // ──────────────────────────────────────────────
+    public function getDetailedIncomeProperty(): \Illuminate\Support\Collection
+    {
+        $from = $this->startDate . ' 00:00:00';
+        $to   = $this->endDate   . ' 23:59:59';
+
+        return HotelPayment::with(['reservation.guest', 'reservation.room', 'reservation.charges'])
+            ->whereNotNull('reservation_id')
+            ->whereBetween('created_at', [$from, $to])
+            ->orderBy('created_at', 'desc')
+            ->get();
+    }
+
+    public function getDetailedExpensesProperty(): \Illuminate\Support\Collection
+    {
+        return HotelExpense::whereIn('status', ['paid', 'pending'])
+            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
+            ->orderBy('expense_date', 'desc')
+            ->get();
+    }
+
     public function render()
     {
         return view('hotel::livewire.reports.unified-finance-report', [
             'summary'        => $this->summary,
             'dailyBreakdown' => $this->dailyBreakdown,
+            'detailedIncome' => $this->detailedIncome,
+            'detailedExpenses' => $this->detailedExpenses,
             'currencyId'     => restaurant()->currency_id,
+            'activeTab'      => $this->activeTab,
         ])->layout('layouts.app');
     }
 }
