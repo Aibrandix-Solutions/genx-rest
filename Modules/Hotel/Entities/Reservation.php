@@ -36,6 +36,7 @@ class Reservation extends Model
         'paid_amount',
         'balance_due',
         'tax_rate_override',
+        'nightly_rate_override',
         'group_booking_id',
         'created_by_user_id',
     ];
@@ -49,6 +50,7 @@ class Reservation extends Model
         'paid_amount' => 'decimal:2',
         'balance_due' => 'decimal:2',
         'tax_rate_override' => 'decimal:2',
+        'nightly_rate_override' => 'decimal:2',
     ];
 
     const STATUS_CONFIRMED = 'confirmed';
@@ -171,6 +173,43 @@ class Reservation extends Model
         $settings = HotelSetting::where('branch_id', $this->branch_id)->first();
 
         return $settings ? (float) $settings->tax_rate : 0.0;
+    }
+
+    /**
+     * Nightly room rate for a stay date: reservation override, or room-type pricing.
+     */
+    public function getNightlyRateForDate($date): float
+    {
+        if ($this->nightly_rate_override !== null) {
+            return (float) $this->nightly_rate_override;
+        }
+
+        $roomType = $this->room?->roomType;
+
+        if (!$roomType) {
+            return 0.0;
+        }
+
+        return (float) $roomType->getPriceForDate($date);
+    }
+
+    /**
+     * Sum of nightly room rates across the reservation stay (before tax/service).
+     */
+    public function calculateRoomChargesTotal(): float
+    {
+        $checkIn = $this->check_in_date->copy()->startOfDay();
+        $checkOut = $this->checkout_date->copy()->startOfDay();
+
+        $total = 0.0;
+        $current = $checkIn->copy();
+
+        while ($current->lt($checkOut)) {
+            $total += $this->getNightlyRateForDate($current);
+            $current->addDay();
+        }
+
+        return round($total, 2);
     }
 
     /**
