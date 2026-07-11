@@ -309,68 +309,90 @@
                                                         <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Amount</th>
                                                         <th class="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Status</th>
                                                     </tr>
-                                                </thead>
-                                                <tbody class="divide-y divide-gray-150 dark:divide-gray-700">
-                                                    @foreach($detailedIncome as $charge)
+                                                                                     @foreach($detailedIncome as $res)
                                                         @php
-                                                            $res = $charge->reservation;
-                                                            $paid = $res ? (float)$res->paid_amount : 0;
-                                                            $unpaid = $res ? (float)$res->balance_due : 0;
+                                                            $paid = (float)$res->paid_amount;
+                                                            $unpaid = (float)$res->balance_due;
+                                                            
+                                                            $chargeSummary = [];
+                                                            foreach ($res->charges as $c) {
+                                                                $typeLabel = '';
+                                                                if ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT) {
+                                                                    $typeLabel = 'Room Charge';
+                                                                } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY) {
+                                                                    $typeLabel = 'Laundry';
+                                                                } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR) {
+                                                                    $typeLabel = 'Minibar';
+                                                                } else {
+                                                                    $typeLabel = ucwords(str_replace('_', ' ', $c->charge_type));
+                                                                }
+                                                                if (!isset($chargeSummary[$typeLabel])) {
+                                                                    $chargeSummary[$typeLabel] = 0;
+                                                                }
+                                                                $chargeSummary[$typeLabel] += (float)$c->amount;
+                                                            }
                                                         @endphp
                                                         <tr class="hover:bg-gray-50/60 dark:hover:bg-gray-700/20">
                                                             <td class="px-4 py-3 text-xs text-gray-900 dark:text-white whitespace-nowrap">
-                                                                {{ $charge->charge_date ? $charge->charge_date->format('Y-m-d') : ($res ? $res->check_in_date->format('Y-m-d') : '—') }}
+                                                                {{ $res->check_in_date ? $res->check_in_date->format('Y-m-d') : '—' }}
                                                             </td>
-                                                            <td class="px-4 py-3 text-xs text-gray-950 dark:text-white">
-                                                                @if($res)
-                                                                    <div class="font-bold">{{ $res->reservation_number }}</div>
-                                                                    <div class="text-[10px] text-gray-450 dark:text-gray-400 mt-0.5">{{ $res->guest?->name ?? '—' }}</div>
+                                                            <td class="px-4 py-3 text-xs text-gray-955 dark:text-white">
+                                                                <div class="font-bold">{{ $res->reservation_number }}</div>
+                                                                <div class="text-[10px] text-gray-450 dark:text-gray-400 mt-0.5">{{ $res->guest?->name ?? '—' }}</div>
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                                                @if($res->room)
+                                                                    <div class="font-semibold text-gray-700 dark:text-gray-300">Room {{ $res->room->room_number }}</div>
+                                                                    <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ $res->room->roomType?->name }}</div>
                                                                 @else
                                                                     —
                                                                 @endif
                                                             </td>
-                                                            <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 font-medium">
-                                                                {{ $res->room?->name ?? '—' }}
-                                                            </td>
                                                             <td class="px-4 py-3 text-xs text-gray-955 dark:text-white">
-                                                                <div class="font-bold capitalize">
-                                                                    @if($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT)
-                                                                        Room Charge
-                                                                    @elseif($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY)
-                                                                        Laundry
-                                                                    @elseif($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR)
-                                                                        Minibar
-                                                                    @else
-                                                                        {{ str_replace('_', ' ', $charge->charge_type) }}
+                                                                <div class="space-y-0.5 text-[10px] leading-tight">
+                                                                    @foreach($chargeSummary as $label => $amt)
+                                                                        <div><span class="font-bold">{{ $label }}</span>: {{ currency_format($amt, $currencyId) }}</div>
+                                                                    @endforeach
+                                                                    @if(empty($chargeSummary))
+                                                                        <span class="text-gray-400 italic">—</span>
                                                                     @endif
                                                                 </div>
-                                                                <div class="text-[10px] text-gray-400 dark:text-gray-550 mt-0.5">{{ $charge->getDisplayDescription() }}</div>
                                                             </td>
-                                                            <td class="px-4 py-3 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap font-medium">
-                                                                {{ currency_format($charge->amount, $currencyId) }}
+                                                            <td class="px-4 py-3 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap font-bold">
+                                                                {{ currency_format($res->total_amount, $currencyId) }}
                                                             </td>
                                                             <td class="px-4 py-3 text-xs text-center whitespace-nowrap">
-                                                                @if($res)
+                                                                <div class="flex flex-col items-center gap-0.5">
                                                                     @if($unpaid <= 0)
-                                                                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-semibold bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300">
+                                                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300">
                                                                             <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span> Paid
                                                                         </span>
                                                                     @elseif($paid > 0)
-                                                                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-semibold bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-300">
+                                                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-300">
                                                                             <span class="w-1.5 h-1.5 rounded-full bg-yellow-500"></span> Partial
                                                                         </span>
+                                                                        <div class="text-[9px] text-gray-400">Paid: {{ currency_format($paid, $currencyId) }}</div>
+                                                                        <div class="text-[9px] text-red-500 font-semibold">Due: {{ currency_format($unpaid, $currencyId) }}</div>
                                                                     @else
-                                                                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-semibold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
+                                                                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
                                                                             <span class="w-1.5 h-1.5 rounded-full bg-red-500"></span> Unpaid
                                                                         </span>
+                                                                        <div class="text-[9px] text-red-500 font-semibold">Due: {{ currency_format($unpaid, $currencyId) }}</div>
                                                                     @endif
-                                                                @else
-                                                                    —
-                                                                @endif
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     @endforeach
                                                 </tbody>
+                                                <tfoot class="bg-gray-50 dark:bg-gray-700 font-semibold">
+                                                    <tr>
+                                                        <td colspan="4" class="px-4 py-3 text-xs text-gray-500 dark:text-gray-300 uppercase border border-gray-200 dark:border-gray-600 font-bold">Total</td>
+                                                        <td class="px-4 py-3 text-sm text-right font-black text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 whitespace-nowrap">
+                                                            {{ currency_format($detailedIncome->sum('total_amount'), $currencyId) }}
+                                                        </td>
+                                                        <td class="border border-gray-200 dark:border-gray-600"></td>
+                                                    </tr>
+                                                </tfoot>
                                             </table>
                                         </div>
                                     @endif

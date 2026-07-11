@@ -86,60 +86,71 @@
             <tr>
                 <th style="width: 10%;">Date</th>
                 <th style="width: 25%;">Reservation / Guest</th>
-                <th style="width: 10%;">Room</th>
-                <th style="width: 30%;">Charge Details</th>
+                <th style="width: 15%;">Room</th>
+                <th style="width: 25%;">Charge Details</th>
                 <th class="num" style="width: 15%;">Amount</th>
                 <th style="text-align: center; width: 10%;">Status</th>
             </tr>
         </thead>
         <tbody>
             @php $sumTotal = 0; @endphp
-            @foreach($detailedIncome as $charge)
+            @foreach($detailedIncome as $res)
                 @php
-                    $res = $charge->reservation;
-                    $paid = $res ? (float)$res->paid_amount : 0;
-                    $unpaid = $res ? (float)$res->balance_due : 0;
-                    $sumTotal += (float)$charge->amount;
+                    $paid = (float)$res->paid_amount;
+                    $unpaid = (float)$res->balance_due;
+                    $sumTotal += (float)$res->total_amount;
+                    
+                    $chargeSummary = [];
+                    foreach ($res->charges as $c) {
+                        $typeLabel = '';
+                        if ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT) {
+                            $typeLabel = 'Room Charge';
+                        } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY) {
+                            $typeLabel = 'Laundry';
+                        } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR) {
+                            $typeLabel = 'Minibar';
+                        } else {
+                            $typeLabel = ucwords(str_replace('_', ' ', $c->charge_type));
+                        }
+                        if (!isset($chargeSummary[$typeLabel])) {
+                            $chargeSummary[$typeLabel] = 0;
+                        }
+                        $chargeSummary[$typeLabel] += (float)$c->amount;
+                    }
                 @endphp
                 <tr>
-                    <td>{{ $charge->charge_date ? $charge->charge_date->format('Y-m-d') : ($res ? $res->check_in_date->format('Y-m-d') : '—') }}</td>
+                    <td>{{ $res->check_in_date ? $res->check_in_date->format('Y-m-d') : '—' }}</td>
                     <td>
-                        @if($res)
-                            <div style="font-weight: 700;">{{ $res->reservation_number }}</div>
-                            <div class="sub-txt">{{ $res->guest?->name ?? '—' }}</div>
+                        <div style="font-weight: 700;">{{ $res->reservation_number }}</div>
+                        <div class="sub-txt">{{ $res->guest?->name ?? '—' }}</div>
+                    </td>
+                    <td>
+                        @if($res->room)
+                            <div style="font-weight: 700;">Room {{ $res->room->room_number }}</div>
+                            <div class="sub-txt">{{ $res->room->roomType?->name }}</div>
                         @else
                             —
                         @endif
                     </td>
-                    <td>{{ $res->room?->name ?? '—' }}</td>
                     <td>
-                        <div style="font-weight: 700;">
-                            @if($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT)
-                                Room Charge
-                            @elseif($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY)
-                                Laundry
-                            @elseif($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR)
-                                Minibar
-                            @else
-                                {{ str_replace('_', ' ', $charge->charge_type) }}
-                            @endif
-                        </div>
-                        @if($charge->description)
-                            <div class="sub-txt">{{ $charge->getDisplayDescription() }}</div>
+                        @foreach($chargeSummary as $label => $amt)
+                            <div style="font-size: 7.5px;">{{ $label }}: {{ currency_format($amt, $currencyId) }}</div>
+                        @endforeach
+                        @if(empty($chargeSummary))
+                            —
                         @endif
                     </td>
-                    <td class="num" style="font-weight: 600;">{{ currency_format($charge->amount, $currencyId) }}</td>
+                    <td class="num" style="font-weight: 700;">{{ currency_format($res->total_amount, $currencyId) }}</td>
                     <td style="text-align: center;">
-                        @if($res)
-                            @if($unpaid <= 0)
-                                <span class="status-badge status-paid">Paid</span>
-                            @elseif($paid > 0)
-                                <span class="status-badge status-partial">Partial</span>
-                            @else
-                                <span class="status-badge status-unpaid">Unpaid</span>
-                            @endif
+                        @if($unpaid <= 0)
+                            <span class="status-badge status-paid">Paid</span>
+                        @elseif($paid > 0)
+                            <span class="status-badge status-partial">Partial</span>
+                            <div style="font-size: 6px; color: #4b5563; margin-top: 1px;">Paid: {{ currency_format($paid, $currencyId) }}</div>
+                            <div style="font-size: 6px; color: #dc2626; font-weight: 700;">Due: {{ currency_format($unpaid, $currencyId) }}</div>
                         @else
-                            —
+                            <span class="status-badge status-unpaid">Unpaid</span>
+                            <div style="font-size: 6px; color: #dc2626; font-weight: 700;">Due: {{ currency_format($unpaid, $currencyId) }}</div>
                         @endif
                     </td>
                 </tr>

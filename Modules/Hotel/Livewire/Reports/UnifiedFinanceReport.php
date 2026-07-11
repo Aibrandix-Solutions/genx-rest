@@ -296,19 +296,10 @@ class UnifiedFinanceReport extends Component
     // ──────────────────────────────────────────────
     public function getDetailedIncomeProperty(): \Illuminate\Support\Collection
     {
-        $from = $this->startDate . ' 00:00:00';
-        $to   = $this->endDate   . ' 23:59:59';
-
-        return RoomCharge::with(['reservation.guest', 'reservation.room'])
+        return Reservation::with(['guest', 'room.roomType', 'charges'])
             ->where('branch_id', branch()->id)
-            ->whereHas('reservation', function ($q) use ($from, $to) {
-                $q->whereBetween('check_in_date', [$this->startDate, $this->endDate])
-                  ->orWhereBetween('checkout_date', [$this->startDate, $this->endDate])
-                  ->orWhereHas('payments', function ($qp) use ($from, $to) {
-                      $qp->whereBetween('created_at', [$from, $to]);
-                  });
-            })
-            ->orderBy('charge_date', 'desc')
+            ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+            ->orderBy('check_in_date', 'desc')
             ->get();
     }
 

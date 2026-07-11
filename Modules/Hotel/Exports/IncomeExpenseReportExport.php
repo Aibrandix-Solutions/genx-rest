@@ -204,40 +204,47 @@ class IncomeExpenseReportExport implements FromArray, WithEvents, WithTitle, Sho
         } else {
             $sumTotal = 0;
  
-            foreach ($this->detailedIncome as $charge) {
-                $res = $charge->reservation;
-                $sumTotal += (float)$charge->amount;
+            foreach ($this->detailedIncome as $res) {
+                $sumTotal += (float)$res->total_amount;
  
-                $guestName = $res?->guest?->name ?? '—';
-                $resNo = $res?->reservation_number ?? '—';
+                $guestName = $res->guest?->name ?? '—';
+                $resNo = $res->reservation_number;
                 
-                $chargeDesc = $charge->description ?: '';
-                $chargeType = '';
-                if ($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT) {
-                    $chargeType = 'Room Charge';
-                } elseif ($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY) {
-                    $chargeType = 'Laundry';
-                } elseif ($charge->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR) {
-                    $chargeType = 'Minibar';
-                } else {
-                    $chargeType = ucwords(str_replace('_', ' ', $charge->charge_type));
+                $chargeLines = [];
+                foreach ($res->charges as $c) {
+                    $chargeType = '';
+                    if ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT) {
+                        $chargeType = 'Room Charge';
+                    } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY) {
+                        $chargeType = 'Laundry';
+                    } elseif ($c->charge_type === \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR) {
+                        $chargeType = 'Minibar';
+                    } else {
+                        $chargeType = ucwords(str_replace('_', ' ', $c->charge_type));
+                    }
+                    $chargeLines[] = $chargeType . ': ' . currency_format($c->amount, $this->currencyId);
                 }
+                $chargeDetails = implode("\n", $chargeLines) ?: '—';
  
-                $paid = $res ? (float)$res->paid_amount : 0;
-                $unpaid = $res ? (float)$res->balance_due : 0;
+                $paid = (float)$res->paid_amount;
+                $unpaid = (float)$res->balance_due;
                 $status = 'Unpaid';
                 if ($unpaid <= 0) {
                     $status = 'Paid';
                 } elseif ($paid > 0) {
-                    $status = 'Partially Paid';
+                    $status = 'Partially Paid (Paid: ' . currency_format($paid, $this->currencyId) . ', Due: ' . currency_format($unpaid, $this->currencyId) . ')';
+                } else {
+                    $status = 'Unpaid (Due: ' . currency_format($unpaid, $this->currencyId) . ')';
                 }
  
+                $roomInfo = $res->room ? 'Room ' . $res->room->room_number . "\n" . ($res->room->roomType?->name ?? '') : '—';
+ 
                 $this->rows[] = [
-                    $charge->charge_date ? $charge->charge_date->format('Y-m-d') : ($res ? $res->check_in_date->format('Y-m-d') : '—'),
+                    $res->check_in_date ? $res->check_in_date->format('Y-m-d') : '—',
                     $resNo . "\n" . $guestName,
-                    $res?->room?->name ?? '—',
-                    $chargeType . "\n" . $chargeDesc,
-                    $this->money($charge->amount),
+                    $roomInfo,
+                    $chargeDetails,
+                    $this->money($res->total_amount),
                     $status
                 ];
             }
