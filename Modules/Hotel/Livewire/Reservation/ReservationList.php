@@ -984,6 +984,63 @@ class ReservationList extends Component
     }
 
     public $pendingCancelId = null;
+    public $pendingDeleteId = null;
+
+    public function confirmDeleteReservation($id)
+    {
+        abort_unless(user_can('delete_reservation'), 403);
+        $this->pendingDeleteId = $id;
+        $this->alert('warning', 'Delete this reservation permanently? This cannot be undone.', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText' => 'No',
+            'onConfirmed' => 'deleteReservationConfirmed',
+        ]);
+    }
+
+    #[On('deleteReservationConfirmed')]
+    public function deleteReservation($id = null)
+    {
+        $id = $id ?? $this->pendingDeleteId;
+        abort_unless(user_can('delete_reservation'), 403);
+
+        $reservation = Reservation::find($id);
+
+        if (!$reservation) {
+            return;
+        }
+
+        if ($reservation->status !== Reservation::STATUS_CONFIRMED) {
+            $this->alert('error', 'Only confirmed reservations can be deleted.');
+            return;
+        }
+
+        $reservationNumber = $reservation->reservation_number;
+        $room = $reservation->room;
+
+        DB::transaction(function () use ($reservation, $room) {
+            $reservation->delete();
+
+            if ($room && $room->status === 'reserved') {
+                $room->update(['status' => 'available']);
+            }
+        });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::ReservationCancelled,
+            description: 'Reservation deleted' . ($reservationNumber ? " (#{$reservationNumber})" : ''),
+            subject: null,
+            properties: [
+                'reservation_number' => $reservationNumber,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
+
+        $this->pendingDeleteId = null;
+        $this->alert('success', 'Reservation deleted successfully.');
+        $this->dispatch('$refresh');
+    }
 
     public function confirmCancelReservation($id)
     {
@@ -1008,8 +1065,8 @@ class ReservationList extends Component
             return;
         }
 
-        // Only allow cancellation for specific statuses
-        if (!in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
+        // Only allow cancellation for confirmed reservations (before check-in)
+        if ($reservation->status !== Reservation::STATUS_CONFIRMED) {
             $this->alert('error', 'Cannot cancel reservation in current status.');
             return;
         }
@@ -1027,9 +1084,9 @@ class ReservationList extends Component
             restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
         );
 
-        // If room was occupied (checked in), free it up
-        if ($reservation->room) {
-             $reservation->room->update(['status' => 'available']);
+        // Free the room if it was reserved
+        if ($reservation->room && $reservation->room->status === 'reserved') {
+            $reservation->room->update(['status' => 'available']);
         }
 
         $this->alert('success', 'Reservation cancelled successfully.');
