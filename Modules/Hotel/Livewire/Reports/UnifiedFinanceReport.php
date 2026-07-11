@@ -4,8 +4,11 @@ namespace Modules\Hotel\Livewire\Reports;
 
 use Carbon\Carbon;
 use Livewire\Component;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Hotel\Exports\UnifiedFinanceReportExport;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
@@ -204,6 +207,43 @@ class UnifiedFinanceReport extends Component
             $current->addDay();
         }
         return $days->filter(fn($d) => $d['total_revenue'] > 0 || $d['expenses'] > 0);
+    }
+
+    public function exportExcel()
+    {
+        abort_unless(user_can('view_unified_finance_report'), 403);
+
+        $filename = 'finance-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+
+        return Excel::download(
+            new UnifiedFinanceReportExport(
+                $this->summary,
+                $this->dailyBreakdown,
+                $this->startDate,
+                $this->endDate,
+                (int) restaurant()->currency_id,
+                (string) (restaurant()->name ?? ''),
+            ),
+            $filename,
+        );
+    }
+
+    public function exportPdf()
+    {
+        abort_unless(user_can('view_unified_finance_report'), 403);
+
+        $pdf = Pdf::loadView('hotel::reports.unified-finance-report-export', [
+            'summary' => $this->summary,
+            'dailyBreakdown' => $this->dailyBreakdown,
+            'startDate' => $this->startDate,
+            'endDate' => $this->endDate,
+            'currencyId' => (int) restaurant()->currency_id,
+            'propertyName' => (string) (restaurant()->name ?? ''),
+        ])->setPaper('A4', 'landscape');
+
+        $filename = 'finance-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+
+        return response()->streamDownload(fn () => print($pdf->output()), $filename);
     }
 
     public function render()
