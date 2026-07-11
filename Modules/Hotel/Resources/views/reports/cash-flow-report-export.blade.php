@@ -64,9 +64,9 @@
         </tbody>
     </table>
 
-    <div class="section-label">Detailed Payments (Cash Inflow)</div>
+    <div class="section-label">Detailed Transactions (Debits & Credits)</div>
     @if($detailedInflow->isEmpty())
-        <p class="empty">No payments found for this period.</p>
+        <p class="empty">No transactions found for this period.</p>
     @else
     <table class="data-table">
         <thead>
@@ -74,16 +74,20 @@
                 <th style="width: 15%;">Date</th>
                 <th style="width: 25%;">Reservation / Guest</th>
                 <th style="width: 15%;">Room</th>
-                <th style="width: 25%;">Payment Details</th>
-                <th class="num" style="width: 10%;">Amount</th>
-                <th style="text-align: center; width: 10%;">Type</th>
+                <th style="width: 25%;">Transaction Details</th>
+                <th class="num" style="width: 10%;">Debit (Dr)</th>
+                <th class="num" style="width: 10%;">Credit (Cr)</th>
             </tr>
         </thead>
         <tbody>
-            @php $sumInflow = 0; @endphp
+            @php 
+                $sumDebit = 0; 
+                $sumCredit = 0;
+            @endphp
             @foreach($detailedInflow as $row)
                 @php
-                    $sumInflow += (float)$row->amount;
+                    $sumDebit += (float)$row->debit;
+                    $sumCredit += (float)$row->credit;
                 @endphp
                 <tr>
                     <td>{{ $row->date ? \Carbon\Carbon::parse($row->date)->format('Y-m-d h:i A') : '—' }}</td>
@@ -104,22 +108,24 @@
                         @endif
                     </td>
                     <td>
-                        <div style="font-size: 7.5px;">{{ $row->payment_details }}</div>
+                        <div style="font-size: 7.5px; font-weight: 700;">
+                            {{ $row->description }}
+                            <span class="status-badge" style="font-size: 5.5px; margin-left: 2px; padding: 0.5px 2px; background: #f3f4f6; color: #475569; border: 1px solid #e5e7eb;">{{ $row->type }}</span>
+                        </div>
                     </td>
-                    <td class="num" style="font-weight: 700; color: {{ $row->amount >= 0 ? '#1f2937' : '#dc2626' }}">{{ currency_format($row->amount, $currencyId) }}</td>
-                    <td style="text-align: center;">
-                        @if($row->payment_type === 'refund')
-                            <span class="status-badge status-refund">Refund</span>
-                        @else
-                            <span class="status-badge status-paid">{{ ucfirst($row->payment_type) }}</span>
-                        @endif
-                    </td>
+                    <td class="num" style="font-weight: 700; color: {{ $row->badge === 'refund' ? '#dc2626' : '#1f2937' }}">{{ $row->debit > 0 ? currency_format($row->debit, $currencyId) : '—' }}</td>
+                    <td class="num" style="font-weight: 700; color: #059669;">{{ $row->credit > 0 ? currency_format($row->credit, $currencyId) : '—' }}</td>
                 </tr>
             @endforeach
             <tr class="total">
                 <td colspan="4">TOTAL</td>
-                <td class="num">{{ currency_format($sumInflow, $currencyId) }}</td>
-                <td></td>
+                <td class="num">{{ currency_format($sumDebit, $currencyId) }}</td>
+                <td class="num">{{ currency_format($sumCredit, $currencyId) }}</td>
+            </tr>
+            <tr class="total" style="background: #f3f4f6;">
+                @php $unpaidBalance = $sumDebit - $sumCredit; @endphp
+                <td colspan="4">Net Receivables / Unpaid Balance</td>
+                <td colspan="2" class="num" style="color: {{ $unpaidBalance >= 0 ? '#d97706' : '#059669' }};">{{ currency_format($unpaidBalance, $currencyId) }}</td>
             </tr>
         </tbody>
     </table>

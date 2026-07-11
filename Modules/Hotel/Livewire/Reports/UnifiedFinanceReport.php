@@ -449,12 +449,17 @@ class UnifiedFinanceReport extends Component
         $payments = HotelPayment::with(['reservation.guest', 'reservation.room.roomType'])
             ->where('branch_id', $branchId)
             ->whereBetween('created_at', [$from, $to])
-            ->orderBy('created_at', 'desc')
             ->get();
 
-        return $payments->map(function ($payment) {
+        $charges = RoomCharge::with(['reservation.guest', 'reservation.room.roomType'])
+            ->where('branch_id', $branchId)
+            ->whereBetween('charge_date', [$from, $to])
+            ->get();
+
+        $ledger = collect();
+
+        foreach ($payments as $payment) {
             $res = $payment->reservation;
-            
             $details = ucwords(str_replace('_', ' ', $payment->payment_method));
             if ($payment->reference_number) {
                 $details .= ' (Ref: ' . $payment->reference_number . ')';
@@ -464,21 +469,54 @@ class UnifiedFinanceReport extends Component
             }
 
             $amount = (float) $payment->amount;
-            if ($payment->payment_type === HotelPayment::TYPE_REFUND) {
-                $amount = -$amount;
-            }
+            $isRefund = $payment->payment_type === HotelPayment::TYPE_REFUND;
 
-            return (object) [
+            $ledger->push((object)[
                 'date' => $payment->created_at,
                 'reservation_number' => $res?->reservation_number ?? '—',
                 'guest_name' => $res?->guest?->name ?? '—',
                 'room_number' => $res?->room?->room_number ?? '—',
                 'room_type' => $res?->room?->roomType?->name ?? '—',
-                'payment_details' => $details,
-                'amount' => $amount,
-                'payment_type' => $payment->payment_type,
-            ];
-        });
+                'description' => $details,
+                'debit' => $isRefund ? $amount : 0.0,
+                'credit' => !$isRefund ? $amount : 0.0,
+                'type' => $isRefund ? 'Refund' : 'Payment',
+                'badge' => $isRefund ? 'refund' : 'payment',
+            ]);
+        }
+
+        foreach ($charges as $charge) {
+            $res = $charge->reservation;
+            
+            $typeLabel = '';
+            if ($charge->charge_type === RoomCharge::TYPE_ROOM_NIGHT) {
+                $typeLabel = 'Room Charge';
+            } elseif ($charge->charge_type === RoomCharge::TYPE_LAUNDRY) {
+                $typeLabel = 'Laundry';
+            } elseif ($charge->charge_type === RoomCharge::TYPE_MINIBAR) {
+                $typeLabel = 'Minibar';
+            } else {
+                $typeLabel = ucwords(str_replace('_', ' ', $charge->charge_type));
+            }
+            if ($charge->description) {
+                $typeLabel .= ' - ' . $charge->getDisplayDescription();
+            }
+
+            $ledger->push((object)[
+                'date' => $charge->charge_date,
+                'reservation_number' => $res?->reservation_number ?? '—',
+                'guest_name' => $res?->guest?->name ?? '—',
+                'room_number' => $res?->room?->room_number ?? '—',
+                'room_type' => $res?->room?->roomType?->name ?? '—',
+                'description' => $typeLabel,
+                'debit' => (float)$charge->amount,
+                'credit' => 0.0,
+                'type' => 'Charge',
+                'badge' => 'charge',
+            ]);
+        }
+
+        return $ledger->sortByDesc('date');
     }
 
     public function getDetailedCashOutflowProperty(): \Illuminate\Support\Collection
