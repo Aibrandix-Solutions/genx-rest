@@ -75,11 +75,7 @@ class UnifiedFinanceReport extends Component
         $filteredResIds = $detailedIncome->pluck('id')->toArray();
 
         // 2. Restaurant dine-in / pickup / delivery sales (NOT room-service)
-        $restaurantSales = Order::where('branch_id', $branchId)
-            ->whereNull('hotel_reservation_id')
-            ->whereIn('status', ['paid', 'payment_due'])
-            ->whereBetween('date_time', [$from, $to])
-            ->sum('total');
+        $restaurantSales = 0;
 
         // 3. Room-service orders (tagged to filtered active hotel reservations)
         $roomServiceSales = 0;
@@ -108,11 +104,7 @@ class UnifiedFinanceReport extends Component
         $hotelOutstanding = $detailedIncome->sum('balance_due');
 
         // 7. Restaurant Payments received
-        $restaurantPaymentsReceived = Payment::whereHas('order', function ($q) use ($from, $to, $branchId) {
-            $q->where('branch_id', $branchId)
-              ->whereNull('hotel_reservation_id')
-              ->whereBetween('date_time', [$from, $to]);
-        })->sum('amount');
+        $restaurantPaymentsReceived = 0;
 
         // 8. Hotel Expenses
         $hotelExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
@@ -204,7 +196,7 @@ class UnifiedFinanceReport extends Component
         $end = Carbon::parse($to);
         while ($current->lte($end)) {
             $day = $current->toDateString();
-            $rSales   = (float) ($restaurantByDay->get($day)?->amount ?? 0);
+            $rSales   = 0.0;
             $rsService = (float) ($roomServiceByDay->get($day)?->amount ?? 0);
             $rCharges  = (float) ($roomChargesByDay->get($day)?->amount ?? 0);
             $expenses  = (float) ($expensesByDay->get($day)?->amount ?? 0);
