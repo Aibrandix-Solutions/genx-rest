@@ -299,16 +299,16 @@ class UnifiedFinanceReport extends Component
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
-        return Reservation::with(['guest', 'room', 'charges', 'payments'])
+        return RoomCharge::with(['reservation.guest', 'reservation.room'])
             ->where('branch_id', branch()->id)
-            ->where(function ($q) use ($from, $to) {
+            ->whereHas('reservation', function ($q) use ($from, $to) {
                 $q->whereBetween('check_in_date', [$this->startDate, $this->endDate])
                   ->orWhereBetween('checkout_date', [$this->startDate, $this->endDate])
                   ->orWhereHas('payments', function ($qp) use ($from, $to) {
                       $qp->whereBetween('created_at', [$from, $to]);
                   });
             })
-            ->orderBy('check_in_date', 'desc')
+            ->orderBy('charge_date', 'desc')
             ->get();
     }
 
