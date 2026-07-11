@@ -107,8 +107,6 @@ class CashFlowReportExport implements FromArray, WithEvents, WithTitle, ShouldAu
                     ]);
                     $sheet->getStyle("E{$this->inflowHeaderRow}:E{$this->inflowEndRow}")
                         ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
-                    $sheet->getStyle("F{$this->inflowHeaderRow}:F{$this->inflowEndRow}")
-                        ->getAlignment()->setHorizontal(Alignment::HORIZONTAL_RIGHT);
                     $sheet->getStyle("A{$this->inflowEndRow}:{$lc}{$this->inflowEndRow}")->applyFromArray([
                         'font' => ['bold' => true],
                         'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => 'F3F4F6']],
@@ -140,7 +138,7 @@ class CashFlowReportExport implements FromArray, WithEvents, WithTitle, ShouldAu
                 $sheet->getColumnDimension('C')->setWidth(15);
                 $sheet->getColumnDimension('D')->setWidth(26);
                 $sheet->getColumnDimension('E')->setWidth(18);
-                $sheet->getColumnDimension('F')->setWidth(18);
+                $sheet->getColumnDimension('F')->setWidth(15);
             },
         ];
     }
@@ -184,46 +182,40 @@ class CashFlowReportExport implements FromArray, WithEvents, WithTitle, ShouldAu
  
         // ── Cash Inflow Details ──
         $this->inflowSectionRow = count($this->rows) + 1;
-        $this->rows[] = ['DETAILED TRANSACTIONS (DEBITS & CREDITS)', '', '', '', '', ''];
+        $this->rows[] = ['DETAILED PAYMENTS (CASH INFLOW)', '', '', '', '', ''];
  
         $this->inflowHeaderRow = count($this->rows) + 1;
         $this->rows[] = [
-            'Date', 'Reservation / Guest', 'Room', 'Transaction Details', 'Debit (Dr)', 'Credit (Cr)'
+            'Date', 'Reservation / Guest', 'Room', 'Payment Details', 'Amount', 'Type'
         ];
  
         if ($this->detailedInflow->isEmpty()) {
-            $this->rows[] = ['No transactions found for this period.', '', '', '', '', ''];
+            $this->rows[] = ['No payments found for this period.', '', '', '', '', ''];
             $this->inflowEndRow = count($this->rows);
         } else {
-            $sumDebit = 0;
-            $sumCredit = 0;
+            $sumInflow = 0;
             foreach ($this->detailedInflow as $row) {
-                $sumDebit += (float)$row->debit;
-                $sumCredit += (float)$row->credit;
+                $sumInflow += (float)$row->amount;
                 
                 $guestName = $row->guest_name;
                 $resNo = $row->reservation_number;
-                $desc = $row->description . ' (' . $row->type . ')';
+                $paymentDetails = $row->payment_details;
                 
                 $roomInfo = $row->room_number !== '—' ? 'Room ' . $row->room_number . "\n" . $row->room_type : '—';
+                $type = $row->payment_type === 'refund' ? 'Refund' : ucfirst($row->payment_type);
  
                 $this->rows[] = [
                     $row->date ? Carbon::parse($row->date)->format('Y-m-d h:i A') : '—',
                     $resNo !== '—' ? $resNo . "\n" . $guestName : '—',
                     $roomInfo,
-                    $desc,
-                    $row->debit > 0 ? $this->money($row->debit) : '—',
-                    $row->credit > 0 ? $this->money($row->credit) : '—'
+                    $paymentDetails,
+                    $this->money($row->amount),
+                    $type
                 ];
             }
             $this->rows[] = [
                 'TOTAL', '', '', '',
-                $this->money($sumDebit),
-                $this->money($sumCredit)
-            ];
-            $this->rows[] = [
-                'Net Receivables / Unpaid Balance', '', '', '',
-                $this->money($sumDebit - $sumCredit),
+                $this->money($sumInflow),
                 ''
             ];
             $this->inflowEndRow = count($this->rows);
