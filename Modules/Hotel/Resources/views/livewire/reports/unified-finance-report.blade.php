@@ -5,7 +5,8 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">Combined view of Hotel + Restaurant revenue & expenses</p>
 
         {{-- Date Range Controls --}}
-        <div class="mt-4 flex flex-wrap gap-3 items-end">
+        <div class="mt-4 flex flex-wrap gap-3 items-end justify-between">
+            <div class="flex flex-wrap gap-3 items-end">
             <div>
                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Period</label>
                 <select wire:model.live="dateRangeType"
@@ -29,6 +30,22 @@
                     <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
                     <x-input type="date" wire:model.live="endDate" class="text-sm" />
                 </div>
+            </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" wire:click="exportPdf" wire:loading.attr="disabled" wire:target="exportPdf"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition disabled:opacity-60">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                    <span wire:loading.remove wire:target="exportPdf">@lang('modules.report.exportPdf')</span>
+                    <span wire:loading wire:target="exportPdf">Exporting...</span>
+                </button>
+                <button type="button" wire:click="exportExcel" wire:loading.attr="disabled" wire:target="exportExcel"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-60">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                    <span wire:loading.remove wire:target="exportExcel">@lang('modules.report.exportExcel')</span>
+                    <span wire:loading wire:target="exportExcel">Exporting...</span>
+                </button>
             </div>
         </div>
     </div>
@@ -166,41 +183,41 @@
                 No transactions found for this period.
             </div>
         @else
-        <div class="overflow-x-auto shadow rounded-xl">
-            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-600 bg-white dark:bg-gray-800">
+        <div class="overflow-x-auto shadow rounded-xl border border-gray-200 dark:border-gray-600">
+            <table class="min-w-full w-full table-fixed border-collapse bg-white dark:bg-gray-800">
                 <thead class="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Date</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Restaurant</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Room Service</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Hotel Charges</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Total Revenue</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Expenses</th>
-                        <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Net</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Date</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Restaurant</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Room Service</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Hotel Charges</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Total Revenue</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Expenses</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase dark:text-gray-300 border border-gray-200 dark:border-gray-600">Net</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                <tbody>
                     @foreach($dailyBreakdown as $row)
                     <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                        <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap font-medium">
+                        <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap font-medium border border-gray-200 dark:border-gray-600">
                             {{ \Carbon\Carbon::parse($row['day'])->format('D, M d') }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-right text-gray-600 dark:text-gray-400">
+                        <td class="px-4 py-3 text-sm text-right text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
                             {{ $row['restaurant'] > 0 ? currency_format($row['restaurant'], $currencyId) : '—' }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-right text-purple-600 dark:text-purple-400">
+                        <td class="px-4 py-3 text-sm text-right text-purple-600 dark:text-purple-400 border border-gray-200 dark:border-gray-600">
                             {{ $row['room_service'] > 0 ? currency_format($row['room_service'], $currencyId) : '—' }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400">
+                        <td class="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400 border border-gray-200 dark:border-gray-600">
                             {{ $row['hotel_charges'] > 0 ? currency_format($row['hotel_charges'], $currencyId) : '—' }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-right font-semibold text-gray-900 dark:text-white">
+                        <td class="px-4 py-3 text-sm text-right font-semibold text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600">
                             {{ currency_format($row['total_revenue'], $currencyId) }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-right text-red-500 dark:text-red-400">
+                        <td class="px-4 py-3 text-sm text-right text-red-500 dark:text-red-400 border border-gray-200 dark:border-gray-600">
                             {{ $row['expenses'] > 0 ? currency_format($row['expenses'], $currencyId) : '—' }}
                         </td>
-                        <td class="px-4 py-3 text-sm text-right font-bold whitespace-nowrap
+                        <td class="px-4 py-3 text-sm text-right font-bold whitespace-nowrap border border-gray-200 dark:border-gray-600
                             {{ $row['net'] >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-600 dark:text-red-400' }}">
                             {{ currency_format($row['net'], $currencyId) }}
                         </td>
@@ -209,13 +226,13 @@
                 </tbody>
                 <tfoot class="bg-gray-50 dark:bg-gray-700 font-semibold">
                     <tr>
-                        <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 uppercase">Total</td>
-                        <td class="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300">{{ currency_format($dailyBreakdown->sum('restaurant'), $currencyId) }}</td>
-                        <td class="px-4 py-3 text-sm text-right text-purple-600 dark:text-purple-400">{{ currency_format($dailyBreakdown->sum('room_service'), $currencyId) }}</td>
-                        <td class="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400">{{ currency_format($dailyBreakdown->sum('hotel_charges'), $currencyId) }}</td>
-                        <td class="px-4 py-3 text-sm text-right font-bold text-gray-900 dark:text-white">{{ currency_format($dailyBreakdown->sum('total_revenue'), $currencyId) }}</td>
-                        <td class="px-4 py-3 text-sm text-right text-red-500 dark:text-red-400">{{ currency_format($dailyBreakdown->sum('expenses'), $currencyId) }}</td>
-                        <td class="px-4 py-3 text-sm text-right font-bold
+                        <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-300 uppercase border border-gray-200 dark:border-gray-600">Total</td>
+                        <td class="px-4 py-3 text-sm text-right text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600">{{ currency_format($dailyBreakdown->sum('restaurant'), $currencyId) }}</td>
+                        <td class="px-4 py-3 text-sm text-right text-purple-600 dark:text-purple-400 border border-gray-200 dark:border-gray-600">{{ currency_format($dailyBreakdown->sum('room_service'), $currencyId) }}</td>
+                        <td class="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400 border border-gray-200 dark:border-gray-600">{{ currency_format($dailyBreakdown->sum('hotel_charges'), $currencyId) }}</td>
+                        <td class="px-4 py-3 text-sm text-right font-bold text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600">{{ currency_format($dailyBreakdown->sum('total_revenue'), $currencyId) }}</td>
+                        <td class="px-4 py-3 text-sm text-right text-red-500 dark:text-red-400 border border-gray-200 dark:border-gray-600">{{ currency_format($dailyBreakdown->sum('expenses'), $currencyId) }}</td>
+                        <td class="px-4 py-3 text-sm text-right font-bold border border-gray-200 dark:border-gray-600
                             {{ $dailyBreakdown->sum('net') >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-600' }}">
                             {{ currency_format($dailyBreakdown->sum('net'), $currencyId) }}
                         </td>
