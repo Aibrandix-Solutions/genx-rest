@@ -261,82 +261,168 @@
             </div>
             @endif
         @else
-            {{-- Income & Expense Details --}}
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {{-- Income Table (Reservation Payments) --}}
-                <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
-                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Income (Reservation Payments)</h3>
-                    @if($detailedIncome->isEmpty())
-                        <div class="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
-                            No reservation payments received for this period.
+            {{-- Income & Expense Details (P&L Financial Statement format) --}}
+            <div class="space-y-6">
+                {{-- Financial Summary Card (Image 1 Style) --}}
+                <div class="bg-gray-900 text-white rounded-xl border border-gray-800 p-6 shadow-lg max-w-3xl mx-auto">
+                    <div class="flex justify-between items-center pb-4 border-b border-gray-800">
+                        <span class="text-base font-semibold tracking-wide">Total Revenue (Sales)</span>
+                        <div class="flex items-center gap-3">
+                            <button type="button" wire:click="$toggle('showIncomeDetails')" 
+                                class="px-2.5 py-1 text-xs font-semibold rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition focus:outline-none">
+                                {{ $showIncomeDetails ? 'Hide Details' : 'View Details' }}
+                            </button>
+                            <span class="text-lg font-bold text-green-400">
+                                {{ currency_format($summary['totalRevenue'], $currencyId) }}
+                            </span>
                         </div>
-                    @else
-                        <div class="overflow-x-auto shadow rounded-xl border border-gray-200 dark:border-gray-600">
-                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800 border-collapse">
-                                <thead class="bg-gray-50 dark:bg-gray-700">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Date/Details</th>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Reservation</th>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Guest</th>
-                                        <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Room Amt</th>
-                                        <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Services</th>
-                                        <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Paid</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                    @foreach($detailedIncome as $payment)
-                                        @php
-                                            $res = $payment->reservation;
-                                            $roomNightAmt = $res ? (float)$res->charges->where('charge_type', \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT)->sum('amount') : 0;
-                                            $otherServicesAmt = $res ? (float)$res->charges->where('charge_type', '!=', \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT)->sum('amount') : 0;
-                                        @endphp
-                                        <tr x-data="{ expanded: false }" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                            <td class="px-3 py-2.5 text-xs text-gray-900 dark:text-white whitespace-nowrap border border-gray-200 dark:border-gray-600">
-                                                <button @click="expanded = !expanded" class="flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">
-                                                    <svg class="w-4 h-4 transform transition-transform duration-200" :class="expanded ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                                                    {{ $payment->created_at->format('M d, Y') }}
-                                                </button>
-                                                <span class="block text-gray-400 dark:text-gray-500 text-[10px] mt-0.5">
-                                                    {{ $payment->created_at->format('h:i A') }}
-                                                </span>
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-gray-900 dark:text-white whitespace-nowrap border border-gray-200 dark:border-gray-600">
-                                                @if($res)
-                                                    <span class="font-medium">{{ $res->reservation_number }}</span>
-                                                    <span class="block text-gray-400 dark:text-gray-500 text-[10px]">{{ $res->room?->name ?? 'No Room' }}</span>
-                                                @else
-                                                    —
-                                                @endif
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
-                                                @if($res && $res->guest)
-                                                    <span class="font-medium text-gray-800 dark:text-gray-200">{{ $res->guest->name }}</span>
-                                                @else
-                                                    —
-                                                @endif
-                                                <span class="block text-gray-400 dark:text-gray-500 text-[10px] capitalize">Method: {{ str_replace('_', ' ', $payment->payment_method) }}</span>
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap border border-gray-200 dark:border-gray-600">
-                                                {{ $roomNightAmt > 0 ? currency_format($roomNightAmt, $currencyId) : '—' }}
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap border border-gray-200 dark:border-gray-600">
-                                                {{ $otherServicesAmt > 0 ? currency_format($otherServicesAmt, $currencyId) : '—' }}
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-right whitespace-nowrap border border-gray-200 dark:border-gray-600">
-                                                <span class="font-bold {{ $payment->payment_type === \Modules\Hotel\Entities\HotelPayment::TYPE_REFUND ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400' }}">
-                                                    {{ $payment->payment_type === \Modules\Hotel\Entities\HotelPayment::TYPE_REFUND ? '-' : '' }}{{ currency_format($payment->amount, $currencyId) }}
-                                                </span>
-                                                <span class="block text-gray-400 dark:text-gray-500 text-[10px] capitalize">
-                                                    {{ $payment->payment_type }}
-                                                </span>
-                                            </td>
+                    </div>
+                    
+                    {{-- Income breakdown info --}}
+                    <div class="py-3 px-4 space-y-2 text-sm text-gray-400 bg-gray-950/40 rounded-lg mt-2">
+                        <div class="flex justify-between">
+                            <span>Paid Income (Collected)</span>
+                            <span class="text-green-500 font-semibold">{{ currency_format($summary['totalCollected'], $currencyId) }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Unpaid Income (Outstanding)</span>
+                            <span class="text-yellow-500 font-semibold">{{ currency_format($summary['hotelOutstanding'], $currencyId) }}</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 text-xs text-gray-500 font-semibold uppercase tracking-wider">LESS: EXPENSES</div>
+                    
+                    <div class="flex justify-between items-center py-4 border-b border-gray-800">
+                        <span class="text-base font-semibold tracking-wide">Hotel Expenses</span>
+                        <div class="flex items-center gap-3">
+                            <button type="button" wire:click="$toggle('showExpenseDetails')" 
+                                class="px-2.5 py-1 text-xs font-semibold rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition focus:outline-none">
+                                {{ $showExpenseDetails ? 'Hide Details' : 'View Details' }}
+                            </button>
+                            <span class="text-lg font-bold text-red-400">
+                                -{{ currency_format($summary['hotelExpenses'], $currencyId) }}
+                            </span>
+                        </div>
+                    </div>
+
+                    {{-- Expenses breakdown info --}}
+                    <div class="py-3 px-4 space-y-2 text-sm text-gray-400 bg-gray-950/40 rounded-lg mt-2">
+                        <div class="flex justify-between">
+                            <span>Paid Expenses</span>
+                            <span class="text-red-500 font-semibold">-{{ currency_format($summary['hotelExpensesPaid'], $currencyId) }}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>Unpaid Expenses (Pending)</span>
+                            <span class="text-red-400/80 font-semibold">-{{ currency_format($summary['hotelExpensesUnpaid'], $currencyId) }}</span>
+                        </div>
+                    </div>
+
+                    {{-- Net Profit / Loss hero block --}}
+                    @php
+                        $netProfit = $summary['totalRevenue'] - $summary['hotelExpenses'];
+                    @endphp
+                    <div class="mt-6 p-4 rounded-xl border {{ $netProfit >= 0 ? 'border-green-900 bg-green-950/20' : 'border-red-900 bg-red-950/20' }} flex justify-between items-center">
+                        <span class="text-lg font-bold">Net Profit / (Loss)</span>
+                        <span class="text-2xl font-black {{ $netProfit >= 0 ? 'text-green-400' : 'text-red-400' }}">
+                            {{ currency_format($netProfit, $currencyId) }}
+                        </span>
+                    </div>
+                </div>
+
+                {{-- Detailed Income Table (Condition: showIncomeDetails) --}}
+                @if($showIncomeDetails)
+                    <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-md transition-all duration-300">
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Detailed Reservation Income</h3>
+                        @if($detailedIncome->isEmpty())
+                            <div class="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
+                                No reservation income found for this period.
+                            </div>
+                        @else
+                            <div class="overflow-x-auto shadow rounded-xl border border-gray-200 dark:border-gray-600">
+                                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800 border-collapse">
+                                    <thead class="bg-gray-50 dark:bg-gray-700">
+                                        <tr>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Date</th>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Reservation #</th>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Guest</th>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Room</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Room Charge</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Laundry</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Minibar</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Other Services</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Total Charges</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Paid</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Unpaid</th>
+                                            <th class="px-3 py-2 text-center text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Status</th>
                                         </tr>
-                                        <!-- Expandable Folio Detail -->
-                                        <tr x-show="expanded" x-cloak class="bg-gray-50 dark:bg-gray-900/50">
-                                            <td colspan="6" class="px-3 py-3 border border-gray-200 dark:border-gray-600">
-                                                @if($res)
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                        @foreach($detailedIncome as $res)
+                                            @php
+                                                $roomNightAmt = (float)$res->charges->where('charge_type', \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT)->sum('amount');
+                                                $laundryAmt = (float)$res->charges->where('charge_type', \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY)->sum('amount');
+                                                $minibarAmt = (float)$res->charges->where('charge_type', \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR)->sum('amount');
+                                                $otherAmt = (float)$res->charges->whereNotIn('charge_type', [
+                                                    \Modules\Hotel\Entities\RoomCharge::TYPE_ROOM_NIGHT,
+                                                    \Modules\Hotel\Entities\RoomCharge::TYPE_LAUNDRY,
+                                                    \Modules\Hotel\Entities\RoomCharge::TYPE_MINIBAR
+                                                ])->sum('amount');
+
+                                                $totalCharges = $roomNightAmt + $laundryAmt + $minibarAmt + $otherAmt;
+                                                $paid = (float)$res->paid_amount;
+                                                $unpaid = (float)$res->balance_due;
+                                            @endphp
+                                            <tr x-data="{ expanded: false }" class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                <td class="px-3 py-2.5 text-xs text-gray-900 dark:text-white whitespace-nowrap border border-gray-200 dark:border-gray-600">
+                                                    <button @click="expanded = !expanded" class="flex items-center gap-1 font-semibold text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 focus:outline-none">
+                                                        <svg class="w-4 h-4 transform transition-transform duration-200" :class="expanded ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                                        {{ $res->check_in_date ? $res->check_in_date->format('Y-m-d') : '—' }}
+                                                    </button>
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-gray-900 dark:text-white whitespace-nowrap border border-gray-200 dark:border-gray-600 font-semibold">
+                                                    {{ $res->reservation_number }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
+                                                    {{ $res->guest?->name ?? '—' }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600 font-medium">
+                                                    {{ $res->room?->name ?? '—' }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap border border-gray-200 dark:border-gray-600">
+                                                    {{ $roomNightAmt > 0 ? currency_format($roomNightAmt, $currencyId) : '—' }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap border border-gray-200 dark:border-gray-600">
+                                                    {{ $laundryAmt > 0 ? currency_format($laundryAmt, $currencyId) : '—' }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap border border-gray-200 dark:border-gray-600">
+                                                    {{ $minibarAmt > 0 ? currency_format($minibarAmt, $currencyId) : '—' }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right text-gray-600 dark:text-gray-300 whitespace-nowrap border border-gray-200 dark:border-gray-600">
+                                                    {{ $otherAmt > 0 ? currency_format($otherAmt, $currencyId) : '—' }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right font-semibold text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600">
+                                                    {{ currency_format($totalCharges, $currencyId) }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right text-green-600 dark:text-green-400 whitespace-nowrap border border-gray-200 dark:border-gray-600 font-bold">
+                                                    {{ currency_format($paid, $currencyId) }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right text-red-600 dark:text-red-400 whitespace-nowrap border border-gray-200 dark:border-gray-600 font-bold">
+                                                    {{ currency_format($unpaid, $currencyId) }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-center border border-gray-200 dark:border-gray-600">
+                                                    @if($unpaid <= 0)
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">Paid</span>
+                                                    @elseif($paid > 0)
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">Partial</span>
+                                                    @else
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300">Unpaid</span>
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                            <!-- Folio Breakdown Dropdown -->
+                                            <tr x-show="expanded" x-cloak class="bg-gray-50 dark:bg-gray-900/50">
+                                                <td colspan="12" class="px-4 py-3 border border-gray-200 dark:border-gray-600">
                                                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                                                        {{-- Charges --}}
                                                         <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800">
                                                             <div class="font-semibold text-gray-800 dark:text-gray-200 mb-2 border-b dark:border-gray-700 pb-1">Charges (Folio Breakdown)</div>
                                                             @if($res->charges->isEmpty())
@@ -355,7 +441,6 @@
                                                                 </div>
                                                             @endif
                                                         </div>
-                                                        {{-- Payments --}}
                                                         <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-3 bg-white dark:bg-gray-800">
                                                             <div class="font-semibold text-gray-800 dark:text-gray-200 mb-2 border-b dark:border-gray-700 pb-1">All Payments for Reservation</div>
                                                             @if($res->payments->isEmpty())
@@ -375,70 +460,75 @@
                                                             @endif
                                                         </div>
                                                     </div>
-                                                @else
-                                                    <div class="text-gray-400 dark:text-gray-500 italic">No reservation associated with this payment.</div>
-                                                @endif
-                                            </td>
-                                        </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    @endif
-                </div>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
+                @endif
 
-                {{-- Expenses Table (Hotel Expenses) --}}
-                <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
-                    <h3 class="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-4">Expenses (Hotel Expenses)</h3>
-                    @if($detailedExpenses->isEmpty())
-                        <div class="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
-                            No hotel-related expenses recorded for this period.
-                        </div>
-                    @else
-                        <div class="overflow-x-auto shadow rounded-xl border border-gray-200 dark:border-gray-600">
-                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800 border-collapse">
-                                <thead class="bg-gray-50 dark:bg-gray-700">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Date</th>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Description</th>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Department</th>
-                                        <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Paid via / Vendor</th>
-                                        <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Amount</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                                    @foreach($detailedExpenses as $expense)
-                                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                            <td class="px-3 py-2.5 text-xs text-gray-900 dark:text-white whitespace-nowrap font-medium border border-gray-200 dark:border-gray-600">
-                                                {{ $expense->expense_date->format('M d, Y') }}
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
-                                                <span class="font-semibold text-gray-900 dark:text-white block">{{ $expense->title }}</span>
-                                                @if($expense->description)
-                                                    <span class="text-[10px] text-gray-400 dark:text-gray-500 block mt-0.5">{{ $expense->description }}</span>
-                                                @endif
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap capitalize border border-gray-200 dark:border-gray-600">
-                                                <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300 text-[10px] font-semibold">
-                                                    {{ str_replace('_', ' ', $expense->department) }}
-                                                </span>
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
-                                                <span class="block text-gray-800 dark:text-gray-200 font-medium capitalize text-[11px]">{{ $expense->payment_method }}</span>
-                                                @if($expense->vendor)
-                                                    <span class="block text-[10px] text-gray-400 dark:text-gray-500">To: {{ $expense->vendor }}</span>
-                                                @endif
-                                            </td>
-                                            <td class="px-3 py-2.5 text-xs text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap border border-gray-200 dark:border-gray-600">
-                                                {{ currency_format($expense->amount, $currencyId) }}
-                                            </td>
+                {{-- Detailed Expense Table (Condition: showExpenseDetails) --}}
+                @if($showExpenseDetails)
+                    <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 shadow-md transition-all duration-300">
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4">Detailed Hotel Expenses</h3>
+                        @if($detailedExpenses->isEmpty())
+                            <div class="text-center py-8 text-sm text-gray-400 dark:text-gray-500">
+                                No hotel-related expenses recorded for this period.
+                            </div>
+                        @else
+                            <div class="overflow-x-auto shadow rounded-xl border border-gray-200 dark:border-gray-600">
+                                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800 border-collapse">
+                                    <thead class="bg-gray-50 dark:bg-gray-700">
+                                        <tr>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Date</th>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Description</th>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Department</th>
+                                            <th class="px-3 py-2 text-left text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Paid via / Vendor</th>
+                                            <th class="px-3 py-2 text-center text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Status</th>
+                                            <th class="px-3 py-2 text-right text-[11px] font-semibold text-gray-500 dark:text-gray-300 uppercase tracking-wider border border-gray-200 dark:border-gray-600">Amount</th>
                                         </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
-                        </div>
-                    @endif
-                </div>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                        @foreach($detailedExpenses as $expense)
+                                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                                <td class="px-3 py-2.5 text-xs text-gray-900 dark:text-white whitespace-nowrap font-medium border border-gray-200 dark:border-gray-600">
+                                                    {{ $expense->expense_date->format('M d, Y') }}
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600 font-medium text-gray-900 dark:text-white">
+                                                    {{ $expense->title }}@if($expense->description) <span class="text-[10px] text-gray-400 dark:text-gray-500 font-normal block mt-0.5">{{ $expense->description }}</span> @endif
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap capitalize border border-gray-200 dark:border-gray-600">
+                                                    <span class="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-300 text-[10px] font-semibold">
+                                                        {{ str_replace('_', ' ', $expense->department) }}
+                                                    </span>
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-600">
+                                                    <span class="block text-gray-800 dark:text-gray-200 font-medium capitalize text-[11px]">{{ $expense->payment_method }}</span>
+                                                    @if($expense->vendor)
+                                                        <span class="block text-[10px] text-gray-400 dark:text-gray-500">To: {{ $expense->vendor }}</span>
+                                                    @endif
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-center border border-gray-200 dark:border-gray-600">
+                                                    @if($expense->status === 'paid')
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">Paid</span>
+                                                    @else
+                                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">Pending</span>
+                                                    @endif
+                                                </td>
+                                                <td class="px-3 py-2.5 text-xs text-right font-bold text-red-600 dark:text-red-400 whitespace-nowrap border border-gray-200 dark:border-gray-600">
+                                                    {{ currency_format($expense->amount, $currencyId) }}
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @endif
+                    </div>
+                @endif
             </div>
         @endif
     </div>

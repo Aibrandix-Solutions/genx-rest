@@ -12,6 +12,7 @@ use Modules\Hotel\Exports\UnifiedFinanceReportExport;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
+use Modules\Hotel\Entities\Reservation;
 use App\Models\Order;
 use App\Models\Payment;
 use Modules\Hotel\Services\OrderFolioSettlement;
@@ -24,6 +25,8 @@ class UnifiedFinanceReport extends Component
     public $startDate = '';
     public $endDate   = '';
     public $activeTab = 'daily';
+    public $showIncomeDetails = false;
+    public $showExpenseDetails = false;
 
     public function mount()
     {
@@ -111,6 +114,14 @@ class UnifiedFinanceReport extends Component
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->sum('amount');
 
+        $hotelExpensesPaid = HotelExpense::where('status', 'paid')
+            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
+            ->sum('amount');
+
+        $hotelExpensesUnpaid = HotelExpense::where('status', 'pending')
+            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
+            ->sum('amount');
+
         $hotelExpensesByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->groupBy('department')
@@ -137,6 +148,8 @@ class UnifiedFinanceReport extends Component
             'hotelRefunds',
             'restaurantPaymentsReceived',
             'hotelExpenses',
+            'hotelExpensesPaid',
+            'hotelExpensesUnpaid',
             'hotelExpensesByDept',
             'hotelOutstanding',
             'totalRevenue',
@@ -214,6 +227,22 @@ class UnifiedFinanceReport extends Component
     {
         abort_unless(user_can('view_unified_finance_report'), 403);
 
+        if ($this->activeTab === 'income_expense') {
+            $filename = 'income-expense-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+            return Excel::download(
+                new \Modules\Hotel\Exports\IncomeExpenseReportExport(
+                    $this->summary,
+                    $this->detailedIncome,
+                    $this->detailedExpenses,
+                    $this->startDate,
+                    $this->endDate,
+                    (int) restaurant()->currency_id,
+                    (string) (restaurant()->name ?? ''),
+                ),
+                $filename,
+            );
+        }
+
         $filename = 'finance-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
 
         return Excel::download(
@@ -232,6 +261,21 @@ class UnifiedFinanceReport extends Component
     public function exportPdf()
     {
         abort_unless(user_can('view_unified_finance_report'), 403);
+
+        if ($this->activeTab === 'income_expense') {
+            $pdf = Pdf::loadView('hotel::reports.income-expense-report-export', [
+                'summary' => $this->summary,
+                'detailedIncome' => $this->detailedIncome,
+                'detailedExpenses' => $this->detailedExpenses,
+                'startDate' => $this->startDate,
+                'endDate' => $this->endDate,
+                'currencyId' => (int) restaurant()->currency_id,
+                'propertyName' => (string) (restaurant()->name ?? ''),
+            ])->setPaper('A4', 'landscape');
+
+            $filename = 'income-expense-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+            return response()->streamDownload(fn () => print($pdf->output()), $filename);
+        }
 
         $pdf = Pdf::loadView('hotel::reports.unified-finance-report-export', [
             'summary' => $this->summary,
@@ -255,10 +299,16 @@ class UnifiedFinanceReport extends Component
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
-        return HotelPayment::with(['reservation.guest', 'reservation.room', 'reservation.charges'])
-            ->whereNotNull('reservation_id')
-            ->whereBetween('created_at', [$from, $to])
-            ->orderBy('created_at', 'desc')
+        return Reservation::with(['guest', 'room', 'charges', 'payments'])
+            ->where('branch_id', branch()->id)
+            ->where(function ($q) use ($from, $to) {
+                $q->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+                  ->orWhereBetween('checkout_date', [$this->startDate, $this->endDate])
+                  ->orWhereHas('payments', function ($qp) use ($from, $to) {
+                      $qp->whereBetween('created_at', [$from, $to]);
+                  });
+            })
+            ->orderBy('check_in_date', 'desc')
             ->get();
     }
 
@@ -279,6 +329,8 @@ class UnifiedFinanceReport extends Component
             'detailedExpenses' => $this->detailedExpenses,
             'currencyId'     => restaurant()->currency_id,
             'activeTab'      => $this->activeTab,
+            'showIncomeDetails' => $this->showIncomeDetails,
+            'showExpenseDetails' => $this->showExpenseDetails,
         ])->layout('layouts.app');
     }
 }
