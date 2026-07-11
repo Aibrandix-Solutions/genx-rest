@@ -517,7 +517,9 @@
                             </tr>
                             <tr :class="['hover:bg-gray-100 dark:hover:bg-gray-700', item._isCombo ? 'border-l-2 border-blue-200 dark:border-blue-800' : '']">
                                 <td class="flex flex-col p-2 lg:min-w-20 relative">
-                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center gap-2 lg:table-cell">
+                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center gap-2 lg:table-cell"
+                                        :class="canEditItemPricing(item) ? 'cursor-pointer hover:text-skin-base' : ''"
+                                        @click="openItemPricingModal(item)">
                                         {{ item.name }}
                                         <span v-if="item._isCombo"
                                             class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
@@ -541,6 +543,9 @@
                                                 +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
                                             </span>
                                         </div>
+                                    </div>
+                                    <div v-if="hasItemDiscount(item)" class="text-xs text-green-600 dark:text-green-400">
+                                        Discount: -{{ currencySymbol }} {{ formatPrice(computeItemDiscountAmount(item)) }}
                                     </div>
                                     <div class="text-xs text-gray-600 dark:text-white inline-flex items-center">
                                     </div>
@@ -688,7 +693,7 @@
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
                                 <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
-                                    {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
+                                    {{ currencySymbol }} {{ formatPrice(lineTotalAmount(item)) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right">
                                     <!-- Legacy parity: combo lines cannot be individually removed;
@@ -811,7 +816,9 @@
                             class="hover:bg-gray-100 dark:hover:bg-gray-700">
                             <!-- Item Name, Note, and Add Note UI -->
                             <td class="flex flex-col p-2 lg:min-w-20 relative">
-                                <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
+                                <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell"
+                                    :class="canEditItemPricing(group.item) ? 'cursor-pointer hover:text-skin-base hover:underline' : ''"
+                                    @click="openItemPricingModal(group.item)">
                                     {{ group.item.name }}
                                 </div>
                                 <!-- Modifier pills -->
@@ -826,6 +833,9 @@
                                             +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
                                         </span>
                                     </div>
+                                </div>
+                                <div v-if="hasItemDiscount(group.item)" class="text-xs text-green-600 dark:text-green-400">
+                                    Discount: -{{ currencySymbol }} {{ formatPrice(computeItemDiscountAmount(group.item)) }}
                                 </div>
                                 <div class="inline-flex items-center relative group" v-cloak>
                                     <template v-if="group.item.note && !group.item._showNoteInput && !group.item._showNotePreview">
@@ -902,7 +912,7 @@
                                 {{ currencySymbol }} {{ formatPrice(group.item.price) }}
                             </td>
                             <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
-                                {{ currencySymbol }} {{ formatPrice(group.item.price * group.item.quantity) }}
+                                {{ currencySymbol }} {{ formatPrice(lineTotalAmount(group.item)) }}
                             </td>
                             <td class="p-2 whitespace-nowrap text-right">
                                 <button
@@ -1374,6 +1384,14 @@
         <!-- Discount Modal -->
         <DiscountModal :show="showDiscountModal" @close="showDiscountModal = false" @save="handleApplyDiscount" />
 
+        <ItemPricingModal
+            :show="showItemPricingModal"
+            :item="activePricingItem"
+            :currency-symbol="currencySymbol"
+            @close="closeItemPricingModal"
+            @save="handleSaveItemPricing"
+        />
+
         <!-- Reward Points Redeem Modal -->
         <div v-if="showRewardRedeemModal" class="jetstream-modal fixed inset-0 overflow-y-auto px-4 py-6 sm:px-0 z-50" @click.self="showRewardRedeemModal = false">
             <div class="fixed inset-0 transform transition-all bg-gray-500 dark:bg-gray-900 opacity-75" @click="showRewardRedeemModal = false"></div>
@@ -1471,6 +1489,7 @@
 import { ref, computed, watch, onMounted, reactive, nextTick } from "vue";
 import axios from "axios";
 import DiscountModal from "./DiscountModal.vue";
+import ItemPricingModal from "./ItemPricingModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
 import RemovalReasonModal from "./RemovalReasonModal.vue";
 import { showPosAlert } from "../../utils/posAlerts.js";
@@ -1479,6 +1498,11 @@ import {
     notifyLinkedOrderUseNewKot,
     blockLinkedOrderItemAdds,
 } from "../../utils/linkedOrderGuards.js";
+import {
+    computeItemDiscountAmount,
+    hasItemDiscount,
+    lineTotalAmount,
+} from "../../utils/posItemPricing.js";
 
 const linkedOrderNewKotMessage = LINKED_ORDER_NEW_KOT_MESSAGE;
 
@@ -1769,6 +1793,7 @@ const emit = defineEmits([
     "update:deliveryFee",
     "update:extraCharges",
     "apply-discount",
+    "update-item-pricing",
     "update:selectedDeliveryApp",
     "update:setAsDefaultOrderType",
     "update:defaultOrderTypeId",
@@ -1792,6 +1817,8 @@ const emit = defineEmits([
 const localPax = ref(props.pax);
 const localWaiterId = ref(props.waiterId);
 const showDiscountModal = ref(false);
+const showItemPricingModal = ref(false);
+const activePricingItem = ref(null);
 const showRewardRedeemModal = ref(false);
 const redeemCustomPoints = ref(0);
 const showOrderTypeDropdown = ref(false);
@@ -2675,10 +2702,51 @@ const totalItems = computed(() => {
 
 const subTotal = computed(() => {
     return props.cartItems.reduce(
-        (sum, item) => sum + item.price * item.quantity,
+        (sum, item) => sum + lineTotalAmount(item),
         0
     );
 });
+
+const canEditItemPricing = (item) => {
+    if (!item || item._isCombo || item.combo_pack_id) {
+        return false;
+    }
+
+    return canManageLineItems.value;
+};
+
+const openItemPricingModal = (item) => {
+    if (!canEditItemPricing(item)) {
+        return;
+    }
+
+    activePricingItem.value = item;
+    showItemPricingModal.value = true;
+};
+
+const closeItemPricingModal = () => {
+    showItemPricingModal.value = false;
+    activePricingItem.value = null;
+};
+
+const pricingPayloadFor = (item, pricingData) => ({
+    id: item?.id,
+    line_key: item?.line_key || item?.id,
+    kot_item_id: item?.kot_item_id || null,
+    order_item_id: item?.order_item_id || null,
+    unit_price: Number(pricingData?.unit_price || 0),
+    discount_type: pricingData?.discount_type || null,
+    discount_value: pricingData?.discount_value ?? null,
+});
+
+const handleSaveItemPricing = (pricingData, done) => {
+    if (!activePricingItem.value) {
+        done?.(new Error("No item selected"));
+        return;
+    }
+
+    emit("update-item-pricing", pricingPayloadFor(activePricingItem.value, pricingData), done);
+};
 
 /** Pre-discount unit for combo lines (from API / preview); fallback matches legacy price + combo_discount. */
 const comboLineOriginalUnit = (item) => {

@@ -101,6 +101,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/orders/{id}/waiter', [PosSupportController::class, 'updateOrderWaiter']);
     Route::post('/pos/orders/{id}/customer', [PosSupportController::class, 'updateOrderCustomer']);
     Route::post('/pos/orders/{id}/items/note', [PosSupportController::class, 'updateOrderItemNote']);
+    Route::post('/pos/orders/{id}/items/pricing', [PosSupportController::class, 'updateOrderItemPricing']);
     Route::post('/pos/orders/{id}/table', [PosSupportController::class, 'updateOrderTable']);
     Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
     Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);

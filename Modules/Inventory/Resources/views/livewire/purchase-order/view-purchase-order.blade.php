@@ -145,6 +145,7 @@
                                 <tr>
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">#</th>
                                     <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.inventoryItem.name') }}</th>
+                                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.inventoryItem.unit') }}</th>
                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.unit_price') }}</th>
                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ trans('inventory::modules.purchaseOrder.ordered_quantity') }}</th>
                                     <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Discount</th>
@@ -173,14 +174,14 @@
                                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $item->inventoryItem->category->name }}</div>
                                             @endif
                                         </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                            {{ $item->displayUnitSymbol() }}
+                                        </td>
                                         <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
                                             {{ currency_format($item->unit_price, restaurant()->currency_id) }}
                                         </td>
                                         <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
                                             {{ number_format($item->quantity, 2) }}
-                                            <span class="text-gray-500 dark:text-gray-400">
-                                                ({{ optional(optional($item->inventoryItem)->unit)->symbol ?? '-' }})
-                                            </span>
                                         </td>
                                         <td class="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900 dark:text-white">
                                             @if((float) ($item->discount ?? 0) > 0)
