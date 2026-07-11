@@ -65,51 +65,56 @@ class UnifiedFinanceReport extends Component
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
-        // --- Restaurant dine-in / pickup / delivery sales (NOT room-service) ---
+        // 1. Get filtered active reservations (EXCLUDING cancelled and no-show)
+        $detailedIncome = Reservation::with(['guest', 'room.roomType', 'charges'])
+            ->where('branch_id', $branchId)
+            ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+            ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
+            ->get();
+
+        $filteredResIds = $detailedIncome->pluck('id')->toArray();
+
+        // 2. Restaurant dine-in / pickup / delivery sales (NOT room-service)
         $restaurantSales = Order::where('branch_id', $branchId)
             ->whereNull('hotel_reservation_id')
             ->whereIn('status', ['paid', 'payment_due'])
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
-        // --- Room-service orders (tagged to a hotel reservation) ---
-        $roomServiceSales = Order::where('branch_id', $branchId)
-            ->whereNotNull('hotel_reservation_id')
-            ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
-            ->whereBetween('date_time', [$from, $to])
-            ->sum('total');
+        // 3. Room-service orders (tagged to filtered active hotel reservations)
+        $roomServiceSales = 0;
+        if (!empty($filteredResIds)) {
+            $roomServiceSales = Order::where('branch_id', $branchId)
+                ->whereIn('hotel_reservation_id', $filteredResIds)
+                ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
+                ->sum('total');
+        }
 
-        // --- Room Night charges (filtered by branch_id directly) ---
-        $roomNightRevenue = RoomCharge::where('branch_id', $branchId)
-            ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
-            ->whereDate('charge_date', '>=', $this->startDate)
-            ->whereDate('charge_date', '<=', $this->endDate)
-            ->sum('amount');
+        // 4. Room Night charges from filtered active reservations
+        $roomNightRevenue = 0;
+        foreach ($detailedIncome as $res) {
+            $roomNightRevenue += (float)$res->charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->sum('amount');
+        }
 
-        // --- Other hotel add-on charges (minibar, laundry, service, tax, other — NOT room_night / restaurant) ---
-        $hotelAddOns = RoomCharge::where('branch_id', $branchId)
-            ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
-            ->whereDate('charge_date', '>=', $this->startDate)
-            ->whereDate('charge_date', '<=', $this->endDate)
-            ->sum('amount');
+        // 5. Other hotel add-on charges (minibar, laundry, service, tax, other — NOT room_night / restaurant) from filtered active reservations
+        $hotelAddOns = 0;
+        foreach ($detailedIncome as $res) {
+            $hotelAddOns += (float)$res->charges->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])->sum('amount');
+        }
 
-        // --- Hotel Payments received (HasBranch scope auto-applies) ---
-        $hotelPaymentsReceived = HotelPayment::where('payment_type', '!=', HotelPayment::TYPE_REFUND)
-            ->whereBetween('created_at', [$from, $to])
-            ->sum('amount');
+        // 6. Hotel Payments and outstanding balances from filtered active reservations
+        $hotelPaymentsReceived = $detailedIncome->sum('paid_amount');
+        $hotelRefunds = 0;
+        $hotelOutstanding = $detailedIncome->sum('balance_due');
 
-        $hotelRefunds = HotelPayment::where('payment_type', HotelPayment::TYPE_REFUND)
-            ->whereBetween('created_at', [$from, $to])
-            ->sum('amount');
-
-        // --- Restaurant Payments received ---
+        // 7. Restaurant Payments received
         $restaurantPaymentsReceived = Payment::whereHas('order', function ($q) use ($from, $to, $branchId) {
             $q->where('branch_id', $branchId)
               ->whereNull('hotel_reservation_id')
               ->whereBetween('date_time', [$from, $to]);
         })->sum('amount');
 
-        // --- Hotel Expenses (HasBranch scope auto-applies) ---
+        // 8. Hotel Expenses
         $hotelExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->sum('amount');
@@ -129,15 +134,9 @@ class UnifiedFinanceReport extends Component
             ->get()
             ->mapWithKeys(fn($r) => [$r->department => $r->total]);
 
-        // --- Outstanding hotel balances ---
-        $hotelOutstanding = DB::table('hotel_reservations')
-            ->where('branch_id', $branchId)
-            ->whereIn('status', ['confirmed', 'checked_in'])
-            ->whereRaw('COALESCE(balance_due, 0) > 0')
-            ->sum('balance_due');
-
-        $totalRevenue = $restaurantSales + $roomServiceSales + $roomNightRevenue + $hotelAddOns;
-        $totalCollected = $hotelPaymentsReceived + $restaurantPaymentsReceived - $hotelRefunds;
+        // 9. Total Revenue and Total Collected
+        $totalRevenue = $restaurantSales + $detailedIncome->sum('total_amount');
+        $totalCollected = $restaurantPaymentsReceived + $detailedIncome->sum('paid_amount');
 
         return compact(
             'restaurantSales',
@@ -153,7 +152,7 @@ class UnifiedFinanceReport extends Component
             'hotelExpensesByDept',
             'hotelOutstanding',
             'totalRevenue',
-            'totalCollected',
+            'totalCollected'
         );
     }
 
@@ -299,6 +298,7 @@ class UnifiedFinanceReport extends Component
         return Reservation::with(['guest', 'room.roomType', 'charges'])
             ->where('branch_id', branch()->id)
             ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+            ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
             ->orderBy('check_in_date', 'desc')
             ->get();
     }
