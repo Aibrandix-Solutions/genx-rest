@@ -516,9 +516,9 @@
                                                         <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Date</th>
                                                         <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Reservation / Guest</th>
                                                         <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Room</th>
-                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Payment Details</th>
-                                                        <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Amount</th>
-                                                        <th class="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Type</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Transaction Details</th>
+                                                        <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Debit (Dr)</th>
+                                                        <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Credit (Cr)</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody class="divide-y divide-gray-150 dark:divide-gray-700">
@@ -543,22 +543,27 @@
                                                                     —
                                                                 @endif
                                                             </td>
-                                                            <td class="px-4 py-3 text-xs text-gray-955 dark:text-white font-semibold">
-                                                                {{ $row->payment_details }}
-                                                            </td>
-                                                            <td class="px-4 py-3 text-xs text-right whitespace-nowrap font-bold {{ $row->amount >= 0 ? 'text-gray-600 dark:text-gray-300' : 'text-red-500' }}">
-                                                                {{ currency_format($row->amount, $currencyId) }}
-                                                            </td>
-                                                            <td class="px-4 py-3 text-xs text-center whitespace-nowrap">
-                                                                @if($row->payment_type === 'refund')
-                                                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
+                                                            <td class="px-4 py-3 text-xs text-gray-955 dark:text-white font-medium">
+                                                                <span>{{ $row->description }}</span>
+                                                                @if($row->badge === 'refund')
+                                                                    <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
                                                                         Refund
                                                                     </span>
+                                                                @elseif($row->badge === 'payment')
+                                                                    <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300">
+                                                                        Payment
+                                                                    </span>
                                                                 @else
-                                                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300">
-                                                                        {{ ucfirst($row->payment_type) }}
+                                                                    <span class="inline-flex items-center ml-2 px-1.5 py-0.5 rounded text-[9px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300">
+                                                                        Charge
                                                                     </span>
                                                                 @endif
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-right whitespace-nowrap font-bold {{ $row->badge === 'refund' ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-300' }}">
+                                                                {{ $row->debit > 0 ? currency_format($row->debit, $currencyId) : '—' }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-right whitespace-nowrap font-bold text-green-600 dark:text-green-400">
+                                                                {{ $row->credit > 0 ? currency_format($row->credit, $currencyId) : '—' }}
                                                             </td>
                                                         </tr>
                                                     @endforeach
@@ -567,9 +572,20 @@
                                                     <tr>
                                                         <td colspan="4" class="px-4 py-3 text-xs text-gray-500 dark:text-gray-300 uppercase border border-gray-200 dark:border-gray-600 font-bold">Total</td>
                                                         <td class="px-4 py-3 text-sm text-right font-black text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 whitespace-nowrap">
-                                                            {{ currency_format($detailedCashInflow->sum('amount'), $currencyId) }}
+                                                            {{ currency_format($detailedCashInflow->sum('debit'), $currencyId) }}
                                                         </td>
-                                                        <td class="border border-gray-200 dark:border-gray-600"></td>
+                                                        <td class="px-4 py-3 text-sm text-right font-black text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 whitespace-nowrap">
+                                                            {{ currency_format($detailedCashInflow->sum('credit'), $currencyId) }}
+                                                        </td>
+                                                    </tr>
+                                                    @php
+                                                        $unpaidBalance = $detailedCashInflow->sum('debit') - $detailedCashInflow->sum('credit');
+                                                    @endphp
+                                                    <tr class="bg-gray-100 dark:bg-gray-800 border-t font-semibold">
+                                                        <td colspan="4" class="px-4 py-3 text-xs text-gray-600 dark:text-gray-300 uppercase border border-gray-200 dark:border-gray-600 font-bold">Net Receivables / Unpaid Balance</td>
+                                                        <td colspan="2" class="px-4 py-3 text-sm text-right font-black border border-gray-200 dark:border-gray-600 whitespace-nowrap {{ $unpaidBalance >= 0 ? 'text-yellow-600' : 'text-green-600' }}">
+                                                            {{ currency_format($unpaidBalance, $currencyId) }}
+                                                        </td>
                                                     </tr>
                                                 </tfoot>
                                             </table>
