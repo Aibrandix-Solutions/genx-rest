@@ -189,6 +189,11 @@
                     class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150 {{ $activeTab === 'income_expense' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300' }}">
                     Income & Expense Details
                 </button>
+                <button type="button" 
+                    wire:click="$set('activeTab', 'cash_flow')"
+                    class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors duration-150 {{ $activeTab === 'cash_flow' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400 dark:border-indigo-400' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300' }}">
+                    Cash Inflow & Outflow
+                </button>
             </nav>
         </div>
     </div>
@@ -260,7 +265,7 @@
                 </table>
             </div>
             @endif
-        @else
+        @elseif($activeTab === 'income_expense')
             {{-- P&L Integrated Summary & Details Table (White Theme) --}}
             <div class="max-w-5xl mx-auto mt-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
                 <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 border-collapse">
@@ -469,6 +474,198 @@
                             </td>
                             <td class="px-6 py-4.5 whitespace-nowrap text-base text-right font-bold text-gray-850 dark:text-white">
                                 {{ currency_format($summary['hotelOutstanding'] - $summary['hotelExpensesUnpaid'], $currencyId) }}
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        @elseif($activeTab === 'cash_flow')
+            {{-- Cash Flow Integrated Summary & Details Table --}}
+            <div class="max-w-5xl mx-auto mt-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 border-collapse">
+                    <thead class="bg-gray-50 dark:bg-gray-700">
+                        <tr>
+                            <th scope="col" class="px-6 py-3.5 text-left text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">Category</th>
+                            <th scope="col" class="px-6 py-3.5 text-right text-xs font-bold text-gray-500 dark:text-gray-300 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700">Total Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                        {{-- Row 1: Cash Inflow --}}
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors" wire:click="$toggle('showCashInflowDetails')">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                                <svg class="w-4 h-4 transform transition-transform duration-200 text-gray-400 {{ $showCashInflowDetails ? 'rotate-90' : '' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                Cash Inflow (Payments Received)
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-green-600 dark:text-green-400">
+                                {{ currency_format($cashFlowSummary['totalInflow'], $currencyId) }}
+                            </td>
+                        </tr>
+
+                        {{-- Collapsible Row 1 Details: Cash Inflow Details --}}
+                        @if($showCashInflowDetails)
+                            <tr>
+                                <td colspan="2" class="px-6 py-4 bg-gray-50/50 dark:bg-gray-900/30">
+                                    <h4 class="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Detailed Payments (Cash Inflow)</h4>
+                                    @if($detailedCashInflow->isEmpty())
+                                        <div class="text-center py-6 text-sm text-gray-400 dark:text-gray-500 italic">No payments found for this period.</div>
+                                    @else
+                                        <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                                <thead class="bg-gray-50 dark:bg-gray-700">
+                                                    <tr>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Date</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Reservation / Guest</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Room</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Payment Details</th>
+                                                        <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Amount</th>
+                                                        <th class="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Type</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-150 dark:divide-gray-700">
+                                                    @foreach($detailedCashInflow as $row)
+                                                        <tr class="hover:bg-gray-50/60 dark:hover:bg-gray-700/20">
+                                                            <td class="px-4 py-3 text-xs text-gray-900 dark:text-white whitespace-nowrap">
+                                                                {{ $row->date ? \Carbon\Carbon::parse($row->date)->format('Y-m-d h:i A') : '—' }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-955 dark:text-white">
+                                                                @if($row->reservation_number !== '—')
+                                                                    <div class="font-bold">{{ $row->reservation_number }}</div>
+                                                                    <div class="text-[10px] text-gray-455 dark:text-gray-400 mt-0.5">{{ $row->guest_name }}</div>
+                                                                @else
+                                                                    —
+                                                                @endif
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 font-medium">
+                                                                @if($row->room_number !== '—')
+                                                                    <div class="font-semibold text-gray-700 dark:text-gray-300">Room {{ $row->room_number }}</div>
+                                                                    <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ $row->room_type }}</div>
+                                                                @else
+                                                                    —
+                                                                @endif
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-955 dark:text-white font-semibold">
+                                                                {{ $row->payment_details }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-right whitespace-nowrap font-bold {{ $row->amount >= 0 ? 'text-gray-600 dark:text-gray-300' : 'text-red-500' }}">
+                                                                {{ currency_format($row->amount, $currencyId) }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-center whitespace-nowrap">
+                                                                @if($row->payment_type === 'refund')
+                                                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-300">
+                                                                        Refund
+                                                                    </span>
+                                                                @else
+                                                                    <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300">
+                                                                        {{ ucfirst($row->payment_type) }}
+                                                                    </span>
+                                                                @endif
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                                <tfoot class="bg-gray-50 dark:bg-gray-700 font-semibold">
+                                                    <tr>
+                                                        <td colspan="4" class="px-4 py-3 text-xs text-gray-500 dark:text-gray-300 uppercase border border-gray-200 dark:border-gray-600 font-bold">Total</td>
+                                                        <td class="px-4 py-3 text-sm text-right font-black text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 whitespace-nowrap">
+                                                            {{ currency_format($detailedCashInflow->sum('amount'), $currencyId) }}
+                                                        </td>
+                                                        <td class="border border-gray-200 dark:border-gray-600"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endif
+
+                        {{-- Row 2: Cash Outflow --}}
+                        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors" wire:click="$toggle('showCashOutflowDetails')">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                                <svg class="w-4 h-4 transform transition-transform duration-200 text-gray-400 {{ $showCashOutflowDetails ? 'rotate-90' : '' }}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                LESS: Cash Outflow (Paid Expenses)
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-red-600 dark:text-red-400">
+                                -{{ currency_format($cashFlowSummary['totalOutflow'], $currencyId) }}
+                            </td>
+                        </tr>
+
+                        {{-- Collapsible Row 2 Details: Cash Outflow Details --}}
+                        @if($showCashOutflowDetails)
+                            <tr>
+                                <td colspan="2" class="px-6 py-4 bg-gray-50/50 dark:bg-gray-900/30">
+                                    <h4 class="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Detailed Expenses Paid (Cash Outflow)</h4>
+                                    @if($detailedCashOutflow->isEmpty())
+                                        <div class="text-center py-6 text-sm text-gray-400 dark:text-gray-500 italic">No paid expenses found for this period.</div>
+                                    @else
+                                        <div class="overflow-x-auto border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm">
+                                            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                                <thead class="bg-gray-50 dark:bg-gray-700">
+                                                    <tr>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Date</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Expense / Reference</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Category</th>
+                                                        <th class="px-4 py-2.5 text-right text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Amount</th>
+                                                        <th class="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Paid By</th>
+                                                        <th class="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Status</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody class="divide-y divide-gray-150 dark:divide-gray-700">
+                                                    @foreach($detailedCashOutflow as $expense)
+                                                        <tr class="hover:bg-gray-50/60 dark:hover:bg-gray-700/20">
+                                                            <td class="px-4 py-3 text-xs text-gray-900 dark:text-white whitespace-nowrap">
+                                                                <span class="inline-flex items-center gap-1.5">
+                                                                    <svg class="w-3.5 h-3.5 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/></svg>
+                                                                    {{ $expense->expense_date->format('Y-m-d') }}
+                                                                </span>
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-955 dark:text-white">
+                                                                <div class="font-bold">{{ $expense->receipt_number ?: 'EXP' . str_pad($expense->id, 6, '0', STR_PAD_LEFT) }}</div>
+                                                                <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5">{{ $expense->title }}@if($expense->description) - {{ $expense->description }}@endif</div>
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 capitalize">
+                                                                {{ str_replace('_', ' ', $expense->department) }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-right text-gray-900 dark:text-white whitespace-nowrap font-bold">
+                                                                {{ currency_format($expense->amount, $currencyId) }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 capitalize">
+                                                                {{ $expense->payment_method }}
+                                                            </td>
+                                                            <td class="px-4 py-3 text-xs text-center whitespace-nowrap">
+                                                                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-50 dark:bg-green-950/40 text-green-700 dark:text-green-300 text-[10px] font-semibold">
+                                                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg> Paid
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    @endforeach
+                                                </tbody>
+                                                <tfoot class="bg-gray-50 dark:bg-gray-700 font-semibold">
+                                                    <tr>
+                                                        <td colspan="3" class="px-4 py-3 text-xs text-gray-500 dark:text-gray-300 uppercase border border-gray-200 dark:border-gray-600 font-bold">Total</td>
+                                                        <td class="px-4 py-3 text-sm text-right font-black text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 whitespace-nowrap">
+                                                            {{ currency_format($detailedCashOutflow->sum('amount'), $currencyId) }}
+                                                        </td>
+                                                        <td colspan="2" class="border border-gray-200 dark:border-gray-600"></td>
+                                                    </tr>
+                                                </tfoot>
+                                            </table>
+                                        </div>
+                                    @endif
+                                </td>
+                            </tr>
+                        @endif
+
+                        {{-- Row 3: Net Cash Flow --}}
+                        @php
+                            $netCashFlow = $cashFlowSummary['totalInflow'] - $cashFlowSummary['totalOutflow'];
+                        @endphp
+                        <tr class="bg-gray-50 dark:bg-gray-800">
+                            <td class="px-6 py-4.5 whitespace-nowrap text-base font-bold text-gray-900 dark:text-white">
+                                Net Cash Flow (Inflow - Outflow)
+                            </td>
+                            <td class="px-6 py-4.5 whitespace-nowrap text-base text-right font-black {{ $netCashFlow >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400' }}">
+                                {{ currency_format($netCashFlow, $currencyId) }}
                             </td>
                         </tr>
                     </tbody>

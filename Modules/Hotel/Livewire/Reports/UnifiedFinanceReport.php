@@ -27,6 +27,8 @@ class UnifiedFinanceReport extends Component
     public $activeTab = 'daily';
     public $showIncomeDetails = false;
     public $showExpenseDetails = false;
+    public $showCashInflowDetails = false;
+    public $showCashOutflowDetails = false;
 
     public function mount()
     {
@@ -242,6 +244,20 @@ class UnifiedFinanceReport extends Component
                 ),
                 $filename,
             );
+        } elseif ($this->activeTab === 'cash_flow') {
+            $filename = 'cash-flow-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+            return Excel::download(
+                new \Modules\Hotel\Exports\CashFlowReportExport(
+                    $this->cashFlowSummary,
+                    $this->detailedCashInflow,
+                    $this->detailedCashOutflow,
+                    $this->startDate,
+                    $this->endDate,
+                    (int) restaurant()->currency_id,
+                    (string) (restaurant()->name ?? ''),
+                ),
+                $filename,
+            );
         }
 
         $filename = 'finance-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
@@ -275,6 +291,19 @@ class UnifiedFinanceReport extends Component
             ])->setPaper('A4', 'landscape');
 
             $filename = 'income-expense-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+            return response()->streamDownload(fn () => print($pdf->output()), $filename);
+        } elseif ($this->activeTab === 'cash_flow') {
+            $pdf = Pdf::loadView('hotel::reports.cash-flow-report-export', [
+                'summary' => $this->cashFlowSummary,
+                'detailedInflow' => $this->detailedCashInflow,
+                'detailedOutflow' => $this->detailedCashOutflow,
+                'startDate' => $this->startDate,
+                'endDate' => $this->endDate,
+                'currencyId' => (int) restaurant()->currency_id,
+                'propertyName' => (string) (restaurant()->name ?? ''),
+            ])->setPaper('A4', 'landscape');
+
+            $filename = 'cash-flow-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
             return response()->streamDownload(fn () => print($pdf->output()), $filename);
         }
 
@@ -389,17 +418,90 @@ class UnifiedFinanceReport extends Component
         return $expenses->sortByDesc('expense_date');
     }
 
+    public function getCashFlowSummaryProperty(): array
+    {
+        $branchId = branch()->id;
+        $from = $this->startDate . ' 00:00:00';
+        $to   = $this->endDate   . ' 23:59:59';
+
+        $payments = HotelPayment::where('branch_id', $branchId)
+            ->whereBetween('created_at', [$from, $to])
+            ->get();
+
+        $totalInflow = (float) $payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount') 
+                       - (float) $payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
+
+        $totalOutflow = (float) $this->detailedExpenses->where('status', 'paid')->sum('amount');
+
+        return [
+            'totalInflow' => $totalInflow,
+            'totalOutflow' => $totalOutflow,
+            'netCashFlow' => $totalInflow - $totalOutflow,
+        ];
+    }
+
+    public function getDetailedCashInflowProperty(): \Illuminate\Support\Collection
+    {
+        $branchId = branch()->id;
+        $from = $this->startDate . ' 00:00:00';
+        $to   = $this->endDate   . ' 23:59:59';
+
+        $payments = HotelPayment::with(['reservation.guest', 'reservation.room.roomType'])
+            ->where('branch_id', $branchId)
+            ->whereBetween('created_at', [$from, $to])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return $payments->map(function ($payment) {
+            $res = $payment->reservation;
+            
+            $details = ucwords(str_replace('_', ' ', $payment->payment_method));
+            if ($payment->reference_number) {
+                $details .= ' (Ref: ' . $payment->reference_number . ')';
+            }
+            if ($payment->notes) {
+                $details .= ' - ' . $payment->notes;
+            }
+
+            $amount = (float) $payment->amount;
+            if ($payment->payment_type === HotelPayment::TYPE_REFUND) {
+                $amount = -$amount;
+            }
+
+            return (object) [
+                'date' => $payment->created_at,
+                'reservation_number' => $res?->reservation_number ?? '—',
+                'guest_name' => $res?->guest?->name ?? '—',
+                'room_number' => $res?->room?->room_number ?? '—',
+                'room_type' => $res?->room?->roomType?->name ?? '—',
+                'payment_details' => $details,
+                'amount' => $amount,
+                'payment_type' => $payment->payment_type,
+            ];
+        });
+    }
+
+    public function getDetailedCashOutflowProperty(): \Illuminate\Support\Collection
+    {
+        return $this->detailedExpenses->where('status', 'paid');
+    }
+
     public function render()
     {
         return view('hotel::livewire.reports.unified-finance-report', [
-            'summary'        => $this->summary,
-            'dailyBreakdown' => $this->dailyBreakdown,
-            'detailedIncome' => $this->detailedIncomeRows,
-            'detailedExpenses' => $this->detailedExpenses,
-            'currencyId'     => restaurant()->currency_id,
-            'activeTab'      => $this->activeTab,
-            'showIncomeDetails' => $this->showIncomeDetails,
-            'showExpenseDetails' => $this->showExpenseDetails,
+            'summary'             => $this->summary,
+            'dailyBreakdown'      => $this->dailyBreakdown,
+            'detailedIncome'      => $this->detailedIncomeRows,
+            'detailedExpenses'    => $this->detailedExpenses,
+            'cashFlowSummary'     => $this->cashFlowSummary,
+            'detailedCashInflow'  => $this->detailedCashInflow,
+            'detailedCashOutflow' => $this->detailedCashOutflow,
+            'currencyId'          => restaurant()->currency_id,
+            'activeTab'           => $this->activeTab,
+            'showIncomeDetails'   => $this->showIncomeDetails,
+            'showExpenseDetails'  => $this->showExpenseDetails,
+            'showCashInflowDetails' => $this->showCashInflowDetails,
+            'showCashOutflowDetails' => $this->showCashOutflowDetails,
         ])->layout('layouts.app');
     }
 }
