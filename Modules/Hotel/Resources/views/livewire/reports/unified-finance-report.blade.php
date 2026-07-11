@@ -254,7 +254,13 @@
                             <td class="px-4 py-3 text-sm text-right font-bold border border-gray-200 dark:border-gray-600
                                 {{ $dailyBreakdown->sum('net') >= 0 ? 'text-green-700 dark:text-green-300' : 'text-red-600' }}">
                                 {{ currency_format($dailyBreakdown->sum('net'), $currencyId) }}
-                              @else
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+            @endif
+        @else
             {{-- P&L Integrated Summary & Details Table (White Theme) --}}
             <div class="max-w-5xl mx-auto mt-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
                 <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 border-collapse">
