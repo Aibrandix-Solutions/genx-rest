@@ -34,9 +34,9 @@ class FolioChargePresenter
      *     subtotal: float,
      * }
      */
-    public static function summarize(Reservation $reservation, Collection $charges): array
+    public static function summarize(Reservation $reservation, Collection $charges, ?string $roomNumberOverride = null): array
     {
-        $roomNumber = (string) ($reservation->room?->room_number ?? '');
+        $roomNumber = $roomNumberOverride !== null ? $roomNumberOverride : (string) ($reservation->room?->room_number ?? '');
 
         $roomGroups = self::groupRoomNights(
             $charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->sortBy('charge_date')->values(),
@@ -73,44 +73,59 @@ class FolioChargePresenter
      */
     private static function groupRoomNights(Collection $roomCharges, string $roomNumber): array
     {
-        $groups = [];
-        $current = null;
+        // Group charges by room_number first to avoid interleaved rooms splitting consecutive nights
+        $chargesByRoom = $roomCharges->groupBy(function ($charge) use ($roomNumber) {
+            if ($roomNumber !== '') {
+                return $roomNumber;
+            }
+            if ($charge->reservation && $charge->reservation->room) {
+                return $charge->reservation->room->room_number;
+            }
+            return self::extractRoomNumberFromDescription($charge->description) ?: 'Other';
+        });
+
+        $allGroups = [];
         $index = 0;
 
-        foreach ($roomCharges as $charge) {
-            $chargeDate = Carbon::parse($charge->charge_date)->startOfDay();
-            $rate = round((float) $charge->amount, 2);
+        foreach ($chargesByRoom as $roomNo => $charges) {
+            $groups = [];
+            $current = null;
 
-            if ($current === null) {
-                $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, $roomNumber);
+            foreach ($charges->sortBy('charge_date')->values() as $charge) {
+                $chargeDate = Carbon::parse($charge->charge_date)->startOfDay();
+                $rate = round((float) $charge->amount, 2);
+
+                if ($current === null) {
+                    $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, (string)$roomNo);
+                    $index++;
+                    continue;
+                }
+
+                $nextExpected = $current['end_date']->copy()->addDay()->startOfDay();
+                $isConsecutive = $chargeDate->equalTo($nextExpected);
+                $sameRate = $rate === $current['price_per_night'];
+
+                if ($isConsecutive && $sameRate) {
+                    $current['end_date'] = $chargeDate;
+                    $current['nights']++;
+                    $current['room_total'] = round($current['room_total'] + $rate, 2);
+                    $current['charges']->push($charge);
+                    continue;
+                }
+
+                $groups[] = $current;
+                $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, (string)$roomNo);
                 $index++;
-
-                continue;
             }
 
-            $nextExpected = $current['end_date']->copy()->addDay()->startOfDay();
-            $isConsecutive = $chargeDate->equalTo($nextExpected);
-            $sameRate = $rate === $current['price_per_night'];
-
-            if ($isConsecutive && $sameRate) {
-                $current['end_date'] = $chargeDate;
-                $current['nights']++;
-                $current['room_total'] = round($current['room_total'] + $rate, 2);
-                $current['charges']->push($charge);
-
-                continue;
+            if ($current !== null) {
+                $groups[] = $current;
             }
 
-            $groups[] = $current;
-            $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, $roomNumber);
-            $index++;
+            $allGroups = array_merge($allGroups, $groups);
         }
 
-        if ($current !== null) {
-            $groups[] = $current;
-        }
-
-        return $groups;
+        return $allGroups;
     }
 
     /**
