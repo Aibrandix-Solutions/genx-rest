@@ -1319,17 +1319,7 @@ class ReservationList extends Component
             $this->alert('error', 'Reservation not found.');
             return;
         }
-
-        // If the reservation is checked-in, open the checkout/edit modal (correct flow for checked-in guests)
-        if ($reservation->status === Reservation::STATUS_CHECKED_IN) {
-            abort_unless(user_can('check_out_guest'), 403);
-            $id = $this->pendingUpdateId;
-            $this->pendingUpdateId = null;
-            $this->editReservation($id);
-            return;
-        }
-
-        // For all other statuses — open the date-editor update modal
+        // Open the date-editor update modal for all statuses
         $this->updateReservation      = $reservation;
         $this->update_check_in_date   = $reservation->check_in_date instanceof \Carbon\Carbon
             ? $reservation->check_in_date->format('Y-m-d')
