@@ -28,7 +28,7 @@
         </div>
         <div class="text-right">
             <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">@lang('hotel::modules.invoice.stayInfo')</h3>
-            @if($viewMode === 'group' && $reservation->group_booking_id)
+            @if($reservation->group_booking_id && in_array($viewMode, ['consolidated', 'roomwise']))
                 @php
                     $resIds = \Modules\Hotel\Entities\Reservation::where('group_booking_id', $reservation->group_booking_id)->pluck('id');
                     $rooms = \Modules\Hotel\Entities\Room::whereIn('id', function($q) use ($resIds) {

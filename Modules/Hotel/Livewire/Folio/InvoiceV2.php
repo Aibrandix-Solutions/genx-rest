@@ -29,7 +29,7 @@ class InvoiceV2 extends Component
     {
         abort_unless(user_can('view_hotel_billing'), 403);
         $this->reservationId = $reservationId;
-        $this->viewMode = request()->query('viewMode', 'single');
+        $this->viewMode = request()->query('viewMode', 'consolidated');
         $this->loadData();
     }
 
@@ -45,7 +45,7 @@ class InvoiceV2 extends Component
         $this->hotelAddress = restaurant()->address ?? '';
         $this->hotelPhone   = restaurant()->phone ?? '';
         
-        if ($this->viewMode === 'group' && $this->reservation->group_booking_id) {
+        if ($this->reservation->group_booking_id) {
             $groupReservations = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->get();
             $resIds = $groupReservations->pluck('id');
 
@@ -58,7 +58,11 @@ class InvoiceV2 extends Component
                 ->orderBy('created_at', 'asc')
                 ->get();
 
-            $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, '');
+            if ($this->viewMode === 'roomwise') {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, '');
+            } else {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, 'consolidated');
+            }
         } else {
             $this->charges = RoomCharge::with('order')
                 ->where('reservation_id', $this->reservationId)

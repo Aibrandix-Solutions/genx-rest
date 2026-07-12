@@ -34,7 +34,7 @@ class FolioManager extends Component
     public $paymentSurchargeEnabled = false;
     public $paymentProcessingRate = 0;
     public $businessMode = 'restaurant_primary';
-    public $viewMode = 'single'; // single | group
+    public $viewMode = 'single'; // single | consolidated | roomwise
     public $chargeReservationId;
 
     // Payment modal
@@ -76,7 +76,7 @@ class FolioManager extends Component
         
         $res = Reservation::where('reservation_number', $reservationNumber)->first();
         if ($res && $res->group_booking_id) {
-            $this->viewMode = 'group';
+            $this->viewMode = 'consolidated';
         }
 
         $this->loadData();
@@ -103,7 +103,7 @@ class FolioManager extends Component
         $this->reservation->refresh();
         $this->reservation->calculateTotal();
 
-        if ($this->viewMode === 'group' && $this->reservation->group_booking_id) {
+        if ($this->reservation->group_booking_id) {
             $groupReservations = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->get();
             $resIds = $groupReservations->pluck('id');
 
@@ -119,7 +119,11 @@ class FolioManager extends Component
                 ->orderBy('created_at', 'asc')
                 ->get();
 
-            $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, '');
+            if ($this->viewMode === 'roomwise') {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, '');
+            } else {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, 'consolidated');
+            }
         } else {
             // All posted charges for this reservation
             $this->charges = RoomCharge::with('order')
@@ -144,7 +148,7 @@ class FolioManager extends Component
         // Check if room night charges exist
         $this->hasRoomNightCharges = $this->charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->isNotEmpty();
 
-        if ($this->viewMode === 'group' && $this->reservation->group_booking_id) {
+        if ($this->reservation->group_booking_id) {
             $this->balance = $this->totalCharges - $this->totalPayments;
         } else {
             $this->balance = (float) $this->reservation->balance_due;
@@ -360,7 +364,7 @@ class FolioManager extends Component
         }
 
         DB::transaction(function () use (&$totalCollected) {
-            if ($this->viewMode === 'group' && $this->reservation->group_booking_id) {
+            if ($this->reservation->group_booking_id) {
                 $groupReservations = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->get();
                 $remainingPayment = (float) $this->paymentAmount;
 
@@ -523,7 +527,7 @@ class FolioManager extends Component
             ? RoomCharge::encodeCustomTypeDescription($this->chargeTypeCustom, $this->chargeDescription)
             : $this->chargeDescription;
 
-        $targetReservationId = ($this->viewMode === 'group' && $this->reservation->group_booking_id)
+        $targetReservationId = $this->reservation->group_booking_id
             ? $this->chargeReservationId
             : $this->reservation->id;
 
