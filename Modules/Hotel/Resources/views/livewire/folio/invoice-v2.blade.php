@@ -28,7 +28,21 @@
         </div>
         <div class="text-right">
             <h3 class="text-sm font-bold text-gray-500 uppercase tracking-wider mb-2">@lang('hotel::modules.invoice.stayInfo')</h3>
-            <p><span class="text-gray-600">@lang('hotel::modules.reservation.room'):</span> <span class="font-bold">{{ $reservation->room->room_number }}</span> ({{ $reservation->room->roomType->name }})</p>
+            @if($viewMode === 'group' && $reservation->group_booking_id)
+                @php
+                    $resIds = \Modules\Hotel\Entities\Reservation::where('group_booking_id', $reservation->group_booking_id)->pluck('id');
+                    $rooms = \Modules\Hotel\Entities\Room::whereIn('id', function($q) use ($resIds) {
+                        $q->select('room_id')->from('hotel_reservations')->whereIn('id', $resIds);
+                    })->with('roomType')->get();
+                @endphp
+                <p><span class="text-gray-600">Rooms:</span> 
+                    <span class="font-bold">
+                        {{ $rooms->map(fn($r) => "Room {$r->room_number} ({$r->roomType->name})")->implode(', ') }}
+                    </span>
+                </p>
+            @else
+                <p><span class="text-gray-600">@lang('hotel::modules.reservation.room'):</span> <span class="font-bold">{{ $reservation->room->room_number }}</span> ({{ $reservation->room->roomType->name }})</p>
+            @endif
             <p><span class="text-gray-600">@lang('hotel::modules.reservation.checkIn'):</span> {{ $reservation->check_in_date->format('d-M-Y') }}</p>
             <p><span class="text-gray-600">@lang('hotel::modules.reservation.checkOut'):</span> {{ $reservation->checkout_date->format('d-M-Y') }}</p>
             <p><span class="text-gray-600">@lang('hotel::modules.folio.nights'):</span> {{ $reservation->getNumberOfNights() }}</p>
