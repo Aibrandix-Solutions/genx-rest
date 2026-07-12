@@ -583,6 +583,18 @@
                         </div>
                     @endif
 
+                    {{-- Booking Layout choice if 2+ rooms selected --}}
+                    @if(count($selected_rooms) > 1)
+                        <div>
+                            <x-label for="bookingType" value="Booking Layout (for multiple rooms)" />
+                            <select id="bookingType" wire:model="bookingType" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                <option value="group">Group Booking (Single Folio & Consolidated List)</option>
+                                <option value="separate">Separate Bookings (Individual Folios & Lists)</option>
+                            </select>
+                            <x-input-error for="bookingType" class="mt-2" />
+                        </div>
+                    @endif
+
                     {{-- Booking Source --}}
                     <div>
                         <x-label for="create_booking_source" value="Booking Source" />
