@@ -36,9 +36,9 @@
 
     {{-- Reservations List --}}
     <div class="flex flex-col">
-        <div class="overflow-x-auto">
+        <div class="overflow-x-auto overflow-y-visible">
             <div class="inline-block min-w-full align-middle">
-                <div class="overflow-hidden shadow">
+                <div class="overflow-visible shadow">
                     <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-600">
                         <thead class="bg-gray-50 dark:bg-gray-700">
                             <tr>
@@ -107,36 +107,136 @@
                                             <div class="text-xs text-red-600">Due: {{ currency_format($reservation->balance_due, restaurant()->currency_id) }}</div>
                                         @endif
                                     </td>
-                                    <td class="p-4 space-x-2 whitespace-nowrap">
-                                        @if($reservation->status === 'confirmed' && user_can('check_in_guest'))
-                                            <button wire:click="openCheckIn({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
-                                                Check In
-                                            </button>
-                                        @endif
-                                        @if($reservation->status === 'checked_in' && user_can('check_out_guest'))
-                                            <button wire:click="editReservation({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-blue-700 rounded-lg hover:bg-blue-800">
-                                                Checkout
-                                            </button>
-                                        @endif
-                                        @if(in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge'))
-                                            <button wire:click="openAddCharge({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-orange-600 rounded-lg hover:bg-orange-700">
-                                                Add Charge
-                                            </button>
-                                        @endif
-                                        @if(in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing'))
-                                            <a href="{{ route('hotel.folio', $reservation->reservation_number) }}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 border border-gray-300 rounded-lg hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600">
-                                                Folio
-                                            </a>
-                                        @endif
-                                        @if($reservation->status === 'confirmed' && user_can('edit_reservation'))
-                                            <button wire:click="confirmMarkNoShow({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-amber-500 rounded-lg hover:bg-amber-600" title="Mark as No-Show">
-                                                No-Show
-                                            </button>
-                                        @endif
-                                        @if(in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('edit_reservation'))
-                                            <button wire:click="confirmCancelReservation({{ $reservation->id }})" class="inline-flex items-center px-3 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
-                                                Cancel
-                                            </button>
+                                    <td class="p-4 whitespace-nowrap text-right">
+                                        @php
+                                            $canCheckIn = $reservation->status === 'confirmed' && user_can('check_in_guest');
+                                            $canCheckout = $reservation->status === 'checked_in' && user_can('check_out_guest');
+                                            $canAddCharge = in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge');
+                                            $canFolio = in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing');
+                                            $canNoShow = $reservation->status === 'confirmed' && user_can('edit_reservation');
+                                            $canCancel = $reservation->status === 'confirmed' && user_can('edit_reservation');
+                                            $canDelete = $reservation->status === 'cancelled' && user_can('delete_reservation');
+                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canCancel || $canDelete;
+                                        @endphp
+
+                                        @if($hasActions)
+                                            <div
+                                                class="relative inline-block text-left"
+                                                x-data="{
+                                                    open: false,
+                                                    positionMenu() {
+                                                        this.$nextTick(() => {
+                                                            const trigger = this.$refs.trigger;
+                                                            const menu = this.$refs.menu;
+                                                            if (!trigger || !menu || !this.open) return;
+
+                                                            const rect = trigger.getBoundingClientRect();
+                                                            const menuHeight = menu.offsetHeight || 150;
+                                                            const menuWidth = menu.offsetWidth || 176;
+                                                            const gap = 4;
+                                                            const viewportPadding = 8;
+                                                            const spaceBelow = window.innerHeight - rect.bottom;
+                                                            const openUp = spaceBelow < menuHeight + viewportPadding && rect.top > menuHeight + viewportPadding;
+
+                                                            menu.style.position = 'fixed';
+                                                            menu.style.width = `${menuWidth}px`;
+                                                            menu.style.left = `${Math.min(
+                                                                Math.max(viewportPadding, rect.right - menuWidth),
+                                                                window.innerWidth - menuWidth - viewportPadding
+                                                            )}px`;
+                                                            menu.style.top = openUp
+                                                                ? `${rect.top - menuHeight - gap}px`
+                                                                : `${rect.bottom + gap}px`;
+                                                        });
+                                                    }
+                                                }"
+                                                x-effect="open && positionMenu()"
+                                                @resize.window="open && positionMenu()"
+                                                @scroll.window="open && positionMenu()"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    x-ref="trigger"
+                                                    @click="open = !open"
+                                                    class="p-1.5 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:text-gray-300 dark:hover:bg-gray-700 transition"
+                                                    title="Actions"
+                                                >
+                                                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                                        <circle cx="10" cy="4" r="1.5"/>
+                                                        <circle cx="10" cy="10" r="1.5"/>
+                                                        <circle cx="10" cy="16" r="1.5"/>
+                                                    </svg>
+                                                </button>
+
+                                                <div
+                                                    x-ref="menu"
+                                                    x-show="open"
+                                                    x-cloak
+                                                    @click.away="open = false"
+                                                    x-transition:enter="transition ease-out duration-100"
+                                                    x-transition:enter-start="opacity-0 scale-95"
+                                                    x-transition:enter-end="opacity-100 scale-100"
+                                                    x-transition:leave="transition ease-in duration-75"
+                                                    x-transition:leave-start="opacity-100 scale-100"
+                                                    x-transition:leave-end="opacity-0 scale-95"
+                                                    class="z-[9999] w-44 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1"
+                                                >
+                                                    @if($canCheckIn)
+                                                        <button @click="open = false" wire:click="openCheckIn({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
+                                                            Check In
+                                                        </button>
+                                                    @endif
+
+                                                    @if($canCheckout)
+                                                        <button @click="open = false" wire:click="editReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                                                            Checkout
+                                                        </button>
+                                                    @endif
+
+                                                    @if($canAddCharge)
+                                                        <button @click="open = false" wire:click="openAddCharge({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-orange-700 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+                                                            Add Charge
+                                                        </button>
+                                                    @endif
+
+                                                    @if($canFolio)
+                                                        <a href="{{ route('hotel.folio', $reservation->reservation_number) }}" @click="open = false" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                                                            Folio
+                                                        </a>
+                                                    @endif
+
+                                                    @if($canNoShow)
+                                                        <button @click="open = false" wire:click="confirmMarkNoShow({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                                                            No-Show
+                                                        </button>
+                                                    @endif
+
+                                                    @if($canCancel && $canDelete)
+                                                        <div class="border-t border-gray-100 dark:border-gray-600 my-1"></div>
+                                                    @endif
+
+                                                    @if($canCancel)
+                                                        <button @click="open = false" wire:click="confirmCancelReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                                            Cancel
+                                                        </button>
+                                                    @endif
+
+                                                    @if($canDelete)
+                                                        <button @click="open = false" wire:click="confirmDeleteReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                                                            Delete
+                                                        </button>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        @else
+                                            <span class="text-xs text-gray-400 dark:text-gray-500">—</span>
                                         @endif
                                     </td>
                                 </tr>
@@ -275,17 +375,63 @@
 
                                         {{-- Price (effective / overridden) --}}
                                         @php
-                                            $nightlyRate = $room->roomType->getPriceForDate($create_check_in_date);
-                                            $hasPriceOverride = (float) $nightlyRate !== (float) ($room->roomType->base_price ?? 0);
+                                            $defaultRate = $this->getDefaultRoomNightlyRate($room);
+                                            $nightlyRate = $this->getEffectiveRoomNightlyRate($room);
+                                            $hasCustomRate = $this->hasCustomRoomRate($room->id);
+                                            $hasDynamicOverride = !$hasCustomRate && (float) $defaultRate !== (float) ($room->roomType->base_price ?? 0);
+                                            $isEditingRate = (int) $editing_room_rate_id === (int) $room->id;
                                         @endphp
-                                        <div class="mt-1.5">
-                                            @if($hasPriceOverride)
-                                                <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
-                                            @endif
-                                            <span class="text-sm font-semibold {{ $hasPriceOverride ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
-                                            <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
-                                            @if($hasPriceOverride)
-                                                <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
+                                        <div class="mt-1.5" wire:click.stop>
+                                            @if($isEditingRate)
+                                                <div class="flex items-center gap-1" x-data x-init="$nextTick(() => $refs.roomRateInput?.focus())">
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        min="0.01"
+                                                        wire:model="edit_room_rate_value"
+                                                        wire:keydown.enter.prevent="saveEditRoomRate"
+                                                        wire:keydown.escape="cancelEditRoomRate"
+                                                        x-ref="roomRateInput"
+                                                        class="w-full min-w-0 rounded border-blue-300 bg-white px-1.5 py-0.5 text-xs font-semibold text-gray-900 shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 dark:border-blue-700 dark:bg-gray-800 dark:text-white"
+                                                    />
+                                                    <button type="button" wire:click="saveEditRoomRate" wire:loading.attr="disabled" wire:target="saveEditRoomRate" class="flex-shrink-0 p-0.5 rounded text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30" title="Save">
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
+                                                    </button>
+                                                    <button type="button" wire:click="cancelEditRoomRate" class="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" title="Cancel">
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                                    </button>
+                                                </div>
+                                                @error('edit_room_rate_value')
+                                                    <p class="mt-0.5 text-[10px] text-red-600 dark:text-red-400">{{ $message }}</p>
+                                                @enderror
+                                            @else
+                                                <div class="flex items-center gap-0.5">
+                                                    <div class="min-w-0 flex-1">
+                                                        @if($hasCustomRate)
+                                                            <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($defaultRate, restaurant()->currency_id) }}</span>
+                                                        @elseif($hasDynamicOverride)
+                                                            <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
+                                                        @endif
+                                                        <span class="text-sm font-semibold {{ ($hasCustomRate || $hasDynamicOverride) ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
+                                                        <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
+                                                        @if($hasCustomRate)
+                                                            <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400 uppercase tracking-wide">Custom</span>
+                                                        @elseif($hasDynamicOverride)
+                                                            <span class="ml-1 inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 uppercase tracking-wide">Override</span>
+                                                        @endif
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        wire:click.stop="startEditRoomRate({{ $room->id }})"
+                                                        @disabled($editing_room_rate_id !== null && !$isEditingRate)
+                                                        class="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition disabled:opacity-40 dark:hover:bg-blue-950/30"
+                                                        title="Edit nightly rate"
+                                                    >
+                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"/>
+                                                        </svg>
+                                                    </button>
+                                                </div>
                                             @endif
                                         </div>
 
@@ -353,11 +499,19 @@
                                         $entryOver = $capacityInfo['is_over'];
                                     @endphp
                                     @if($selectedRoom)
+                                        @php
+                                            $selectedNightlyRate = isset($entry['nightly_rate_override'])
+                                                ? (float) $entry['nightly_rate_override']
+                                                : $this->getEffectiveRoomNightlyRate($selectedRoom);
+                                        @endphp
                                         <div class="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-md px-2.5 py-2 border border-gray-200 dark:border-gray-600">
                                             {{-- Room info --}}
                                             <div class="flex-shrink-0 min-w-[70px]">
                                                 <span class="text-xs font-bold text-gray-900 dark:text-white">{{ $selectedRoom->room_number }}</span>
                                                 <span class="text-[10px] text-gray-500 dark:text-gray-400 ml-1">{{ $selectedRoom->roomType->name }}</span>
+                                            </div>
+                                            <div class="flex-shrink-0 text-[10px] text-gray-600 dark:text-gray-300 whitespace-nowrap" title="Nightly rate">
+                                                {{ currency_format($selectedNightlyRate, restaurant()->currency_id) }}/night
                                             </div>
                                             {{-- Adults --}}
                                             <div class="flex items-center gap-1">
@@ -412,12 +566,25 @@
                     </div>
                 </div>
 
-                <div class="mt-6 flex justify-end gap-3">
+                <div class="mt-6 flex flex-wrap justify-end gap-3">
                     <x-button type="button" wire:click="$set('showCreateReservation', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
                         Cancel
                     </x-button>
-                    <x-button type="submit" wire:loading.attr="disabled">
-                        Create Reservation
+                    @if(user_can('check_in_guest'))
+                        <x-button
+                            type="button"
+                            wire:click="saveReservationAndCheckIn"
+                            wire:loading.attr="disabled"
+                            wire:target="saveReservationAndCheckIn"
+                            class="bg-green-600 hover:bg-green-700 focus:bg-green-700 active:bg-green-800"
+                        >
+                            <span wire:loading.remove wire:target="saveReservationAndCheckIn">Create Reservation and Check In</span>
+                            <span wire:loading wire:target="saveReservationAndCheckIn">Processing...</span>
+                        </x-button>
+                    @endif
+                    <x-button type="submit" wire:loading.attr="disabled" wire:target="saveReservation">
+                        <span wire:loading.remove wire:target="saveReservation">Create Reservation</span>
+                        <span wire:loading wire:target="saveReservation">Saving...</span>
                     </x-button>
                 </div>
             </form>

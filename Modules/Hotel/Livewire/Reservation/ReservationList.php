@@ -86,64 +86,13 @@ class ReservationList extends Component
         }
 
         DB::transaction(function () {
-            $reservation = $this->checkInReservation;
-            $settings = HotelSetting::first();
-
-            // 1. Generate room night charges
-            $this->generateRoomNightCharges($reservation);
-
-            // 1b. Early check-in surcharge
-            if ($settings && (float) $settings->early_checkin_charge_per_hour > 0) {
-                $defaultCheckIn = Carbon::parse(
-                    $reservation->check_in_date->toDateString() . ' ' . ($settings->default_check_in_time ?? '14:00')
-                );
-                $actualCheckIn = now();
-
-                if ($actualCheckIn->lt($defaultCheckIn)) {
-                    $hoursEarly = max(1, (int) ceil($actualCheckIn->diffInHours($defaultCheckIn, true)));
-                    $earlyCharge = $hoursEarly * (float) $settings->early_checkin_charge_per_hour;
-
-                    RoomCharge::create([
-                        'branch_id'      => $reservation->branch_id,
-                        'reservation_id' => $reservation->id,
-                        'charge_type'    => RoomCharge::TYPE_SERVICE,
-                        'description'    => "Early check-in surcharge ({$hoursEarly}h before " . ($settings->default_check_in_time ?? '14:00') . ')',
-                        'amount'         => $earlyCharge,
-                        'charge_date'    => now()->toDateString(),
-                    ]);
-                }
-            }
-
-            // 2. Record advance payment if amount > 0
-            if ($this->checkInAdvanceAmount > 0) {
-                $settings = HotelSetting::first();
-                HotelPaymentRecorder::record(
-                    $reservation,
-                    (float) $this->checkInAdvanceAmount,
-                    $this->checkInPaymentMethod,
-                    HotelPayment::TYPE_ADVANCE,
-                    null,
-                    $this->checkInNotes ?: 'Advance payment at check-in',
-                    auth()->id(),
-                    (float) $this->checkInProcessingRate,
-                    (bool) ($settings->enable_payment_surcharge ?? false),
-                );
-            }
-
-            // 3. Update reservation status
-            $reservation->update([
-                'status' => Reservation::STATUS_CHECKED_IN,
-                'actual_check_in' => now(),
-                'created_by_user_id' => $reservation->created_by_user_id ?? auth()->id(),
-            ]);
-
-            // 4. Recalculate totals (charges + payments)
-            $reservation->calculateTotal();
-
-            // 5. Update room status
-            if ($reservation->room) {
-                $reservation->room->update(['status' => 'occupied']);
-            }
+            $this->performCheckInOnReservation(
+                $this->checkInReservation,
+                (float) $this->checkInAdvanceAmount,
+                $this->checkInPaymentMethod,
+                (float) $this->checkInProcessingRate,
+                $this->checkInNotes ?: 'Advance payment at check-in',
+            );
         });
 
         if ($this->checkInReservation) {
@@ -167,11 +116,73 @@ class ReservationList extends Component
     }
 
     /**
+     * Check in a confirmed reservation: room charges, optional advance payment, status updates.
+     */
+    protected function performCheckInOnReservation(
+        Reservation $reservation,
+        float $advanceAmount = 0,
+        string $paymentMethod = 'cash',
+        float $processingRate = 0,
+        ?string $notes = null,
+    ): void {
+        $reservation->load(['room.roomType']);
+        $settings = HotelSetting::first();
+
+        $this->generateRoomNightCharges($reservation);
+
+        if ($settings && (float) $settings->early_checkin_charge_per_hour > 0) {
+            $defaultCheckIn = Carbon::parse(
+                $reservation->check_in_date->toDateString() . ' ' . ($settings->default_check_in_time ?? '14:00')
+            );
+            $actualCheckIn = now();
+
+            if ($actualCheckIn->lt($defaultCheckIn)) {
+                $hoursEarly = max(1, (int) ceil($actualCheckIn->diffInHours($defaultCheckIn, true)));
+                $earlyCharge = $hoursEarly * (float) $settings->early_checkin_charge_per_hour;
+
+                RoomCharge::create([
+                    'branch_id'      => $reservation->branch_id,
+                    'reservation_id' => $reservation->id,
+                    'charge_type'    => RoomCharge::TYPE_SERVICE,
+                    'description'    => "Early check-in surcharge ({$hoursEarly}h before " . ($settings->default_check_in_time ?? '14:00') . ')',
+                    'amount'         => $earlyCharge,
+                    'charge_date'    => now()->toDateString(),
+                ]);
+            }
+        }
+
+        if ($advanceAmount > 0) {
+            HotelPaymentRecorder::record(
+                $reservation,
+                $advanceAmount,
+                $paymentMethod,
+                HotelPayment::TYPE_ADVANCE,
+                null,
+                $notes ?: 'Advance payment at check-in',
+                auth()->id(),
+                $processingRate,
+                (bool) ($settings->enable_payment_surcharge ?? false),
+            );
+        }
+
+        $reservation->update([
+            'status' => Reservation::STATUS_CHECKED_IN,
+            'actual_check_in' => now(),
+            'created_by_user_id' => $reservation->created_by_user_id ?? auth()->id(),
+        ]);
+
+        $reservation->calculateTotal();
+
+        if ($reservation->room) {
+            $reservation->room->update(['status' => 'occupied']);
+        }
+    }
+
+    /**
      * Generate room night charges for the entire stay using dynamic pricing
      */
     protected function generateRoomNightCharges(Reservation $reservation)
     {
-        $roomType = $reservation->room->roomType;
         $checkIn  = $reservation->check_in_date->copy();
         $checkOut = $reservation->checkout_date->copy();
         $settings = HotelSetting::first();
@@ -179,7 +190,7 @@ class ReservationList extends Component
         $roomChargesTotal = 0;
         $currentDate = $checkIn->copy();
         while ($currentDate->lt($checkOut)) {
-            $nightlyRate = $roomType->getPriceForDate($currentDate);
+            $nightlyRate = $reservation->getNightlyRateForDate($currentDate);
 
             RoomCharge::create([
                 'branch_id'      => $reservation->branch_id,
@@ -231,18 +242,7 @@ class ReservationList extends Component
      */
     protected function calculateStayTotal(Reservation $reservation): float
     {
-        $roomType = $reservation->room->roomType;
-        $checkIn = Carbon::parse($reservation->check_in_date);
-        $checkOut = Carbon::parse($reservation->checkout_date);
-
-        $total = 0;
-        $current = $checkIn->copy();
-        while ($current->lt($checkOut)) {
-            $total += (float)$roomType->getPriceForDate($current);
-            $current->addDay();
-        }
-
-        return $total;
+        return $reservation->calculateRoomChargesTotal();
     }
 
     // --- Existing simple checkIn kept for backward compat (used by old blade) ---
@@ -269,10 +269,18 @@ class ReservationList extends Component
 
     /**
      * Multi-room selection: array of selected rooms with per-room occupancy
-     * Format: [ ['room_id' => int, 'adults' => int, 'children' => int], ... ]
+     * Format: [ ['room_id' => int, 'adults' => int, 'children' => int, 'nightly_rate_override' => ?float], ... ]
      */
     public $selected_rooms = [];
     public $maxRoomsPerBooking = 10;
+
+    /**
+     * Staff-edited nightly rates keyed by room ID (applies flat rate for all nights).
+     */
+    public $room_rate_overrides = [];
+
+    public $editing_room_rate_id = null;
+    public $edit_room_rate_value = 0;
 
     protected function rules()
     {
@@ -284,6 +292,7 @@ class ReservationList extends Component
             'selected_rooms.*.room_id' => 'required|exists:hotel_rooms,id',
             'selected_rooms.*.adults' => 'required|integer|min:1',
             'selected_rooms.*.children' => 'integer|min:0',
+            'selected_rooms.*.nightly_rate_override' => 'nullable|numeric|min:0',
             'create_notes' => 'nullable|string',
             'create_booking_source' => 'nullable|string|max:100',
         ];
@@ -419,6 +428,7 @@ class ReservationList extends Component
                 'room_id' => $roomId,
                 'adults' => (int) ($this->create_adults ?? 1),
                 'children' => (int) ($this->create_children ?? 0),
+                'nightly_rate_override' => $this->room_rate_overrides[$roomId] ?? null,
             ];
         }
     }
@@ -441,6 +451,93 @@ class ReservationList extends Component
         if (isset($this->selected_rooms[$index])) {
             array_splice($this->selected_rooms, $index, 1);
             $this->selected_rooms = array_values($this->selected_rooms);
+        }
+    }
+
+    public function getDefaultRoomNightlyRate(Room $room): float
+    {
+        if (!$this->create_check_in_date) {
+            return (float) ($room->roomType->base_price ?? 0);
+        }
+
+        return (float) $room->roomType->getPriceForDate($this->create_check_in_date);
+    }
+
+    public function getEffectiveRoomNightlyRate(Room $room): float
+    {
+        $roomId = (int) $room->id;
+
+        if (isset($this->room_rate_overrides[$roomId])) {
+            return (float) $this->room_rate_overrides[$roomId];
+        }
+
+        return $this->getDefaultRoomNightlyRate($room);
+    }
+
+    public function hasCustomRoomRate(int $roomId): bool
+    {
+        return array_key_exists($roomId, $this->room_rate_overrides);
+    }
+
+    public function startEditRoomRate(int $roomId): void
+    {
+        abort_unless(user_can('create_reservation'), 403);
+
+        $room = collect($this->available_rooms)->firstWhere('id', $roomId);
+
+        if (!$room) {
+            return;
+        }
+
+        $this->editing_room_rate_id = $roomId;
+        $this->edit_room_rate_value = $this->getEffectiveRoomNightlyRate($room);
+    }
+
+    public function saveEditRoomRate(): void
+    {
+        abort_unless(user_can('create_reservation'), 403);
+
+        if (!$this->editing_room_rate_id) {
+            return;
+        }
+
+        $this->validate([
+            'edit_room_rate_value' => 'required|numeric|min:0.01',
+        ]);
+
+        $roomId = (int) $this->editing_room_rate_id;
+        $rate = round((float) $this->edit_room_rate_value, 2);
+
+        $this->room_rate_overrides[$roomId] = $rate;
+
+        foreach ($this->selected_rooms as $index => $entry) {
+            if ((int) $entry['room_id'] === $roomId) {
+                $this->selected_rooms[$index]['nightly_rate_override'] = $rate;
+            }
+        }
+
+        $this->cancelEditRoomRate();
+    }
+
+    public function cancelEditRoomRate(): void
+    {
+        $this->editing_room_rate_id = null;
+        $this->edit_room_rate_value = 0;
+        $this->resetErrorBag('edit_room_rate_value');
+    }
+
+    public function clearRoomRateOverride(int $roomId): void
+    {
+        unset($this->room_rate_overrides[$roomId]);
+
+        foreach ($this->selected_rooms as $index => $entry) {
+            if ((int) $entry['room_id'] === $roomId) {
+                unset($this->selected_rooms[$index]['nightly_rate_override']);
+            }
+        }
+
+        if ((int) $this->editing_room_rate_id === $roomId) {
+            $this->cancelEditRoomRate();
         }
     }
 
@@ -476,6 +573,19 @@ class ReservationList extends Component
 
     public function saveReservation()
     {
+        $this->persistReservations(checkInAfterCreate: false);
+    }
+
+    public function saveReservationAndCheckIn()
+    {
+        abort_unless(user_can('create_reservation'), 403);
+        abort_unless(user_can('check_in_guest'), 403);
+
+        $this->persistReservations(checkInAfterCreate: true);
+    }
+
+    private function persistReservations(bool $checkInAfterCreate = false): void
+    {
         abort_unless(user_can('create_reservation'), 403);
 
         $this->validate();
@@ -489,15 +599,15 @@ class ReservationList extends Component
         $checkOut = Carbon::parse($this->create_check_out_date);
         $settings = HotelSetting::first();
 
-        // Generate group booking ID only if multiple rooms
         $groupBookingId = count($this->selected_rooms) > 1
             ? Reservation::generateGroupBookingId()
             : null;
 
         $createdCount = 0;
+        $checkedInReservations = [];
 
         try {
-            DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId, $settings, &$createdCount) {
+            DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId, $settings, $checkInAfterCreate, &$createdCount, &$checkedInReservations) {
             foreach ($this->selected_rooms as $entry) {
                 $room = \Modules\Hotel\Entities\Room::with('roomType')
                     ->where('id', $entry['room_id'])
@@ -514,15 +624,23 @@ class ReservationList extends Component
                     );
                 }
 
-                // Calculate total using dynamic pricing per night
+                $nightlyOverride = isset($entry['nightly_rate_override'])
+                    ? round((float) $entry['nightly_rate_override'], 2)
+                    : (isset($this->room_rate_overrides[$entry['room_id']])
+                        ? round((float) $this->room_rate_overrides[$entry['room_id']], 2)
+                        : null);
+
                 $totalAmount = 0;
                 $current = $checkIn->copy();
                 while ($current->lt($checkOut)) {
-                    $totalAmount += (float) $room->roomType->getPriceForDate($current);
+                    if ($nightlyOverride !== null) {
+                        $totalAmount += $nightlyOverride;
+                    } else {
+                        $totalAmount += (float) $room->roomType->getPriceForDate($current);
+                    }
                     $current->addDay();
                 }
 
-                // Apply check-in time from settings
                 $checkInTime = $settings ? $settings->default_check_in_time : '14:00';
                 $checkOutTime = $settings ? $settings->default_checkout_time : '12:00';
 
@@ -541,6 +659,7 @@ class ReservationList extends Component
                     'status' => Reservation::STATUS_CONFIRMED,
                     'total_amount' => $totalAmount,
                     'balance_due' => $totalAmount,
+                    'nightly_rate_override' => $nightlyOverride,
                     'created_by_user_id' => auth()->id(),
                 ]);
 
@@ -557,8 +676,20 @@ class ReservationList extends Component
                     restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
                 );
 
-                // Update room status to 'reserved' when reservation is created
-                $room->update(['status' => 'reserved']);
+                if ($checkInAfterCreate) {
+                    $advanceAmount = $settings ? (float) $settings->calculateDeposit($totalAmount) : 0;
+                    $this->performCheckInOnReservation(
+                        $reservation,
+                        $advanceAmount,
+                        'cash',
+                        0,
+                        'Advance payment at check-in',
+                    );
+                    $checkedInReservations[] = $reservation->fresh(['room']);
+                } else {
+                    $room->update(['status' => 'reserved']);
+                }
+
                 $createdCount++;
             }
             });
@@ -577,10 +708,31 @@ class ReservationList extends Component
             return;
         }
 
+        if ($checkInAfterCreate) {
+            foreach ($checkedInReservations as $reservation) {
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::GuestCheckedIn,
+                    description: 'Guest checked in to room ' . ($reservation->room?->room_number ?? 'N/A'),
+                    subject: $reservation,
+                    properties: [
+                        'reservation_id' => $reservation->id,
+                        'reservation_number' => $reservation->reservation_number ?? null,
+                    ],
+                    restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                );
+            }
+        }
+
         $roomCount = $createdCount;
-        $message = $roomCount > 1
-            ? "{$roomCount} room reservations created (Group: {$groupBookingId})"
-            : 'Reservation created successfully';
+        if ($checkInAfterCreate) {
+            $message = $roomCount > 1
+                ? "{$roomCount} reservations created and guests checked in (Group: {$groupBookingId})"
+                : 'Reservation created and guest checked in successfully';
+        } else {
+            $message = $roomCount > 1
+                ? "{$roomCount} room reservations created (Group: {$groupBookingId})"
+                : 'Reservation created successfully';
+        }
 
         $this->alert('success', $message);
 
@@ -602,6 +754,8 @@ class ReservationList extends Component
         $this->create_booking_source = 'walk-in';
         $this->available_rooms = [];
         $this->selected_rooms = [];
+        $this->room_rate_overrides = [];
+        $this->cancelEditRoomRate();
         $this->resetErrorBag();
     }
     
@@ -858,9 +1012,9 @@ class ReservationList extends Component
             // Recalculate totals
             $this->checkout_reservation->calculateTotal();
 
-            // Update room status to cleaning
+            // Free the room for the next booking; staff can set cleaning/maintenance manually on Rooms page
             if ($this->checkout_reservation->room) {
-                $this->checkout_reservation->room->update(['status' => 'cleaning']);
+                $this->checkout_reservation->room->update(['status' => Room::STATUS_AVAILABLE]);
             }
         });
 
@@ -886,6 +1040,58 @@ class ReservationList extends Component
     }
 
     public $pendingCancelId = null;
+    public $pendingDeleteId = null;
+
+    public function confirmDeleteReservation($id)
+    {
+        abort_unless(user_can('delete_reservation'), 403);
+        $this->pendingDeleteId = $id;
+        $this->alert('warning', 'Delete this reservation permanently? This cannot be undone.', [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText' => 'No',
+            'onConfirmed' => 'deleteReservationConfirmed',
+        ]);
+    }
+
+    #[On('deleteReservationConfirmed')]
+    public function deleteReservation($id = null)
+    {
+        $id = $id ?? $this->pendingDeleteId;
+        abort_unless(user_can('delete_reservation'), 403);
+
+        $reservation = Reservation::find($id);
+
+        if (!$reservation) {
+            return;
+        }
+
+        if ($reservation->status !== Reservation::STATUS_CANCELLED) {
+            $this->alert('error', 'Only cancelled reservations can be deleted.');
+            return;
+        }
+
+        $reservationNumber = $reservation->reservation_number;
+
+        DB::transaction(function () use ($reservation) {
+            $reservation->delete();
+        });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::ReservationCancelled,
+            description: 'Reservation deleted' . ($reservationNumber ? " (#{$reservationNumber})" : ''),
+            subject: null,
+            properties: [
+                'reservation_number' => $reservationNumber,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
+
+        $this->pendingDeleteId = null;
+        $this->alert('success', 'Reservation deleted successfully.');
+        $this->dispatch('$refresh');
+    }
 
     public function confirmCancelReservation($id)
     {
@@ -910,8 +1116,8 @@ class ReservationList extends Component
             return;
         }
 
-        // Only allow cancellation for specific statuses
-        if (!in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
+        // Only allow cancellation for confirmed reservations (before check-in)
+        if ($reservation->status !== Reservation::STATUS_CONFIRMED) {
             $this->alert('error', 'Cannot cancel reservation in current status.');
             return;
         }
@@ -929,9 +1135,9 @@ class ReservationList extends Component
             restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
         );
 
-        // If room was occupied (checked in), free it up
-        if ($reservation->room) {
-             $reservation->room->update(['status' => 'available']);
+        // Free the room if it was reserved
+        if ($reservation->room && $reservation->room->status === 'reserved') {
+            $reservation->room->update(['status' => 'available']);
         }
 
         $this->alert('success', 'Reservation cancelled successfully.');
