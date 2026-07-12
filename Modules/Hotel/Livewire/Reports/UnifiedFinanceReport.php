@@ -385,7 +385,8 @@ class UnifiedFinanceReport extends Component
 
     public function getDetailedExpensesProperty(): \Illuminate\Support\Collection
     {
-        $expenses = HotelExpense::whereIn('status', ['paid', 'pending'])
+        $expenses = HotelExpense::with('departmentRelation')
+            ->whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->get();
 
