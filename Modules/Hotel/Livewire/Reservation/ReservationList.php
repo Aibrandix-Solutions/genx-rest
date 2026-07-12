@@ -1227,6 +1227,7 @@ class ReservationList extends Component
 
     public $pendingCancelId = null;
     public $pendingDeleteId = null;
+    public $pendingUpdateId = null;
 
     public function confirmDeleteReservation($id)
     {
@@ -1284,15 +1285,39 @@ class ReservationList extends Component
         $this->dispatch('$refresh');
     }
 
+    public function confirmUpdateReservation($id)
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+        $this->pendingUpdateId = $id;
+        $this->alert('question', 'Update this reservation?', [
+            'showConfirmButton' => true,
+            'showCancelButton'  => true,
+            'confirmButtonText' => 'Yes, Update',
+            'cancelButtonText'  => 'No',
+            'onConfirmed'       => 'updateReservationConfirmed',
+        ]);
+    }
+
+    #[On('updateReservationConfirmed')]
+    public function openEditFromConfirm()
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+        if ($this->pendingUpdateId) {
+            $this->editReservation($this->pendingUpdateId);
+            $this->pendingUpdateId = null;
+        }
+    }
+
     public function confirmCancelReservation($id)
     {
+        abort_unless(user_can('edit_reservation'), 403);
         $this->pendingCancelId = $id;
         $this->alert('warning', 'Cancel this reservation?', [
             'showConfirmButton' => true,
             'showCancelButton' => true,
             'confirmButtonText' => 'Yes, Cancel',
-            'cancelButtonText' => 'No',
-            'onConfirmed' => 'cancelReservationConfirmed',
+            'cancelButtonText'  => 'No',
+            'onConfirmed'       => 'cancelReservationConfirmed',
         ]);
     }
 

@@ -132,15 +132,18 @@
                                     </td>
                                     <td class="p-4 whitespace-nowrap text-right">
                                         @php
-                                            $canCheckIn = $reservation->status === 'confirmed' && user_can('check_in_guest');
-                                            $canCheckout = $reservation->status === 'checked_in' && user_can('check_out_guest');
-                                            $canAddCharge = in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge');
-                                            $canFolio = in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing');
-                                            $canNoShow = $reservation->status === 'confirmed' && user_can('edit_reservation');
-                                            $canCancel = $reservation->status === 'confirmed' && user_can('edit_reservation');
-                                            $canDelete = $reservation->status === 'cancelled' && user_can('delete_reservation');
+                                            // Action visibility: permission-only (status checks kept for workflow actions)
+                                            $canCheckIn      = $reservation->status === 'confirmed' && user_can('check_in_guest');
+                                            $canCheckout     = $reservation->status === 'checked_in' && user_can('check_out_guest');
+                                            $canAddCharge    = in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge');
+                                            $canFolio        = in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing');
+                                            $canNoShow       = $reservation->status === 'confirmed' && user_can('edit_reservation');
                                             $canUndoCheckout = $reservation->status === 'checked_out' && user_can('check_out_guest');
-                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canCancel || $canDelete || $canUndoCheckout;
+                                            // Update, Cancel, Delete — permission-only (always visible regardless of status)
+                                            $canUpdate = user_can('edit_reservation');
+                                            $canCancel = user_can('edit_reservation');
+                                            $canDelete = user_can('delete_reservation');
+                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canUndoCheckout || $canUpdate || $canCancel || $canDelete;
                                         @endphp
 
                                         @if($hasActions)
@@ -205,6 +208,7 @@
                                                     x-transition:leave-end="opacity-0 scale-95"
                                                     class="z-[9999] w-44 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1"
                                                 >
+                                                    {{-- Workflow actions: status-gated --}}
                                                     @if($canCheckIn)
                                                         <button @click="open = false" wire:click="openCheckIn({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition">
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
@@ -253,19 +257,42 @@
                                                         </button>
                                                     @endif
 
-                                                    @if($canCancel && $canDelete)
+                                                    {{-- Divider before management actions --}}
+                                                    @if($canUpdate || $canCancel || $canDelete)
                                                         <div class="border-t border-gray-100 dark:border-gray-600 my-1"></div>
                                                     @endif
 
+                                                    {{-- Update — always visible when user has edit_reservation permission --}}
+                                                    @if($canUpdate)
+                                                        <button
+                                                            @click="open = false"
+                                                            wire:click="confirmUpdateReservation({{ $reservation->id }})"
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition"
+                                                        >
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                                            Update
+                                                        </button>
+                                                    @endif
+
+                                                    {{-- Cancel — always visible when user has edit_reservation permission --}}
                                                     @if($canCancel)
-                                                        <button @click="open = false" wire:click="confirmCancelReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                                        <button
+                                                            @click="open = false"
+                                                            wire:click="confirmCancelReservation({{ $reservation->id }})"
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                                                        >
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                                                             Cancel
                                                         </button>
                                                     @endif
 
+                                                    {{-- Delete — always visible when user has delete_reservation permission --}}
                                                     @if($canDelete)
-                                                        <button @click="open = false" wire:click="confirmDeleteReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                                        <button
+                                                            @click="open = false"
+                                                            wire:click="confirmDeleteReservation({{ $reservation->id }})"
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                                                        >
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                                             Delete
                                                         </button>
