@@ -2,6 +2,8 @@
 
 namespace App\Livewire\Forms;
 
+use App\Livewire\Concerns\ManagesMenuBranchSelection;
+use App\Services\MenuBranchProvisioningService;
 use Livewire\Component;
 use App\Models\ItemCategory;
 use Illuminate\Validation\Rule;
@@ -10,6 +12,7 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 class AddItemCategory extends Component
 {
     use LivewireAlert;
+    use ManagesMenuBranchSelection;
 
     public $categoryName = '';
     public $translations = [];
@@ -23,6 +26,7 @@ class AddItemCategory extends Component
         $this->translations = array_fill_keys(array_keys($this->languages), '');
         $this->globalLocale = global_setting()->locale;
         $this->currentLanguage = $this->globalLocale;
+        $this->initializeMenuBranchSelection();
     }
 
     public function updateTranslation()
@@ -37,26 +41,33 @@ class AddItemCategory extends Component
 
     public function submitForm()
     {
-        $this->validate([
-            'translations.' . $this->globalLocale => [
-                'required',
-                Rule::unique('item_categories', "category_name->{$this->globalLocale}")
-                    ->where('branch_id', branch()->id),
-            ],
-        ], [
+        $branchIds = app(MenuBranchProvisioningService::class)->validateBranchIds($this->selectedBranchIds);
+
+        $rules = array_merge($this->menuBranchSelectionRules(), [
+            'translations.' . $this->globalLocale => ['required'],
+        ]);
+
+        foreach ($branchIds as $branchId) {
+            $rules['translations.' . $this->globalLocale][] = Rule::unique('item_categories', "category_name->{$this->globalLocale}")
+                ->where('branch_id', $branchId);
+        }
+
+        $this->validate($rules, [
             'translations.' . $this->globalLocale . '.required' => __('validation.categoryNameRequired', ['language' => $this->languages[$this->globalLocale]]),
             'translations.' . $this->globalLocale . '.unique' => __('validation.categoryNameUnique', ['language' => $this->languages[$this->globalLocale]]),
         ]);
 
         $filteredTranslations = array_filter($this->translations, 'trim');
 
-        ItemCategory::create([
-            'category_name' => $filteredTranslations
-        ]);
+        app(MenuBranchProvisioningService::class)->provisionCategories(
+            $filteredTranslations,
+            $branchIds
+        );
 
         // Reset the value
         $this->categoryName = '';
         $this->translations = array_fill_keys(array_keys($this->translations), '');
+        $this->initializeMenuBranchSelection();
 
         $this->dispatch('refreshCategories');
         $this->dispatch('hideCategoryModal');

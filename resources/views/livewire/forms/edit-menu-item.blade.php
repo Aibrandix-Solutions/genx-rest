@@ -235,17 +235,18 @@
             @endif
 
 
+            <x-menu.branch-multi-select
+                :branches="$restaurantBranches"
+                :selected-ids="$selectedBranchIds"
+                :help="__('modules.menu.editMenuItemBranchesHelp')"
+                class="mb-4"
+            />
+
             @if (in_array('Kitchen', restaurant_modules()))
-            <div>
-                <x-label for="kitchenType" :value="__('modules.menu.kitchenType')" />
-                <x-select id="kitchenType" class="block mt-1 w-full" wire:model="kitchenType">
-                    <option value="">@lang('modules.menu.SelectKitchenType')</option>
-                    @foreach($kitchenTypes as $type)
-                        <option value="{{ $type->id }}">{{ $type->name }}</option>
-                    @endforeach
-                </x-select>
-                <x-input-error for="kitchenType" class="mt-2" />
-            </div>
+            <x-menu.branch-kitchen-select
+                :branches-with-kitchen-options="$this->branchesWithKitchenOptions"
+                class="mt-2"
+            />
             @endif
 
             <div>

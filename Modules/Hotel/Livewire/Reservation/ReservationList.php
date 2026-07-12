@@ -1353,4 +1353,55 @@ class ReservationList extends Component
 
         return (bool) ($settings->enable_payment_surcharge ?? false);
     }
+
+    public function undoCheckout($id)
+    {
+        abort_unless(user_can('check_out_guest'), 403);
+
+        $reservation = Reservation::with(['room'])->find($id);
+        if (!$reservation || $reservation->status !== Reservation::STATUS_CHECKED_OUT) {
+            return;
+        }
+
+        DB::transaction(function () use ($reservation) {
+            $reservation->update([
+                'status' => Reservation::STATUS_CHECKED_IN,
+                'actual_checkout' => null,
+            ]);
+
+            if ($reservation->room) {
+                $reservation->room->update(['status' => Room::STATUS_OCCUPIED]);
+            }
+
+            // Remove checkout-specific charges
+            $reservation->charges()
+                ->where(function ($q) {
+                    $q->where('description', 'like', 'Extended stay (%)')
+                      ->orWhere('description', 'like', 'Late checkout surcharge (%');
+                })->delete();
+
+            // Remove settlement payments recorded at checkout
+            $reservation->payments()
+                ->where('payment_type', HotelPayment::TYPE_SETTLEMENT)
+                ->delete();
+
+            $reservation->recalculateTaxCharge();
+            $reservation->recalculateLinkedServiceCharge();
+            $reservation->calculateTotal();
+        });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::CheckoutUndone,
+            description: 'Guest checkout undone for room ' . ($reservation->room?->room_number ?? 'N/A'),
+            subject: $reservation->fresh(),
+            properties: [
+                'reservation_id' => $reservation->id,
+                'reservation_number' => $reservation->reservation_number ?? null,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
+
+        $this->alert('success', 'Guest checkout undone successfully. Status set back to Checked In.');
+        $this->dispatch('$refresh');
+    }
 }

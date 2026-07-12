@@ -310,7 +310,7 @@ return array(
     'tableNotFound' => 'Table not found.',
     'tableUnlockedSuccess' => 'Table :table unlocked.',
     'tableUnlockFailed' => 'Could not unlock table.',
-    'menuItemCreationFailed' => 'Failed to create menu item. Please fill in all required fields.',
+    'menuItemCreationFailed' => 'Failed to create menu item. Please check the highlighted fields and try again.',
     'menuItemUpdateFailed' => 'Failed to update menu item. Please try again.',
     'logoRemoved' => 'Image Removed Successfully',
     'kotDeletePermissionDenied' => 'You do not have permission to deduct items from KOT.',

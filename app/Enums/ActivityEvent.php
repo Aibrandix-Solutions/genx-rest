@@ -89,6 +89,7 @@ enum ActivityEvent: string
     case ReservationCancelled = 'hotel.reservation_cancelled';
     case GuestCheckedIn = 'hotel.guest_checked_in';
     case GuestCheckedOut = 'hotel.guest_checked_out';
+    case CheckoutUndone = 'hotel.checkout_undone';
 
     public function category(): string
     {
