@@ -934,6 +934,16 @@ class FolioManager extends Component
         return $this->reservation->room?->room_number;
     }
 
+    public function getGroupReservationNumbersProperty()
+    {
+        if ($this->reservation->group_booking_id) {
+            return Reservation::where('group_booking_id', $this->reservation->group_booking_id)
+                ->pluck('reservation_number')
+                ->implode(', ');
+        }
+        return $this->reservation->reservation_number;
+    }
+
     public function getGroupReservationsListProperty()
     {
         if ($this->reservation->group_booking_id) {

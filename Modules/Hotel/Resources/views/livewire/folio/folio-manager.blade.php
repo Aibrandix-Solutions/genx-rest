@@ -22,7 +22,7 @@
                         </h1>
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-600 dark:text-gray-400">
                             <span class="font-medium text-stone-800 dark:text-gray-200">
-                                @if($viewMode === 'group' && $reservation->group_booking_id)
+                                @if($reservation->group_booking_id)
                                     Rooms: {{ $this->roomNumbersList }}
                                 @else
                                     @lang('hotel::modules.reservation.room') {{ $reservation->room->room_number }} ({{ $reservation->room->roomType->name }})
@@ -34,7 +34,11 @@
                             <span>{{ $reservation->getNumberOfNights() }} @lang('hotel::modules.folio.nights')</span>
                         </div>
                         <p class="text-xs font-mono text-stone-500 dark:text-gray-500">
-                            {{ $reservation->reservation_number }}
+                            @if($reservation->group_booking_id)
+                                Reservations: {{ $this->groupReservationNumbers }}
+                            @else
+                                {{ $reservation->reservation_number }}
+                            @endif
                             <span @class([
                                 'ml-2 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide',
                                 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' => $reservation->status === 'checked_in',

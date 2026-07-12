@@ -117,7 +117,7 @@
                     <td class="px-4 py-3.5 text-sm tabular-nums text-stone-600 dark:text-gray-300 whitespace-nowrap">
                         {{ $typeRow['date']?->format('d M Y') ?? '—' }}
                     </td>
-                    <td class="px-4 py-3.5 text-sm text-stone-400 dark:text-gray-500">—</td>
+                    <td class="px-4 py-3.5 text-sm font-medium text-stone-800 dark:text-gray-200 whitespace-nowrap">{{ $typeRow['room_number'] ?? '—' }}</td>
                     <td class="px-4 py-3.5 text-sm text-center text-stone-400 dark:text-gray-500">—</td>
                     <td class="px-4 py-3.5 text-sm text-right text-stone-400 dark:text-gray-500">—</td>
                     <td class="px-4 py-3.5 text-sm text-stone-800 dark:text-gray-200">
