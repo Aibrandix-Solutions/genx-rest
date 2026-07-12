@@ -12,6 +12,7 @@ use App\Models\MenuItemTranslation;
 use App\Models\DeliveryPlatform;
 use Illuminate\Support\Facades\Cache;
 use App\Scopes\AvailableMenuItemScope;
+use App\Scopes\BranchScope;
 use Spatie\Translatable\HasTranslations;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -487,6 +488,7 @@ class MenuItem extends BaseModel
         if (in_array($driver, ['mysql', 'mariadb'], true)) {
             return (int) static::query()
                 ->withoutGlobalScope(AvailableMenuItemScope::class)
+                ->withoutGlobalScope(BranchScope::class)
                 ->where('branch_id', $branchId)
                 ->whereRaw('item_code REGEXP ?', ['^IT[0-9]+$'])
                 ->selectRaw('COALESCE(MAX(CAST(SUBSTRING(item_code, 3) AS UNSIGNED)), 0) as suffix_max')
@@ -496,6 +498,7 @@ class MenuItem extends BaseModel
         if ($driver === 'pgsql') {
             return (int) static::query()
                 ->withoutGlobalScope(AvailableMenuItemScope::class)
+                ->withoutGlobalScope(BranchScope::class)
                 ->where('branch_id', $branchId)
                 ->whereRaw('item_code ~ ?', ['^IT[0-9]+$'])
                 ->selectRaw('COALESCE(MAX(CAST(SUBSTRING(item_code FROM 3) AS INTEGER)), 0) as suffix_max')
@@ -505,6 +508,7 @@ class MenuItem extends BaseModel
         $max = 0;
         static::query()
             ->withoutGlobalScope(AvailableMenuItemScope::class)
+            ->withoutGlobalScope(BranchScope::class)
             ->where('branch_id', $branchId)
             ->where('item_code', 'like', 'IT%')
             ->pluck('item_code')
