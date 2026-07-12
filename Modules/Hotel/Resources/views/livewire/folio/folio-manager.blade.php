@@ -78,22 +78,22 @@
             <div class="flex items-center justify-between p-4 bg-amber-50/60 border border-amber-200/80 rounded-2xl dark:bg-amber-950/20 dark:border-amber-900/60">
                 <div class="flex items-center gap-2">
                     <span class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Group Booking</span>
-                    <span class="text-sm text-stone-600 dark:text-gray-400">This room is part of a group booking (Code: <strong>{{ $reservation->group_booking_id }}</strong>).</span>
+                    <span class="text-sm text-stone-600 dark:text-gray-400">This reservation is part of a group booking (Code: <strong>{{ $reservation->group_booking_id }}</strong>).</span>
                 </div>
                 <div class="flex border border-stone-200 rounded-xl overflow-hidden shadow-sm dark:border-gray-700">
-                    <button wire:click="$set('viewMode', 'single')" @class([
+                    <button wire:click="$set('viewMode', 'consolidated')" @class([
                         'px-4 py-2 text-xs font-semibold transition-all duration-150',
-                        'bg-stone-800 text-white dark:bg-stone-700' => $viewMode === 'single',
-                        'bg-white text-stone-700 hover:bg-stone-50 dark:bg-gray-800 dark:text-gray-300' => $viewMode !== 'single',
-                    ])>
-                        This Room Only
-                    </button>
-                    <button wire:click="$set('viewMode', 'group')" @class([
-                        'px-4 py-2 text-xs font-semibold transition-all duration-150',
-                        'bg-stone-800 text-white dark:bg-stone-700' => $viewMode === 'group',
-                        'bg-white text-stone-700 hover:bg-stone-50 dark:bg-gray-800 dark:text-gray-300' => $viewMode !== 'group',
+                        'bg-stone-800 text-white dark:bg-stone-700' => $viewMode === 'consolidated',
+                        'bg-white text-stone-700 hover:bg-stone-50 dark:bg-gray-800 dark:text-gray-300' => $viewMode !== 'consolidated',
                     ])>
                         Consolidated (All Rooms)
+                    </button>
+                    <button wire:click="$set('viewMode', 'roomwise')" @class([
+                        'px-4 py-2 text-xs font-semibold transition-all duration-150',
+                        'bg-stone-800 text-white dark:bg-stone-700' => $viewMode === 'roomwise',
+                        'bg-white text-stone-700 hover:bg-stone-50 dark:bg-gray-800 dark:text-gray-300' => $viewMode !== 'roomwise',
+                    ])>
+                        Room-wise Breakdown
                     </button>
                 </div>
             </div>
@@ -380,7 +380,7 @@
         <x-slot name="content">
             <form wire:submit.prevent="saveCharge">
                 <div class="space-y-4" x-data="{ showCustomType: @js($chargeType === 'other') }">
-                    @if($reservation->group_booking_id && $viewMode === 'group')
+                    @if($reservation->group_booking_id)
                         <div>
                             <x-label for="chargeReservationId" value="Apply Charge To Room *" />
                             <select id="chargeReservationId" wire:model="chargeReservationId"
