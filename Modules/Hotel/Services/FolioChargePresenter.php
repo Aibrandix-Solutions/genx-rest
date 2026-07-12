@@ -292,6 +292,13 @@ class FolioChargePresenter
             $first = $charges->first();
             $label = self::typeLabel($type, $first);
 
+            $roomNumbers = $charges->map(function ($c) {
+                if ($c->reservation && $c->reservation->room) {
+                    return $c->reservation->room->room_number;
+                }
+                return self::extractRoomNumberFromDescription($c->description);
+            })->filter()->unique()->sort()->implode(', ');
+
             $rows[] = [
                 'key' => 'type-' . $typeKey,
                 'type' => $typeKey,
@@ -300,6 +307,7 @@ class FolioChargePresenter
                 'amount' => round((float) $charges->sum('amount'), 2),
                 'charge_count' => $charges->count(),
                 'charges' => $charges,
+                'room_number' => $roomNumbers ?: '—',
             ];
         }
 

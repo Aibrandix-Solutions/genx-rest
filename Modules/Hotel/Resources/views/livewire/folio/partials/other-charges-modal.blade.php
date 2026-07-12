@@ -38,6 +38,7 @@
                     <thead>
                         <tr class="bg-stone-50 dark:bg-gray-800 text-[10px] font-bold uppercase tracking-widest text-stone-500 dark:text-gray-400">
                             <th class="px-3 py-2.5">@lang('hotel::modules.folio.date')</th>
+                            <th class="px-3 py-2.5">@lang('hotel::modules.folio.roomNo')</th>
                             <th class="px-3 py-2.5">@lang('hotel::modules.folio.type')</th>
                             <th class="px-3 py-2.5">@lang('hotel::modules.folio.description')</th>
                             <th class="px-3 py-2.5 text-right">@lang('hotel::modules.folio.amount')</th>
@@ -53,6 +54,9 @@
                             ])>
                                 <td class="px-3 py-3 text-sm tabular-nums text-stone-600 dark:text-gray-300 whitespace-nowrap">
                                     {{ $charge->charge_date->format('d M Y') }}
+                                </td>
+                                <td class="px-3 py-3 text-sm font-medium text-stone-800 dark:text-gray-200 whitespace-nowrap">
+                                    {{ $charge->reservation?->room?->room_number ?? '—' }}
                                 </td>
                                 <td class="px-3 py-3 whitespace-nowrap">
                                     <span @class([
@@ -144,7 +148,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="5" class="px-4 py-10 text-center text-sm text-stone-500 dark:text-gray-400">
+                                <td colspan="6" class="px-4 py-10 text-center text-sm text-stone-500 dark:text-gray-400">
                                     @lang('hotel::modules.folio.noCharges')
                                 </td>
                             </tr>
@@ -152,8 +156,8 @@
                     </tbody>
                     @if($filteredCharges->isNotEmpty())
                         <tfoot class="bg-stone-50 dark:bg-gray-800 border-t border-stone-200 dark:border-gray-700">
-                            <tr>
-                                <td colspan="3" class="px-3 py-2.5 text-right text-sm font-bold text-stone-800 dark:text-white">
+                             <tr>
+                                <td colspan="4" class="px-3 py-2.5 text-right text-sm font-bold text-stone-800 dark:text-white">
                                     @lang('hotel::modules.folio.subtotal')
                                 </td>
                                 <td class="px-3 py-2.5 text-right font-bold tabular-nums text-stone-900 dark:text-white">

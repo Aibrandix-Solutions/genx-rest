@@ -337,30 +337,41 @@ class UnifiedFinanceReport extends Component
     public function getDetailedIncomeRowsProperty(): \Illuminate\Support\Collection
     {
         $rows = collect();
-        $currencyId = restaurant()->currency_id;
+        
+        $groupedReservations = $this->detailedIncome->groupBy(function ($res) {
+            return $res->group_booking_id ?: 'single_' . $res->id;
+        });
 
-        foreach ($this->detailedIncome as $res) {
+        foreach ($groupedReservations as $groupKey => $reservations) {
+            $firstRes = $reservations->first();
+            
+            $reservationNumbers = $reservations->pluck('reservation_number')->filter()->unique()->sort()->implode(', ');
+            $roomNumbers = $reservations->map(fn($r) => $r->room?->room_number)->filter()->unique()->sort()->implode(', ');
+            $roomTypes = $reservations->map(fn($r) => $r->room?->roomType?->name)->filter()->unique()->sort()->implode(', ');
+            
             $chargeSummary = [];
-            foreach ($res->charges as $c) {
-                $typeLabel = '';
-                if ($c->charge_type === RoomCharge::TYPE_ROOM_NIGHT) {
-                    $typeLabel = 'Room Charge';
-                } elseif ($c->charge_type === RoomCharge::TYPE_LAUNDRY) {
-                    $typeLabel = 'Laundry';
-                } elseif ($c->charge_type === RoomCharge::TYPE_MINIBAR) {
-                    $typeLabel = 'Minibar';
-                } else {
-                    $typeLabel = ucwords(str_replace('_', ' ', $c->charge_type));
+            foreach ($reservations as $res) {
+                foreach ($res->charges as $c) {
+                    $typeLabel = '';
+                    if ($c->charge_type === RoomCharge::TYPE_ROOM_NIGHT) {
+                        $typeLabel = 'Room Charge';
+                    } elseif ($c->charge_type === RoomCharge::TYPE_LAUNDRY) {
+                        $typeLabel = 'Laundry';
+                    } elseif ($c->charge_type === RoomCharge::TYPE_MINIBAR) {
+                        $typeLabel = 'Minibar';
+                    } else {
+                        $typeLabel = ucwords(str_replace('_', ' ', $c->charge_type));
+                    }
+                    if (!isset($chargeSummary[$typeLabel])) {
+                        $chargeSummary[$typeLabel] = 0.0;
+                    }
+                    $chargeSummary[$typeLabel] += (float)$c->amount;
                 }
-                if (!isset($chargeSummary[$typeLabel])) {
-                    $chargeSummary[$typeLabel] = 0.0;
-                }
-                $chargeSummary[$typeLabel] += (float)$c->amount;
             }
 
-            $paid = (float)$res->paid_amount;
-            $unpaid = (float)$res->balance_due;
-            $total = (float)$res->total_amount;
+            $paid = (float)$reservations->sum('paid_amount');
+            $unpaid = (float)$reservations->sum('balance_due');
+            $total = (float)$reservations->sum('total_amount');
 
             foreach ($chargeSummary as $label => $amount) {
                 $ratio = $total > 0 ? ($amount / $total) : 0;
@@ -368,11 +379,11 @@ class UnifiedFinanceReport extends Component
                 $chargeUnpaid = $unpaid * $ratio;
 
                 $rows->push((object)[
-                    'date' => $res->check_in_date,
-                    'reservation_number' => $res->reservation_number,
-                    'guest_name' => $res->guest?->name ?? '—',
-                    'room_number' => $res->room?->room_number ?? '—',
-                    'room_type' => $res->room?->roomType?->name ?? '—',
+                    'date' => $firstRes->check_in_date,
+                    'reservation_number' => $reservationNumbers,
+                    'guest_name' => $firstRes->guest?->name ?? '—',
+                    'room_number' => $roomNumbers ?: '—',
+                    'room_type' => $roomTypes ?: '—',
                     'charge_details' => $label,
                     'amount' => $amount,
                     'paid' => $chargePaid,
