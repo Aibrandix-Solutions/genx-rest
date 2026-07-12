@@ -27,6 +27,18 @@ class ReservationList extends Component
     public $dateFilter = 'all';
     public $bookingType = 'group'; // group | separate
 
+    // --- Dedicated Update Reservation Modal ---
+    public $showUpdateModal = false;
+    public $updateReservation = null; // the loaded Reservation model
+    public $update_check_in_date  = '';
+    public $update_check_out_date = '';
+    public $update_check_in_time  = '';
+    public $update_check_out_time = '';
+    public $update_notes = '';
+    public $update_payment_id = null;
+    public $update_payment_amount = 0;
+    public $update_payment_method = 'cash';
+
     public function mount()
     {
         abort_unless(user_can('view_hotel_reservations'), 403);
@@ -1227,6 +1239,7 @@ class ReservationList extends Component
 
     public $pendingCancelId = null;
     public $pendingDeleteId = null;
+    public $pendingUpdateId = null;
 
     public function confirmDeleteReservation($id)
     {
@@ -1284,15 +1297,156 @@ class ReservationList extends Component
         $this->dispatch('$refresh');
     }
 
+    public function confirmUpdateReservation($id)
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+        $this->pendingUpdateId = $id;
+        $this->alert('question', 'Update this reservation?', [
+            'showConfirmButton' => true,
+            'showCancelButton'  => true,
+            'confirmButtonText' => 'Yes, Update',
+            'cancelButtonText'  => 'No',
+            'onConfirmed'       => 'updateReservationConfirmed',
+        ]);
+    }
+
+    #[On('updateReservationConfirmed')]
+    public function openUpdateReservation()
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+        if (!$this->pendingUpdateId) {
+            return;
+        }
+        $reservation = Reservation::with(['guest', 'room.roomType'])->find($this->pendingUpdateId);
+        if (!$reservation) {
+            $this->alert('error', 'Reservation not found.');
+            return;
+        }
+        // Open the date-editor update modal for all statuses
+        $this->updateReservation      = $reservation;
+        $this->update_check_in_date   = $reservation->check_in_date instanceof \Carbon\Carbon
+            ? $reservation->check_in_date->format('Y-m-d')
+            : \Carbon\Carbon::parse($reservation->check_in_date)->format('Y-m-d');
+        $this->update_check_out_date  = $reservation->checkout_date instanceof \Carbon\Carbon
+            ? $reservation->checkout_date->format('Y-m-d')
+            : \Carbon\Carbon::parse($reservation->checkout_date)->format('Y-m-d');
+        $this->update_check_in_time   = $reservation->check_in_time ?? '14:00';
+        $this->update_check_out_time  = $reservation->checkout_time ?? '12:00';
+        $this->update_notes           = '';
+
+        $this->update_payment_id = null;
+        $this->update_payment_amount = 0;
+        $this->update_payment_method = 'cash';
+
+        if ($reservation->status === Reservation::STATUS_CHECKED_IN) {
+            $payment = \Modules\Hotel\Entities\HotelPayment::where('reservation_id', $reservation->id)
+                ->where('payment_type', \Modules\Hotel\Entities\HotelPayment::TYPE_ADVANCE)
+                ->first();
+            if ($payment) {
+                $this->update_payment_id = $payment->id;
+                $this->update_payment_amount = $payment->amount;
+                $this->update_payment_method = $payment->payment_method;
+            }
+        }
+
+        $this->pendingUpdateId        = null;
+        $this->showUpdateModal        = true;
+    }
+
+    public function saveReservationUpdate()
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+
+        $this->validate([
+            'update_check_in_date'  => 'required|date',
+            'update_check_out_date' => 'required|date|after:update_check_in_date',
+            'update_check_in_time'  => 'required',
+            'update_check_out_time' => 'required',
+        ]);
+
+        if (!$this->updateReservation) {
+            return;
+        }
+
+        $reservation = Reservation::find($this->updateReservation->id);
+        if (!$reservation) {
+            $this->alert('error', 'Reservation not found.');
+            return;
+        }
+
+        // Update reservation dates on all rooms in group, or just this one
+        $reservations = $reservation->group_booking_id
+            ? Reservation::where('group_booking_id', $reservation->group_booking_id)->get()
+            : collect([$reservation]);
+
+        DB::transaction(function () use ($reservations) {
+            foreach ($reservations as $res) {
+                $res->update([
+                    'check_in_date'   => $this->update_check_in_date,
+                    'check_in_time'   => $this->update_check_in_time,
+                    'checkout_date'   => $this->update_check_out_date,
+                    'checkout_time'   => $this->update_check_out_time,
+                ]);
+                $res->calculateTotal();
+
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::ReservationUpdated,
+                    description: 'Reservation dates updated' . ($res->reservation_number ? " (#{$res->reservation_number})" : ''),
+                    subject: $res,
+                    properties: [
+                        'reservation_id'    => $res->id,
+                        'check_in_date'     => $this->update_check_in_date,
+                        'checkout_date'     => $this->update_check_out_date,
+                    ],
+                    restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                );
+            }
+        });
+
+        // Handle payment update if checked in
+        if ($reservation->status === Reservation::STATUS_CHECKED_IN) {
+            $amount = (float) $this->update_payment_amount;
+            if ($this->update_payment_id) {
+                $payment = \Modules\Hotel\Entities\HotelPayment::find($this->update_payment_id);
+                if ($payment) {
+                    if ($amount > 0) {
+                        $payment->update([
+                            'amount' => $amount,
+                            'payment_method' => $this->update_payment_method,
+                        ]);
+                    } else {
+                        $payment->delete();
+                    }
+                }
+            } elseif ($amount > 0) {
+                \Modules\Hotel\Services\HotelPaymentRecorder::record(
+                    $reservation,
+                    $amount,
+                    $this->update_payment_method,
+                    \Modules\Hotel\Entities\HotelPayment::TYPE_ADVANCE,
+                    null,
+                    'Advance payment updated at check-in edit',
+                    auth()->id()
+                );
+            }
+        }
+
+        $this->showUpdateModal  = false;
+        $this->updateReservation = null;
+        $this->alert('success', 'Reservation updated successfully.');
+        $this->dispatch('$refresh');
+    }
+
     public function confirmCancelReservation($id)
     {
+        abort_unless(user_can('edit_reservation'), 403);
         $this->pendingCancelId = $id;
         $this->alert('warning', 'Cancel this reservation?', [
             'showConfirmButton' => true,
             'showCancelButton' => true,
             'confirmButtonText' => 'Yes, Cancel',
-            'cancelButtonText' => 'No',
-            'onConfirmed' => 'cancelReservationConfirmed',
+            'cancelButtonText'  => 'No',
+            'onConfirmed'       => 'cancelReservationConfirmed',
         ]);
     }
 
@@ -1307,7 +1461,7 @@ class ReservationList extends Component
             return;
         }
 
-        if ($reservation->status !== Reservation::STATUS_CONFIRMED) {
+        if (!in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
             $this->alert('error', 'Cannot cancel reservation in current status.');
             return;
         }
@@ -1320,7 +1474,7 @@ class ReservationList extends Component
             foreach ($groupReservations as $res) {
                 $res->update(['status' => Reservation::STATUS_CANCELLED]);
 
-                if ($res->room && $res->room->status === 'reserved') {
+                if ($res->room && in_array($res->room->status, ['reserved', 'occupied', 'dirty'])) {
                     $res->room->update(['status' => 'available']);
                 }
 

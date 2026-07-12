@@ -132,15 +132,18 @@
                                     </td>
                                     <td class="p-4 whitespace-nowrap text-right">
                                         @php
-                                            $canCheckIn = $reservation->status === 'confirmed' && user_can('check_in_guest');
-                                            $canCheckout = $reservation->status === 'checked_in' && user_can('check_out_guest');
-                                            $canAddCharge = in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge');
-                                            $canFolio = in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing');
-                                            $canNoShow = $reservation->status === 'confirmed' && user_can('edit_reservation');
-                                            $canCancel = $reservation->status === 'confirmed' && user_can('edit_reservation');
-                                            $canDelete = $reservation->status === 'cancelled' && user_can('delete_reservation');
+                                            // Action visibility: permission-only (status checks kept for workflow actions)
+                                            $canCheckIn      = $reservation->status === 'confirmed' && user_can('check_in_guest');
+                                            $canCheckout     = $reservation->status === 'checked_in' && user_can('check_out_guest');
+                                            $canAddCharge    = in_array($reservation->status, ['confirmed', 'checked_in']) && user_can('add_room_charge');
+                                            $canFolio        = in_array($reservation->status, ['confirmed', 'checked_in', 'checked_out']) && user_can('view_hotel_billing');
+                                            $canNoShow       = $reservation->status === 'confirmed' && user_can('edit_reservation');
                                             $canUndoCheckout = $reservation->status === 'checked_out' && user_can('check_out_guest');
-                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canCancel || $canDelete || $canUndoCheckout;
+                                            // Update, Cancel, Delete — permission-only (always visible regardless of status)
+                                            $canUpdate = user_can('edit_reservation');
+                                            $canCancel = user_can('edit_reservation');
+                                            $canDelete = user_can('delete_reservation');
+                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canUndoCheckout || $canUpdate || $canCancel || $canDelete;
                                         @endphp
 
                                         @if($hasActions)
@@ -205,6 +208,7 @@
                                                     x-transition:leave-end="opacity-0 scale-95"
                                                     class="z-[9999] w-44 bg-white dark:bg-gray-700 rounded-lg shadow-lg border border-gray-200 dark:border-gray-600 py-1"
                                                 >
+                                                    {{-- Workflow actions: status-gated --}}
                                                     @if($canCheckIn)
                                                         <button @click="open = false" wire:click="openCheckIn({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-green-700 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 transition">
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1"/></svg>
@@ -253,19 +257,42 @@
                                                         </button>
                                                     @endif
 
-                                                    @if($canCancel && $canDelete)
+                                                    {{-- Divider before management actions --}}
+                                                    @if($canUpdate || $canCancel || $canDelete)
                                                         <div class="border-t border-gray-100 dark:border-gray-600 my-1"></div>
                                                     @endif
 
+                                                    {{-- Update — always visible when user has edit_reservation permission --}}
+                                                    @if($canUpdate)
+                                                        <button
+                                                            @click="open = false"
+                                                            wire:click="confirmUpdateReservation({{ $reservation->id }})"
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition"
+                                                        >
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                                                            Update
+                                                        </button>
+                                                    @endif
+
+                                                    {{-- Cancel — always visible when user has edit_reservation permission --}}
                                                     @if($canCancel)
-                                                        <button @click="open = false" wire:click="confirmCancelReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                                        <button
+                                                            @click="open = false"
+                                                            wire:click="confirmCancelReservation({{ $reservation->id }})"
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                                                        >
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
                                                             Cancel
                                                         </button>
                                                     @endif
 
+                                                    {{-- Delete — always visible when user has delete_reservation permission --}}
                                                     @if($canDelete)
-                                                        <button @click="open = false" wire:click="confirmDeleteReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition">
+                                                        <button
+                                                            @click="open = false"
+                                                            wire:click="confirmDeleteReservation({{ $reservation->id }})"
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition"
+                                                        >
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                                                             Delete
                                                         </button>
@@ -894,6 +921,121 @@
             @endif
         </x-slot>
     </x-right-modal>
+
+    {{-- Update Reservation Modal --}}
+    <x-right-modal wire:model.live="showUpdateModal">
+        <x-slot name="title">Update Reservation</x-slot>
+        <x-slot name="content">
+            @if($updateReservation)
+                <div class="space-y-5">
+                    {{-- Reservation Summary --}}
+                    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                        <h4 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">Reservation Summary</h4>
+                        <div class="text-sm space-y-1">
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Reservation #</span>
+                                <span class="font-medium dark:text-gray-200">{{ $updateReservation->reservation_number }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Guest</span>
+                                <span class="font-medium dark:text-gray-200">{{ $updateReservation->guest->full_name }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Room</span>
+                                <span class="font-medium dark:text-gray-200">
+                                    {{ $updateReservation->room ? 'Room '.$updateReservation->room->room_number : 'TBA' }}
+                                    @if($updateReservation->room && $updateReservation->room->roomType)
+                                        <span class="text-xs text-gray-400">({{ $updateReservation->room->roomType->name }})</span>
+                                    @endif
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Status</span>
+                                <span @class([
+                                    'text-xs font-semibold px-2 py-0.5 rounded',
+                                    'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/40 dark:text-yellow-300' => $updateReservation->status === 'confirmed',
+                                    'text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-300' => $updateReservation->status === 'checked_in',
+                                    'text-blue-700 bg-blue-100 dark:bg-blue-900/40 dark:text-blue-300' => $updateReservation->status === 'checked_out',
+                                    'text-red-700 bg-red-100 dark:bg-red-900/40 dark:text-red-300' => $updateReservation->status === 'cancelled',
+                                    'text-gray-700 bg-gray-100 dark:bg-gray-900/40 dark:text-gray-300' => $updateReservation->status === 'no_show',
+                                ])>{{ ucfirst(str_replace('_', ' ', $updateReservation->status)) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Update Form --}}
+                    <form wire:submit.prevent="saveReservationUpdate" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-label for="update_check_in_date" value="Check-In Date" />
+                                <x-input id="update_check_in_date" type="date" class="block w-full mt-1" wire:model="update_check_in_date" required />
+                                <x-input-error for="update_check_in_date" class="mt-1" />
+                            </div>
+                            <div>
+                                <x-label for="update_check_in_time" value="Check-In Time" />
+                                <x-input id="update_check_in_time" type="time" class="block w-full mt-1" wire:model="update_check_in_time" required />
+                                <x-input-error for="update_check_in_time" class="mt-1" />
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-label for="update_check_out_date" value="Check-Out Date" />
+                                <x-input id="update_check_out_date" type="date" class="block w-full mt-1" wire:model="update_check_out_date" required />
+                                <x-input-error for="update_check_out_date" class="mt-1" />
+                            </div>
+                            <div>
+                                <x-label for="update_check_out_time" value="Check-Out Time" />
+                                <x-input id="update_check_out_time" type="time" class="block w-full mt-1" wire:model="update_check_out_time" required />
+                                <x-input-error for="update_check_out_time" class="mt-1" />
+                            </div>
+                        </div>
+
+                        @if($updateReservation->status === 'checked_in')
+                            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                                <h4 class="font-medium text-sm text-gray-900 dark:text-gray-100 mb-3">Advance Payment</h4>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <x-label for="update_payment_amount" value="Amount" />
+                                        <x-input id="update_payment_amount" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="update_payment_amount" />
+                                        <p class="text-xs text-gray-500 mt-1">Set to 0 to remove payment.</p>
+                                    </div>
+                                    <div>
+                                        <x-label for="update_payment_method" value="Payment Method" />
+                                        <select id="update_payment_method" wire:model="update_payment_method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                            <option value="cash">Cash</option>
+                                            <option value="card">Card</option>
+                                            <option value="bank_transfer">Bank Transfer</option>
+                                            <option value="upi">UPI</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
+                        @if($updateReservation->group_booking_id)
+                            <p class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded px-3 py-2">
+                                <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                This is a <strong>group booking</strong>. Dates will be updated for all rooms in the group.
+                            </p>
+                        @endif
+
+                        <div class="flex justify-end gap-3 pt-2">
+                            <x-button type="button" wire:click="$set('showUpdateModal', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                                Cancel
+                            </x-button>
+                            <x-button type="submit" wire:loading.attr="disabled" class="bg-indigo-600 hover:bg-indigo-700">
+                                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                Save Changes
+                            </x-button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+        </x-slot>
+    </x-right-modal>
+
     <x-right-modal wire:model.live="showCreateGuest">
         <x-slot name="title">Add New Guest</x-slot>
         <x-slot name="content">
