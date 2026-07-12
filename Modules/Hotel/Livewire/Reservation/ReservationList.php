@@ -27,6 +27,15 @@ class ReservationList extends Component
     public $dateFilter = 'all';
     public $bookingType = 'group'; // group | separate
 
+    // --- Dedicated Update Reservation Modal ---
+    public $showUpdateModal = false;
+    public $updateReservation = null; // the loaded Reservation model
+    public $update_check_in_date  = '';
+    public $update_check_out_date = '';
+    public $update_check_in_time  = '';
+    public $update_check_out_time = '';
+    public $update_notes = '';
+
     public function mount()
     {
         abort_unless(user_can('view_hotel_reservations'), 403);
@@ -1299,13 +1308,96 @@ class ReservationList extends Component
     }
 
     #[On('updateReservationConfirmed')]
-    public function openEditFromConfirm()
+    public function openUpdateReservation()
     {
         abort_unless(user_can('edit_reservation'), 403);
-        if ($this->pendingUpdateId) {
-            $this->editReservation($this->pendingUpdateId);
-            $this->pendingUpdateId = null;
+        if (!$this->pendingUpdateId) {
+            return;
         }
+        $reservation = Reservation::with(['guest', 'room.roomType'])->find($this->pendingUpdateId);
+        if (!$reservation) {
+            $this->alert('error', 'Reservation not found.');
+            return;
+        }
+
+        // If the reservation is checked-in, open the checkout/edit modal (correct flow for checked-in guests)
+        if ($reservation->status === Reservation::STATUS_CHECKED_IN) {
+            abort_unless(user_can('check_out_guest'), 403);
+            $id = $this->pendingUpdateId;
+            $this->pendingUpdateId = null;
+            $this->editReservation($id);
+            return;
+        }
+
+        // For all other statuses — open the date-editor update modal
+        $this->updateReservation      = $reservation;
+        $this->update_check_in_date   = $reservation->check_in_date instanceof \Carbon\Carbon
+            ? $reservation->check_in_date->format('Y-m-d')
+            : \Carbon\Carbon::parse($reservation->check_in_date)->format('Y-m-d');
+        $this->update_check_out_date  = $reservation->checkout_date instanceof \Carbon\Carbon
+            ? $reservation->checkout_date->format('Y-m-d')
+            : \Carbon\Carbon::parse($reservation->checkout_date)->format('Y-m-d');
+        $this->update_check_in_time   = $reservation->check_in_time ?? '14:00';
+        $this->update_check_out_time  = $reservation->checkout_time ?? '12:00';
+        $this->update_notes           = '';
+        $this->pendingUpdateId        = null;
+        $this->showUpdateModal        = true;
+    }
+
+    public function saveReservationUpdate()
+    {
+        abort_unless(user_can('edit_reservation'), 403);
+
+        $this->validate([
+            'update_check_in_date'  => 'required|date',
+            'update_check_out_date' => 'required|date|after:update_check_in_date',
+            'update_check_in_time'  => 'required',
+            'update_check_out_time' => 'required',
+        ]);
+
+        if (!$this->updateReservation) {
+            return;
+        }
+
+        $reservation = Reservation::find($this->updateReservation->id);
+        if (!$reservation) {
+            $this->alert('error', 'Reservation not found.');
+            return;
+        }
+
+        // Update reservation dates on all rooms in group, or just this one
+        $reservations = $reservation->group_booking_id
+            ? Reservation::where('group_booking_id', $reservation->group_booking_id)->get()
+            : collect([$reservation]);
+
+        DB::transaction(function () use ($reservations) {
+            foreach ($reservations as $res) {
+                $res->update([
+                    'check_in_date'   => $this->update_check_in_date,
+                    'check_in_time'   => $this->update_check_in_time,
+                    'checkout_date'   => $this->update_check_out_date,
+                    'checkout_time'   => $this->update_check_out_time,
+                ]);
+                $res->calculateTotal();
+
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::ReservationUpdated,
+                    description: 'Reservation dates updated' . ($res->reservation_number ? " (#{$res->reservation_number})" : ''),
+                    subject: $res,
+                    properties: [
+                        'reservation_id'    => $res->id,
+                        'check_in_date'     => $this->update_check_in_date,
+                        'checkout_date'     => $this->update_check_out_date,
+                    ],
+                    restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+                );
+            }
+        });
+
+        $this->showUpdateModal  = false;
+        $this->updateReservation = null;
+        $this->alert('success', 'Reservation updated successfully.');
+        $this->dispatch('$refresh');
     }
 
     public function confirmCancelReservation($id)
