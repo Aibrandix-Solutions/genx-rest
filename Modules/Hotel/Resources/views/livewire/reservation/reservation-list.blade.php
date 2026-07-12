@@ -921,6 +921,98 @@
             @endif
         </x-slot>
     </x-right-modal>
+
+    {{-- Update Reservation Modal --}}
+    <x-right-modal wire:model.live="showUpdateModal">
+        <x-slot name="title">Update Reservation</x-slot>
+        <x-slot name="content">
+            @if($updateReservation)
+                <div class="space-y-5">
+                    {{-- Reservation Summary --}}
+                    <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                        <h4 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">Reservation Summary</h4>
+                        <div class="text-sm space-y-1">
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Reservation #</span>
+                                <span class="font-medium dark:text-gray-200">{{ $updateReservation->reservation_number }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Guest</span>
+                                <span class="font-medium dark:text-gray-200">{{ $updateReservation->guest->full_name }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Room</span>
+                                <span class="font-medium dark:text-gray-200">
+                                    {{ $updateReservation->room ? 'Room '.$updateReservation->room->room_number : 'TBA' }}
+                                    @if($updateReservation->room && $updateReservation->room->roomType)
+                                        <span class="text-xs text-gray-400">({{ $updateReservation->room->roomType->name }})</span>
+                                    @endif
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-gray-500 dark:text-gray-400">Status</span>
+                                <span @class([
+                                    'text-xs font-semibold px-2 py-0.5 rounded',
+                                    'text-yellow-700 bg-yellow-100 dark:bg-yellow-900/40 dark:text-yellow-300' => $updateReservation->status === 'confirmed',
+                                    'text-green-700 bg-green-100 dark:bg-green-900/40 dark:text-green-300' => $updateReservation->status === 'checked_in',
+                                    'text-blue-700 bg-blue-100 dark:bg-blue-900/40 dark:text-blue-300' => $updateReservation->status === 'checked_out',
+                                    'text-red-700 bg-red-100 dark:bg-red-900/40 dark:text-red-300' => $updateReservation->status === 'cancelled',
+                                    'text-gray-700 bg-gray-100 dark:bg-gray-900/40 dark:text-gray-300' => $updateReservation->status === 'no_show',
+                                ])>{{ ucfirst(str_replace('_', ' ', $updateReservation->status)) }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {{-- Update Form --}}
+                    <form wire:submit.prevent="saveReservationUpdate" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-label for="update_check_in_date" value="Check-In Date" />
+                                <x-input id="update_check_in_date" type="date" class="block w-full mt-1" wire:model="update_check_in_date" required />
+                                <x-input-error for="update_check_in_date" class="mt-1" />
+                            </div>
+                            <div>
+                                <x-label for="update_check_in_time" value="Check-In Time" />
+                                <x-input id="update_check_in_time" type="time" class="block w-full mt-1" wire:model="update_check_in_time" required />
+                                <x-input-error for="update_check_in_time" class="mt-1" />
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-label for="update_check_out_date" value="Check-Out Date" />
+                                <x-input id="update_check_out_date" type="date" class="block w-full mt-1" wire:model="update_check_out_date" required />
+                                <x-input-error for="update_check_out_date" class="mt-1" />
+                            </div>
+                            <div>
+                                <x-label for="update_check_out_time" value="Check-Out Time" />
+                                <x-input id="update_check_out_time" type="time" class="block w-full mt-1" wire:model="update_check_out_time" required />
+                                <x-input-error for="update_check_out_time" class="mt-1" />
+                            </div>
+                        </div>
+
+                        @if($updateReservation->group_booking_id)
+                            <p class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded px-3 py-2">
+                                <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                This is a <strong>group booking</strong>. Dates will be updated for all rooms in the group.
+                            </p>
+                        @endif
+
+                        <div class="flex justify-end gap-3 pt-2">
+                            <x-button type="button" wire:click="$set('showUpdateModal', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                                Cancel
+                            </x-button>
+                            <x-button type="submit" wire:loading.attr="disabled" class="bg-indigo-600 hover:bg-indigo-700">
+                                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                                Save Changes
+                            </x-button>
+                        </div>
+                    </form>
+                </div>
+            @endif
+        </x-slot>
+    </x-right-modal>
+
     <x-right-modal wire:model.live="showCreateGuest">
         <x-slot name="title">Add New Guest</x-slot>
         <x-slot name="content">
