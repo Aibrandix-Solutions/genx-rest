@@ -19,7 +19,7 @@ class HotelExpense extends Model
         'branch_id',
         'restaurant_id',
         'title',
-        'department',
+        'department_id',
         'description',
         'amount',
         'expense_date',
@@ -64,5 +64,15 @@ class HotelExpense extends Model
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    public function departmentRelation(): BelongsTo
+    {
+        return $this->belongsTo(HotelExpenseDepartment::class, 'department_id');
+    }
+
+    public function getDepartmentAttribute($value)
+    {
+        return $this->departmentRelation ? $this->departmentRelation->name : $value;
     }
 }

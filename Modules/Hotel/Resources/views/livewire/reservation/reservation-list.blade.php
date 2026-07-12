@@ -74,7 +74,18 @@
                                         <div class="text-xs text-gray-500">{{ $reservation->guest->email }}</div>
                                     </td>
                                     <td class="p-4 text-sm font-normal text-gray-900 whitespace-nowrap dark:text-white">
-                                        @if($reservation->room)
+                                        @if($reservation->group_booking_id)
+                                            @php
+                                                $groupRooms = \Modules\Hotel\Entities\Reservation::where('group_booking_id', $reservation->group_booking_id)
+                                                    ->with('room')
+                                                    ->get()
+                                                    ->map(fn($r) => $r->room?->room_number)
+                                                    ->filter()
+                                                    ->implode(', ');
+                                            @endphp
+                                            <div>Room {{ $groupRooms }}</div>
+                                            <div class="text-xs text-gray-500">Group Booking</div>
+                                        @elseif($reservation->room)
                                             <div>Room {{ $reservation->room->room_number }}</div>
                                             <div class="text-xs text-gray-500">{{ $reservation->room->roomType->name }}</div>
                                         @else
@@ -102,9 +113,21 @@
                                         </span>
                                     </td>
                                     <td class="p-4 text-sm font-semibold text-gray-900 whitespace-nowrap dark:text-white">
-                                        <div>{{ currency_format($reservation->total_amount, restaurant()->currency_id) }}</div>
-                                        @if($reservation->balance_due > 0)
-                                            <div class="text-xs text-red-600">Due: {{ currency_format($reservation->balance_due, restaurant()->currency_id) }}</div>
+                                        @if($reservation->group_booking_id)
+                                            @php
+                                                $groupReservations = \Modules\Hotel\Entities\Reservation::where('group_booking_id', $reservation->group_booking_id)->get();
+                                                $groupTotal = $groupReservations->sum('total_amount');
+                                                $groupBalance = $groupReservations->sum('balance_due');
+                                            @endphp
+                                            <div>{{ currency_format($groupTotal, restaurant()->currency_id) }}</div>
+                                            @if($groupBalance > 0)
+                                                <div class="text-xs text-red-600">Due: {{ currency_format($groupBalance, restaurant()->currency_id) }}</div>
+                                            @endif
+                                        @else
+                                            <div>{{ currency_format($reservation->total_amount, restaurant()->currency_id) }}</div>
+                                            @if($reservation->balance_due > 0)
+                                                <div class="text-xs text-red-600">Due: {{ currency_format($reservation->balance_due, restaurant()->currency_id) }}</div>
+                                            @endif
                                         @endif
                                     </td>
                                     <td class="p-4 whitespace-nowrap text-right">
@@ -557,6 +580,18 @@
                                     @endif
                                 @endforeach
                             </div>
+                        </div>
+                    @endif
+
+                    {{-- Booking Layout choice if 2+ rooms selected --}}
+                    @if(count($selected_rooms) > 1)
+                        <div>
+                            <x-label for="bookingType" value="Booking Layout (for multiple rooms)" />
+                            <select id="bookingType" wire:model="bookingType" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                <option value="group">Group Booking (Single Folio & Consolidated List)</option>
+                                <option value="separate">Separate Bookings (Individual Folios & Lists)</option>
+                            </select>
+                            <x-input-error for="bookingType" class="mt-2" />
                         </div>
                     @endif
 

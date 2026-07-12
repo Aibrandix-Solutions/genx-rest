@@ -34,6 +34,8 @@ class FolioManager extends Component
     public $paymentSurchargeEnabled = false;
     public $paymentProcessingRate = 0;
     public $businessMode = 'restaurant_primary';
+    public $viewMode = 'single'; // single | consolidated | roomwise
+    public $chargeReservationId;
 
     // Payment modal
     public $showPaymentModal = false;
@@ -71,6 +73,17 @@ class FolioManager extends Component
         abort_unless(user_can('view_hotel_billing'), 403);
         $this->reservationNumber = $reservationNumber;
         $this->businessMode = function_exists('hotel_business_mode') ? hotel_business_mode() : 'restaurant_primary';
+        
+        $res = Reservation::where('reservation_number', $reservationNumber)->first();
+        if ($res && $res->group_booking_id) {
+            $this->viewMode = 'consolidated';
+        }
+
+        $this->loadData();
+    }
+
+    public function updatedViewMode()
+    {
         $this->loadData();
     }
 
@@ -95,18 +108,42 @@ class FolioManager extends Component
         $this->reservation->refresh();
         $this->reservation->calculateTotal();
 
-        // All posted charges (room nights, restaurant/room-service, minibar, etc.)
-        $this->charges = RoomCharge::with('order')
-            ->where('reservation_id', $this->reservation->id)
-            ->orderBy('charge_date', 'asc')
-            ->get();
+        if ($this->reservation->group_booking_id) {
+            $groupReservations = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->get();
+            $resIds = $groupReservations->pluck('id');
 
-        // Payments
-        $this->payments = $this->reservation->payments()
-            ->orderBy('created_at', 'asc')
-            ->get();
+            // All posted charges for all reservations in the group
+            $this->charges = RoomCharge::with(['order', 'reservation.room'])
+                ->whereIn('reservation_id', $resIds)
+                ->orderBy('charge_date', 'asc')
+                ->get();
 
-        $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
+            // Payments for all reservations in the group
+            $this->payments = HotelPayment::with('receivedBy')
+                ->whereIn('reservation_id', $resIds)
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($this->viewMode === 'roomwise') {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, '');
+            } else {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, 'consolidated');
+            }
+        } else {
+            // All posted charges for this reservation
+            $this->charges = RoomCharge::with('order')
+                ->where('reservation_id', $this->reservation->id)
+                ->orderBy('charge_date', 'asc')
+                ->get();
+
+            // Payments for this reservation
+            $this->payments = $this->reservation->payments()
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
+        }
+
         $this->totalCharges = $this->folioSummary['subtotal'];
 
         $totalPaid = $this->payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
@@ -116,7 +153,11 @@ class FolioManager extends Component
         // Check if room night charges exist
         $this->hasRoomNightCharges = $this->charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->isNotEmpty();
 
-        $this->balance = (float) $this->reservation->balance_due;
+        if ($this->reservation->group_booking_id) {
+            $this->balance = $this->totalCharges - $this->totalPayments;
+        } else {
+            $this->balance = (float) $this->reservation->balance_due;
+        }
     }
 
     /**
@@ -328,33 +369,113 @@ class FolioManager extends Component
         }
 
         DB::transaction(function () use (&$totalCollected) {
-            if ($this->paymentType === HotelPayment::TYPE_REFUND) {
-                HotelPayment::create([
-                    'restaurant_id' => $this->reservation->restaurant_id,
-                    'reservation_id' => $this->reservation->id,
-                    'amount' => $this->paymentAmount,
-                    'payment_method' => $this->paymentMethod,
-                    'payment_type' => $this->paymentType,
-                    'reference_number' => $this->paymentReference ?: null,
-                    'notes' => $this->paymentNotes ?: null,
-                    'received_by_user_id' => auth()->id(),
-                ]);
-            } else {
-                $result = HotelPaymentRecorder::record(
-                    $this->reservation,
-                    (float) $this->paymentAmount,
-                    $this->paymentMethod,
-                    $this->paymentType,
-                    $this->paymentReference ?: null,
-                    $this->paymentNotes ?: null,
-                    auth()->id(),
-                    (float) $this->paymentProcessingRate,
-                    $this->paymentSurchargeEnabled,
-                );
-                $totalCollected = $result['total_collected'];
-            }
+            if ($this->reservation->group_booking_id) {
+                $groupReservations = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->get();
+                $remainingPayment = (float) $this->paymentAmount;
 
-            $this->reservation->calculateTotal();
+                if ($this->paymentType === HotelPayment::TYPE_REFUND) {
+                    foreach ($groupReservations as $res) {
+                        if ($remainingPayment <= 0) break;
+                        $credit = (float) $res->balance_due;
+                        if ($credit < 0) {
+                            $refundAmount = min($remainingPayment, abs($credit));
+                            HotelPayment::create([
+                                'branch_id' => $res->branch_id,
+                                'restaurant_id' => $res->restaurant_id,
+                                'reservation_id' => $res->id,
+                                'amount' => $refundAmount,
+                                'payment_method' => $this->paymentMethod,
+                                'payment_type' => 'refund',
+                                'reference_number' => $this->paymentReference ?: null,
+                                'notes' => $this->paymentNotes ?: null,
+                                'received_by_user_id' => auth()->id(),
+                            ]);
+                            $res->calculateTotal();
+                            $remainingPayment -= $refundAmount;
+                        }
+                    }
+                    if ($remainingPayment > 0) {
+                        HotelPayment::create([
+                            'branch_id' => $this->reservation->branch_id,
+                            'restaurant_id' => $this->reservation->restaurant_id,
+                            'reservation_id' => $this->reservation->id,
+                            'amount' => $remainingPayment,
+                            'payment_method' => $this->paymentMethod,
+                            'payment_type' => 'refund',
+                            'reference_number' => $this->paymentReference ?: null,
+                            'notes' => $this->paymentNotes ?: null,
+                            'received_by_user_id' => auth()->id(),
+                        ]);
+                        $this->reservation->calculateTotal();
+                    }
+                    $totalCollected = $this->paymentAmount;
+                } else {
+                    foreach ($groupReservations as $res) {
+                        if ($remainingPayment <= 0) break;
+                        $due = (float) $res->balance_due;
+                        if ($due > 0) {
+                            $allocatedPayment = min($remainingPayment, $due);
+                            $result = HotelPaymentRecorder::record(
+                                $res,
+                                $allocatedPayment,
+                                $this->paymentMethod,
+                                $this->paymentType,
+                                $this->paymentReference ?: null,
+                                $this->paymentNotes ?: null,
+                                auth()->id(),
+                                (float) $this->paymentProcessingRate,
+                                $this->paymentSurchargeEnabled,
+                            );
+                            $res->calculateTotal();
+                            $remainingPayment -= $allocatedPayment;
+                            $totalCollected += $result['total_collected'];
+                        }
+                    }
+                    if ($remainingPayment > 0) {
+                        $result = HotelPaymentRecorder::record(
+                            $this->reservation,
+                            $remainingPayment,
+                            $this->paymentMethod,
+                            $this->paymentType,
+                            $this->paymentReference ?: null,
+                            $this->paymentNotes ?: null,
+                            auth()->id(),
+                            (float) $this->paymentProcessingRate,
+                            $this->paymentSurchargeEnabled,
+                        );
+                        $this->reservation->calculateTotal();
+                        $totalCollected += $result['total_collected'];
+                    }
+                }
+            } else {
+                if ($this->paymentType === HotelPayment::TYPE_REFUND) {
+                    HotelPayment::create([
+                        'restaurant_id' => $this->reservation->restaurant_id,
+                        'reservation_id' => $this->reservation->id,
+                        'amount' => $this->paymentAmount,
+                        'payment_method' => $this->paymentMethod,
+                        'payment_type' => $this->paymentType,
+                        'reference_number' => $this->paymentReference ?: null,
+                        'notes' => $this->paymentNotes ?: null,
+                        'received_by_user_id' => auth()->id(),
+                    ]);
+                    $totalCollected = $this->paymentAmount;
+                } else {
+                    $result = HotelPaymentRecorder::record(
+                        $this->reservation,
+                        (float) $this->paymentAmount,
+                        $this->paymentMethod,
+                        $this->paymentType,
+                        $this->paymentReference ?: null,
+                        $this->paymentNotes ?: null,
+                        auth()->id(),
+                        (float) $this->paymentProcessingRate,
+                        $this->paymentSurchargeEnabled,
+                    );
+                    $totalCollected = $result['total_collected'];
+                }
+                $this->reservation->calculateTotal();
+            }
         });
 
         if ($this->paymentType === HotelPayment::TYPE_SETTLEMENT) {
@@ -387,6 +508,7 @@ class FolioManager extends Component
         $this->chargeTypeCustom = '';
         $this->chargeDescription = '';
         $this->chargeAmount = 0;
+        $this->chargeReservationId = $this->reservation->id;
         $this->showChargeModal = true;
     }
 
@@ -410,24 +532,31 @@ class FolioManager extends Component
             ? RoomCharge::encodeCustomTypeDescription($this->chargeTypeCustom, $this->chargeDescription)
             : $this->chargeDescription;
 
-        DB::transaction(function () use ($description) {
+        $targetReservationId = $this->reservation->group_booking_id
+            ? $this->chargeReservationId
+            : $this->reservation->id;
+
+        DB::transaction(function () use ($description, $targetReservationId) {
             $charge = RoomCharge::create([
-                'reservation_id' => $this->reservation->id,
+                'reservation_id' => $targetReservationId,
                 'charge_type' => $this->chargeType,
                 'description' => $description,
                 'amount' => $this->chargeAmount,
                 'charge_date' => now()->toDateString(),
             ]);
 
-            $this->reservation->calculateTotal();
+            $res = Reservation::find($targetReservationId);
+            if ($res) {
+                $res->calculateTotal();
+            }
 
             ActivityLogger::recordEvent(
                 activityEvent: ActivityEvent::FolioChargeAdded,
                 description: "Folio charge added: {$description}",
-                subject: $this->reservation,
+                subject: $res,
                 properties: [
-                    'reservation_id' => $this->reservation->id,
-                    'reservation_number' => $this->reservation->reservation_number ?? null,
+                    'reservation_id' => $targetReservationId,
+                    'reservation_number' => $res->reservation_number ?? null,
                     'charge_id' => $charge->id,
                     'charge_type' => $this->chargeType,
                     'amount' => $this->chargeAmount,
@@ -791,6 +920,38 @@ class FolioManager extends Component
         }
 
         $this->dispatch('showOrderDetail', id: $order->id);
+    }
+
+    public function getRoomNumbersListProperty()
+    {
+        if ($this->reservation->group_booking_id) {
+            $resIds = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->pluck('id');
+            $rooms = \Modules\Hotel\Entities\Room::whereIn('id', function($q) use ($resIds) {
+                $q->select('room_id')->from('hotel_reservations')->whereIn('id', $resIds);
+            })->pluck('room_number');
+            return $rooms->implode(', ');
+        }
+        return $this->reservation->room?->room_number;
+    }
+
+    public function getGroupReservationNumbersProperty()
+    {
+        if ($this->reservation->group_booking_id) {
+            return Reservation::where('group_booking_id', $this->reservation->group_booking_id)
+                ->pluck('reservation_number')
+                ->implode(', ');
+        }
+        return $this->reservation->reservation_number;
+    }
+
+    public function getGroupReservationsListProperty()
+    {
+        if ($this->reservation->group_booking_id) {
+            return Reservation::with(['room', 'room.roomType'])
+                ->where('group_booking_id', $this->reservation->group_booking_id)
+                ->get();
+        }
+        return collect([$this->reservation]);
     }
 
     public function render()
