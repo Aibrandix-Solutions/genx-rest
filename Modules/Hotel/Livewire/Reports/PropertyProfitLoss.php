@@ -104,8 +104,9 @@ class PropertyProfitLoss extends Component
         // ── HOTEL EXPENSES BY DEPARTMENT ──
         $hotelExpByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
-            ->groupBy('department')
-            ->select('department', DB::raw('SUM(amount) as total'))
+            ->leftJoin('hotel_expense_departments', 'hotel_expenses.department_id', '=', 'hotel_expense_departments.id')
+            ->groupBy('hotel_expense_departments.name')
+            ->select(DB::raw("COALESCE(hotel_expense_departments.name, 'Other') as department"), DB::raw('SUM(amount) as total'))
             ->get();
 
         // ── RESTAURANT EXPENSES BY CATEGORY ──
