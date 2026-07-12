@@ -78,6 +78,8 @@ class FolioManager extends Component
         if ($res && $res->group_booking_id) {
             $this->viewMode = 'consolidated';
         }
+
+        $this->loadData();
     }
 
     public function updatedViewMode()
