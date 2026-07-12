@@ -25,6 +25,7 @@ class ReservationList extends Component
     public $search = '';
     public $statusFilter = 'all';
     public $dateFilter = 'all';
+    public $bookingType = 'group'; // group | separate
 
     public function mount()
     {
@@ -674,7 +675,7 @@ class ReservationList extends Component
         $checkOut = Carbon::parse($this->create_check_out_date);
         $settings = HotelSetting::first();
 
-        $groupBookingId = count($this->selected_rooms) > 1
+        $groupBookingId = (count($this->selected_rooms) > 1 && $this->bookingType === 'group')
             ? Reservation::generateGroupBookingId()
             : null;
 
@@ -830,6 +831,7 @@ class ReservationList extends Component
         $this->available_rooms = [];
         $this->selected_rooms = [];
         $this->room_rate_overrides = [];
+        $this->bookingType = 'group';
         $this->cancelEditRoomRate();
         $this->resetErrorBag();
     }
