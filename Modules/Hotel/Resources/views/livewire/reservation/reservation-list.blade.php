@@ -991,6 +991,29 @@
                             </div>
                         </div>
 
+                        @if($updateReservation->status === 'checked_in')
+                            <div class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+                                <h4 class="font-medium text-sm text-gray-900 dark:text-gray-100 mb-3">Advance Payment</h4>
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <x-label for="update_payment_amount" value="Amount" />
+                                        <x-input id="update_payment_amount" type="number" step="0.01" min="0" class="block w-full mt-1" wire:model="update_payment_amount" />
+                                        <p class="text-xs text-gray-500 mt-1">Set to 0 to remove payment.</p>
+                                    </div>
+                                    <div>
+                                        <x-label for="update_payment_method" value="Payment Method" />
+                                        <select id="update_payment_method" wire:model="update_payment_method" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                            <option value="cash">Cash</option>
+                                            <option value="card">Card</option>
+                                            <option value="bank_transfer">Bank Transfer</option>
+                                            <option value="upi">UPI</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        @endif
+
                         @if($updateReservation->group_booking_id)
                             <p class="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/50 rounded px-3 py-2">
                                 <svg class="w-3.5 h-3.5 inline mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>

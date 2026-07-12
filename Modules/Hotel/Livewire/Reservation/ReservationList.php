@@ -35,6 +35,9 @@ class ReservationList extends Component
     public $update_check_in_time  = '';
     public $update_check_out_time = '';
     public $update_notes = '';
+    public $update_payment_id = null;
+    public $update_payment_amount = 0;
+    public $update_payment_method = 'cash';
 
     public function mount()
     {
@@ -1330,6 +1333,22 @@ class ReservationList extends Component
         $this->update_check_in_time   = $reservation->check_in_time ?? '14:00';
         $this->update_check_out_time  = $reservation->checkout_time ?? '12:00';
         $this->update_notes           = '';
+
+        $this->update_payment_id = null;
+        $this->update_payment_amount = 0;
+        $this->update_payment_method = 'cash';
+
+        if ($reservation->status === Reservation::STATUS_CHECKED_IN) {
+            $payment = \Modules\Hotel\Entities\HotelPayment::where('reservation_id', $reservation->id)
+                ->where('payment_type', \Modules\Hotel\Entities\HotelPayment::TYPE_ADVANCE)
+                ->first();
+            if ($payment) {
+                $this->update_payment_id = $payment->id;
+                $this->update_payment_amount = $payment->amount;
+                $this->update_payment_method = $payment->payment_method;
+            }
+        }
+
         $this->pendingUpdateId        = null;
         $this->showUpdateModal        = true;
     }
@@ -1384,6 +1403,34 @@ class ReservationList extends Component
             }
         });
 
+        // Handle payment update if checked in
+        if ($reservation->status === Reservation::STATUS_CHECKED_IN) {
+            $amount = (float) $this->update_payment_amount;
+            if ($this->update_payment_id) {
+                $payment = \Modules\Hotel\Entities\HotelPayment::find($this->update_payment_id);
+                if ($payment) {
+                    if ($amount > 0) {
+                        $payment->update([
+                            'amount' => $amount,
+                            'payment_method' => $this->update_payment_method,
+                        ]);
+                    } else {
+                        $payment->delete();
+                    }
+                }
+            } elseif ($amount > 0) {
+                \Modules\Hotel\Services\HotelPaymentRecorder::record(
+                    $reservation,
+                    $amount,
+                    $this->update_payment_method,
+                    \Modules\Hotel\Entities\HotelPayment::TYPE_ADVANCE,
+                    null,
+                    'Advance payment updated at check-in edit',
+                    auth()->id()
+                );
+            }
+        }
+
         $this->showUpdateModal  = false;
         $this->updateReservation = null;
         $this->alert('success', 'Reservation updated successfully.');
@@ -1414,7 +1461,7 @@ class ReservationList extends Component
             return;
         }
 
-        if ($reservation->status !== Reservation::STATUS_CONFIRMED) {
+        if (!in_array($reservation->status, [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])) {
             $this->alert('error', 'Cannot cancel reservation in current status.');
             return;
         }
@@ -1427,7 +1474,7 @@ class ReservationList extends Component
             foreach ($groupReservations as $res) {
                 $res->update(['status' => Reservation::STATUS_CANCELLED]);
 
-                if ($res->room && $res->room->status === 'reserved') {
+                if ($res->room && in_array($res->room->status, ['reserved', 'occupied', 'dirty'])) {
                     $res->room->update(['status' => 'available']);
                 }
 
