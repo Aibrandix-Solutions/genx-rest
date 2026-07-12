@@ -116,7 +116,8 @@
                                             $canNoShow = $reservation->status === 'confirmed' && user_can('edit_reservation');
                                             $canCancel = $reservation->status === 'confirmed' && user_can('edit_reservation');
                                             $canDelete = $reservation->status === 'cancelled' && user_can('delete_reservation');
-                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canCancel || $canDelete;
+                                            $canUndoCheckout = $reservation->status === 'checked_out' && user_can('check_out_guest');
+                                            $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canCancel || $canDelete || $canUndoCheckout;
                                         @endphp
 
                                         @if($hasActions)
@@ -192,6 +193,19 @@
                                                         <button @click="open = false" wire:click="editReservation({{ $reservation->id }})" class="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition">
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                                                             Checkout
+                                                        </button>
+                                                    @endif
+
+                                                    @if($canUndoCheckout)
+                                                        <button @click="open = false" 
+                                                            wire:click="undoCheckout({{ $reservation->id }})" 
+                                                            wire:confirm="Are you sure you want to undo checkout for this reservation? This will restore the room to occupied and revert checkout-related payments/charges."
+                                                            class="w-full flex items-center gap-2 px-3 py-2 text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition"
+                                                        >
+                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3"/>
+                                                            </svg>
+                                                            Undo Checkout
                                                         </button>
                                                     @endif
 
