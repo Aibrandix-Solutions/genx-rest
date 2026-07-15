@@ -24,6 +24,7 @@ use App\Models\Table;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Services\OrderPaymentBalanceSync;
+use App\Services\Pos\OrderItemLinePricing;
 use App\Services\Pos\PosHotelSupport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -600,6 +601,83 @@ class PosSupportController extends Controller
                 'kot_item_id' => $kotItem ? (int) $kotItem->id : null,
                 'order_item_id' => ! empty($validated['order_item_id']) ? (int) $validated['order_item_id'] : null,
                 'note' => $note,
+            ],
+        ]);
+    }
+
+    public function updateOrderItemPricing(Request $request, int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()), 403);
+
+        $validated = $request->validate([
+            'order_item_id' => ['required', 'integer'],
+            'unit_price' => ['required', 'numeric', 'min:0'],
+            'discount_type' => ['nullable', 'string', Rule::in(['fixed', 'percent'])],
+            'discount_value' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $isBilledOrPaid = in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true);
+        abort_if($isBilledOrPaid && ! user_can('Edit Billed Order'), 403);
+        abort_if(! $isBilledOrPaid && ! user_can('Update Order'), 403);
+
+        $orderItem = OrderItem::query()
+            ->with(['menuItem.taxes'])
+            ->where('id', (int) $validated['order_item_id'])
+            ->where('order_id', $order->id)
+            ->firstOrFail();
+
+        abort_if($orderItem->is_combo_item || ! empty($orderItem->combo_pack_id), 422, 'Combo items cannot be repriced.');
+
+        $qty = max(1, (int) ($orderItem->quantity ?? 1));
+        $discountType = $validated['discount_type'] ?? null;
+        $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : null;
+        $pricing = OrderItemLinePricing::compute(
+            (float) $validated['unit_price'],
+            $qty,
+            $discountType,
+            $discountValue
+        );
+
+        $taxFields = ['tax_amount' => null, 'tax_percentage' => null, 'tax_breakup' => null];
+        if (($order->tax_mode ?? restaurant()->tax_mode ?? 'item') === 'item' && $orderItem->menuItem) {
+            $taxFields = OrderItemLinePricing::itemTaxForLine(
+                $orderItem->menuItem,
+                (float) $pricing['amount'],
+                $qty
+            );
+        }
+
+        $orderItem->update([
+            'price' => $pricing['price'],
+            'amount' => $pricing['amount'],
+            'discount_type' => $pricing['discount_type'],
+            'discount_value' => $pricing['discount_value'],
+            'item_discount_amount' => $pricing['item_discount_amount'],
+            'tax_amount' => $taxFields['tax_amount'],
+            'tax_percentage' => $taxFields['tax_percentage'],
+            'tax_breakup' => $taxFields['tax_breakup'],
+        ]);
+
+        $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'order_id' => (int) $order->id,
+                'order_item_id' => (int) $orderItem->id,
+                'unit_price' => (float) $pricing['price'],
+                'amount' => (float) $pricing['amount'],
+                ...OrderItemLinePricing::linePayloadFromModel($orderItem->fresh()),
+                'sub_total' => (float) $order->fresh()->sub_total,
+                'total' => (float) $order->fresh()->total,
             ],
         ]);
     }

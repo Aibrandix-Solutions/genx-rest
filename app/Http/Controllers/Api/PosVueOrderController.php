@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\OrderPaymentBalanceSync;
+use App\Services\Pos\OrderItemLinePricing;
 use App\Models\ComboPack;
 use App\Models\Customer;
 use App\Models\DeliveryPlatform;
@@ -176,6 +177,7 @@ class PosVueOrderController extends Controller
                 'combo_original_unit_price' => $comboOriginalUnit,
                 'combo_instance_key' => $comboInstanceKey,
                 'modifier_option_quantities' => $modifierQtyMap,
+                ...OrderItemLinePricing::linePayloadFromModel($item),
             ];
         })->values();
 
@@ -396,6 +398,9 @@ class PosVueOrderController extends Controller
             'lines.*.modifier_option_quantities.*' => ['nullable', 'integer', 'min:1'],
             'lines.*.combo_pack_id' => ['nullable', 'integer', 'exists:combo_packs,id'],
             'lines.*.combo_instance_key' => ['nullable', 'string'],
+            'lines.*.unit_price' => ['nullable', 'numeric', 'min:0'],
+            'lines.*.discount_type' => ['nullable', 'string', Rule::in(['fixed', 'percent'])],
+            'lines.*.discount_value' => ['nullable', 'numeric', 'min:0'],
             // Legacy parity (Pos.php::normalizeOrderExtras / syncOrderExtras):
             // optional per-order custom extras, each with {amount, note}.
             'custom_extras' => ['nullable', 'array'],
@@ -742,7 +747,28 @@ class PosVueOrderController extends Controller
                 }
 
                 $unitPrice = round($basePrice + $modifierUnitTotal, 2);
-                $amount = round($qty * $unitPrice, 2);
+
+                if (! $isComboItem && isset($line['unit_price']) && is_numeric($line['unit_price'])) {
+                    $unitPrice = round((float) $line['unit_price'], 2);
+                }
+
+                $lineDiscountType = $isComboItem ? null : ($line['discount_type'] ?? null);
+                $lineDiscountValue = $isComboItem || ! isset($line['discount_value'])
+                    ? null
+                    : (float) $line['discount_value'];
+
+                $pricing = $isComboItem
+                    ? [
+                        'price' => $unitPrice,
+                        'amount' => round($qty * $unitPrice, 2),
+                        'discount_type' => null,
+                        'discount_value' => null,
+                        'item_discount_amount' => null,
+                    ]
+                    : OrderItemLinePricing::compute($unitPrice, $qty, $lineDiscountType, $lineDiscountValue);
+
+                $unitPrice = $pricing['price'];
+                $amount = $pricing['amount'];
                 $subtotal += $amount;
 
                 $taxModeStore = (string) ($restaurant->tax_mode ?? 'item');
@@ -750,12 +776,10 @@ class PosVueOrderController extends Controller
                 $taxPercentageVal = null;
                 $taxBreakupVal = null;
                 if ($taxModeStore === 'item' && $menuItem->taxes->isNotEmpty()) {
-                    $isInclusive = (bool) (restaurant()->tax_inclusive ?? false);
-                    $taxResult = MenuItem::calculateItemTaxes($unitPrice, $menuItem->taxes, $isInclusive);
-                    $lineTaxTotal = round((float) ($taxResult['tax_amount'] ?? 0) * $qty, 2);
-                    $taxAmountVal = $lineTaxTotal;
-                    $taxPercentageVal = $taxResult['tax_percentage'] ?? null;
-                    $taxBreakupVal = json_encode($taxResult['tax_breakdown'] ?? []);
+                    $taxFields = OrderItemLinePricing::itemTaxForLine($menuItem, $amount, $qty);
+                    $taxAmountVal = $taxFields['tax_amount'];
+                    $taxPercentageVal = $taxFields['tax_percentage'];
+                    $taxBreakupVal = $taxFields['tax_breakup'];
                 }
 
                 $orderItemData = [
@@ -770,6 +794,9 @@ class PosVueOrderController extends Controller
                     'price' => $unitPrice,
                     'original_price' => $isComboItem ? round($comboOriginalUnitPrice * $qty, 2) : null,
                     'combo_discount_amount' => $isComboItem ? round($comboDiscountPerUnit * $qty, 2) : null,
+                    'discount_type' => $pricing['discount_type'],
+                    'discount_value' => $pricing['discount_value'],
+                    'item_discount_amount' => $pricing['item_discount_amount'],
                     'is_combo_item' => (bool) $isComboItem,
                     'amount' => $amount,
                     'note' => $line['note'] ?? null,

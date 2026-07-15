@@ -2,16 +2,19 @@
 
 namespace App\Livewire\Forms;
 
+use App\Livewire\Concerns\ManagesMenuBranchSelection;
+use App\Livewire\Concerns\ManagesPerBranchKitchenSelection;
 use App\Models\Menu;
 use App\Helper\Files;
 use Livewire\Component;
 use App\Models\MenuItem;
-use App\Models\KotPlace;
 use App\Models\ItemCategory;
 use Livewire\WithFileUploads;
 use App\Models\MenuItemVariation;
 use App\Scopes\AvailableMenuItemScope;
+use App\Services\MenuBranchProvisioningService;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Livewire\Attributes\Computed;
 use App\Models\Tax;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -20,6 +23,7 @@ use Illuminate\Validation\Rule;
 class EditMenuItem extends Component
 {
     use WithFileUploads, LivewireAlert;
+    use ManagesMenuBranchSelection, ManagesPerBranchKitchenSelection;
 
     protected $listeners = ['refreshCategories'];
 
@@ -51,8 +55,6 @@ class EditMenuItem extends Component
     public $currentLanguage;
     public $languages = [];
     public $globalLocale;
-    public $kitchenTypes;
-    public array $selectedKitchenTypes = [];
     public bool $showOnCustomerSite;
     public $taxes = [];
     public $selectedTaxes = [];
@@ -63,6 +65,7 @@ class EditMenuItem extends Component
 
     public function mount()
     {
+        $this->initializeMenuBranchSelection();
         $this->languages = languages()->pluck('language_name', 'language_code')->toArray();
         $this->translationNames = array_fill_keys(array_keys($this->languages), '');
         $this->translationDescriptions = array_fill_keys(array_keys($this->languages), '');
@@ -80,14 +83,7 @@ class EditMenuItem extends Component
         $this->showItemPrice = ($this->menuItem->variations->count() == 0);
         $this->isAvailable = $this->menuItem->is_available;
         $this->inStock = $this->menuItem->in_stock;
-        $this->kitchenTypes = KotPlace::where('is_active', true)->get();
-        // Load selected kitchens from pivot table, fallback to legacy kot_place_id
-        $pivotIds = $this->menuItem->kotPlaces()->pluck('kot_places.id')->toArray();
-        if (!empty($pivotIds)) {
-            $this->selectedKitchenTypes = array_map('strval', $pivotIds);
-        } elseif ($this->menuItem->kot_place_id) {
-            $this->selectedKitchenTypes = [(string) $this->menuItem->kot_place_id];
-        }
+        $this->initializeLinkedBranchKitchenSelections($this->menuItem);
         $this->showOnCustomerSite = $this->menuItem->show_on_customer_site;
 
         foreach ($this->menuItem->translations as $translation) {
@@ -239,7 +235,7 @@ class EditMenuItem extends Component
             'menu_item_id' => $this->menuItem->id ?? null,
             'menu_id' => $this->menu ?: null,
             'category_id' => $this->itemCategory ?: null,
-            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
+            'kot_place_id' => $this->kitchenIdsForBranch((int) $this->menuItem->branch_id)[0] ?? null,
             'item_code_provided' => !empty($this->itemCode),
         ]);
 
@@ -281,10 +277,11 @@ class EditMenuItem extends Component
             'showOnCustomerSite' => 'required|boolean',
         ];
 
-        // If Kitchen module is enabled, at least one kitchen type is mandatory.
-        if (in_array('Kitchen', restaurant_modules(), true)) {
-            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
-            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
+        $rules = array_merge($rules, $this->menuBranchSelectionRules());
+
+        $branchIds = app(MenuBranchProvisioningService::class)->validateBranchIds($this->selectedBranchIds);
+        if (in_array('Kitchen', restaurant_modules(), true) && ! $this->validateKitchenSelectionsForBranches($branchIds)) {
+            return;
         }
 
         // Add validation for variations if hasVariations is true
@@ -299,9 +296,9 @@ class EditMenuItem extends Component
 
         $this->validate($rules, [
             'translationNames.' . $this->globalLocale . '.required' => __('validation.itemNameRequired', ['language' => $this->languages[$this->globalLocale]]),
-            'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
-            'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
         ]);
+
+        $this->menuItem = $this->ensureEditMenuItemOnSelectedBranch($this->menuItem);
 
         try {
             MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
@@ -314,20 +311,11 @@ class EditMenuItem extends Component
                 'preparation_time' => $this->preparationTime,
                 'menu_id' => $this->menu,
                 'is_available' => $this->isAvailable,
-                'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
+                'kot_place_id' => $this->kitchenIdsForBranch((int) $this->menuItem->branch_id)[0] ?? null,
                 'show_on_customer_site' => $this->showOnCustomerSite,
                 'tax_inclusive' => (restaurant()->tax_mode === 'item') ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
             ]);
 
-            // Sync multi-kitchen pivot table
-            $menuItem = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->find($this->menuItem->id);
-            if ($menuItem) {
-                $pivotData = [];
-                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
-                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
-                }
-                $menuItem->kotPlaces()->sync($pivotData);
-            }
         } catch (\Throwable $e) {
             report($e);
             Log::error('menu_item.edit.submit.exception', [
@@ -434,6 +422,9 @@ class EditMenuItem extends Component
             // If variations are now disabled, delete all old variations
             MenuItemVariation::where('menu_item_id', $this->menuItem->id)->delete();
         }
+
+        $this->menuItem->refresh();
+        $this->provisionMenuItemBranchesOnEdit($this->menuItem);
 
         $this->dispatch('hideEditMenuItem');
         $this->resetForm();

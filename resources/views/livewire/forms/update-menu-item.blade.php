@@ -11,6 +11,14 @@
                         </svg>
                         @lang('modules.menu.productInformation')
                     </h3>
+
+                    <x-menu.branch-multi-select
+                        :branches="$restaurantBranches"
+                        :selected-ids="$selectedBranchIds"
+                        :help="__('modules.menu.editMenuItemBranchesHelp')"
+                        class="mb-4"
+                    />
+
                     <!-- Language Selection -->
                     @if(count($languages) > 1)
                     <div class="mb-4">
@@ -263,25 +271,10 @@
                         @endif
 
                         @if (in_array('Kitchen', restaurant_modules()))
-                        <div>
-                            <x-label for="kitchenTypes" :value="__('modules.menu.kitchenType')" />
-                            <div class="mt-1 space-y-2 max-h-40 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2 bg-white dark:bg-gray-800">
-                                @foreach($kitchenTypes as $type)
-                                <label class="flex items-center gap-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 px-2 py-1 rounded">
-                                    <input type="checkbox" value="{{ $type->id }}" wire:model="selectedKitchenTypes"
-                                        class="rounded border-gray-300 text-indigo-600 shadow-sm focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700">
-                                    <span class="text-sm text-gray-700 dark:text-gray-300">{{ $type->name }}</span>
-                                </label>
-                                @endforeach
-                            </div>
-                            @if(count($selectedKitchenTypes ?? []) > 1)
-                                <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" /></svg>
-                                    @lang('modules.menu.multiKitchenNote')
-                                </p>
-                            @endif
-                            <x-input-error for="selectedKitchenTypes" class="mt-2" />
-                        </div>
+                        <x-menu.branch-kitchen-select
+                            :branches-with-kitchen-options="$this->branchesWithKitchenOptions"
+                            class="mt-2"
+                        />
                         @endif
 
                         <!-- Item Image Upload -->

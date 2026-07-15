@@ -87,6 +87,7 @@
                 @new-kot="handleNewKot"
                 @request-cancel-order="handleRequestCancelOrder"
                 @update:extraCharges="extraCharges = $event" @apply-discount="handleApplyDiscount"
+                @update-item-pricing="handleUpdateItemPricing"
                 @remove-discount="handleRemoveDiscount"
                 @remove-extra-charge="handleRemoveExtraCharge"
                 @update:pickupDateTime="handlePickupDateTimeUpdate"
@@ -142,6 +143,10 @@ import RoomServiceSelectorModal from "./components/pos/RoomServiceSelectorModal.
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
+import {
+    lineTotalAmount,
+    normalizeItemDiscountFields,
+} from "./utils/posItemPricing.js";
 
 // Generate unique tab ID to avoid concurrent increment collisions
 const tabId = ref('tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
@@ -1089,6 +1094,45 @@ const handleAddNote = async (noteData) => {
     }
 };
 
+const handleUpdateItemPricing = async (pricingData, done) => {
+    const activeOrderId = resolveActiveOrderId();
+    if (activeOrderId && pricingData?.order_item_id) {
+        try {
+            await axios.post(`/api/pos/orders/${activeOrderId}/items/pricing`, {
+                order_item_id: pricingData.order_item_id,
+                unit_price: Number(pricingData.unit_price || 0),
+                discount_type: pricingData.discount_type || null,
+                discount_value: pricingData.discount_value ?? null,
+            });
+            await loadOrderData(activeOrderId);
+            done?.();
+        } catch (error) {
+            const message = error?.response?.data?.message || "Failed to update item pricing.";
+            console.error("Error updating linked order item pricing:", error);
+            showPosAlert("error", message);
+            done?.(error);
+        }
+        return;
+    }
+
+    const cartItem = cartItems.value.find(
+        (item) => (item.line_key || item.id) === (pricingData.line_key || pricingData.id)
+    );
+
+    if (!cartItem) {
+        done?.(new Error("Cart item not found"));
+        return;
+    }
+
+    cartItem.price = Number(pricingData.unit_price || 0);
+    cartItem.base_unit_price = cartItem.price;
+    cartItem.discount_type = pricingData.discount_type || null;
+    cartItem.discount_value = pricingData.discount_value ?? null;
+    normalizeItemDiscountFields(cartItem);
+    saveCartToStorage(cartItems.value);
+    done?.();
+};
+
 const loadCancelReasons = async () => {
     try {
         const response = await axios.get("/api/pos/cancel-reasons");
@@ -1376,7 +1420,7 @@ const calculateDiscountAmount = () => {
     } else if (discountType.value === "percent") {
         // Percentage discount - calculate from subtotal
         const subTotal = cartItems.value.reduce(
-            (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+            (sum, item) => sum + lineTotalAmount(item),
             0
         );
         discountAmount.value = (subTotal * discountValue.value) / 100;
@@ -1397,7 +1441,7 @@ const calculateTaxes = () => {
 
     // Calculate subtotal from cart items
     const subTotal = cartItems.value.reduce(
-        (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+        (sum, item) => sum + lineTotalAmount(item),
         0
     );
 
@@ -1982,7 +2026,7 @@ const handleSaveOrder = async (...actions) => {
         const lines = cartItems.value.map((item) => {
             const unitPrice = Number(item.price || 0);
             const quantity = Number(item.quantity || 1);
-            const amount = unitPrice * quantity; // qty × price
+            const amount = lineTotalAmount(item);
 
             return {
                 menu_item_id: Number(item.menu_item_id || item.id),
@@ -1990,8 +2034,10 @@ const handleSaveOrder = async (...actions) => {
                     ? Number(item.variant_id)
                     : null,
                 qty: quantity,
-                amount: amount, // Include calculated amount
-                unit_price: unitPrice, // Include unit price for backend validation
+                amount: amount,
+                unit_price: unitPrice,
+                discount_type: item.discount_type || null,
+                discount_value: item.discount_value ?? null,
                 note: item.note || null,
                 modifier_option_quantities:
                     item.modifier_option_quantities || {},
@@ -3133,6 +3179,9 @@ const applyOrderPayload = (payload, activeOrderId) => {
                     : null,
             modifier_option_quantities:
                 line.modifier_option_quantities || {},
+            discount_type: line.discount_type || null,
+            discount_value: line.discount_value ?? null,
+            item_discount_amount: line.item_discount_amount ?? null,
             line_key:
                 line.order_item_id !== undefined && line.order_item_id !== null
                     ? `order_item_${line.order_item_id}`

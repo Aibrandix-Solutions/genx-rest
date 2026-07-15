@@ -8,11 +8,15 @@ use Livewire\WithPagination;
 use Livewire\WithFileUploads;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Modules\Hotel\Entities\HotelExpense;
+use Modules\Hotel\Entities\HotelExpenseDepartment;
 use Illuminate\Support\Facades\DB;
 
 class HotelExpenseList extends Component
 {
     use WithPagination, WithFileUploads, LivewireAlert;
+
+    // --- Tabs ---
+    public $activeTab = 'expenses'; // expenses | departments
 
     // --- Filters ---
     public $search         = '';
@@ -26,7 +30,7 @@ class HotelExpenseList extends Component
     public $editingId       = null;
 
     public $title           = '';
-    public $department      = 'other';
+    public $department_id   = '';
     public $description     = '';
     public $amount          = '';
     public $expense_date    = '';
@@ -38,11 +42,18 @@ class HotelExpenseList extends Component
     // --- Delete Confirm ---
     public $pendingDeleteId = null;
 
+    // --- Department Form ---
+    public $showDeptModal = false;
+    public $editingDeptId = null;
+    public $deptName = '';
+    public $deptDescription = '';
+    public $pendingDeleteDeptId = null;
+
     protected function rules(): array
     {
         return [
             'title'          => 'required|string|max:255',
-            'department'     => 'required|string',
+            'department_id'  => 'required|integer|exists:hotel_expense_departments,id',
             'description'    => 'nullable|string|max:1000',
             'amount'         => 'required|numeric|min:0.01',
             'expense_date'   => 'required|date',
@@ -81,6 +92,12 @@ class HotelExpenseList extends Component
     {
         abort_unless(user_can('create_hotel_expense'), 403);
         $this->resetForm();
+        
+        $otherDeptId = HotelExpenseDepartment::where('restaurant_id', restaurant()->id)
+            ->where('slug', 'other')
+            ->value('id');
+        $this->department_id = $otherDeptId ?: HotelExpenseDepartment::where('restaurant_id', restaurant()->id)->value('id') ?: '';
+
         $this->showModal = true;
     }
 
@@ -91,7 +108,7 @@ class HotelExpenseList extends Component
 
         $this->editingId      = $expense->id;
         $this->title          = $expense->title;
-        $this->department     = $expense->department;
+        $this->department_id  = $expense->department_id;
         $this->description    = $expense->description;
         $this->amount         = $expense->amount;
         $this->expense_date   = $expense->expense_date->format('Y-m-d');
@@ -159,7 +176,7 @@ class HotelExpenseList extends Component
     {
         $this->editingId      = null;
         $this->title          = '';
-        $this->department     = 'other';
+        $this->department_id  = '';
         $this->description    = '';
         $this->amount         = '';
         $this->expense_date   = Carbon::today()->format('Y-m-d');
@@ -170,9 +187,123 @@ class HotelExpenseList extends Component
         $this->resetErrorBag();
     }
 
+    // --- Department CRUD ---
+
+    public function openCreateDept()
+    {
+        abort_unless(user_can('create_hotel_expense'), 403);
+        $this->resetDeptForm();
+        $this->showDeptModal = true;
+    }
+
+    public function openEditDept($id)
+    {
+        abort_unless(user_can('edit_hotel_expense'), 403);
+        $dept = HotelExpenseDepartment::findOrFail($id);
+        if ($dept->is_system) {
+            $this->alert('error', 'System departments cannot be modified.');
+            return;
+        }
+
+        $this->editingDeptId = $dept->id;
+        $this->deptName = $dept->name;
+        $this->deptDescription = $dept->description;
+        $this->showDeptModal = true;
+    }
+
+    public function saveDept()
+    {
+        if ($this->editingDeptId) {
+            abort_unless(user_can('edit_hotel_expense'), 403);
+        } else {
+            abort_unless(user_can('create_hotel_expense'), 403);
+        }
+
+        $this->validate([
+            'deptName' => 'required|string|max:255',
+            'deptDescription' => 'nullable|string|max:1000',
+        ]);
+
+        $data = [
+            'name' => $this->deptName,
+            'description' => $this->deptDescription,
+            'branch_id' => branch()->id,
+            'restaurant_id' => restaurant()->id,
+        ];
+
+        if ($this->editingDeptId) {
+            $dept = HotelExpenseDepartment::findOrFail($this->editingDeptId);
+            if ($dept->is_system) {
+                return;
+            }
+            $dept->update($data);
+            $this->alert('success', 'Department updated successfully.');
+        } else {
+            HotelExpenseDepartment::create($data);
+            $this->alert('success', 'Department created successfully.');
+        }
+
+        $this->showDeptModal = false;
+        $this->resetDeptForm();
+    }
+
+    public function confirmDeleteDept($id)
+    {
+        abort_unless(user_can('delete_hotel_expense'), 403);
+        
+        $dept = HotelExpenseDepartment::findOrFail($id);
+        if ($dept->is_system) {
+            $this->alert('error', 'System departments cannot be deleted.');
+            return;
+        }
+
+        // Check for linked expenses
+        $hasExpenses = HotelExpense::where('department_id', $id)->exists();
+        if ($hasExpenses) {
+            $this->alert('error', 'This department has expenses linked to it and cannot be deleted.');
+            return;
+        }
+
+        $this->pendingDeleteDeptId = $id;
+        $this->alert('warning', 'Delete this department?', [
+            'showConfirmButton' => true,
+            'showCancelButton'  => true,
+            'confirmButtonText' => 'Yes, Delete',
+            'cancelButtonText'  => 'No',
+            'onConfirmed'       => 'deleteDeptConfirmed',
+        ]);
+    }
+
+    #[\Livewire\Attributes\On('deleteDeptConfirmed')]
+    public function deleteDept($id = null)
+    {
+        $id = $id ?? $this->pendingDeleteDeptId;
+        abort_unless(user_can('delete_hotel_expense'), 403);
+
+        $dept = HotelExpenseDepartment::findOrFail($id);
+        if ($dept->is_system) {
+            return;
+        }
+
+        $dept->delete();
+        $this->pendingDeleteDeptId = null;
+        $this->alert('success', 'Department deleted.');
+    }
+
+    private function resetDeptForm()
+    {
+        $this->editingDeptId = null;
+        $this->deptName = '';
+        $this->deptDescription = '';
+        $this->resetErrorBag();
+    }
+
     public function render()
     {
-        $expenses = HotelExpense::when($this->search, function ($q) {
+        $restId = restaurant()->id;
+
+        $expenses = HotelExpense::with('departmentRelation')
+            ->when($this->search, function ($q) {
                 $q->where(function ($q2) {
                     $q2->where('title', 'like', '%' . $this->search . '%')
                        ->orWhere('vendor', 'like', '%' . $this->search . '%')
@@ -180,16 +311,29 @@ class HotelExpenseList extends Component
                 });
             })
             ->when($this->statusFilter !== 'all', fn($q) => $q->where('status', $this->statusFilter))
-            ->when($this->departmentFilter !== 'all', fn($q) => $q->where('department', $this->departmentFilter))
+            ->when($this->departmentFilter !== 'all', fn($q) => $q->where('department_id', $this->departmentFilter))
             ->when($this->dateFrom, fn($q) => $q->where('expense_date', '>=', $this->dateFrom))
             ->when($this->dateTo, fn($q) => $q->where('expense_date', '<=', $this->dateTo))
             ->latest('expense_date')
             ->paginate(15);
 
+        $departmentsList = HotelExpenseDepartment::where('restaurant_id', $restId)
+            ->orderBy('name')
+            ->get();
+
+        $allDepartments = [];
+        if ($this->activeTab === 'departments') {
+            $allDepartments = HotelExpenseDepartment::where('restaurant_id', $restId)
+                ->orderBy('is_system', 'desc')
+                ->orderBy('name')
+                ->get();
+        }
+
         return view('hotel::livewire.expense.hotel-expense-list', [
-            'expenses'    => $expenses,
-            'departments' => HotelExpense::DEPARTMENTS,
-            'methods'     => HotelExpense::PAYMENT_METHODS,
+            'expenses'       => $expenses,
+            'departments'    => $departmentsList->pluck('name', 'id')->toArray(),
+            'allDepartments' => $allDepartments,
+            'methods'        => HotelExpense::PAYMENT_METHODS,
         ])->layout('layouts.app');
     }
 }

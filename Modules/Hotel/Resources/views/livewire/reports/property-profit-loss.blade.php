@@ -5,7 +5,8 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">Combined Profit & Loss for Hotel + Restaurant operations</p>
 
         {{-- Date Controls --}}
-        <div class="mt-4 flex flex-wrap gap-3 items-end">
+        <div class="mt-4 flex flex-wrap gap-3 items-end justify-between">
+            <div class="flex flex-wrap gap-3 items-end">
             <div>
                 <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Period</label>
                 <select wire:model.live="dateRangeType"
@@ -28,6 +29,22 @@
                     <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">To</label>
                     <x-input type="date" wire:model.live="endDate" class="text-sm" />
                 </div>
+            </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="button" wire:click="exportPdf" wire:loading.attr="disabled" wire:target="exportPdf"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-900 bg-white border border-gray-300 rounded-lg hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700 transition disabled:opacity-60">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>
+                    <span wire:loading.remove wire:target="exportPdf">@lang('modules.report.exportPdf')</span>
+                    <span wire:loading wire:target="exportPdf">Exporting...</span>
+                </button>
+                <button type="button" wire:click="exportExcel" wire:loading.attr="disabled" wire:target="exportExcel"
+                    class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition disabled:opacity-60">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                    <span wire:loading.remove wire:target="exportExcel">@lang('modules.report.exportExcel')</span>
+                    <span wire:loading wire:target="exportExcel">Exporting...</span>
+                </button>
             </div>
         </div>
     </div>
