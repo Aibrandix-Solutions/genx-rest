@@ -3,11 +3,12 @@
 
 namespace App\Livewire\Forms;
 
+use App\Livewire\Concerns\ManagesMenuBranchSelection;
+use App\Livewire\Concerns\ManagesPerBranchKitchenSelection;
 use App\Models\Tax;
 use App\Models\Menu;
 use App\Helper\Files;
 use Livewire\Component;
-use App\Models\KotPlace;
 use App\Models\MenuItem;
 use App\Models\OrderType;
 use App\Models\ItemCategory;
@@ -20,11 +21,14 @@ use Livewire\Attributes\Validate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use App\Scopes\AvailableMenuItemScope;
+use App\Scopes\BranchScope;
+use App\Services\MenuBranchProvisioningService;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class UpdateMenuItem extends Component
 {
     use WithFileUploads, LivewireAlert;
+    use ManagesMenuBranchSelection, ManagesPerBranchKitchenSelection;
 
     protected $listeners = ['refreshCategories'];
 
@@ -58,9 +62,6 @@ class UpdateMenuItem extends Component
 
     #[Validate('required|boolean')]
     public bool $isAvailable = true;
-
-    #[Validate('nullable|array')]
-    public array $selectedKitchenTypes = [];
 
     #[Validate('required|boolean')]
     public bool $showOnCustomerSite = true;
@@ -113,7 +114,6 @@ class UpdateMenuItem extends Component
     // Collections (computed properties to avoid N+1 queries)
     public $categoryList;
     public $menus;
-    public $kitchenTypes;
     public $taxes;
     public $orderTypes;
     public $deliveryApps;
@@ -122,9 +122,10 @@ class UpdateMenuItem extends Component
     public function mount(): void
     {
         $this->menuItem = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)
-            ->with(['translations', 'variations', 'prices', 'taxes'])
+            ->with(['translations', 'variations', 'prices', 'taxes', 'kotPlaces'])
             ->findOrFail($this->menuItemId);
 
+        $this->initializeMenuBranchSelection();
         $this->initializeCollections();
         $this->initializeLanguages();
         $this->loadMenuItemData();
@@ -139,7 +140,6 @@ class UpdateMenuItem extends Component
     {
         $this->categoryList = ItemCategory::all();
         $this->menus = Menu::all();
-        $this->kitchenTypes = KotPlace::where('is_active', true)->get();
         $this->taxes = Tax::where('restaurant_id', restaurant()->id)->get();
         $this->orderTypes = OrderType::where('is_active', 1)->get();
         $this->deliveryApps = DeliveryPlatform::where('is_active', 1)->get();
@@ -171,13 +171,7 @@ class UpdateMenuItem extends Component
         $this->itemType = $this->menuItem->type;
         $this->isAvailable = (bool)$this->menuItem->is_available;
         $this->inStock = (bool)$this->menuItem->in_stock;
-        // Load selected kitchens from pivot table, fallback to legacy kot_place_id
-        $pivotIds = $this->menuItem->kotPlaces()->pluck('kot_places.id')->toArray();
-        if (!empty($pivotIds)) {
-            $this->selectedKitchenTypes = array_map('strval', $pivotIds);
-        } elseif ($this->menuItem->kot_place_id) {
-            $this->selectedKitchenTypes = [(string) $this->menuItem->kot_place_id];
-        }
+        $this->initializeLinkedBranchKitchenSelections($this->menuItem);
         $this->showOnCustomerSite = (bool)$this->menuItem->show_on_customer_site;
         $this->itemImage = $this->menuItem->image;
 
@@ -570,23 +564,14 @@ class UpdateMenuItem extends Component
             }
 
             $this->validateForm();
+            $this->menuItem = $this->ensureEditMenuItemOnSelectedBranch($this->menuItem);
             $this->updateMenuItem();
-
-            // Sync multi-kitchen pivot table
-            if (!empty($this->selectedKitchenTypes)) {
-                $pivotData = [];
-                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
-                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
-                }
-                $this->menuItem->kotPlaces()->sync($pivotData);
-            } else {
-                $this->menuItem->kotPlaces()->detach();
-            }
 
             $this->handleTranslations($this->menuItem);
             $this->handleImageUpload($this->menuItem);
             $this->handleVariationsOrPricing($this->menuItem);
             $this->handleTaxes($this->menuItem);
+            $this->provisionMenuItemBranchesOnEdit($this->menuItem);
 
             DB::commit();
 
@@ -625,10 +610,11 @@ class UpdateMenuItem extends Component
             'platformAvailability.*' => 'nullable|boolean',
         ];
 
-        // If Kitchen module is enabled, at least one kitchen type is mandatory.
-        if (in_array('Kitchen', restaurant_modules(), true)) {
-            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
-            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
+        $rules = array_merge($rules, $this->menuBranchSelectionRules());
+
+        $branchIds = app(MenuBranchProvisioningService::class)->validateBranchIds($this->selectedBranchIds);
+        if (in_array('Kitchen', restaurant_modules(), true) && ! $this->validateKitchenSelectionsForBranches($branchIds)) {
+            return;
         }
 
         // Add validation for variations if hasVariations is true
@@ -687,9 +673,6 @@ class UpdateMenuItem extends Component
             'isAvailable.boolean' => __('validation.availabilityMustBeBoolean'),
             'showOnCustomerSite.required' => __('validation.showOnCustomerSiteRequired'),
             'showOnCustomerSite.boolean' => __('validation.showOnCustomerSiteMustBeBoolean'),
-
-            'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
-            'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
         ];
 
         // Add validation messages for order type prices (non-variation)
@@ -735,7 +718,7 @@ class UpdateMenuItem extends Component
             'preparation_time' => $this->preparationTime,
             'menu_id' => $this->menu,
             'is_available' => $this->isAvailable,
-            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
+            'kot_place_id' => $this->kitchenIdsForBranch((int) $this->menuItem->branch_id)[0] ?? null,
             'show_on_customer_site' => $this->showOnCustomerSite,
             'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
         ];
