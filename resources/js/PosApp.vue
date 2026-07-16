@@ -1836,12 +1836,12 @@ const openOrderDetailInPlace = (id) => {
     });
 };
 
-const openBillPrintWindow = (id) => {
+const openBillPrintWindow = (id, existingWindow = null) => {
     if (!id) {
-        return;
+        return false;
     }
 
-    openPrintUrl(`/orders/print/${id}`);
+    return openPrintUrl(`/orders/print/${id}`, existingWindow);
 };
 
 /**
@@ -2181,8 +2181,11 @@ const handleSaveOrder = async (...actions) => {
             if (shouldPrintKot) {
                 triggerKotPrint(resultPayload, printPlaceholder);
                 printPlaceholder = null;
-            } else {
+            } else if (!shouldPrintReceipt) {
+                // Keep the placeholder open for Bill & Print — browsers block a new
+                // tab after await unless we reuse the one opened on click.
                 printPlaceholder?.close();
+                printPlaceholder = null;
             }
 
             console.log("[POS DEBUG] saveOrder decoded response", {
@@ -2218,12 +2221,14 @@ const handleSaveOrder = async (...actions) => {
                 // freshly appended KOT instead of an empty "New KOT" screen. KOT+print
                 // fires the kitchen print windows first, then redirects.
                 if (isNewKotMode.value && action === "kot" && !shouldOpenPayment) {
+                    printPlaceholder?.close();
                     navigateToLinkedOrderDetail(resolvedOrderId);
                     return;
                 }
 
                 if (shouldOpenPayment) {
                     console.log("[POS DEBUG] existing order -> payment", { resolvedOrderId });
+                    printPlaceholder?.close();
                     const openedPayment = openPaymentInPlace(resolvedOrderId);
 
                     if (!openedPayment) {
@@ -2237,7 +2242,8 @@ const handleSaveOrder = async (...actions) => {
 
                 if (shouldPrintReceipt && actionList.includes("bill")) {
                     console.log("[POS DEBUG] existing order -> bill print", { resolvedOrderId });
-                    openBillPrintWindow(resolvedOrderId);
+                    openBillPrintWindow(resolvedOrderId, printPlaceholder);
+                    printPlaceholder = null;
 
                     if (shouldShowOrderDetail) {
                         navigateToLinkedOrderDetail(resolvedOrderId);
@@ -2250,6 +2256,7 @@ const handleSaveOrder = async (...actions) => {
 
                 if (shouldShowOrderDetail) {
                     console.log("[POS DEBUG] existing order -> bill detail", { resolvedOrderId });
+                    printPlaceholder?.close();
 
                     const openedOrderDetail = openOrderDetailInPlace(resolvedOrderId);
                     if (!openedOrderDetail) {
@@ -2262,6 +2269,7 @@ const handleSaveOrder = async (...actions) => {
                 }
 
                 // Preserve linked order context and refresh in-place for non-navigating actions.
+                printPlaceholder?.close();
                 await loadOrderData(resolvedOrderId);
                 return;
             }
@@ -2273,10 +2281,41 @@ const handleSaveOrder = async (...actions) => {
                     resultPayload,
                 });
 
+                printPlaceholder?.close();
                 if (effectiveOrderId) {
                     await loadOrderData(effectiveOrderId);
                 }
                 return;
+            }
+
+            // Bill receipt print BEFORE clearing cart / opening panels — reuse the
+            // click-time placeholder so the print preview is not blocked.
+            if (shouldPrintReceipt && actionList.includes("bill")) {
+                const printUrl =
+                    resultPayload.links?.bill ||
+                    (orderIdToOpen ? `/orders/print/${orderIdToOpen}` : null);
+
+                console.log("[POS DEBUG] bill print decision", {
+                    actionList,
+                    orderIdToOpen,
+                    printUrl,
+                });
+
+                if (printUrl) {
+                    openPrintUrl(printUrl, printPlaceholder);
+                    printPlaceholder = null;
+                } else {
+                    printPlaceholder?.close();
+                    printPlaceholder = null;
+                    console.warn("[POS DEBUG] Bill print URL not available in response", {
+                        actionList,
+                        orderIdToOpen,
+                        resultPayload,
+                    });
+                }
+            } else {
+                printPlaceholder?.close();
+                printPlaceholder = null;
             }
 
             // Clear cart after successful save (new-order flow)
@@ -2295,29 +2334,6 @@ const handleSaveOrder = async (...actions) => {
 
                 if (!opened) {
                     window.location.href = `/orders/${orderIdToOpen}`;
-                }
-            }
-
-            // Bill receipt print (KOT print handled above via triggerKotPrint)
-            if (shouldPrintReceipt && actionList.includes("bill")) {
-                const printUrl =
-                    resultPayload.links?.bill ||
-                    (orderIdToOpen ? `/orders/print/${orderIdToOpen}` : null);
-
-                console.log("[POS DEBUG] bill print decision", {
-                    actionList,
-                    orderIdToOpen,
-                    printUrl,
-                });
-
-                if (printUrl) {
-                    setTimeout(() => openPrintUrl(printUrl), 500);
-                } else {
-                    console.warn("[POS DEBUG] Bill print URL not available in response", {
-                        actionList,
-                        orderIdToOpen,
-                        resultPayload,
-                    });
                 }
             }
 
