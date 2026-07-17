@@ -44,7 +44,7 @@
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
                 :waiters="waiters" :assigned-waiter-name="assignedWaiterName" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
-                :saving-action="savingAction" :extra-charges="extraCharges" :discount-amount="discountAmount"
+                :order-save-in-flight="orderSaveInFlight" :extra-charges="extraCharges" :discount-amount="discountAmount"
                 :discount-type="discountType" :discount-value="discountValue" :is-online="isOnline"
                 :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
                 :order-status="orderStatus" :delivery-platforms="deliveryPlatforms"
@@ -316,7 +316,8 @@ const currentUser = ref(null);
 const canEditWaiter = ref(true);
 const cartItems = ref([]);
 const taxes = ref([]);
-const savingAction = ref(null); // Track which action is being saved: 'kot', 'bill', 'bill_payment', etc.
+// Blocks duplicate save requests (double-click / overlapping KOT+Bill) while allowing immediate UI reset.
+const orderSaveInFlight = ref(false);
 const extraCharges = ref([]);
 const discountAmount = ref(0);
 const discountType = ref("");
@@ -1905,6 +1906,56 @@ const openKotPrintWindows = (urls = []) => {
     triggerKotPrint({ links: { kot_print_urls: urls } });
 };
 
+const captureOrderDraftSnapshot = () => ({
+    cartItems: JSON.parse(JSON.stringify(cartItems.value)),
+    customer: customer.value ? { ...customer.value } : getEmptyCustomer(),
+    customerId: customerId.value,
+    orderNote: orderNote.value,
+    discountAmount: discountAmount.value,
+    discountType: discountType.value,
+    discountValue: discountValue.value,
+    extraCharges: JSON.parse(JSON.stringify(extraCharges.value)),
+    customExtras: JSON.parse(JSON.stringify(customExtras.value)),
+    selectedDeliveryExecutive: selectedDeliveryExecutive.value,
+    deliveryFee: deliveryFee.value,
+    waiterId: waiterId.value,
+    currentTable: currentTable.value,
+    currentTableId: currentTableId.value,
+    hotelReservationId: hotelReservationId.value,
+    hotelReservation: hotelReservation.value ? { ...hotelReservation.value } : null,
+    rewardPointsRedeemed: rewardPointsRedeemed.value,
+    rewardPointDiscount: rewardPointDiscount.value,
+    availableTaxes: JSON.parse(JSON.stringify(availableTaxes.value)),
+});
+
+const restoreOrderDraftSnapshot = (snapshot) => {
+    if (!snapshot) {
+        return;
+    }
+
+    cartItems.value = snapshot.cartItems;
+    saveCartToStorage(snapshot.cartItems);
+    customer.value = snapshot.customer;
+    customerId.value = snapshot.customerId;
+    orderNote.value = snapshot.orderNote;
+    discountAmount.value = snapshot.discountAmount;
+    discountType.value = snapshot.discountType;
+    discountValue.value = snapshot.discountValue;
+    extraCharges.value = snapshot.extraCharges;
+    customExtras.value = snapshot.customExtras;
+    selectedDeliveryExecutive.value = snapshot.selectedDeliveryExecutive;
+    deliveryFee.value = snapshot.deliveryFee;
+    waiterId.value = snapshot.waiterId;
+    currentTable.value = snapshot.currentTable;
+    currentTableId.value = snapshot.currentTableId;
+    hotelReservationId.value = snapshot.hotelReservationId;
+    hotelReservation.value = snapshot.hotelReservation;
+    rewardPointsRedeemed.value = snapshot.rewardPointsRedeemed;
+    rewardPointDiscount.value = snapshot.rewardPointDiscount;
+    availableTaxes.value = snapshot.availableTaxes;
+    calculateTaxes();
+};
+
 const clearCartAfterSave = () => {
     // Clear cart after successful order save (Speeder behavior)
     // This ensures fresh start for next order
@@ -1947,10 +1998,15 @@ const clearCartAfterSave = () => {
     resetRewardState();
 };
 
-const handleSaveOrder = async (...actions) => {
-    // Create action key for tracking which button is being pressed
-    const actionKey = actions.join("_") || "kot"; // e.g., "kot", "bill", "kot_print", "bill_payment", etc.
-    savingAction.value = actionKey;
+const handleSaveOrder = (...actions) => {
+    void runSaveOrder(...actions);
+};
+
+const runSaveOrder = async (...actions) => {
+    if (orderSaveInFlight.value) {
+        return;
+    }
+
     const actionList = Array.isArray(actions) ? actions : [];
     const wantsKotPrint =
         actionList.includes("kot") &&
@@ -1961,15 +2017,20 @@ const handleSaveOrder = async (...actions) => {
     // Open a tab synchronously on click so print is not blocked after await.
     let printPlaceholder =
         wantsKotPrint || wantsReceiptPrint ? window.open("about:blank", "_blank") : null;
+    let draftSnapshot = null;
+    let optimisticNewOrderClear = false;
+
     try {
         // Validate cart has items
         // In linked-order mode, existing items are on the server — cart may be empty if no NEW items are added
         if (!isLinkedOrderMode.value && (!cartItems.value || cartItems.value.length === 0)) {
             printPlaceholder?.close();
             showPosAlert("error", "Cart is empty. Please add items before saving.");
-            savingAction.value = null;
             return;
         }
+
+        orderSaveInFlight.value = true;
+
         const routeLinkedOrderId = params.orderId ? Number(params.orderId) : null;
         const effectiveOrderId = orderId.value
             ? Number(orderId.value)
@@ -1998,16 +2059,20 @@ const handleSaveOrder = async (...actions) => {
             if (!roomServiceEnabled.value) {
                 printPlaceholder?.close();
                 showPosAlert("error", "Room service is not available.");
-                savingAction.value = null;
                 return;
             }
             if (!hotelReservationId.value) {
                 printPlaceholder?.close();
                 showPosAlert("error", "Please select a room for room service.");
                 showRoomServiceModal.value = true;
-                savingAction.value = null;
                 return;
             }
+        }
+
+        optimisticNewOrderClear = !isExistingOrder && !isLinkedOrderMode.value;
+
+        if (optimisticNewOrderClear) {
+            draftSnapshot = captureOrderDraftSnapshot();
         }
 
         console.log("[POS DEBUG] saveOrder start", {
@@ -2119,6 +2184,16 @@ const handleSaveOrder = async (...actions) => {
                     : null,
         };
 
+        if (optimisticNewOrderClear) {
+            clearCartAfterSave();
+
+            if (isOnline.value) {
+                void fetchNewOrderNumber();
+            } else {
+                void incrementOrderNumberOffline();
+            }
+        }
+
         console.log("Order data being sent:", {
             orderData: orderData,
             selectedOrderType: selectedOrderType,
@@ -2147,7 +2222,7 @@ const handleSaveOrder = async (...actions) => {
             if (isExistingOrder) {
                 // Existing linked orders should preserve current cart/view state.
                 showPosAlert("info", "Order update queued and will sync when online.");
-            } else {
+            } else if (!optimisticNewOrderClear) {
                 // Clear draft state after queueing for sync (new-order flow)
                 clearCartAfterSave();
 
@@ -2319,7 +2394,9 @@ const handleSaveOrder = async (...actions) => {
             }
 
             // Clear cart after successful save (new-order flow)
-            clearCartAfterSave();
+            if (!optimisticNewOrderClear) {
+                clearCartAfterSave();
+            }
 
             if (shouldOpenPayment && orderIdToOpen) {
                 console.log("[POS DEBUG] new order -> bill payment", { orderIdToOpen });
@@ -2344,12 +2421,13 @@ const handleSaveOrder = async (...actions) => {
                 });
             }
 
-            // Fetch new order number when online
-            if (isOnline.value) {
-                await fetchNewOrderNumber();
-            } else {
-                // If somehow we're offline but order was saved, increment offline
-                await incrementOrderNumberOffline();
+            // Fetch new order number when online (skip if already prefetched optimistically)
+            if (!optimisticNewOrderClear) {
+                if (isOnline.value) {
+                    await fetchNewOrderNumber();
+                } else {
+                    await incrementOrderNumberOffline();
+                }
             }
         }
     } catch (error) {
@@ -2364,6 +2442,10 @@ const handleSaveOrder = async (...actions) => {
             fullError: error
         });
 
+        if (optimisticNewOrderClear && draftSnapshot && cartItems.value.length === 0) {
+            restoreOrderDraftSnapshot(draftSnapshot);
+        }
+
         // Legacy alert style: keep the message simple and direct
         if (Object.keys(errors).length > 0) {
             const firstError = Object.values(errors)
@@ -2373,10 +2455,15 @@ const handleSaveOrder = async (...actions) => {
                 .join("\n");
             showPosAlert("error", firstError || errorMessage);
         } else {
-            showPosAlert("error", errorMessage);
+            showPosAlert(
+                "error",
+                optimisticNewOrderClear && cartItems.value.length > 0
+                    ? `Previous order failed to save: ${errorMessage}`
+                    : errorMessage
+            );
         }
     } finally {
-        savingAction.value = null;
+        orderSaveInFlight.value = false;
     }
 };
 
