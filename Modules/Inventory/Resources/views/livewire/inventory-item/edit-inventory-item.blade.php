@@ -112,6 +112,17 @@
                 </div>
 
                 <div>
+                    <x-label for="isActive" value="{{ __('inventory::modules.inventoryItem.allowPurchase') }}" />
+                    <div class="mt-2 flex items-center gap-2">
+                        <x-checkbox name="isActive" id="isActive" wire:model="isActive" />
+                        <span class="text-sm text-gray-600 dark:text-gray-400">
+                            {{ __('inventory::modules.inventoryItem.allowPurchaseHelp') }}
+                        </span>
+                    </div>
+                    <x-input-error for="isActive" class="mt-2" />
+                </div>
+
+                <div>
                     <x-label for="reorderQuantity" value="{{ __('inventory::modules.inventoryItem.reorderQuantity') }}" />
                     <div class="mt-1 relative rounded-md shadow-sm">
                         <x-input id="reorderQuantity" 

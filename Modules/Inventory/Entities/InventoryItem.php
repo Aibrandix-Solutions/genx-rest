@@ -33,8 +33,18 @@ class InventoryItem extends Model
         'unit_purchase_price',
         'threshold_quantity',
         'preferred_supplier_id',
-        'reorder_quantity'
+        'reorder_quantity',
+        'is_active',
     ];
+
+    protected $casts = [
+        'is_active' => 'boolean',
+    ];
+
+    public function scopeActiveForPurchase($query)
+    {
+        return $query->where('is_active', true);
+    }
 
     protected static function boot()
     {

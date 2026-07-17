@@ -2,13 +2,16 @@
 
 namespace App\Livewire\Forms;
 
+use App\Livewire\Concerns\ManagesMenuBranchSelection;
 use App\Models\Menu;
+use App\Services\MenuBranchProvisioningService;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
 
 class AddMenu extends Component
 {
     use LivewireAlert;
+    use ManagesMenuBranchSelection;
 
     public $menuName = '';
     public $translations = [];
@@ -22,6 +25,7 @@ class AddMenu extends Component
         $this->translations = array_fill_keys(array_keys($this->languages), '');
         $this->globalLocale = global_setting()->locale;
         $this->currentLanguage = $this->globalLocale;
+        $this->initializeMenuBranchSelection();
     }
 
     public function updateTranslation()
@@ -37,19 +41,23 @@ class AddMenu extends Component
 
     public function submitForm()
     {
-        $this->validate([
+        $this->validate(array_merge([
             'translations.' . $this->globalLocale => 'required',
-        ], [
+        ], $this->menuBranchSelectionRules()), [
             'translations.' . $this->globalLocale . '.required' => __('validation.menuNameRequired', ['language' => $this->languages[$this->globalLocale]]),
         ]);
 
         $filteredTranslations = array_filter($this->translations, 'trim');
 
-        Menu::create(['menu_name' => $filteredTranslations]);
+        app(MenuBranchProvisioningService::class)->provisionMenus(
+            $filteredTranslations,
+            $this->selectedBranchIds
+        );
 
         // Reset the value
         $this->menuName = '';
         $this->translations = array_fill_keys(array_keys($this->translations), '');
+        $this->initializeMenuBranchSelection();
 
         $this->dispatch('menuAdded');
         $this->dispatch('refreshMenus');

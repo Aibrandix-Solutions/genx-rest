@@ -34,9 +34,9 @@ class FolioChargePresenter
      *     subtotal: float,
      * }
      */
-    public static function summarize(Reservation $reservation, Collection $charges): array
+    public static function summarize(Reservation $reservation, Collection $charges, ?string $roomNumberOverride = null): array
     {
-        $roomNumber = (string) ($reservation->room?->room_number ?? '');
+        $roomNumber = $roomNumberOverride !== null ? $roomNumberOverride : (string) ($reservation->room?->room_number ?? '');
 
         $roomGroups = self::groupRoomNights(
             $charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->sortBy('charge_date')->values(),
@@ -73,44 +73,144 @@ class FolioChargePresenter
      */
     private static function groupRoomNights(Collection $roomCharges, string $roomNumber): array
     {
-        $groups = [];
-        $current = null;
+        if ($roomNumber === 'consolidated') {
+            // Group charges by charge_date and rate to group same-date same-price room nights across all rooms
+            $groups = [];
+            $chargesByDateAndRate = $roomCharges->groupBy(function ($charge) {
+                $dateStr = Carbon::parse($charge->charge_date)->toDateString();
+                $rateStr = number_format((float) $charge->amount, 2, '.', '');
+                return "{$dateStr}_{$rateStr}";
+            });
+
+            // Sort dates chronologically
+            $sortedKeys = $chargesByDateAndRate->keys()->sort(function ($a, $b) {
+                $dateA = explode('_', $a)[0];
+                $dateB = explode('_', $b)[0];
+                return strcmp($dateA, $dateB);
+            });
+
+            $current = null;
+            $index = 0;
+
+            foreach ($sortedKeys as $key) {
+                $groupCharges = $chargesByDateAndRate->get($key);
+                $firstCharge = $groupCharges->first();
+                $chargeDate = Carbon::parse($firstCharge->charge_date)->startOfDay();
+
+                // Get all unique room numbers for these charges
+                $roomsStr = $groupCharges->map(function ($c) {
+                    if ($c->reservation && $c->reservation->room) {
+                        return $c->reservation->room->room_number;
+                    }
+                    return self::extractRoomNumberFromDescription($c->description);
+                })->filter()->unique()->sort()->implode(', ');
+
+                $count = $groupCharges->count();
+                $singleRate = round((float) $firstCharge->amount, 2);
+                $totalRatePerNight = round($singleRate * $count, 2);
+
+                if ($current === null) {
+                    $current = [
+                        'key' => 'consolidated_night_' . $index,
+                        'start_date' => $chargeDate,
+                        'end_date' => $chargeDate,
+                        'room_number' => $roomsStr,
+                        'nights' => 1,
+                        'price_per_night' => $totalRatePerNight,
+                        'room_total' => $totalRatePerNight,
+                        'charges' => $groupCharges,
+                    ];
+                    $index++;
+                    continue;
+                }
+
+                $nextExpected = $current['end_date']->copy()->addDay()->startOfDay();
+                $isConsecutive = $chargeDate->equalTo($nextExpected);
+                $sameRooms = $current['room_number'] === $roomsStr;
+                $sameRate = $current['price_per_night'] === $totalRatePerNight;
+
+                if ($isConsecutive && $sameRooms && $sameRate) {
+                    $current['end_date'] = $chargeDate;
+                    $current['nights']++;
+                    $current['room_total'] = round($current['room_total'] + $totalRatePerNight, 2);
+                    $current['charges'] = $current['charges']->concat($groupCharges);
+                    continue;
+                }
+
+                $groups[] = $current;
+                $current = [
+                    'key' => 'consolidated_night_' . $index,
+                    'start_date' => $chargeDate,
+                    'end_date' => $chargeDate,
+                    'room_number' => $roomsStr,
+                    'nights' => 1,
+                    'price_per_night' => $totalRatePerNight,
+                    'room_total' => $totalRatePerNight,
+                    'charges' => $groupCharges,
+                ];
+                $index++;
+            }
+
+            if ($current !== null) {
+                $groups[] = $current;
+            }
+
+            return $groups;
+        }
+
+        // Group charges by room_number first to avoid interleaved rooms splitting consecutive nights
+        $chargesByRoom = $roomCharges->groupBy(function ($charge) use ($roomNumber) {
+            if ($roomNumber !== '') {
+                return $roomNumber;
+            }
+            if ($charge->reservation && $charge->reservation->room) {
+                return $charge->reservation->room->room_number;
+            }
+            return self::extractRoomNumberFromDescription($charge->description) ?: 'Other';
+        });
+
+        $allGroups = [];
         $index = 0;
 
-        foreach ($roomCharges as $charge) {
-            $chargeDate = Carbon::parse($charge->charge_date)->startOfDay();
-            $rate = round((float) $charge->amount, 2);
+        foreach ($chargesByRoom as $roomNo => $charges) {
+            $groups = [];
+            $current = null;
 
-            if ($current === null) {
-                $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, $roomNumber);
+            foreach ($charges->sortBy('charge_date')->values() as $charge) {
+                $chargeDate = Carbon::parse($charge->charge_date)->startOfDay();
+                $rate = round((float) $charge->amount, 2);
+
+                if ($current === null) {
+                    $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, (string)$roomNo);
+                    $index++;
+                    continue;
+                }
+
+                $nextExpected = $current['end_date']->copy()->addDay()->startOfDay();
+                $isConsecutive = $chargeDate->equalTo($nextExpected);
+                $sameRate = $rate === $current['price_per_night'];
+
+                if ($isConsecutive && $sameRate) {
+                    $current['end_date'] = $chargeDate;
+                    $current['nights']++;
+                    $current['room_total'] = round($current['room_total'] + $rate, 2);
+                    $current['charges']->push($charge);
+                    continue;
+                }
+
+                $groups[] = $current;
+                $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, (string)$roomNo);
                 $index++;
-
-                continue;
             }
 
-            $nextExpected = $current['end_date']->copy()->addDay()->startOfDay();
-            $isConsecutive = $chargeDate->equalTo($nextExpected);
-            $sameRate = $rate === $current['price_per_night'];
-
-            if ($isConsecutive && $sameRate) {
-                $current['end_date'] = $chargeDate;
-                $current['nights']++;
-                $current['room_total'] = round($current['room_total'] + $rate, 2);
-                $current['charges']->push($charge);
-
-                continue;
+            if ($current !== null) {
+                $groups[] = $current;
             }
 
-            $groups[] = $current;
-            $current = self::startRoomGroup($index, $charge, $chargeDate, $rate, $roomNumber);
-            $index++;
+            $allGroups = array_merge($allGroups, $groups);
         }
 
-        if ($current !== null) {
-            $groups[] = $current;
-        }
-
-        return $groups;
+        return $allGroups;
     }
 
     /**
@@ -192,6 +292,13 @@ class FolioChargePresenter
             $first = $charges->first();
             $label = self::typeLabel($type, $first);
 
+            $roomNumbers = $charges->map(function ($c) {
+                if ($c->reservation && $c->reservation->room) {
+                    return $c->reservation->room->room_number;
+                }
+                return self::extractRoomNumberFromDescription($c->description);
+            })->filter()->unique()->sort()->implode(', ');
+
             $rows[] = [
                 'key' => 'type-' . $typeKey,
                 'type' => $typeKey,
@@ -200,6 +307,7 @@ class FolioChargePresenter
                 'amount' => round((float) $charges->sum('amount'), 2),
                 'charge_count' => $charges->count(),
                 'charges' => $charges,
+                'room_number' => $roomNumbers ?: '—',
             ];
         }
 
