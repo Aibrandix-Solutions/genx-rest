@@ -36,6 +36,7 @@
                         <th class="py-2 pr-4">Name</th>
                         <th class="py-2 pr-4">Staff Code</th>
                         <th class="py-2 pr-4">Branch</th>
+                        <th class="py-2 pr-4">Workplace</th>
                         <th class="py-2 pr-4">Department</th>
                         <th class="py-2 pr-4">Designation</th>
                         <th class="py-2 pr-4">Status</th>
@@ -62,6 +63,15 @@
                                     <span class="text-xs font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900 text-amber-700 dark:text-amber-300">Company Level</span>
                                 @endif
                             </td>
+                            <td class="py-2 pr-4">
+                                <span @class([
+                                    'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
+                                    'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300' => ($e->workplace ?? '') === 'hotel',
+                                    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' => ($e->workplace ?? '') !== 'hotel',
+                                ])>
+                                    {{ $e->workplace_label }}
+                                </span>
+                            </td>
                             <td class="py-2 pr-4">{{ $e->department?->name ?? '—' }}</td>
                             <td class="py-2 pr-4">{{ $e->designation?->name ?? '—' }}</td>
                             <td class="py-2 pr-4">
@@ -86,7 +96,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="7" class="py-6 text-center text-gray-500 dark:text-gray-400">No employees found</td>
+                            <td colspan="8" class="py-6 text-center text-gray-500 dark:text-gray-400">No employees found</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -151,8 +161,24 @@
                 </div>
 
                 <div>
+                    <x-label value="Workplace" />
+                    @if($showWorkplaceSelect)
+                        <x-select class="w-full" wire:model.live="workplace">
+                            @foreach($workplaceOptions as $value => $label)
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </x-select>
+                    @else
+                        @php $onlyWorkplaceLabel = reset($workplaceOptions); @endphp
+                        <div class="mt-1 text-sm text-gray-900 dark:text-gray-100 py-2">{{ $onlyWorkplaceLabel }}</div>
+                    @endif
+                    @error('workplace') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Salary posts to this workplace’s expenses when paid.</p>
+                </div>
+
+                <div>
                     <x-label value="Department (optional)" />
-                    <x-select class="w-full" wire:model="department_id">
+                    <x-select class="w-full" wire:model="department_id" wire:key="dept-select-{{ $workplace }}">
                         <option value="">—</option>
                         @foreach($departments as $dep)
                             <option value="{{ $dep->id }}">{{ $dep->name }}</option>
