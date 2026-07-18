@@ -1203,18 +1203,15 @@
                     <!-- KOT buttons gated by kotModuleEnabled subscription -->
                     <div v-if="linkedLifecycleStatus === 'kot'" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <button v-if="canShowLinkedBillActions" class="rounded bg-skin-base text-white w-full p-2"
-                            @click="handleSaveOrder('bill')" :disabled="isSavingBill || anySaving"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBill || anySaving }">
+                            @click="handleSaveOrder('bill')">
                             Bill
                         </button>
                         <button v-if="canShowLinkedBillActions" class="rounded bg-green-500 text-white w-full p-2"
-                            @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment || anySaving"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment || anySaving }">
+                            @click="handleSaveOrder('bill', 'payment')">
                             Bill &amp; Payment
                         </button>
                         <button v-if="canShowLinkedBillActions" class="rounded bg-blue-500 text-white w-full p-2"
-                            @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint || anySaving"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint || anySaving }">
+                            @click="handleSaveOrder('bill', 'print')">
                             Bill &amp; Print
                         </button>
                         <button v-if="canShowLinkedNewKot && kotModuleEnabled"
@@ -1278,103 +1275,31 @@
                 </template>
                 <template v-else>
                     <div class="flex gap-3">
-                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled" @click="handleSaveOrder('kot')"
-                            :disabled="isSavingKot" :class="{ 'opacity-50 cursor-not-allowed': isSavingKot }">
-                            <span v-if="!isSavingKot">KOT</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-1 h-4 w-4 inline-flex text-white"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                KOT
-                            </span>
+                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled" @click="handleSaveOrder('kot')">
+                            KOT
                         </button>
                         <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled"
-                            @click="handleSaveOrder('kot', 'print')" :disabled="isSavingKotPrint"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingKotPrint }">
-                            <span v-if="!isSavingKotPrint">KOT &amp; Print</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                    fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                KOT &amp; Print
-                            </span>
+                            @click="handleSaveOrder('kot', 'print')">
+                            KOT &amp; Print
                         </button>
                         <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled"
-                            @click="handleSaveOrder('kot', 'bill', 'payment')" :disabled="isSavingKotBillPayment"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingKotBillPayment }">
-                            <span v-if="!isSavingKotBillPayment">KOT, Bill &amp; Payment</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin inline-flex -ml-1 mr-2 h-4 w-4 text-white"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                KOT, Bill &amp; Payment
-                            </span>
+                            @click="handleSaveOrder('kot', 'bill', 'payment')">
+                            KOT, Bill &amp; Payment
                         </button>
                     </div>
                     <!-- Legacy parity (kot_items.blade.php `@if (!$orderID)`): BILL row is hidden
                          on the New KOT screen — existing orders only expose the 3 KOT actions. -->
                     <div v-if="!isNewKotMode" class="flex gap-3 mt-3">
-                        <button class="rounded bg-skin-base text-white w-full p-2 relative" @click="handleSaveOrder('bill')"
-                            :disabled="isSavingBill" :class="{ 'opacity-50 cursor-not-allowed': isSavingBill }">
-                            <span v-if="!isSavingBill">BILL</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin inline-flex items-center -ml-1 mr-2 h-4 w-4 text-white"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                BILL
-                            </span>
+                        <button class="rounded bg-skin-base text-white w-full p-2 relative" @click="handleSaveOrder('bill')">
+                            BILL
                         </button>
                         <button class="rounded bg-green-500 text-white w-full p-2 relative"
-                            @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment }">
-                            <span v-if="!isSavingBillPayment">Bill &amp; Payment</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-flex items-center"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                Bill &amp; Payment
-                            </span>
+                            @click="handleSaveOrder('bill', 'payment')">
+                            Bill &amp; Payment
                         </button>
                         <button class="rounded bg-blue-500 text-white w-full p-2 relative"
-                            @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint }">
-                            <span v-if="!isSavingBillPrint">Bill &amp; Print</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                    fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                Bill &amp; Print
-                            </span>
+                            @click="handleSaveOrder('bill', 'print')">
+                            Bill &amp; Print
                         </button>
                     </div>
                 </template>
@@ -1555,9 +1480,9 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
-    savingAction: {
-        type: String,
-        default: null,
+    orderSaveInFlight: {
+        type: Boolean,
+        default: false,
     },
     discountAmount: {
         type: Number,
@@ -2904,16 +2829,8 @@ const total = computed(() => {
     return Math.max(0, calculatedTotal);
 });
 
-// Computed properties to check if each button is currently saving
-const isSavingKot = computed(() => props.savingAction === 'kot');
-const isSavingKotPrint = computed(() => props.savingAction === 'kot_print');
-const isSavingKotBillPayment = computed(() => props.savingAction === 'kot_bill_payment');
-const isSavingBill = computed(() => props.savingAction === 'bill');
-const isSavingBillPayment = computed(() => props.savingAction === 'bill_payment');
-const isSavingBillPrint = computed(() => props.savingAction === 'bill_print');
-
-// Check if ANY action is being saved (for overall disable state)
-const anySaving = computed(() => props.savingAction !== null);
+// Save buttons stay clickable for speed; duplicate clicks are ignored via orderSaveInFlight in PosApp.
+const anySaving = computed(() => props.orderSaveInFlight);
 
 const formatPrice = (price) => {
     return parseFloat(price).toFixed(2);
@@ -3197,6 +3114,10 @@ const handleKotRemovalConfirm = (reason) => {
 
 // Handle save order with validation
 const handleSaveOrder = (...actions) => {
+    if (props.orderSaveInFlight) {
+        return;
+    }
+
     // In linked-order mode, existing items are on the server — skip empty-cart guard
     if (!props.isLinkedOrderMode && (!props.cartItems || props.cartItems.length === 0)) {
         showPosAlert("error", "You need to add items to the order.");
