@@ -198,22 +198,37 @@ class Reservation extends Model
     /**
      * Confirmed/checked-in stays that overlap a proposed window (half-open by datetime).
      * Back-to-back is allowed: existing checkout == new check-in is not a conflict.
+     *
+     * Uses date columns for index-friendly filtering, then precise time checks on
+     * boundary days — avoids TIMESTAMP() wrapping that prevents index use.
      */
     public function scopeOverlappingStay(Builder $query, Carbon $checkIn, Carbon $checkOut): Builder
     {
-        $checkInAt = $checkIn->format('Y-m-d H:i:s');
-        $checkOutAt = $checkOut->format('Y-m-d H:i:s');
+        $inDate = $checkIn->toDateString();
+        $outDate = $checkOut->toDateString();
+        $inTime = $checkIn->format('H:i:s');
+        $outTime = $checkOut->format('H:i:s');
 
         return $query
             ->whereIn('status', [self::STATUS_CONFIRMED, self::STATUS_CHECKED_IN])
-            ->whereRaw(
-                "TIMESTAMP(check_in_date, COALESCE(check_in_time, '00:00:00')) < ?",
-                [$checkOutAt]
-            )
-            ->whereRaw(
-                "TIMESTAMP(checkout_date, COALESCE(checkout_time, '23:59:59')) > ?",
-                [$checkInAt]
-            );
+            // Coarse filter (uses check_in_date / checkout_date indexes)
+            ->where('check_in_date', '<=', $outDate)
+            ->where('checkout_date', '>=', $inDate)
+            // Precise half-open: existing.start < new.end AND existing.end > new.start
+            ->where(function (Builder $q) use ($outDate, $outTime) {
+                $q->where('check_in_date', '<', $outDate)
+                    ->orWhere(function (Builder $q2) use ($outDate, $outTime) {
+                        $q2->where('check_in_date', '=', $outDate)
+                            ->whereRaw("COALESCE(check_in_time, '00:00:00') < ?", [$outTime]);
+                    });
+            })
+            ->where(function (Builder $q) use ($inDate, $inTime) {
+                $q->where('checkout_date', '>', $inDate)
+                    ->orWhere(function (Builder $q2) use ($inDate, $inTime) {
+                        $q2->where('checkout_date', '=', $inDate)
+                            ->whereRaw("COALESCE(checkout_time, '23:59:59') > ?", [$inTime]);
+                    });
+            });
     }
 
     /**

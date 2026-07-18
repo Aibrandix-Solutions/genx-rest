@@ -349,22 +349,22 @@
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <x-label for="create_check_in_date" value="Check In Date" />
-                            <x-input id="create_check_in_date" type="date" class="block w-full mt-1" wire:model.live="create_check_in_date" required />
+                            <x-input id="create_check_in_date" type="date" class="block w-full mt-1" wire:model.live.debounce.400ms="create_check_in_date" required />
                             <x-input-error for="create_check_in_date" class="mt-2" />
                         </div>
                         <div>
                             <x-label for="create_check_in_time" value="Check In Time" />
-                            <x-input id="create_check_in_time" type="time" class="block w-full mt-1" wire:model.live="create_check_in_time" required />
+                            <x-input id="create_check_in_time" type="time" class="block w-full mt-1" wire:model.live.debounce.400ms="create_check_in_time" required />
                             <x-input-error for="create_check_in_time" class="mt-2" />
                         </div>
                         <div>
                             <x-label for="create_check_out_date" value="Check Out Date" />
-                            <x-input id="create_check_out_date" type="date" class="block w-full mt-1" wire:model.live="create_check_out_date" required />
+                            <x-input id="create_check_out_date" type="date" class="block w-full mt-1" wire:model.live.debounce.400ms="create_check_out_date" required />
                             <x-input-error for="create_check_out_date" class="mt-2" />
                         </div>
                         <div>
                             <x-label for="create_check_out_time" value="Check Out Time" />
-                            <x-input id="create_check_out_time" type="time" class="block w-full mt-1" wire:model.live="create_check_out_time" required />
+                            <x-input id="create_check_out_time" type="time" class="block w-full mt-1" wire:model.live.debounce.400ms="create_check_out_time" required />
                             <x-input-error for="create_check_out_time" class="mt-2" />
                         </div>
                     </div>
@@ -395,6 +395,9 @@
                                  @if(count($selected_rooms) > 0)
                                      <span class="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold text-white bg-blue-500 rounded-full">{{ count($selected_rooms) }}</span>
                                  @endif
+                                 <span wire:loading wire:target="create_check_in_date,create_check_out_date,create_check_in_time,create_check_out_time,create_room_type_id,findAvailableRooms" class="text-[11px] text-blue-600 dark:text-blue-400">
+                                     Loading rooms...
+                                 </span>
                              </div>
                              {{-- Room Type Filter --}}
                              <select wire:model.live="create_room_type_id" class="text-xs border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -409,15 +412,20 @@
                             <div class="grid grid-cols-3 gap-4 max-h-56 overflow-y-auto pr-1">
                                 @foreach($available_rooms as $room)
                                     @php
-                                        $isSelected = collect($selected_rooms)->contains('room_id', $room->id);
-                                        $roomEntry = collect($selected_rooms)->firstWhere('room_id', $room->id);
+                                        $roomId = (int) (is_array($room) ? $room['id'] : $room->id);
+                                        $roomNumber = is_array($room) ? $room['room_number'] : $room->room_number;
+                                        $roomTypeName = is_array($room) ? ($room['room_type_name'] ?? '') : ($room->roomType->name ?? '');
+                                        $roomFloor = is_array($room) ? ($room['floor'] ?? null) : $room->floor;
+                                        $roomBasePrice = (float) (is_array($room) ? ($room['base_price'] ?? 0) : ($room->roomType->base_price ?? 0));
+                                        $isSelected = collect($selected_rooms)->contains('room_id', $roomId);
+                                        $roomEntry = collect($selected_rooms)->firstWhere('room_id', $roomId);
                                         $capacityInfo = $this->getRoomCapacityInfo($room, $roomEntry);
                                         $maxOccupancy = $capacityInfo['max'];
                                         $roomGuests = $capacityInfo['total'];
                                         $isOverCapacity = $capacityInfo['is_over'];
                                     @endphp
                                     <div
-                                        wire:click="toggleRoom({{ $room->id }})"
+                                        wire:click="toggleRoom({{ $roomId }})"
                                         class="relative cursor-pointer rounded-lg border p-3 transition-all duration-150
                                             {{ $isSelected
                                                 ? 'border-blue-500 bg-blue-50/60 ring-1 ring-blue-500/20 dark:bg-blue-900/20 dark:border-blue-400 dark:ring-blue-400/20'
@@ -440,21 +448,21 @@
                                             <svg class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
                                             </svg>
-                                            <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $room->room_number }}</span>
+                                            <span class="text-sm font-semibold text-gray-900 dark:text-white">{{ $roomNumber }}</span>
                                         </div>
 
                                         {{-- Type badge --}}
                                         <span class="inline-block px-1.5 py-0.5 text-[10px] font-medium rounded bg-gray-100 text-gray-600 dark:bg-gray-600 dark:text-gray-300">
-                                            {{ $room->roomType->name }}
+                                            {{ $roomTypeName }}
                                         </span>
 
                                         {{-- Price (effective / overridden) --}}
                                         @php
                                             $defaultRate = $this->getDefaultRoomNightlyRate($room);
                                             $nightlyRate = $this->getEffectiveRoomNightlyRate($room);
-                                            $hasCustomRate = $this->hasCustomRoomRate($room->id);
-                                            $hasDynamicOverride = !$hasCustomRate && (float) $defaultRate !== (float) ($room->roomType->base_price ?? 0);
-                                            $isEditingRate = (int) $editing_room_rate_id === (int) $room->id;
+                                            $hasCustomRate = $this->hasCustomRoomRate($roomId);
+                                            $hasDynamicOverride = !$hasCustomRate && (float) $defaultRate !== $roomBasePrice;
+                                            $isEditingRate = (int) $editing_room_rate_id === $roomId;
                                         @endphp
                                         <div class="mt-1.5" wire:click.stop>
                                             @if($isEditingRate)
@@ -485,7 +493,7 @@
                                                         @if($hasCustomRate)
                                                             <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($defaultRate, restaurant()->currency_id) }}</span>
                                                         @elseif($hasDynamicOverride)
-                                                            <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($room->roomType->base_price, restaurant()->currency_id) }}</span>
+                                                            <span class="text-[10px] line-through text-gray-400 dark:text-gray-500 mr-0.5">{{ currency_format($roomBasePrice, restaurant()->currency_id) }}</span>
                                                         @endif
                                                         <span class="text-sm font-semibold {{ ($hasCustomRate || $hasDynamicOverride) ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white' }}">{{ currency_format($nightlyRate, restaurant()->currency_id) }}</span>
                                                         <span class="text-[10px] font-normal text-gray-400 dark:text-gray-500">/night</span>
@@ -497,7 +505,7 @@
                                                     </div>
                                                     <button
                                                         type="button"
-                                                        wire:click.stop="startEditRoomRate({{ $room->id }})"
+                                                        wire:click.stop="startEditRoomRate({{ $roomId }})"
                                                         @disabled($editing_room_rate_id !== null && !$isEditingRate)
                                                         class="flex-shrink-0 p-0.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition disabled:opacity-40 dark:hover:bg-blue-950/30"
                                                         title="Edit nightly rate"
@@ -518,12 +526,12 @@
                                                 </svg>
                                                 {{ $maxOccupancy }}
                                             </span>
-                                            @if($room->floor)
-                                                <span class="flex items-center gap-0.5" title="Floor {{ $room->floor }}">
+                                            @if($roomFloor)
+                                                <span class="flex items-center gap-0.5" title="Floor {{ $roomFloor }}">
                                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
                                                     </svg>
-                                                    F{{ $room->floor }}
+                                                    F{{ $roomFloor }}
                                                 </span>
                                             @endif
                                         </div>
@@ -582,8 +590,8 @@
                                         <div class="flex items-center gap-2 bg-white dark:bg-gray-700 rounded-md px-2.5 py-2 border border-gray-200 dark:border-gray-600">
                                             {{-- Room info --}}
                                             <div class="flex-shrink-0 min-w-[70px]">
-                                                <span class="text-xs font-bold text-gray-900 dark:text-white">{{ $selectedRoom->room_number }}</span>
-                                                <span class="text-[10px] text-gray-500 dark:text-gray-400 ml-1">{{ $selectedRoom->roomType->name }}</span>
+                                                <span class="text-xs font-bold text-gray-900 dark:text-white">{{ is_array($selectedRoom) ? $selectedRoom['room_number'] : $selectedRoom->room_number }}</span>
+                                                <span class="text-[10px] text-gray-500 dark:text-gray-400 ml-1">{{ is_array($selectedRoom) ? ($selectedRoom['room_type_name'] ?? '') : ($selectedRoom->roomType->name ?? '') }}</span>
                                             </div>
                                             <div class="flex-shrink-0 text-[10px] text-gray-600 dark:text-gray-300 whitespace-nowrap" title="Nightly rate">
                                                 {{ currency_format($selectedNightlyRate, restaurant()->currency_id) }}/night
