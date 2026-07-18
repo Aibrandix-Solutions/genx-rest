@@ -366,6 +366,10 @@ class ReservationList extends Component
     public $create_children = 0;
     public $create_notes = '';
     public $create_booking_source = 'walk-in';
+    public $create_payment_amount = '';
+    public $create_payment_method = 'cash';
+    public $create_payment_processing_rate = 0;
+    public $create_payment_notes = '';
     
     public $available_rooms = [];
 
@@ -399,6 +403,10 @@ class ReservationList extends Component
             'selected_rooms.*.nightly_rate_override' => 'nullable|numeric|min:0',
             'create_notes' => 'nullable|string',
             'create_booking_source' => 'nullable|string|max:100',
+            'create_payment_amount' => 'nullable|numeric|min:0',
+            'create_payment_method' => 'nullable|in:cash,card,bank_transfer,upi,other',
+            'create_payment_processing_rate' => 'nullable|numeric|min:0|max:100',
+            'create_payment_notes' => 'nullable|string|max:500',
         ];
     }
 
@@ -737,6 +745,143 @@ class ReservationList extends Component
         return $totalAmount;
     }
 
+    /**
+     * Estimated stay total for currently selected rooms on the create form.
+     */
+    public function getCreateEstimatedTotalProperty(): float
+    {
+        if (
+            empty($this->selected_rooms)
+            || ! $this->create_check_in_date
+            || ! $this->create_check_out_date
+        ) {
+            return 0.0;
+        }
+
+        try {
+            $checkIn = $this->resolveCreateStayDateTime(true);
+            $checkOut = $this->resolveCreateStayDateTime(false);
+        } catch (\Throwable) {
+            return 0.0;
+        }
+
+        if ($checkOut->lte($checkIn)) {
+            return 0.0;
+        }
+
+        $total = 0.0;
+        foreach ($this->selected_rooms as $entry) {
+            $room = collect($this->available_rooms)->firstWhere('id', (int) ($entry['room_id'] ?? 0));
+            if (! $room) {
+                $room = Room::with('roomType')->find((int) ($entry['room_id'] ?? 0));
+            }
+            if (! $room) {
+                continue;
+            }
+
+            $override = isset($entry['nightly_rate_override'])
+                ? (float) $entry['nightly_rate_override']
+                : (isset($this->room_rate_overrides[$entry['room_id']])
+                    ? (float) $this->room_rate_overrides[$entry['room_id']]
+                    : null);
+
+            $total += $this->calculateStayAmount($room, $checkIn, $checkOut, $override);
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * @param  array<int, float>  $totals
+     * @return array<int, float>
+     */
+    private function allocatePaymentAmounts(array $totals, float $paymentAmount): array
+    {
+        $count = count($totals);
+        if ($count === 0 || $paymentAmount <= 0) {
+            return array_fill(0, $count, 0.0);
+        }
+
+        $grand = array_sum($totals);
+        if ($grand <= 0) {
+            $parts = array_fill(0, $count, 0.0);
+            $parts[0] = round($paymentAmount, 2);
+
+            return $parts;
+        }
+
+        $allocated = [];
+        $remaining = round($paymentAmount, 2);
+
+        foreach ($totals as $index => $total) {
+            if ($index === $count - 1) {
+                $allocated[$index] = round($remaining, 2);
+                break;
+            }
+
+            $share = round($paymentAmount * ((float) $total / $grand), 2);
+            $allocated[$index] = $share;
+            $remaining = round($remaining - $share, 2);
+        }
+
+        return $allocated;
+    }
+
+    /**
+     * Put the full payment on the first reservation (group folio).
+     *
+     * @param  array<int, float>  $totals
+     * @return array<int, float>
+     */
+    private function allocatePaymentToFirst(array $totals, float $paymentAmount): array
+    {
+        $parts = array_fill(0, count($totals), 0.0);
+        if (! empty($parts) && $paymentAmount > 0) {
+            $parts[0] = round($paymentAmount, 2);
+        }
+
+        return $parts;
+    }
+
+    private function recordBookingAdvancePayment(
+        Reservation $reservation,
+        float $amount,
+        string $paymentMethod,
+        float $processingRate,
+        string $notes,
+        ?HotelSetting $settings,
+    ): void {
+        if ($amount <= 0) {
+            return;
+        }
+
+        HotelPaymentRecorder::record(
+            $reservation,
+            $amount,
+            $paymentMethod,
+            HotelPayment::TYPE_ADVANCE,
+            null,
+            $notes,
+            auth()->id(),
+            $processingRate,
+            (bool) ($settings?->enable_payment_surcharge ?? false),
+        );
+
+        // Keep estimated stay total; do not recalculate from charges (none yet).
+        $totalPayments = (float) $reservation->payments()
+            ->where('payment_type', '!=', HotelPayment::TYPE_REFUND)
+            ->sum('amount');
+        $totalRefunds = (float) $reservation->payments()
+            ->where('payment_type', HotelPayment::TYPE_REFUND)
+            ->sum('amount');
+        $paidAmount = round($totalPayments - $totalRefunds, 2);
+
+        $reservation->update([
+            'paid_amount' => $paidAmount,
+            'balance_due' => round(((float) $reservation->total_amount) - $paidAmount, 2),
+        ]);
+    }
+
     public function saveReservation()
     {
         $this->persistReservations(checkInAfterCreate: false);
@@ -777,9 +922,37 @@ class ReservationList extends Component
 
         $createdCount = 0;
         $checkedInReservations = [];
+        $createdEntries = [];
+        $pendingCheckIns = [];
+
+        $paymentAmount = round((float) ($this->create_payment_amount ?: 0), 2);
+        $paymentMethod = $this->create_payment_method ?: 'cash';
+        $paymentRate = (float) ($this->create_payment_processing_rate ?: 0);
+        $paymentNotes = trim((string) $this->create_payment_notes) !== ''
+            ? trim((string) $this->create_payment_notes)
+            : 'Advance payment at booking';
+
+        if ($paymentAmount > 0 && ! in_array($paymentMethod, ['cash', 'card', 'bank_transfer', 'upi', 'other'], true)) {
+            $this->addError('create_payment_method', 'Please select a payment method.');
+            return;
+        }
 
         try {
-            DB::transaction(function () use ($checkIn, $checkOut, $groupBookingId, $settings, $checkInAfterCreate, &$createdCount, &$checkedInReservations) {
+            DB::transaction(function () use (
+                $checkIn,
+                $checkOut,
+                $groupBookingId,
+                $settings,
+                $checkInAfterCreate,
+                $paymentAmount,
+                $paymentMethod,
+                $paymentRate,
+                $paymentNotes,
+                &$createdCount,
+                &$checkedInReservations,
+                &$createdEntries,
+                &$pendingCheckIns
+            ) {
             foreach ($this->selected_rooms as $entry) {
                 $room = Room::with('roomType')
                     ->where('id', $entry['room_id'])
@@ -843,21 +1016,67 @@ class ReservationList extends Component
                     restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
                 );
 
+                $createdEntries[] = [
+                    'reservation' => $reservation,
+                    'total' => (float) $totalAmount,
+                ];
+
                 if ($checkInAfterCreate) {
-                    $advanceAmount = $settings ? (float) $settings->calculateDeposit($totalAmount) : 0;
-                    $this->performCheckInOnReservation(
-                        $reservation,
-                        $advanceAmount,
-                        'cash',
-                        0,
-                        'Advance payment at check-in',
-                    );
-                    $checkedInReservations[] = $reservation->fresh(['room']);
+                    $pendingCheckIns[] = [
+                        'reservation' => $reservation,
+                        'total' => (float) $totalAmount,
+                    ];
                 } else {
                     $room->update(['status' => 'reserved']);
                 }
 
                 $createdCount++;
+            }
+
+            if ($checkInAfterCreate) {
+                $totals = array_column($pendingCheckIns, 'total');
+                if ($paymentAmount > 0) {
+                    $advances = $groupBookingId
+                        ? $this->allocatePaymentToFirst($totals, $paymentAmount)
+                        : $this->allocatePaymentAmounts($totals, $paymentAmount);
+                } else {
+                    $advances = array_map(
+                        fn (float $total) => $settings ? (float) $settings->calculateDeposit($total) : 0.0,
+                        $totals
+                    );
+                }
+
+                foreach ($pendingCheckIns as $index => $item) {
+                    $this->performCheckInOnReservation(
+                        $item['reservation'],
+                        (float) ($advances[$index] ?? 0),
+                        $paymentMethod,
+                        $paymentRate,
+                        $paymentNotes,
+                    );
+                    $checkedInReservations[] = $item['reservation']->fresh(['room']);
+                }
+            } elseif ($paymentAmount > 0 && ! empty($createdEntries)) {
+                $totals = array_column($createdEntries, 'total');
+                $parts = $groupBookingId
+                    ? $this->allocatePaymentToFirst($totals, $paymentAmount)
+                    : $this->allocatePaymentAmounts($totals, $paymentAmount);
+
+                foreach ($createdEntries as $index => $item) {
+                    $part = (float) ($parts[$index] ?? 0);
+                    if ($part <= 0) {
+                        continue;
+                    }
+
+                    $this->recordBookingAdvancePayment(
+                        $item['reservation'],
+                        $part,
+                        $paymentMethod,
+                        $paymentRate,
+                        $paymentNotes,
+                        $settings,
+                    );
+                }
             }
             });
         } catch (\RuntimeException $e) {
@@ -921,6 +1140,10 @@ class ReservationList extends Component
         $this->create_children = 0;
         $this->create_notes = '';
         $this->create_booking_source = 'walk-in';
+        $this->create_payment_amount = '';
+        $this->create_payment_method = 'cash';
+        $this->create_payment_processing_rate = 0;
+        $this->create_payment_notes = '';
         $this->available_rooms = [];
         $this->selected_rooms = [];
         $this->room_rate_overrides = [];

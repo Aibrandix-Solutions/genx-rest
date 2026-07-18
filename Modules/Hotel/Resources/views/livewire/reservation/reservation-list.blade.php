@@ -651,6 +651,73 @@
                         <textarea id="create_notes" wire:model="create_notes" rows="2" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
                         <x-input-error for="create_notes" class="mt-2" />
                     </div>
+
+                    {{-- Optional payment (shows on folio) --}}
+                    @php $currencySymbol = restaurant()->currency->currency_symbol ?? 'Rs'; @endphp
+                    <div class="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-3"
+                         x-data="{
+                             amount: @entangle('create_payment_amount'),
+                             method: @entangle('create_payment_method'),
+                             rate: @entangle('create_payment_processing_rate'),
+                             currencySymbol: @js($currencySymbol),
+                             surchargeEnabled: @js((bool) $paymentSurchargeEnabled),
+                             get showSurchargeFields() {
+                                 return this.surchargeEnabled && ['card', 'bank_transfer'].includes(this.method);
+                             },
+                             get surchargeAmount() {
+                                 const amt = parseFloat(this.amount) || 0;
+                                 const rt = parseFloat(this.rate) || 0;
+                                 if (!this.showSurchargeFields || amt <= 0 || rt <= 0) return 0;
+                                 return Math.round((amt * rt / 100) * 100) / 100;
+                             },
+                             get totalCollected() {
+                                 const amt = parseFloat(this.amount) || 0;
+                                 return Math.round((amt + this.surchargeAmount) * 100) / 100;
+                             }
+                         }"
+                    >
+                        <div class="flex items-center justify-between gap-3">
+                            <h4 class="font-semibold text-gray-900 dark:text-white">Payment (Optional)</h4>
+                            @if($this->createEstimatedTotal > 0)
+                                <span class="text-sm text-gray-600 dark:text-gray-300">
+                                    Est. total:
+                                    <strong>{{ currency_format($this->createEstimatedTotal, restaurant()->currency_id) }}</strong>
+                                </span>
+                            @endif
+                        </div>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                            Collect full or partial payment now. Leave amount empty or 0 to skip. Payment will appear on the guest folio.
+                        </p>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-label for="create_payment_amount" value="Amount" />
+                                <input id="create_payment_amount" type="number" step="0.01" min="0" x-model="amount"
+                                       class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" />
+                                <x-input-error for="create_payment_amount" class="mt-1" />
+                            </div>
+                            <div>
+                                <x-label for="create_payment_method" value="Payment Method" />
+                                <select id="create_payment_method" x-model="method"
+                                        class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                    <option value="cash">Cash</option>
+                                    <option value="card">Card</option>
+                                    <option value="bank_transfer">Bank Transfer</option>
+                                    <option value="upi">UPI</option>
+                                    <option value="other">Other</option>
+                                </select>
+                                <x-input-error for="create_payment_method" class="mt-1" />
+                            </div>
+                        </div>
+
+                        @include('hotel::partials.payment-surcharge-fields', ['rateInputId' => 'create_payment_processing_rate'])
+
+                        <div>
+                            <x-label for="create_payment_notes" value="Payment Notes" />
+                            <x-input id="create_payment_notes" type="text" class="block w-full mt-1" wire:model="create_payment_notes" placeholder="Optional" />
+                            <x-input-error for="create_payment_notes" class="mt-1" />
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mt-6 flex flex-wrap justify-end gap-3">
