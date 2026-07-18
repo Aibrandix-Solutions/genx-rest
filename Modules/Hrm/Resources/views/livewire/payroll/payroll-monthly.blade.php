@@ -93,6 +93,15 @@
                             <td class="py-2 pr-4 font-medium">
                                 {{ $r['name'] }}
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $r['staff_code'] ?? '—' }}</div>
+                                @if(!empty($r['workplace']))
+                                    <div class="text-xs mt-0.5">
+                                        <span @class([
+                                            'inline-flex items-center px-1.5 py-0.5 rounded font-medium',
+                                            'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300' => ($r['workplace'] ?? '') === 'Hotel',
+                                            'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' => ($r['workplace'] ?? '') !== 'Hotel',
+                                        ])>{{ $r['workplace'] }}</span>
+                                    </div>
+                                @endif
                             </td>
                             <td class="py-2 pr-4">{{ $r['total_of_working_days'] }}</td>
                             <td class="py-2 pr-4">{{ $r['total_leave'] }}</td>

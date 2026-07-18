@@ -21,6 +21,8 @@ use Modules\Hrm\Entities\HrmSetting;
 use Modules\Hrm\Exports\PayrollImportTemplateExport;
 use Modules\Hrm\Exports\PayrollMonthlyExport;
 use Modules\Hrm\Imports\PayrollMonthlyImport;
+use Modules\Hrm\Services\PayrollSalaryExpenseSync;
+use Modules\Hrm\Support\Workplace;
 
 class PayrollMonthly extends Component
 {
@@ -120,11 +122,20 @@ class PayrollMonthly extends Component
             ->all();
 
         $this->departments = DB::table('hrm_departments')
-            ->select('id', 'name')
+            ->select('id', 'name', 'workplace')
             ->when(restaurant(), fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->when(! Workplace::hotelAvailable(), fn ($q) => $q->where('workplace', Workplace::RESTAURANT))
+            ->orderBy('workplace')
             ->orderBy('name')
             ->get()
-            ->map(fn ($d) => ['id' => $d->id, 'name' => $d->name])
+            ->map(function ($d) {
+                $prefix = ($d->workplace ?? '') === Workplace::HOTEL ? 'Hotel: ' : '';
+                if (Workplace::hotelAvailable() && ($d->workplace ?? '') === Workplace::RESTAURANT) {
+                    $prefix = 'Restaurant: ';
+                }
+
+                return ['id' => $d->id, 'name' => $prefix . $d->name];
+            })
             ->all();
 
         $this->designations = DB::table('hrm_designations')
@@ -292,7 +303,7 @@ class PayrollMonthly extends Component
 
         [$from, $to] = $this->monthRange();
 
-        PayrollAdjustment::query()->updateOrCreate([
+        $adjustment = PayrollAdjustment::query()->updateOrCreate([
             'restaurant_id' => restaurant()->id,
             'branch_id' => $this->effectiveBranchId(),
             'employee_id' => (int) $this->adjustEmployeeId,
@@ -310,8 +321,26 @@ class PayrollMonthly extends Component
             'note' => $this->note,
         ]);
 
+        $payable = $this->resolvePayableForEmployee((int) $this->adjustEmployeeId);
+        app(PayrollSalaryExpenseSync::class)->sync($adjustment, $payable);
+
         $this->showAdjustModal = false;
         $this->resetAdjustmentForm();
+    }
+
+    /**
+     * Net payable for one employee using the same rules as the payroll grid.
+     */
+    private function resolvePayableForEmployee(int $employeeId): float
+    {
+        $data = $this->buildPayrollRows();
+        foreach ($data['rows'] ?? [] as $row) {
+            if ((int) ($row['employee_id'] ?? 0) === $employeeId) {
+                return (float) ($row['payable_salary'] ?? 0);
+            }
+        }
+
+        return 0.0;
     }
 
     private function buildPayrollRows(): array
@@ -342,7 +371,7 @@ class PayrollMonthly extends Component
                 });
             })
             ->orderBy('name')
-            ->get(['id', 'name', 'staff_code', 'department_id', 'designation_id', 'basic_salary_per_day', 'basic_salary_per_month', 'is_epf_eligible']);
+            ->get(['id', 'name', 'staff_code', 'department_id', 'designation_id', 'basic_salary_per_day', 'basic_salary_per_month', 'is_epf_eligible', 'workplace']);
 
         $employeeIds = $employees->pluck('id')->all();
 
@@ -490,6 +519,7 @@ class PayrollMonthly extends Component
                 'total_of_deduction' => round($totalDeduction, 2),
                 'payable_salary' => round($payable, 2),
                 'payment_date' => $adj?->payment_date?->toDateString(),
+                'workplace' => Workplace::label($e->workplace ?? null),
                 'department' => $deptNames[$e->department_id] ?? null,
                 'designation' => $desigNames[$e->designation_id] ?? null,
             ];
@@ -648,7 +678,44 @@ class PayrollMonthly extends Component
         $r = $import->results();
         $this->importMessage = "Imported {$r['imported']} rows. Skipped {$r['skipped']} (missing employee: {$r['skipped_missing_employee']}). Failed {$r['failed']}.";
 
+        $this->syncAllPayrollSalaryExpenses();
+
         $this->importFile = null;
+    }
+
+    /**
+     * Post / refresh salary expenses for the current branch+month from payroll payables.
+     */
+    private function syncAllPayrollSalaryExpenses(): void
+    {
+        if ($this->branchId === null) {
+            return;
+        }
+
+        [$from] = $this->monthRange();
+        $data = $this->buildPayrollRows();
+
+        $adjustments = PayrollAdjustment::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->when(
+                $this->isCompanyLevel(),
+                fn ($q) => $q->whereNull('branch_id'),
+                fn ($q) => $q->where('branch_id', (int) $this->branchId)
+            )
+            ->where('year', (int) $from->format('Y'))
+            ->where('month', (int) $from->format('m'))
+            ->get()
+            ->keyBy('employee_id');
+
+        $sync = app(PayrollSalaryExpenseSync::class);
+
+        foreach ($data['rows'] ?? [] as $row) {
+            $adj = $adjustments->get($row['employee_id'] ?? null);
+            if (! $adj) {
+                continue;
+            }
+            $sync->sync($adj, (float) ($row['payable_salary'] ?? 0));
+        }
     }
 
     public function render()
