@@ -4,6 +4,8 @@ namespace Modules\Hotel\Entities;
 
 use App\Models\User;
 use App\Traits\HasBranch;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -194,7 +196,66 @@ class Reservation extends Model
     }
 
     /**
+     * Confirmed/checked-in stays that overlap a proposed window (half-open by datetime).
+     * Back-to-back is allowed: existing checkout == new check-in is not a conflict.
+     */
+    public function scopeOverlappingStay(Builder $query, Carbon $checkIn, Carbon $checkOut): Builder
+    {
+        $checkInAt = $checkIn->format('Y-m-d H:i:s');
+        $checkOutAt = $checkOut->format('Y-m-d H:i:s');
+
+        return $query
+            ->whereIn('status', [self::STATUS_CONFIRMED, self::STATUS_CHECKED_IN])
+            ->whereRaw(
+                "TIMESTAMP(check_in_date, COALESCE(check_in_time, '00:00:00')) < ?",
+                [$checkOutAt]
+            )
+            ->whereRaw(
+                "TIMESTAMP(checkout_date, COALESCE(checkout_time, '23:59:59')) > ?",
+                [$checkInAt]
+            );
+    }
+
+    /**
+     * Build a stay datetime from date + optional time (H:i or H:i:s).
+     */
+    public static function combineDateAndTime($date, ?string $time, string $fallbackTime = '00:00:00'): Carbon
+    {
+        $dateString = $date instanceof Carbon
+            ? $date->toDateString()
+            : Carbon::parse($date)->toDateString();
+
+        $normalized = self::normalizeTimeString($time) ?? self::normalizeTimeString($fallbackTime) ?? '00:00:00';
+
+        return Carbon::parse($dateString . ' ' . $normalized);
+    }
+
+    public static function normalizeTimeString(?string $time): ?string
+    {
+        if ($time === null || trim($time) === '') {
+            return null;
+        }
+
+        $time = trim($time);
+
+        if (preg_match('/^\d{1,2}:\d{2}$/', $time)) {
+            return $time . ':00';
+        }
+
+        if (preg_match('/^\d{1,2}:\d{2}:\d{2}$/', $time)) {
+            return $time;
+        }
+
+        try {
+            return Carbon::parse($time)->format('H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
      * Sum of nightly room rates across the reservation stay (before tax/service).
+     * Same-day (day-use) stays are charged one night.
      */
     public function calculateRoomChargesTotal(): float
     {
@@ -203,6 +264,10 @@ class Reservation extends Model
 
         $total = 0.0;
         $current = $checkIn->copy();
+
+        if ($current->equalTo($checkOut)) {
+            return round($this->getNightlyRateForDate($current), 2);
+        }
 
         while ($current->lt($checkOut)) {
             $total += $this->getNightlyRateForDate($current);

@@ -345,19 +345,30 @@
                         <p class="text-xs text-blue-600 mt-1 cursor-pointer hover:underline" wire:click="$set('showCreateGuest', true)">+ Create New Guest</p>
                     </div>
 
-                    {{-- Dates --}}
+                    {{-- Dates & times --}}
                     <div class="grid grid-cols-2 gap-4">
                         <div>
-                            <x-label for="create_check_in_date" value="Check In" />
+                            <x-label for="create_check_in_date" value="Check In Date" />
                             <x-input id="create_check_in_date" type="date" class="block w-full mt-1" wire:model.live="create_check_in_date" required />
                             <x-input-error for="create_check_in_date" class="mt-2" />
                         </div>
                         <div>
-                            <x-label for="create_check_out_date" value="Check Out" />
+                            <x-label for="create_check_in_time" value="Check In Time" />
+                            <x-input id="create_check_in_time" type="time" class="block w-full mt-1" wire:model.live="create_check_in_time" required />
+                            <x-input-error for="create_check_in_time" class="mt-2" />
+                        </div>
+                        <div>
+                            <x-label for="create_check_out_date" value="Check Out Date" />
                             <x-input id="create_check_out_date" type="date" class="block w-full mt-1" wire:model.live="create_check_out_date" required />
                             <x-input-error for="create_check_out_date" class="mt-2" />
                         </div>
+                        <div>
+                            <x-label for="create_check_out_time" value="Check Out Time" />
+                            <x-input id="create_check_out_time" type="time" class="block w-full mt-1" wire:model.live="create_check_out_time" required />
+                            <x-input-error for="create_check_out_time" class="mt-2" />
+                        </div>
                     </div>
+                    <p class="text-[11px] text-gray-400 dark:text-gray-500 -mt-2">Same-day bookings are allowed when times do not overlap. A new stay can start at the previous checkout time.</p>
 
                     {{-- Occupancy (default for new rooms) --}}
                     <div class="grid grid-cols-2 gap-4">
