@@ -386,24 +386,43 @@ class Reservation extends Model
     }
 
     /**
-     * Calculate total charges and update balance
+     * Calculate total charges and update balance.
+     *
+     * Confirmed bookings may have an estimated stay total and advance payments
+     * before room charges are posted at check-in. Do not wipe that estimate to 0
+     * when the charges table is still empty (e.g. opening folio after booking payment).
      */
     public function calculateTotal()
     {
-        $totalCharges = $this->charges()->sum('amount');
-        $totalPayments = $this->payments()
+        $totalCharges = (float) $this->charges()->sum('amount');
+        $totalPayments = (float) $this->payments()
             ->where('payment_type', '!=', HotelPayment::TYPE_REFUND)
             ->sum('amount');
-        $totalRefunds = $this->payments()
+        $totalRefunds = (float) $this->payments()
             ->where('payment_type', HotelPayment::TYPE_REFUND)
             ->sum('amount');
 
-        $paidAmount = $totalPayments - $totalRefunds;
+        $paidAmount = round($totalPayments - $totalRefunds, 2);
+
+        $existingEstimate = (float) $this->total_amount;
+        $effectiveTotal = $totalCharges;
+
+        if ($totalCharges <= 0 && $this->status === self::STATUS_CONFIRMED) {
+            if ($existingEstimate > 0) {
+                $effectiveTotal = $existingEstimate;
+            } else {
+                // Recover totals wiped when folio ran calculateTotal() before check-in charges existed.
+                $recovered = $this->calculateRoomChargesTotal();
+                if ($recovered > 0) {
+                    $effectiveTotal = $recovered;
+                }
+            }
+        }
 
         $this->update([
-            'total_amount' => $totalCharges,
+            'total_amount' => $effectiveTotal,
             'paid_amount' => $paidAmount,
-            'balance_due' => $totalCharges - $paidAmount,
+            'balance_due' => round($effectiveTotal - $paidAmount, 2),
         ]);
     }
 
