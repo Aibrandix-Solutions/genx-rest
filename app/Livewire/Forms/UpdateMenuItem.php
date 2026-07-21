@@ -126,7 +126,7 @@ class UpdateMenuItem extends Component
             ->findOrFail($this->menuItemId);
 
         $this->menuItem = app(MenuBranchProvisioningService::class)
-            ->backfillMenuItemFromSiblingIfEmpty($this->menuItem);
+            ->peekCatalogFromSiblingIfEmpty($this->menuItem);
 
         $this->initializeMenuBranchSelection();
         $this->initializeCollections();
@@ -820,7 +820,8 @@ class UpdateMenuItem extends Component
             $this->updateVariations($menuItem);
         } else {
             // If variations are now disabled, delete all old variations
-            MenuItemVariation::where('menu_item_id', $menuItem->id)->delete();
+            $variationIds = $menuItem->variations()->pluck('id')->all();
+            app(MenuBranchProvisioningService::class)->deleteVariationsIfUnreferenced($variationIds);
             $this->updateItemPricing($menuItem);
         }
     }
@@ -868,7 +869,7 @@ class UpdateMenuItem extends Component
         // Delete variations that were removed (not in submitted list)
         $variationsToDelete = array_diff($existingVariationIds, $submittedVariationIds);
         if (!empty($variationsToDelete)) {
-            MenuItemVariation::whereIn('id', $variationsToDelete)->delete();
+            app(MenuBranchProvisioningService::class)->deleteVariationsIfUnreferenced($variationsToDelete);
         }
     }
 
