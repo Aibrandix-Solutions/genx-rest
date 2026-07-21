@@ -131,7 +131,10 @@ class CreateMenuItem extends Component
         $this->categoryList = ItemCategory::all();
         $this->menus = Menu::all();
         $this->taxes = Tax::all();
-        $this->orderTypes = OrderType::where('is_active', 1)->get();
+        $branchId = (int) (branch()?->id ?? 0);
+        $this->orderTypes = $branchId > 0
+            ? app(MenuBranchProvisioningService::class)->activeOrderTypesForBranch($branchId)
+            : OrderType::where('is_active', 1)->get();
         $this->deliveryApps = DeliveryPlatform::where('is_active', 1)->get();
     }
 

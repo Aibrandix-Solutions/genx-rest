@@ -15,6 +15,13 @@ use Modules\Hrm\Support\Workplace;
 class PayrollSalaryExpenseSync
 {
     /**
+     * Default payment method recorded on auto-posted salary expenses. Expense
+     * records require a method when marked paid and payroll has no per-run
+     * method field, so this is the single place to change that default.
+     */
+    public const DEFAULT_PAYMENT_METHOD = 'cash';
+
+    /**
      * Create/update/remove the linked salary expense when payroll payment date changes.
      */
     public function sync(PayrollAdjustment $adjustment, float $payableAmount): void
@@ -46,10 +53,11 @@ class PayrollSalaryExpenseSync
 
     protected function syncRestaurantExpense(PayrollAdjustment $adjustment, Employee $employee, float $amount): void
     {
+        // Deterministic branch for the ledger entry. Never depends on the
+        // current viewer's active branch, so re-syncs always target the same one.
         $branchId = $adjustment->branch_id
             ?: $employee->branch_id
-            ?: branch()?->id
-            ?: DB::table('branches')->where('restaurant_id', $employee->restaurant_id)->value('id');
+            ?: DB::table('branches')->where('restaurant_id', $employee->restaurant_id)->orderBy('id')->value('id');
 
         if (! $branchId) {
             return;
@@ -77,7 +85,7 @@ class PayrollSalaryExpenseSync
             'expense_date' => $paymentDate,
             'payment_status' => 'paid',
             'payment_date' => $paymentDate,
-            'payment_method' => 'cash',
+            'payment_method' => self::DEFAULT_PAYMENT_METHOD,
         ];
 
         if ($adjustment->restaurant_expense_id) {
@@ -96,10 +104,11 @@ class PayrollSalaryExpenseSync
 
     protected function syncHotelExpense(PayrollAdjustment $adjustment, Employee $employee, float $amount): void
     {
+        // Deterministic branch for the ledger entry. Never depends on the
+        // current viewer's active branch, so re-syncs always target the same one.
         $branchId = $adjustment->branch_id
             ?: $employee->branch_id
-            ?: branch()?->id
-            ?: DB::table('branches')->where('restaurant_id', $employee->restaurant_id)->value('id');
+            ?: DB::table('branches')->where('restaurant_id', $employee->restaurant_id)->orderBy('id')->value('id');
 
         if (! $branchId) {
             return;
@@ -126,7 +135,7 @@ class PayrollSalaryExpenseSync
             'description' => 'Auto-posted from HRM payroll (Hotel workplace)',
             'amount' => round($amount, 2),
             'expense_date' => $paymentDate,
-            'payment_method' => 'cash',
+            'payment_method' => self::DEFAULT_PAYMENT_METHOD,
             'vendor' => $employee->name,
             'status' => HotelExpense::STATUS_PAID,
             'created_by_user_id' => auth()->id(),

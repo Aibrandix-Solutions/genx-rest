@@ -65,6 +65,9 @@ class EditMenuItem extends Component
 
     public function mount()
     {
+        $this->menuItem = app(MenuBranchProvisioningService::class)
+            ->backfillMenuItemFromSiblingIfEmpty($this->menuItem->loadMissing(['variations', 'prices']));
+
         $this->initializeMenuBranchSelection();
         $this->languages = languages()->pluck('language_name', 'language_code')->toArray();
         $this->translationNames = array_fill_keys(array_keys($this->languages), '');
