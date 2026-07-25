@@ -20,9 +20,10 @@
                     </svg>
                 </div>
 
-                <!-- Image -->
-                <div class="relative aspect-square hidden md:block">
-                    <img class="w-full h-full object-cover rounded-t-lg" :src="item.item_photo_url" :alt="item.item_name" />
+                <!-- Image (legacy: hidden when restaurant hides menu images on POS) -->
+                <div v-if="!hideMenuItemImageOnPos" class="relative aspect-square hidden md:block bg-gray-100 dark:bg-gray-800 rounded-t-lg">
+                    <img v-if="displayPhotoUrl && !photoBroken" class="w-full h-full object-cover rounded-t-lg"
+                        :src="displayPhotoUrl" :alt="item.item_name" loading="lazy" @error="handlePhotoError" />
                     <span v-if="item.type"
                         class="absolute top-1 right-1 bg-white/90 dark:bg-gray-800/90 rounded-full p-1 shadow-sm">
                         <img :src="item.type === 'veg'
@@ -68,9 +69,10 @@
                     </svg>
                 </div>
 
-                <!-- Image -->
-                <div class="relative aspect-square hidden md:block">
-                    <img class="w-full h-full object-cover rounded-t-lg" :src="item.item_photo_url" :alt="item.item_name" />
+                <!-- Image (legacy: hidden when restaurant hides menu images on POS) -->
+                <div v-if="!hideMenuItemImageOnPos" class="relative aspect-square hidden md:block bg-gray-100 dark:bg-gray-800 rounded-t-lg">
+                    <img v-if="displayPhotoUrl && !photoBroken" class="w-full h-full object-cover rounded-t-lg"
+                        :src="displayPhotoUrl" :alt="item.item_name" loading="lazy" @error="handlePhotoError" />
                     <span v-if="item.type"
                         class="absolute top-1 right-1 bg-white/90 dark:bg-gray-800/90 rounded-full p-1 shadow-sm">
                         <img :src="item.type === 'veg'
@@ -106,7 +108,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 
 const props = defineProps({
     item: {
@@ -126,11 +128,35 @@ const props = defineProps({
         type: String,
         default: "$",
     },
+    hideMenuItemImageOnPos: {
+        type: Boolean,
+        default: false,
+    },
 });
 
 const emit = defineEmits(["add-to-cart", "show-variations"]);
 
 const loading = ref(false);
+const photoBroken = ref(false);
+
+const displayPhotoUrl = computed(() => {
+    const url = props.item?.item_photo_url;
+    if (typeof url === "string" && url.trim().length > 0) {
+        return url.trim();
+    }
+    return "";
+});
+
+watch(
+    () => props.item?.id,
+    () => {
+        photoBroken.value = false;
+    }
+);
+
+const handlePhotoError = () => {
+    photoBroken.value = true;
+};
 
 const hasVariations = computed(() => {
     return (props.item.variations_count || 0) > 0;

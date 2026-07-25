@@ -103,7 +103,9 @@
                 <div v-if="!localComboOnly" :class="['mt-4', mobileItemsExpanded ? 'block' : 'hidden lg:block']">
                     <ul class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
                         <MenuItem v-for="item in filteredItems" :key="item.id" :item="item"
-                            :currency-symbol="currencySymbol" @add-to-cart="handleAddToCart"
+                            :currency-symbol="currencySymbol"
+                            :hide-menu-item-image-on-pos="hideMenuItemImageOnPos"
+                            @add-to-cart="handleAddToCart"
                             @show-variations="handleShowVariations" />
                     </ul>
                     <div v-if="filteredItems.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -125,7 +127,8 @@
                                 <!-- Image (legacy: hidden when restaurant hides menu images on POS) -->
                                 <div v-if="comboImageVisible(combo)" class="relative h-24 w-full shrink-0 bg-gray-100 dark:bg-gray-700">
                                     <img :src="combo.combo_image_url" :alt="combo.name || 'Combo'"
-                                        class="h-full w-full object-cover" loading="lazy" />
+                                        class="h-full w-full object-cover" loading="lazy"
+                                        @error="handleComboImageError" />
                                     <span
                                         class="absolute top-2 right-2 text-[10px] font-bold uppercase tracking-wide text-white bg-blue-500 rounded-md px-2 py-0.5 shadow-sm">Combo</span>
                                 </div>
@@ -373,6 +376,15 @@ const formatComboPrice = (value) => {
 const comboImageVisible = (combo) => {
     const url = combo?.combo_image_url;
     return !props.hideMenuItemImageOnPos && typeof url === "string" && url.trim().length > 0;
+};
+
+const handleComboImageError = (event) => {
+    const img = event?.target;
+    if (!img) {
+        return;
+    }
+    // Hide broken combo image; keep badge/placeholder background.
+    img.style.display = "none";
 };
 
 const comboPreviewRows = (combo) => {
