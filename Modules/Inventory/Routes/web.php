@@ -74,6 +74,8 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
             ->name('export');
     });
 
+    Route::get('item-purchases', [ReportController::class, 'itemPurchases'])->name('inventory.item-purchases.index');
+
     // New Reports Section
     Route::prefix('reports')->name('inventory.reports.')->group(function () {
         Route::get('usage', [ReportController::class, 'usage'])->name('usage');
@@ -83,5 +85,6 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
         Route::get('profit-and-loss', [ReportController::class, 'profitAndLoss'])->name('profit-and-loss');
         Route::get('item-inventory', [ReportController::class, 'itemInventory'])->name('item-inventory');
         Route::get('item-inventory/pdf', [ReportController::class, 'itemInventoryPdf'])->name('item-inventory.pdf');
+        Route::get('transfers', [ReportController::class, 'transfers'])->name('transfers');
     });
 });

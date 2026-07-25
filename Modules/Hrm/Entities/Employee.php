@@ -28,6 +28,15 @@ class Employee extends Model
         'basic_salary_per_month' => 'decimal:2',
     ];
 
+    protected $attributes = [
+        'workplace' => \Modules\Hrm\Support\Workplace::RESTAURANT,
+    ];
+
+    public function getWorkplaceLabelAttribute(): string
+    {
+        return \Modules\Hrm\Support\Workplace::label($this->workplace);
+    }
+
     public static function generateStaffCode(int $restaurantId): string
     {
         $start = (int) DB::table('hrm_employees')

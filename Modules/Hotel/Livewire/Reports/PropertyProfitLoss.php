@@ -4,8 +4,11 @@ namespace Modules\Hotel\Livewire\Reports;
 
 use Carbon\Carbon;
 use Livewire\Component;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Hotel\Exports\PropertyProfitLossExport;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
@@ -101,8 +104,9 @@ class PropertyProfitLoss extends Component
         // ── HOTEL EXPENSES BY DEPARTMENT ──
         $hotelExpByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
-            ->groupBy('department')
-            ->select('department', DB::raw('SUM(amount) as total'))
+            ->leftJoin('hotel_expense_departments', 'hotel_expenses.department_id', '=', 'hotel_expense_departments.id')
+            ->groupBy('hotel_expense_departments.name')
+            ->select(DB::raw("COALESCE(hotel_expense_departments.name, 'Other') as department"), DB::raw('SUM(amount) as total'))
             ->get();
 
         // ── RESTAURANT EXPENSES BY CATEGORY ──
@@ -152,6 +156,41 @@ class PropertyProfitLoss extends Component
             'netProfit', 'profitMargin',
             'hotelExpByDept', 'restExpByCategory', 'trend'
         );
+    }
+
+    public function exportExcel()
+    {
+        abort_unless(user_can('view_property_pnl'), 403);
+
+        $filename = 'property-pnl-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+
+        return Excel::download(
+            new PropertyProfitLossExport(
+                $this->pnlData,
+                $this->startDate,
+                $this->endDate,
+                (int) restaurant()->currency_id,
+                (string) (restaurant()->name ?? ''),
+            ),
+            $filename,
+        );
+    }
+
+    public function exportPdf()
+    {
+        abort_unless(user_can('view_property_pnl'), 403);
+
+        $pdf = Pdf::loadView('hotel::reports.property-profit-loss-export', [
+            'data' => $this->pnlData,
+            'startDate' => $this->startDate,
+            'endDate' => $this->endDate,
+            'currencyId' => (int) restaurant()->currency_id,
+            'propertyName' => (string) (restaurant()->name ?? ''),
+        ])->setPaper('A4', 'landscape');
+
+        $filename = 'property-pnl-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+
+        return response()->streamDownload(fn () => print($pdf->output()), $filename);
     }
 
     public function render()

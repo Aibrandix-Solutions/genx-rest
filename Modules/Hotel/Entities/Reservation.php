@@ -4,6 +4,8 @@ namespace Modules\Hotel\Entities;
 
 use App\Models\User;
 use App\Traits\HasBranch;
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -36,6 +38,7 @@ class Reservation extends Model
         'paid_amount',
         'balance_due',
         'tax_rate_override',
+        'nightly_rate_override',
         'group_booking_id',
         'created_by_user_id',
     ];
@@ -49,6 +52,7 @@ class Reservation extends Model
         'paid_amount' => 'decimal:2',
         'balance_due' => 'decimal:2',
         'tax_rate_override' => 'decimal:2',
+        'nightly_rate_override' => 'decimal:2',
     ];
 
     const STATUS_CONFIRMED = 'confirmed';
@@ -174,6 +178,121 @@ class Reservation extends Model
     }
 
     /**
+     * Nightly room rate for a stay date: reservation override, or room-type pricing.
+     */
+    public function getNightlyRateForDate($date): float
+    {
+        if ($this->nightly_rate_override !== null) {
+            return (float) $this->nightly_rate_override;
+        }
+
+        $roomType = $this->room?->roomType;
+
+        if (!$roomType) {
+            return 0.0;
+        }
+
+        return (float) $roomType->getPriceForDate($date);
+    }
+
+    /**
+     * Confirmed/checked-in stays that overlap a proposed window (half-open by datetime).
+     * Back-to-back is allowed: existing checkout == new check-in is not a conflict.
+     *
+     * Uses date columns for index-friendly filtering, then precise time checks on
+     * boundary days — avoids TIMESTAMP() wrapping that prevents index use.
+     */
+    public function scopeOverlappingStay(Builder $query, Carbon $checkIn, Carbon $checkOut): Builder
+    {
+        $inDate = $checkIn->toDateString();
+        $outDate = $checkOut->toDateString();
+        $inTime = $checkIn->format('H:i:s');
+        $outTime = $checkOut->format('H:i:s');
+
+        return $query
+            ->whereIn('status', [self::STATUS_CONFIRMED, self::STATUS_CHECKED_IN])
+            // Coarse filter (uses check_in_date / checkout_date indexes)
+            ->where('check_in_date', '<=', $outDate)
+            ->where('checkout_date', '>=', $inDate)
+            // Precise half-open: existing.start < new.end AND existing.end > new.start
+            ->where(function (Builder $q) use ($outDate, $outTime) {
+                $q->where('check_in_date', '<', $outDate)
+                    ->orWhere(function (Builder $q2) use ($outDate, $outTime) {
+                        $q2->where('check_in_date', '=', $outDate)
+                            ->whereRaw("COALESCE(check_in_time, '00:00:00') < ?", [$outTime]);
+                    });
+            })
+            ->where(function (Builder $q) use ($inDate, $inTime) {
+                $q->where('checkout_date', '>', $inDate)
+                    ->orWhere(function (Builder $q2) use ($inDate, $inTime) {
+                        $q2->where('checkout_date', '=', $inDate)
+                            ->whereRaw("COALESCE(checkout_time, '23:59:59') > ?", [$inTime]);
+                    });
+            });
+    }
+
+    /**
+     * Build a stay datetime from date + optional time (H:i or H:i:s).
+     */
+    public static function combineDateAndTime($date, ?string $time, string $fallbackTime = '00:00:00'): Carbon
+    {
+        $dateString = $date instanceof Carbon
+            ? $date->toDateString()
+            : Carbon::parse($date)->toDateString();
+
+        $normalized = self::normalizeTimeString($time) ?? self::normalizeTimeString($fallbackTime) ?? '00:00:00';
+
+        return Carbon::parse($dateString . ' ' . $normalized);
+    }
+
+    public static function normalizeTimeString(?string $time): ?string
+    {
+        if ($time === null || trim($time) === '') {
+            return null;
+        }
+
+        $time = trim($time);
+
+        if (preg_match('/^\d{1,2}:\d{2}$/', $time)) {
+            return $time . ':00';
+        }
+
+        if (preg_match('/^\d{1,2}:\d{2}:\d{2}$/', $time)) {
+            return $time;
+        }
+
+        try {
+            return Carbon::parse($time)->format('H:i:s');
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Sum of nightly room rates across the reservation stay (before tax/service).
+     * Same-day (day-use) stays are charged one night.
+     */
+    public function calculateRoomChargesTotal(): float
+    {
+        $checkIn = $this->check_in_date->copy()->startOfDay();
+        $checkOut = $this->checkout_date->copy()->startOfDay();
+
+        $total = 0.0;
+        $current = $checkIn->copy();
+
+        if ($current->equalTo($checkOut)) {
+            return round($this->getNightlyRateForDate($current), 2);
+        }
+
+        while ($current->lt($checkOut)) {
+            $total += $this->getNightlyRateForDate($current);
+            $current->addDay();
+        }
+
+        return round($total, 2);
+    }
+
+    /**
      * Room-night charges used as the tax calculation base.
      */
     public function getTaxableRoomChargesBase(): float
@@ -282,24 +401,43 @@ class Reservation extends Model
     }
 
     /**
-     * Calculate total charges and update balance
+     * Calculate total charges and update balance.
+     *
+     * Confirmed bookings may have an estimated stay total and advance payments
+     * before room charges are posted at check-in. Do not wipe that estimate to 0
+     * when the charges table is still empty (e.g. opening folio after booking payment).
      */
     public function calculateTotal()
     {
-        $totalCharges = $this->charges()->sum('amount');
-        $totalPayments = $this->payments()
+        $totalCharges = (float) $this->charges()->sum('amount');
+        $totalPayments = (float) $this->payments()
             ->where('payment_type', '!=', HotelPayment::TYPE_REFUND)
             ->sum('amount');
-        $totalRefunds = $this->payments()
+        $totalRefunds = (float) $this->payments()
             ->where('payment_type', HotelPayment::TYPE_REFUND)
             ->sum('amount');
 
-        $paidAmount = $totalPayments - $totalRefunds;
+        $paidAmount = round($totalPayments - $totalRefunds, 2);
+
+        $existingEstimate = (float) $this->total_amount;
+        $effectiveTotal = $totalCharges;
+
+        if ($totalCharges <= 0 && $this->status === self::STATUS_CONFIRMED) {
+            if ($existingEstimate > 0) {
+                $effectiveTotal = $existingEstimate;
+            } else {
+                // Recover totals wiped when folio ran calculateTotal() before check-in charges existed.
+                $recovered = $this->calculateRoomChargesTotal();
+                if ($recovered > 0) {
+                    $effectiveTotal = $recovered;
+                }
+            }
+        }
 
         $this->update([
-            'total_amount' => $totalCharges,
+            'total_amount' => $effectiveTotal,
             'paid_amount' => $paidAmount,
-            'balance_due' => $totalCharges - $paidAmount,
+            'balance_due' => round($effectiveTotal - $paidAmount, 2),
         ]);
     }
 

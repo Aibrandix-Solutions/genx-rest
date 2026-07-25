@@ -52,6 +52,22 @@
             </div>
         </div>
         @endif
+
+        @if (!empty($linkedBranchNames))
+            <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-2.5">
+                <x-label :value="__('modules.menu.linkedBranches')" class="text-sm mb-2" />
+                <p class="text-xs text-gray-700 dark:text-gray-200">{{ implode(', ', $linkedBranchNames) }}</p>
+            </div>
+        @endif
+
+        <x-menu.branch-multi-select
+            :branches="$restaurantBranches"
+            :selected-ids="$additionalBranchIds"
+            wire-model="additionalBranchIds"
+            toggle-method="toggleAdditionalBranchSelection"
+            :label="__('modules.menu.provisionAdditionalBranches')"
+            :help="__('modules.menu.provisionAdditionalBranchesHelp')"
+        />
     </div>
 
     <div class="flex justify-end w-full space-x-4 mt-6">

@@ -16,6 +16,7 @@ class InvoiceV2 extends Component
     public $charges;
     public $folioSummary = [];
     public $payments;
+    public $viewMode = 'single'; // single | group
     public $totalCharges = 0;
     public $totalPayments = 0;
     public $balance = 0;
@@ -28,6 +29,7 @@ class InvoiceV2 extends Component
     {
         abort_unless(user_can('view_hotel_billing'), 403);
         $this->reservationId = $reservationId;
+        $this->viewMode = request()->query('viewMode', 'consolidated');
         $this->loadData();
     }
 
@@ -43,16 +45,36 @@ class InvoiceV2 extends Component
         $this->hotelAddress = restaurant()->address ?? '';
         $this->hotelPhone   = restaurant()->phone ?? '';
         
-        $this->charges = RoomCharge::with('order')
-            ->where('reservation_id', $this->reservationId)
-            ->orderBy('charge_date', 'asc')
-            ->get();
+        if ($this->reservation->group_booking_id) {
+            $groupReservations = Reservation::where('group_booking_id', $this->reservation->group_booking_id)->get();
+            $resIds = $groupReservations->pluck('id');
 
-        $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
+            $this->charges = RoomCharge::with(['order', 'reservation.room'])
+                ->whereIn('reservation_id', $resIds)
+                ->orderBy('charge_date', 'asc')
+                ->get();
 
-        $this->payments = HotelPayment::where('reservation_id', $this->reservationId)
-            ->orderBy('created_at', 'asc')
-            ->get();
+            $this->payments = HotelPayment::whereIn('reservation_id', $resIds)
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            if ($this->viewMode === 'roomwise') {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, '');
+            } else {
+                $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges, 'consolidated');
+            }
+        } else {
+            $this->charges = RoomCharge::with('order')
+                ->where('reservation_id', $this->reservationId)
+                ->orderBy('charge_date', 'asc')
+                ->get();
+
+            $this->payments = HotelPayment::where('reservation_id', $this->reservationId)
+                ->orderBy('created_at', 'asc')
+                ->get();
+
+            $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
+        }
 
         $this->totalCharges = $this->folioSummary['subtotal'];
 

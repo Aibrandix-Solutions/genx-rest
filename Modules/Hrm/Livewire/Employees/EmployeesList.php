@@ -12,6 +12,7 @@ use Livewire\WithPagination;
 use Modules\Hrm\Entities\Department;
 use Modules\Hrm\Entities\Designation;
 use Modules\Hrm\Entities\Employee;
+use Modules\Hrm\Support\Workplace;
 
 class EmployeesList extends Component
 {
@@ -25,6 +26,7 @@ class EmployeesList extends Component
 
     public ?int $branch_id = null;
     public ?int $user_id = null;
+    public string $workplace = Workplace::RESTAURANT;
     public ?int $department_id = null;
     public ?int $designation_id = null;
 
@@ -61,6 +63,13 @@ class EmployeesList extends Component
             ->all();
 
         $this->branchId = $this->branchId ?? (branch()?->id);
+        $this->workplace = Workplace::default();
+    }
+
+    public function updatedWorkplace($value): void
+    {
+        $this->workplace = Workplace::normalize($value);
+        $this->department_id = null;
     }
 
     public function updating($name, $value): void
@@ -90,7 +99,17 @@ class EmployeesList extends Component
         $this->editingId = $employee->id;
         $this->branch_id = $employee->branch_id;
         $this->user_id = $employee->user_id;
+        $this->workplace = Workplace::normalize($employee->workplace);
         $this->department_id = $employee->department_id;
+        if ($this->department_id) {
+            $deptWorkplace = Department::query()
+                ->where('restaurant_id', restaurant()->id)
+                ->where('id', $this->department_id)
+                ->value('workplace');
+            if ($deptWorkplace && $deptWorkplace !== $this->workplace) {
+                $this->department_id = null;
+            }
+        }
         $this->designation_id = $employee->designation_id;
         $this->staff_code = $employee->staff_code;
         $this->name = (string) $employee->name;
@@ -121,10 +140,19 @@ class EmployeesList extends Component
             $this->staff_code = Employee::generateStaffCode((int) restaurant()->id);
         }
 
+        $this->workplace = Workplace::normalize($this->workplace);
+
         $this->validate([
             'branch_id' => ['nullable', 'integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'user_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
-            'department_id' => ['nullable', 'integer', Rule::exists('hrm_departments', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
+            'workplace' => ['required', Rule::in(Workplace::allowedValues())],
+            'department_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('hrm_departments', 'id')->where(fn ($q) => $q
+                    ->where('restaurant_id', restaurant()->id)
+                    ->where('workplace', $this->workplace)),
+            ],
             'designation_id' => ['nullable', 'integer', Rule::exists('hrm_designations', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
             'extraBranchIds' => ['nullable', 'array'],
             'extraBranchIds.*' => ['integer', Rule::exists('branches', 'id')->where(fn($q) => $q->where('restaurant_id', restaurant()->id))],
@@ -154,6 +182,7 @@ class EmployeesList extends Component
         $employee->restaurant_id = restaurant()->id;
         $employee->branch_id = $this->branch_id ? (int) $this->branch_id : null;
         $employee->user_id = $this->user_id;
+        $employee->workplace = $this->workplace;
         $employee->department_id = $this->department_id;
         $employee->designation_id = $this->designation_id;
         $employee->staff_code = $this->staff_code;
@@ -227,6 +256,7 @@ class EmployeesList extends Component
         $this->editingId = null;
         $this->branch_id = null;
         $this->user_id = null;
+        $this->workplace = Workplace::default();
         $this->department_id = null;
         $this->designation_id = null;
         $this->staff_code = null;
@@ -292,10 +322,15 @@ class EmployeesList extends Component
 
     public function render()
     {
+        $workplaceOptions = Workplace::options();
+        $this->workplace = Workplace::normalize($this->workplace);
+
         $departments = Department::query()
             ->where('restaurant_id', restaurant()->id)
+            ->where('workplace', $this->workplace)
+            ->where('is_active', true)
             ->orderBy('name')
-            ->get(['id', 'name']);
+            ->get(['id', 'name', 'workplace']);
         $designations = Designation::query()
             ->where('restaurant_id', restaurant()->id)
             ->orderBy('name')
@@ -312,7 +347,7 @@ class EmployeesList extends Component
             ->with([
                 'branch:id,name',
                 'extraBranches:id,name',
-                'department:id,name',
+                'department:id,name,workplace',
                 'designation:id,name',
                 'user:id,name,email',
             ])
@@ -333,6 +368,8 @@ class EmployeesList extends Component
             'departments' => $departments,
             'designations' => $designations,
             'users' => $users,
+            'workplaceOptions' => $workplaceOptions,
+            'showWorkplaceSelect' => count($workplaceOptions) > 1,
         ])->layout('layouts.app');
     }
 }
