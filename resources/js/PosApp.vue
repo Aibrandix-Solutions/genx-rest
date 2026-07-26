@@ -2309,8 +2309,8 @@ const runSaveOrder = async (...actions) => {
                     if (!openedPayment) {
                         navigateToPayment(resolvedOrderId);
                     } else {
-                        // Keep linked cart/footer in sync with billed status after in-place modal open.
-                        await loadOrderData(resolvedOrderId);
+                        // Non-blocking refresh — don't delay the payment modal on a second GET.
+                        scheduleLinkedOrderRefresh(resolvedOrderId);
                     }
                     return;
                 }
@@ -2325,7 +2325,7 @@ const runSaveOrder = async (...actions) => {
                         return;
                     }
 
-                    await loadOrderData(resolvedOrderId);
+                    scheduleLinkedOrderRefresh(resolvedOrderId);
                     return;
                 }
 
@@ -2337,15 +2337,14 @@ const runSaveOrder = async (...actions) => {
                     if (!openedOrderDetail) {
                         navigateToLinkedOrderDetail(resolvedOrderId);
                     } else {
-                        // Legacy immediately reflects billed footer state; mirror that by rehydrating.
-                        await loadOrderData(resolvedOrderId);
+                        scheduleLinkedOrderRefresh(resolvedOrderId);
                     }
                     return;
                 }
 
                 // Preserve linked order context and refresh in-place for non-navigating actions.
                 printPlaceholder?.close();
-                await loadOrderData(resolvedOrderId);
+                scheduleLinkedOrderRefresh(resolvedOrderId);
                 return;
             }
 
@@ -2358,7 +2357,7 @@ const runSaveOrder = async (...actions) => {
 
                 printPlaceholder?.close();
                 if (effectiveOrderId) {
-                    await loadOrderData(effectiveOrderId);
+                    scheduleLinkedOrderRefresh(effectiveOrderId);
                 }
                 return;
             }
@@ -3095,7 +3094,7 @@ let posLivewireListenersRegistered = false;
 
 const scheduleLinkedOrderRefresh = (targetId = null) => {
     const id = targetId ?? orderId.value;
-    if (!id || !isLinkedOrderMode.value) {
+    if (!id) {
         return;
     }
 
