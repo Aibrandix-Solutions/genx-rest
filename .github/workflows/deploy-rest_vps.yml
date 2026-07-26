@@ -52,6 +52,7 @@ jobs:
             --exclude="node_modules" \
             --exclude="storage" \
             --exclude="bootstrap/cache" \
+            --exclude="public/user-uploads" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
             ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/mrchai.digierp.cloud/public_html/
 
@@ -73,11 +74,13 @@ jobs:
             fi
 
             mkdir -p storage/app
-            mkdir -p storage/framework/cache
+            mkdir -p storage/framework/cache/data
             mkdir -p storage/framework/sessions
             mkdir -p storage/framework/views
             mkdir -p storage/logs
             mkdir -p bootstrap/cache
+            mkdir -p public/user-uploads/item
+            mkdir -p public/user-uploads/temp
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
@@ -88,7 +91,7 @@ jobs:
             php artisan route:cache
             php artisan view:cache
 
-            chmod -R 775 storage bootstrap/cache
+            chmod -R 775 storage bootstrap/cache public/user-uploads
             chown -R admin:admin /home/admin/domains/mrchai.digierp.cloud/public_html || true
 
             echo "Deployment completed successfully"
