@@ -210,6 +210,8 @@ class OrderDetail extends Component
                 'items.menuItemVariation',
                 'items.comboPack',
                 'payments',
+                'taxes.tax',
+                'charges.charge',
                 'cancelReason',
                 'hotelReservation.room',
                 'hotelReservation.guest'

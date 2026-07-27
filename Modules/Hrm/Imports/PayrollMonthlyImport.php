@@ -13,7 +13,10 @@ use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 class PayrollMonthlyImport implements ToCollection, WithHeadingRow
 {
     private int $restaurantId;
-    private int $branchId;
+
+    /** null = company-level employees (branch_id IS NULL) */
+    private ?int $branchId;
+
     private int $year;
     private int $month;
 
@@ -25,7 +28,7 @@ class PayrollMonthlyImport implements ToCollection, WithHeadingRow
         'failed' => 0,
     ];
 
-    public function __construct(int $restaurantId, int $branchId, int $year, int $month)
+    public function __construct(int $restaurantId, ?int $branchId, int $year, int $month)
     {
         $this->restaurantId = $restaurantId;
         $this->branchId = $branchId;
@@ -44,11 +47,17 @@ class PayrollMonthlyImport implements ToCollection, WithHeadingRow
                     continue;
                 }
 
-                $employeeId = DB::table('hrm_employees')
+                $employeeQuery = DB::table('hrm_employees')
                     ->where('restaurant_id', $this->restaurantId)
-                    ->where('branch_id', $this->branchId)
-                    ->where('staff_code', $staffCode)
-                    ->value('id');
+                    ->where('staff_code', $staffCode);
+
+                if ($this->branchId === null) {
+                    $employeeQuery->whereNull('branch_id');
+                } else {
+                    $employeeQuery->where('branch_id', $this->branchId);
+                }
+
+                $employeeId = $employeeQuery->value('id');
 
                 if (!$employeeId) {
                     $this->results['skipped']++;

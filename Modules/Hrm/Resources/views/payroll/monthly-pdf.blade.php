@@ -69,6 +69,8 @@
                 <th colspan="5" style="background:#7b241c;">Deductions</th>
                 <th rowspan="2" style="background:#145a32;">Total Deduction</th>
                 <th rowspan="2" style="background:#145a32;">Payable Salary</th>
+                <th rowspan="2" style="background:#1a5276;">ETF (Employer)</th>
+                <th rowspan="2">Status</th>
                 <th rowspan="2">Payment Date</th>
             </tr>
             <tr>
@@ -93,6 +95,7 @@
                 'total_earning'        => 0,
                 'advance'              => 0,
                 'epf'                  => 0,
+                'etf'                  => 0,
                 'time_deduction'       => 0,
                 'credit_purchase'      => 0,
                 'other_deduction'      => 0,
@@ -108,11 +111,13 @@
                 $totals['total_earning']        += $row['total_earning'];
                 $totals['advance']              += $row['advance'];
                 $totals['epf']                  += $row['epf'];
+                $totals['etf']                  += $row['etf'] ?? 0;
                 $totals['time_deduction']       += $row['time_deduction'];
                 $totals['credit_purchase']      += $row['credit_purchase'];
                 $totals['other_deduction']      += $row['other_deduction'];
                 $totals['total_of_deduction']   += $row['total_of_deduction'];
                 $totals['payable_salary']       += $row['payable_salary'];
+                $isPaid = !empty($row['is_paid']) || (($row['payment_status'] ?? '') === 'paid');
             @endphp
             <tr>
                 <td>{{ $row['sn'] }}</td>
@@ -132,11 +137,13 @@
                 <td class="text-right">{{ number_format((float)$row['other_deduction'], 2) }}</td>
                 <td class="text-right" style="font-weight:bold;">{{ number_format((float)$row['total_of_deduction'], 2) }}</td>
                 <td class="text-right" style="font-weight:bold;">{{ number_format((float)$row['payable_salary'], 2) }}</td>
+                <td class="text-right">{{ number_format((float)($row['etf'] ?? 0), 2) }}</td>
+                <td>{{ $isPaid ? 'Paid' : 'Unpaid' }}</td>
                 <td>{{ $row['payment_date'] ?? '—' }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="18" style="text-align:center; padding:12px; color:#999;">No payroll records found.</td>
+                <td colspan="20" style="text-align:center; padding:12px; color:#999;">No payroll records found.</td>
             </tr>
             @endforelse
         </tbody>
@@ -154,6 +161,8 @@
                 <td class="text-right">{{ number_format($totals['other_deduction'], 2) }}</td>
                 <td class="text-right">{{ number_format($totals['total_of_deduction'], 2) }}</td>
                 <td class="text-right">{{ number_format($totals['payable_salary'], 2) }}</td>
+                <td class="text-right">{{ number_format($totals['etf'], 2) }}</td>
+                <td></td>
                 <td></td>
             </tr>
         </tfoot>

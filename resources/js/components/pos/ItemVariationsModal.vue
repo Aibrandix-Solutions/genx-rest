@@ -13,7 +13,8 @@
                     <!-- Item Image -->
                     <div class="flex-shrink-0">
                         <img v-if="item?.item_photo_url" :src="item.item_photo_url" :alt="item?.item_name"
-                            class="h-16 w-16 object-cover rounded-lg" />
+                            class="h-16 w-16 object-cover rounded-lg" loading="lazy"
+                            @error="($event) => { $event.target.style.display = 'none'; }" />
                         <div v-else class="h-16 w-16 bg-gray-200 dark:bg-gray-700 rounded-lg"></div>
                     </div>
 

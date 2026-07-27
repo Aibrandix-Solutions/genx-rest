@@ -61,19 +61,26 @@ class Room extends Model
     }
 
     /**
-     * Check if room is available for specific dates
+     * Check if room is available for a stay window (date or datetime).
+     * Uses datetime half-open overlap so same-day back-to-back bookings are allowed.
      */
     public function isAvailableForDates($checkIn, $checkOut)
     {
-        // Half-open interval: conflict exists when existing.check_in < new.checkout
-        // AND existing.checkout > new.check_in
-        // Allows same-day turnover (checkout Jan 5 = available for Jan 5 check-in)
+        $checkInAt = $checkIn instanceof \Carbon\Carbon
+            ? $checkIn->copy()
+            : \Carbon\Carbon::parse($checkIn);
+        $checkOutAt = $checkOut instanceof \Carbon\Carbon
+            ? $checkOut->copy()
+            : \Carbon\Carbon::parse($checkOut);
+
+        if (in_array($this->status, [self::STATUS_MAINTENANCE, self::STATUS_BLOCKED], true)) {
+            return false;
+        }
+
         $conflictingReservations = $this->reservations()
-            ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
-            ->where('check_in_date', '<', $checkOut)
-            ->where('checkout_date', '>', $checkIn)
+            ->overlappingStay($checkInAt, $checkOutAt)
             ->exists();
 
-        return !$conflictingReservations && in_array($this->status, [self::STATUS_AVAILABLE, self::STATUS_RESERVED]);
+        return ! $conflictingReservations;
     }
 }

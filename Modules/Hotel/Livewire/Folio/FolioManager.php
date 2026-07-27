@@ -153,6 +153,17 @@ class FolioManager extends Component
         // Check if room night charges exist
         $this->hasRoomNightCharges = $this->charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->isNotEmpty();
 
+        // Confirmed booking with advance payment but no posted charges yet:
+        // show the estimated stay total so folio matches the reservation list.
+        if (
+            ! $this->hasRoomNightCharges
+            && (float) $this->totalCharges <= 0
+            && (float) $this->reservation->total_amount > 0
+            && $this->reservation->status === Reservation::STATUS_CONFIRMED
+        ) {
+            $this->totalCharges = (float) $this->reservation->total_amount;
+        }
+
         if ($this->reservation->group_booking_id) {
             $this->balance = $this->totalCharges - $this->totalPayments;
         } else {
