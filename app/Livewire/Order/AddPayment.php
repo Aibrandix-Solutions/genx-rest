@@ -69,73 +69,88 @@ class AddPayment extends Component
         $this->splitType = null;
         $this->splits = [];
         $this->availableItems = [];
+        $this->paymentMethod = 'cash';
+        $this->tipAmount = null;
+        $this->tipPercentage = null;
+        $this->showTipModal = false;
+        $this->showRoomCharge = false;
+        $this->inHouseReservations = [];
+        $this->roomChargeReservationId = null;
+        $this->totalExtraCharges = 0;
 
-        // Lightweight load for Full Payment — split-item data is loaded lazily
-        // when the cashier opens Split Bill (see ensureSplitPaymentDataLoaded).
-        $this->order = Order::with([
-            'payments',
-            'charges.charge',
-            'taxes.tax',
-        ])->find($id);
+        // Minimal query so the modal can paint immediately; extras load after open.
+        $this->order = Order::query()
+            ->with(['payments'])
+            ->find($id);
 
         if (! $this->order) {
             return;
         }
 
-        $this->canAddTip = restaurant()->enable_tip_pos && $this->order->status !== 'paid';
+        $this->updateAmountDetails();
+        $this->showAddPaymentModal = true;
 
-        // Load predefined amounts
-        $this->predefinedAmounts = restaurant()->predefinedAmounts()->pluck('amount')->toArray();
+        // Second tick: tip/charges/hotel/predefined amounts (does not block first paint).
+        $this->js('setTimeout(() => $wire.loadPaymentModalExtras(), 1)');
+    }
 
-        // If no predefined amounts exist, use defaults
-        if (empty($this->predefinedAmounts)) {
-            $this->predefinedAmounts = [50, 100, 500, 1000];
+    /**
+     * Load non-critical payment modal data after the dialog is already visible.
+     */
+    public function loadPaymentModalExtras(): void
+    {
+        if (! $this->order || ! $this->showAddPaymentModal) {
+            return;
         }
 
-        $totalDiscount = floatval($this->order->discount_amount ?? 0);
+        $this->order->loadMissing([
+            'charges.charge',
+            'taxes.tax',
+        ]);
 
+        $this->canAddTip = (bool) (restaurant()->enable_tip_pos && $this->order->status !== 'paid');
+
+        $predefined = restaurant()->predefinedAmounts()->pluck('amount')->toArray();
+        $this->predefinedAmounts = ! empty($predefined) ? $predefined : [50, 100, 500, 1000];
+
+        $totalDiscount = floatval($this->order->discount_amount ?? 0);
         $subTotal = floatval($this->order->sub_total ?? 0);
         $discountedSubTotal = max(0, $subTotal - $totalDiscount);
 
-        $charges = $this->order->charges;
-        $extraCharges = $charges->map(function ($charge) use ($discountedSubTotal) {
-            $chargeAmount = $charge->charge->charge_type == 'percent'
+        $this->totalExtraCharges = $this->order->charges->sum(function ($charge) use ($discountedSubTotal) {
+            if (! $charge->charge) {
+                return 0;
+            }
+
+            return $charge->charge->charge_type == 'percent'
                 ? ($charge->charge->charge_value / 100) * $discountedSubTotal
                 : $charge->charge->charge_value;
-            return [
-                'name' => $charge->charge->charge_name,
-                'amount' => $chargeAmount,
-                'rate' => $charge->charge->charge_value,
-                'type' => $charge->charge->charge_type,
-            ];
-        })->toArray();
-        $this->totalExtraCharges = collect($extraCharges)->sum('amount');
+        });
 
         $this->updateAmountDetails();
 
-        // Open the modal before optional hotel / split work so POS feels instant.
-        $this->showAddPaymentModal = true;
-
         $this->showRoomCharge = PosHotelSupport::showRoomChargePayment();
-        $this->inHouseReservations = [];
-        $this->roomChargeReservationId = null;
-
         if ($this->showRoomCharge) {
             $this->roomChargeReservationId = $this->order->hotel_reservation_id;
             if ($this->order->hotel_reservation_id) {
                 $this->paymentMethod = 'room_charge';
-                // Only load hotel reservations when room charge is the active method.
                 $this->loadInHouseReservations();
             }
         }
 
-        // Resume item-split payment UI only when the order is already mid split-by-items.
         if ($this->order->split_type === 'items') {
             $this->ensureSplitPaymentDataLoaded();
             $this->showSplitOptions = true;
             $this->splitType = 'items';
             $this->initializeSplits();
         }
+    }
+
+    #[On('closePaymentModal')]
+    public function closePaymentModal(): void
+    {
+        $this->showAddPaymentModal = false;
+        $this->pendingDueSplitIdForCustomerModal = null;
     }
 
     /**

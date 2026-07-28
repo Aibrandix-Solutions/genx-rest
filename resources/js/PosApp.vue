@@ -1826,6 +1826,8 @@ const openPaymentInPlace = (id) => {
     });
 };
 
+const closePaymentInPlace = () => dispatchLivewireEvent("closePaymentModal", {});
+
 const openOrderDetailInPlace = (id) => {
     if (!id) {
         return false;
@@ -2280,6 +2282,7 @@ const runSaveOrder = async (...actions) => {
     }
     let draftSnapshot = null;
     let optimisticNewOrderClear = false;
+    let paymentOpenedEarly = false;
 
     try {
         // Validate cart has items
@@ -2315,6 +2318,21 @@ const runSaveOrder = async (...actions) => {
         const openPayment = secondaryAction === "payment";
         const selectedOrderType = resolveOrderType(orderType.value);
         const selectedSlug = normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value);
+
+        // Open payment immediately when the order already exists and the cart has no
+        // new lines — don't wait for the bill API / Livewire extras. New-order flows
+        // still open after save (no order id yet).
+        if (
+            openPayment &&
+            isExistingOrder &&
+            (!cartItems.value || cartItems.value.length === 0)
+        ) {
+            paymentOpenedEarly = openPaymentInPlace(effectiveOrderId);
+            console.log("[POS DEBUG] payment modal opened early", {
+                effectiveOrderId,
+                paymentOpenedEarly,
+            });
+        }
 
         if (selectedSlug === "room_service") {
             if (!roomServiceEnabled.value) {
@@ -2545,7 +2563,10 @@ const runSaveOrder = async (...actions) => {
             // Open payment as soon as we have an order id — don't wait for
             // linked-order refresh / cart clear / order-number fetch.
             if (shouldOpenPayment && resolvedOrderId) {
-                console.log("[POS DEBUG] -> payment (early)", { resolvedOrderId });
+                console.log("[POS DEBUG] -> payment (early-path)", {
+                    resolvedOrderId,
+                    paymentOpenedEarly,
+                });
                 printPlaceholder?.close();
                 printPlaceholder = null;
 
@@ -2562,12 +2583,17 @@ const runSaveOrder = async (...actions) => {
                     clearCartAfterSave();
                 }
 
-                const openedPayment = openPaymentInPlace(resolvedOrderId);
-                if (!openedPayment) {
-                    if (isExistingOrder) {
-                        navigateToPayment(resolvedOrderId);
-                    } else {
-                        window.location.href = `/orders/${resolvedOrderId}?payment=true`;
+                // Skip a second Livewire round-trip when the modal was already opened on click.
+                if (!paymentOpenedEarly) {
+                    const openedPayment = openPaymentInPlace(resolvedOrderId);
+                    if (!openedPayment) {
+                        if (isExistingOrder) {
+                            navigateToPayment(resolvedOrderId);
+                        } else {
+                            window.location.href = `/orders/${resolvedOrderId}?payment=true`;
+                        }
+                    } else if (isExistingOrder) {
+                        scheduleLinkedOrderRefresh(resolvedOrderId);
                     }
                 } else if (isExistingOrder) {
                     scheduleLinkedOrderRefresh(resolvedOrderId);
@@ -2718,6 +2744,9 @@ const runSaveOrder = async (...actions) => {
         }
     } catch (error) {
         printPlaceholder?.close();
+        if (paymentOpenedEarly) {
+            closePaymentInPlace();
+        }
         const errorMessage = error?.response?.data?.message || error?.message || "Failed to save order";
         const errors = error?.response?.data?.errors || {};
         console.error("Error saving order:", {
