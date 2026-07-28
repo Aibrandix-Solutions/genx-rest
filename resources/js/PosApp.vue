@@ -2542,6 +2542,48 @@ const runSaveOrder = async (...actions) => {
                 shouldShowOrderDetail,
             });
 
+            // Open payment as soon as we have an order id — don't wait for
+            // linked-order refresh / cart clear / order-number fetch.
+            if (shouldOpenPayment && resolvedOrderId) {
+                console.log("[POS DEBUG] -> payment (early)", { resolvedOrderId });
+                printPlaceholder?.close();
+                printPlaceholder = null;
+
+                if (isExistingOrder) {
+                    orderId.value = String(resolvedOrderId);
+                    if (actionList.includes("bill")) {
+                        orderLifecycleStatus.value = resultPayload?.status
+                            ? String(resultPayload.status).toLowerCase()
+                            : "billed";
+                        showOrderDetailMode.value = true;
+                        mode.value = "kot";
+                    }
+                } else if (!optimisticNewOrderClear) {
+                    clearCartAfterSave();
+                }
+
+                const openedPayment = openPaymentInPlace(resolvedOrderId);
+                if (!openedPayment) {
+                    if (isExistingOrder) {
+                        navigateToPayment(resolvedOrderId);
+                    } else {
+                        window.location.href = `/orders/${resolvedOrderId}?payment=true`;
+                    }
+                } else if (isExistingOrder) {
+                    scheduleLinkedOrderRefresh(resolvedOrderId);
+                }
+
+                if (!isExistingOrder && !optimisticNewOrderClear) {
+                    if (isOnline.value) {
+                        void fetchNewOrderNumber();
+                    } else {
+                        void incrementOrderNumberOffline();
+                    }
+                }
+
+                return;
+            }
+
             if (isExistingOrder && resolvedOrderId) {
                 orderId.value = String(resolvedOrderId);
 
@@ -2564,20 +2606,6 @@ const runSaveOrder = async (...actions) => {
                 if (isNewKotMode.value && action === "kot" && !shouldOpenPayment) {
                     printPlaceholder?.close();
                     navigateToLinkedOrderDetail(resolvedOrderId);
-                    return;
-                }
-
-                if (shouldOpenPayment) {
-                    console.log("[POS DEBUG] existing order -> payment", { resolvedOrderId });
-                    printPlaceholder?.close();
-                    const openedPayment = openPaymentInPlace(resolvedOrderId);
-
-                    if (!openedPayment) {
-                        navigateToPayment(resolvedOrderId);
-                    } else {
-                        // Non-blocking refresh — don't delay the payment modal on a second GET.
-                        scheduleLinkedOrderRefresh(resolvedOrderId);
-                    }
                     return;
                 }
 
@@ -2663,14 +2691,7 @@ const runSaveOrder = async (...actions) => {
                 clearCartAfterSave();
             }
 
-            if (shouldOpenPayment && orderIdToOpen) {
-                console.log("[POS DEBUG] new order -> bill payment", { orderIdToOpen });
-                const openedPayment = openPaymentInPlace(orderIdToOpen);
-
-                if (!openedPayment) {
-                    window.location.href = `/orders/${orderIdToOpen}?payment=true`;
-                }
-            } else if (shouldShowOrderDetail && orderIdToOpen) {
+            if (shouldShowOrderDetail && orderIdToOpen) {
                 console.log("[POS DEBUG] new order -> bill detail", { orderIdToOpen });
                 const opened = openOrderDetailInPlace(orderIdToOpen);
 

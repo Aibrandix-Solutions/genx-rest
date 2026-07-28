@@ -16,7 +16,6 @@ use Livewire\Component;
 use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
 use App\Livewire\Customer\AddCustomer;
-use App\Livewire\Order\OrderDetail;
 use App\Services\Pos\PosHotelSupport;
 use Illuminate\Support\Facades\DB;
 use Modules\Hotel\Services\OrderFolioSettlement;
@@ -66,13 +65,22 @@ class AddPayment extends Component
     public function showPaymentModal($id)
     {
         $this->pendingDueSplitIdForCustomerModal = null;
+        $this->showSplitOptions = false;
+        $this->splitType = null;
+        $this->splits = [];
+        $this->availableItems = [];
+
+        // Lightweight load for Full Payment — split-item data is loaded lazily
+        // when the cashier opens Split Bill (see ensureSplitPaymentDataLoaded).
         $this->order = Order::with([
-            'items.menuItem',
-            'taxes.tax',
             'payments',
             'charges.charge',
-            'splitOrders.items',
+            'taxes.tax',
         ])->find($id);
+
+        if (! $this->order) {
+            return;
+        }
 
         $this->canAddTip = restaurant()->enable_tip_pos && $this->order->status !== 'paid';
 
@@ -104,12 +112,9 @@ class AddPayment extends Component
         $this->totalExtraCharges = collect($extraCharges)->sum('amount');
 
         $this->updateAmountDetails();
+
+        // Open the modal before optional hotel / split work so POS feels instant.
         $this->showAddPaymentModal = true;
-
-        // Refresh available items data
-        $this->refreshAvailableItems();
-
-        $this->initializeSplits();
 
         $this->showRoomCharge = PosHotelSupport::showRoomChargePayment();
         $this->inHouseReservations = [];
@@ -123,6 +128,29 @@ class AddPayment extends Component
                 $this->loadInHouseReservations();
             }
         }
+
+        // Resume item-split payment UI only when the order is already mid split-by-items.
+        if ($this->order->split_type === 'items') {
+            $this->ensureSplitPaymentDataLoaded();
+            $this->showSplitOptions = true;
+            $this->splitType = 'items';
+            $this->initializeSplits();
+        }
+    }
+
+    /**
+     * Eager-load item rows only when Split Bill needs them.
+     */
+    private function ensureSplitPaymentDataLoaded(): void
+    {
+        if (! $this->order) {
+            return;
+        }
+
+        $this->order->loadMissing([
+            'items.menuItem',
+            'splitOrders.items',
+        ]);
     }
 
     public function loadInHouseReservations(): void
@@ -804,20 +832,31 @@ class AddPayment extends Component
         }
 
         if ($this->order->customer_id) {
-            try {
-                SendOrderBillEvent::dispatch($this->order);
-            } catch (\Exception $e) {
-                Log::error('Error sending notification: ' . $e->getMessage());
-            }
+            $orderIdForBill = (int) $this->order->id;
+            dispatch(function () use ($orderIdForBill) {
+                $order = Order::query()->find($orderIdForBill);
+                if (! $order || ! $order->customer_id) {
+                    return;
+                }
+
+                try {
+                    SendOrderBillEvent::dispatch($order);
+                } catch (\Exception $e) {
+                    Log::error('Error sending notification: ' . $e->getMessage());
+                }
+            })->afterResponse();
         }
 
         $receipt = restaurant()->receiptSetting;
         $directPrint = $receipt
-            && (bool)($receipt->direct_print_after_payment ?? false)
+            && (bool) ($receipt->direct_print_after_payment ?? false)
             && $this->order->status === 'paid';
 
         if ($directPrint) {
-            $this->dispatch('receiptPrintFromPayment', id: $this->order->id)->to(OrderDetail::class);
+            // Navigate the click-time print placeholder immediately — do not wait
+            // for OrderDetail / other Livewire listeners before opening the receipt.
+            $printPath = '/orders/print/'.$this->order->id;
+            $this->js('window.openPosPrintTab && window.openPosPrintTab('.json_encode($printPath).')');
         } else {
             $this->dispatch('closePosPrintPlaceholder');
             $this->dispatch('showOrderDetail', id: $this->order->id);
@@ -1220,6 +1259,7 @@ class AddPayment extends Component
     public function updatedSplitType()
     {
         if ($this->splitType) {
+            $this->ensureSplitPaymentDataLoaded();
             $this->initializeSplits();
         }
     }
@@ -1228,10 +1268,18 @@ class AddPayment extends Component
     {
         $this->showSplitOptions = $show;
         if ($show) {
+            $this->ensureSplitPaymentDataLoaded();
             $this->splitType = null; // Reset split type when showing options
         } else {
             $this->splitType = null;
             $this->splits = [];
+        }
+    }
+
+    public function updatedShowSplitOptions($value): void
+    {
+        if ($value) {
+            $this->ensureSplitPaymentDataLoaded();
         }
     }
 

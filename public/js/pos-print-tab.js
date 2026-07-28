@@ -48,6 +48,46 @@
         }
     }
 
+    function navigateExistingPrintWindow(targetWindow, resolvedUrl) {
+        // Prefer fetch+document.write into the pre-opened tab so we avoid a full
+        // browser navigation round-trip feel on about:blank placeholders.
+        return fetch(resolvedUrl, {
+            credentials: "same-origin",
+            headers: { Accept: "text/html" },
+        })
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error("Print fetch failed: " + response.status);
+                }
+                return response.text();
+            })
+            .then(function (html) {
+                if (!targetWindow || targetWindow.closed) {
+                    return false;
+                }
+                targetWindow.document.open();
+                targetWindow.document.write(html);
+                targetWindow.document.close();
+                try {
+                    targetWindow.focus();
+                } catch (e) {
+                    // ignore
+                }
+                return true;
+            })
+            .catch(function () {
+                if (!targetWindow || targetWindow.closed) {
+                    return false;
+                }
+                try {
+                    targetWindow.location.replace(resolvedUrl);
+                } catch (e) {
+                    targetWindow.location.href = resolvedUrl;
+                }
+                return true;
+            });
+    }
+
     window.closePosPrintPlaceholder = function closePosPrintPlaceholder() {
         clearPlaceholderTimer();
 
@@ -65,9 +105,22 @@
         const placeholder = window.open("about:blank", "_blank");
         window[PLACEHOLDER_KEY] = placeholder;
 
+        if (placeholder && !placeholder.closed) {
+            try {
+                placeholder.document.write(
+                    "<!DOCTYPE html><html><head><title>Preparing print…</title></head>" +
+                        '<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#444">' +
+                        "<p>Preparing print…</p></body></html>"
+                );
+                placeholder.document.close();
+            } catch (e) {
+                // ignore
+            }
+        }
+
         window[PLACEHOLDER_TIMER_KEY] = setTimeout(() => {
             window.closePosPrintPlaceholder();
-        }, 15000);
+        }, 20000);
 
         return placeholder;
     };
@@ -86,12 +139,8 @@
         }
 
         if (targetWindow && !targetWindow.closed) {
-            try {
-                targetWindow.location.replace(resolvedUrl);
-            } catch (e) {
-                targetWindow.location.href = resolvedUrl;
-            }
             window[PLACEHOLDER_KEY] = null;
+            navigateExistingPrintWindow(targetWindow, resolvedUrl);
             return true;
         }
 
