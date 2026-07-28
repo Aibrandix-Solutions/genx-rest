@@ -98,6 +98,7 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/cart/batch-sync', [PosCartBatchSyncController::class, 'sync']);
     Route::get('/pos/customer-reward-balance', [PosSupportController::class, 'customerRewardBalance']);
     Route::post('/pos/orders', [PosVueOrderController::class, 'store']);
+    Route::post('/pos/orders/{id}/pay', [PosVueOrderController::class, 'pay']);
     Route::post('/pos/orders/{id}/waiter', [PosSupportController::class, 'updateOrderWaiter']);
     Route::post('/pos/orders/{id}/customer', [PosSupportController::class, 'updateOrderCustomer']);
     Route::post('/pos/orders/{id}/items/note', [PosSupportController::class, 'updateOrderItemNote']);

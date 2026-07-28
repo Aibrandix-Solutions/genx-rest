@@ -2,7 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\OrderStatus;
+use App\Events\SendOrderBillEvent;
 use App\Http\Controllers\Controller;
+use App\Models\BranchPaymentAccountSetting;
 use App\Services\OrderPaymentBalanceSync;
 use App\Services\Pos\OrderItemLinePricing;
 use App\Models\ComboPack;
@@ -19,6 +22,7 @@ use App\Models\OrderExtra;
 use App\Models\OrderItem;
 use App\Models\OrderTax;
 use App\Models\OrderType;
+use App\Models\Payment;
 use App\Models\RewardSetting;
 use App\Models\RewardTransaction;
 use App\Models\Table;
@@ -29,8 +33,10 @@ use App\Services\Pos\BillSecondaryActionResolver;
 use App\Services\Pos\PosHotelSupport;
 use App\Services\RewardPointsService;
 use Modules\Hotel\Entities\Reservation as HotelReservation;
+use Modules\Hotel\Services\OrderFolioSettlement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 
@@ -1213,6 +1219,207 @@ class PosVueOrderController extends Controller
                         $result['kot_print_targets'] ?? []
                     ),
                 ],
+            ],
+        ]);
+    }
+
+    /**
+     * Lean full-payment endpoint for Vue POS (no Livewire round-trip).
+     * Split / room-charge remain on the Livewire payment modal.
+     */
+    public function pay(Request $request, int $id)
+    {
+        $canAccess = user_can('Create Order') || user_can('Update Order') || user_can('Show Order');
+        abort_if(! in_array('Order', restaurant_modules()) || ! $canAccess, 403);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $validated = $request->validate([
+            'payment_method' => ['required', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due'])],
+            'amount' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $paymentMethod = (string) $validated['payment_method'];
+        $epsilon = 0.0001;
+
+        try {
+            $result = DB::transaction(function () use ($id, $branch, $paymentMethod, $validated, $epsilon) {
+                $order = Order::query()
+                    ->whereKey($id)
+                    ->where('branch_id', $branch->id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $order) {
+                    abort(404, __('messages.orderNotFound'));
+                }
+
+                if ($order->split_type === 'items') {
+                    return [
+                        'error' => true,
+                        'status' => 422,
+                        'message' => __('Please use Split Bill for item-split orders'),
+                    ];
+                }
+
+                if (class_exists(OrderFolioSettlement::class)
+                    && OrderFolioSettlement::isChargedToFolio($order)) {
+                    return [
+                        'error' => true,
+                        'status' => 422,
+                        'message' => __('modules.order.orderAlreadyPaid'),
+                    ];
+                }
+
+                $order->loadMissing('payments');
+                $outstanding = (float) $order->outstandingAmount();
+
+                if ($outstanding <= $epsilon) {
+                    return [
+                        'error' => true,
+                        'status' => 422,
+                        'message' => __('modules.order.orderAlreadyPaid'),
+                    ];
+                }
+
+                $isDueMethod = $paymentMethod === 'due';
+                $rawAmount = max(0, (float) ($validated['amount'] ?? 0));
+                $netPay = $isDueMethod ? 0.0 : min($rawAmount, $outstanding);
+                $returnAmount = $isDueMethod ? 0.0 : max(0, round($rawAmount - $outstanding, 2));
+
+                if (! $isDueMethod && $netPay <= $epsilon) {
+                    return [
+                        'error' => true,
+                        'status' => 422,
+                        'message' => __('modules.customer.payment_amount_required'),
+                    ];
+                }
+
+                $leavesOutstanding = $isDueMethod || ($outstanding - $netPay) > $epsilon;
+                if ($leavesOutstanding && ! $order->canRecordDueBalance()) {
+                    return [
+                        'error' => true,
+                        'status' => 422,
+                        'message' => __('modules.order.customerRequiredForDuePayment'),
+                        'needs_customer' => true,
+                    ];
+                }
+
+                if (! $isDueMethod && $netPay > $epsilon) {
+                    Payment::create([
+                        'order_id' => $order->id,
+                        'payment_method' => $paymentMethod,
+                        'amount' => $netPay,
+                        'balance' => $returnAmount,
+                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                            (int) $order->branch_id,
+                            $paymentMethod
+                        )?->id,
+                    ]);
+                }
+
+                $order->refresh();
+                $order->load('payments');
+
+                $orderPaidAmount = (float) $order->nonDuePaymentsSum();
+                $remaining = round((float) $order->total - $orderPaidAmount, 2);
+                $nextFinancialStatus = $remaining <= $epsilon ? 'paid' : 'payment_due';
+                $currentProgressStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
+
+                $order->amount_paid = $orderPaidAmount;
+                $order->status = $nextFinancialStatus;
+                if (auth()->id()) {
+                    $order->pos_user_id = auth()->id();
+                }
+                if (
+                    $nextFinancialStatus === 'paid'
+                    && ! in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+                ) {
+                    $order->order_status = OrderStatus::SERVED;
+                }
+                $order->save();
+
+                Payment::where('order_id', $order->id)->where('payment_method', 'due')->delete();
+
+                if ($remaining > $epsilon) {
+                    Payment::create([
+                        'order_id' => $order->id,
+                        'payment_method' => 'due',
+                        'amount' => $remaining,
+                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                            (int) $order->branch_id,
+                            'due'
+                        )?->id,
+                    ]);
+                }
+
+                return [
+                    'error' => false,
+                    'order' => $order->fresh(['payments']),
+                ];
+            });
+        } catch (\Throwable $e) {
+            Log::error('POS pay failed: '.$e->getMessage(), ['order_id' => $id]);
+            throw $e;
+        }
+
+        if (! empty($result['error'])) {
+            return response()->json([
+                'success' => false,
+                'message' => $result['message'],
+                'needs_customer' => (bool) ($result['needs_customer'] ?? false),
+            ], (int) ($result['status'] ?? 422));
+        }
+
+        /** @var Order $order */
+        $order = $result['order'];
+
+        if ($order->table_id) {
+            $table = Table::query()->find($order->table_id);
+            if ($table) {
+                $table->update(['available_status' => 'available']);
+                if ($table->tableSession) {
+                    if ($table->tableSession->isOrderLock() && (int) $table->tableSession->order_id === (int) $order->id) {
+                        $table->unlockFromOrder($order->id);
+                    } else {
+                        $table->tableSession->releaseLock();
+                    }
+                }
+            }
+        }
+
+        if ($order->customer_id) {
+            $orderIdForBill = (int) $order->id;
+            dispatch(function () use ($orderIdForBill) {
+                $billOrder = Order::query()->find($orderIdForBill);
+                if (! $billOrder || ! $billOrder->customer_id) {
+                    return;
+                }
+
+                try {
+                    SendOrderBillEvent::dispatch($billOrder);
+                } catch (\Exception $e) {
+                    Log::error('Error sending notification: '.$e->getMessage());
+                }
+            })->afterResponse();
+        }
+
+        $receipt = restaurant()?->receiptSetting;
+        $directPrint = $receipt
+            && (bool) ($receipt->direct_print_after_payment ?? false)
+            && $order->status === 'paid';
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.paymentSuccess') ?: 'Payment recorded',
+            'data' => [
+                'order_id' => (int) $order->id,
+                'status' => (string) $order->status,
+                'amount_paid' => (float) $order->amount_paid,
+                'total' => (float) $order->total,
+                'direct_print' => $directPrint,
+                'print_url' => '/orders/print/'.$order->id,
             ],
         ]);
     }

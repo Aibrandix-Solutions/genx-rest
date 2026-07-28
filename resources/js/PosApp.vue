@@ -126,6 +126,19 @@
         <RoomServiceSelectorModal :show="showRoomServiceModal" :reservations="roomServiceReservations"
             :selected-id="hotelReservationId" @close="showRoomServiceModal = false" @select="handleRoomServiceSelected"
             @update:reservations="roomServiceReservations = $event" />
+
+        <PosPaymentModal
+            :show="showVuePaymentModal"
+            :order-id="vuePaymentOrderId"
+            :order-number="vuePaymentOrderNumber"
+            :due-amount="vuePaymentDueAmount"
+            :currency-symbol="currencySymbol"
+            :saving="vuePaymentSaving"
+            :submitting="vuePaymentSubmitting"
+            @close="closeVuePaymentModal"
+            @submit="handleVuePaymentSubmit"
+            @open-advanced="openAdvancedPaymentFromVue"
+        />
     </div>
 </template>
 
@@ -140,6 +153,7 @@ import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import CancelOrderModal from "./components/pos/CancelOrderModal.vue";
 import RoomServiceSelectorModal from "./components/pos/RoomServiceSelectorModal.vue";
+import PosPaymentModal from "./components/pos/PosPaymentModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
@@ -304,6 +318,15 @@ const roomServiceReservations = ref([]);
 const roomServiceEnabled = computed(
     () => !!hotelCapabilities.value?.room_service_enabled
 );
+
+// Instant Vue payment modal (no Livewire round-trip on open)
+const showVuePaymentModal = ref(false);
+const vuePaymentOrderId = ref(null);
+const vuePaymentOrderNumber = ref("");
+const vuePaymentDueAmount = ref(0);
+const vuePaymentSaving = ref(false);
+const vuePaymentSubmitting = ref(false);
+const orderPayableTotal = ref(0);
 
 // Order data
 const orderType = ref("Dine In");
@@ -1433,6 +1456,45 @@ const totalTaxAmount = computed(() => {
     return taxes.value.reduce((sum, tax) => sum + (tax.amount || 0), 0);
 });
 
+// Fast estimate for opening the payment modal before server total is known
+const estimatePayableTotal = computed(() => {
+    if (orderPayableTotal.value > 0 && (!cartItems.value || cartItems.value.length === 0)) {
+        return Number(orderPayableTotal.value);
+    }
+
+    let calculatedTotal = cartItems.value.reduce(
+        (sum, item) => sum + lineTotalAmount(item),
+        0
+    );
+
+    if (discountAmount.value && discountAmount.value > 0) {
+        calculatedTotal -= Number(discountAmount.value);
+    }
+    if (rewardPointDiscount.value && rewardPointDiscount.value > 0) {
+        calculatedTotal -= Number(rewardPointDiscount.value);
+    }
+    if (deliveryFee.value && deliveryFee.value > 0) {
+        calculatedTotal += Number(deliveryFee.value);
+    }
+    if (extraCharges.value && extraCharges.value.length > 0) {
+        calculatedTotal += extraCharges.value.reduce(
+            (sum, charge) => sum + (Number(charge.amount) || 0),
+            0
+        );
+    }
+    calculatedTotal += totalTaxAmount.value;
+    if (tipAmount.value && tipAmount.value > 0) {
+        calculatedTotal += Number(tipAmount.value);
+    }
+
+    if (orderPayableTotal.value > 0 && cartItems.value?.length > 0) {
+        // Existing billed total + new cart lines estimate
+        return Math.max(0, Number(orderPayableTotal.value) + Math.max(0, calculatedTotal));
+    }
+
+    return Math.max(0, calculatedTotal);
+});
+
 // Calculate taxes based on subtotal (after discount)
 const calculateTaxes = () => {
     if (availableTaxes.value.length === 0) {
@@ -1816,17 +1878,129 @@ const navigateToPayment = (id) => {
     window.location.href = `/orders/${id}?payment=true`;
 };
 
+const resetVuePaymentState = () => {
+    showVuePaymentModal.value = false;
+    vuePaymentOrderId.value = null;
+    vuePaymentOrderNumber.value = "";
+    vuePaymentDueAmount.value = 0;
+    vuePaymentSaving.value = false;
+    vuePaymentSubmitting.value = false;
+};
+
+const openVuePaymentModal = (opts = {}) => {
+    vuePaymentOrderId.value = opts.orderId ? Number(opts.orderId) : null;
+    vuePaymentOrderNumber.value =
+        opts.orderNumber || orderNumber.value || (opts.orderId ? `Order #${opts.orderId}` : "New order");
+    vuePaymentDueAmount.value = Number(
+        opts.total ?? orderPayableTotal.value ?? estimatePayableTotal.value ?? 0
+    );
+    vuePaymentSaving.value = !!opts.saving;
+    vuePaymentSubmitting.value = false;
+    showVuePaymentModal.value = true;
+    return true;
+};
+
+const closeVuePaymentModal = () => {
+    if (vuePaymentSubmitting.value) {
+        return;
+    }
+    resetVuePaymentState();
+};
+
+const syncVuePaymentAfterSave = (payload = {}) => {
+    if (!showVuePaymentModal.value) {
+        return;
+    }
+    if (payload.order_id) {
+        vuePaymentOrderId.value = Number(payload.order_id);
+    }
+    if (payload.order_number || payload.formatted_order_number) {
+        vuePaymentOrderNumber.value =
+            payload.formatted_order_number || payload.order_number || vuePaymentOrderNumber.value;
+    }
+    if (payload.total !== undefined && payload.total !== null) {
+        const total = Number(payload.total);
+        vuePaymentDueAmount.value = total;
+        orderPayableTotal.value = total;
+    }
+    vuePaymentSaving.value = false;
+};
+
 const openPaymentInPlace = (id) => {
     if (!id) {
         return false;
     }
 
-    return dispatchLivewireEvent("showPaymentModal", {
-        id,
+    // Instant Vue modal — no Livewire network round-trip
+    return openVuePaymentModal({
+        orderId: id,
+        total: orderPayableTotal.value || estimatePayableTotal.value,
+        saving: false,
     });
 };
 
-const closePaymentInPlace = () => dispatchLivewireEvent("closePaymentModal", {});
+const closePaymentInPlace = () => {
+    resetVuePaymentState();
+    dispatchLivewireEvent("closePaymentModal", {});
+};
+
+const openAdvancedPaymentFromVue = () => {
+    const id = vuePaymentOrderId.value ? Number(vuePaymentOrderId.value) : null;
+    if (!id) {
+        showPosAlert("error", "Order is still saving. Please wait a moment.");
+        return;
+    }
+    resetVuePaymentState();
+    dispatchLivewireEvent("showPaymentModal", { id });
+};
+
+const handleVuePaymentSubmit = async (payload) => {
+    const id = payload?.order_id ? Number(payload.order_id) : null;
+    if (!id || vuePaymentSubmitting.value) {
+        return;
+    }
+
+    vuePaymentSubmitting.value = true;
+    try {
+        const response = await axios.post(`/api/pos/orders/${id}/pay`, {
+            payment_method: payload.payment_method,
+            amount: payload.amount,
+        });
+        const data = response.data?.data || {};
+        const status = String(data.status || "").toLowerCase();
+
+        resetVuePaymentState();
+
+        if (data.direct_print && data.print_url) {
+            openPrintUrl(data.print_url);
+        } else {
+            openOrderDetailInPlace(id);
+        }
+
+        if (isLinkedOrderMode.value) {
+            orderLifecycleStatus.value = status || orderLifecycleStatus.value;
+            scheduleLinkedOrderRefresh(id);
+        } else {
+            clearCartAfterSave();
+            if (isOnline.value) {
+                void fetchNewOrderNumber();
+            } else {
+                void incrementOrderNumberOffline();
+            }
+        }
+
+        showPosAlert("success", response.data?.message || "Payment successful");
+    } catch (error) {
+        const message =
+            error?.response?.data?.message || error?.message || "Failed to record payment";
+        showPosAlert("error", message);
+        if (error?.response?.data?.needs_customer) {
+            showAddCustomerModal.value = true;
+        }
+    } finally {
+        vuePaymentSubmitting.value = false;
+    }
+};
 
 const openOrderDetailInPlace = (id) => {
     if (!id) {
@@ -2245,6 +2419,7 @@ const clearCartAfterSave = () => {
     currentTableId.value = null;
     hotelReservationId.value = null;
     hotelReservation.value = null;
+    orderPayableTotal.value = 0;
     calculateTaxes();
     resetRewardState();
 };
@@ -2319,17 +2494,19 @@ const runSaveOrder = async (...actions) => {
         const selectedOrderType = resolveOrderType(orderType.value);
         const selectedSlug = normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value);
 
-        // Open payment immediately when the order already exists and the cart has no
-        // new lines — don't wait for the bill API / Livewire extras. New-order flows
-        // still open after save (no order id yet).
-        if (
-            openPayment &&
-            isExistingOrder &&
-            (!cartItems.value || cartItems.value.length === 0)
-        ) {
-            paymentOpenedEarly = openPaymentInPlace(effectiveOrderId);
-            console.log("[POS DEBUG] payment modal opened early", {
+        // Open payment modal immediately on click (sync) — do not wait for bill API.
+        // Complete stays disabled only when we still need a new order_id from save.
+        if (openPayment) {
+            const needsOrderIdFromSave = !isExistingOrder;
+            paymentOpenedEarly = openVuePaymentModal({
+                orderId: isExistingOrder ? effectiveOrderId : null,
+                orderNumber: orderNumber.value,
+                total: estimatePayableTotal.value,
+                saving: needsOrderIdFromSave || (cartItems.value?.length > 0),
+            });
+            console.log("[POS DEBUG] payment modal opened early (vue)", {
                 effectiveOrderId,
+                isExistingOrder,
                 paymentOpenedEarly,
             });
         }
@@ -2583,9 +2760,18 @@ const runSaveOrder = async (...actions) => {
                     clearCartAfterSave();
                 }
 
-                // Skip a second Livewire round-trip when the modal was already opened on click.
+                syncVuePaymentAfterSave(resultPayload);
+
                 if (!paymentOpenedEarly) {
-                    const openedPayment = openPaymentInPlace(resolvedOrderId);
+                    const openedPayment = openVuePaymentModal({
+                        orderId: resolvedOrderId,
+                        orderNumber:
+                            resultPayload.formatted_order_number ||
+                            resultPayload.order_number ||
+                            orderNumber.value,
+                        total: Number(resultPayload.total ?? estimatePayableTotal.value),
+                        saving: false,
+                    });
                     if (!openedPayment) {
                         if (isExistingOrder) {
                             navigateToPayment(resolvedOrderId);
@@ -3497,6 +3683,7 @@ const applyOrderPayload = (payload, activeOrderId) => {
     tipAmount.value = Number(payload.tip_amount || 0);
     extraCharges.value = Array.isArray(payload.extra_charges) ? payload.extra_charges : [];
     pickupDateTime.value = payload.pickup_datetime || "";
+    orderPayableTotal.value = Number(payload.total || 0);
 
     // Legacy parity (Pos.php mount): hydrate per-order custom extras when the
     // server includes them (only sent if allow_custom_order_extras is on).
