@@ -1846,6 +1846,58 @@ const openBillPrintWindow = (id, existingWindow = null) => {
 };
 
 /**
+ * Force print URLs onto the current browser origin.
+ * Laravel route()/APP_URL can point at the wrong host in production; after
+ * document.write on about:blank, relative hrefs also fail to resolve — always
+ * navigate with an absolute same-origin URL.
+ */
+const toSameOriginPrintUrl = (url) => {
+    if (!url) {
+        return null;
+    }
+
+    try {
+        const parsed = new URL(String(url), window.location.origin);
+        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch (e) {
+        return null;
+    }
+};
+
+/**
+ * Build KOT print URLs from the store response.
+ * Prefer explicit targets (id + place), then server paths, then kot_ids alone.
+ */
+const resolveKotPrintUrls = (resultPayload = {}) => {
+    const fromTargets = (resultPayload?.kot_print_targets || [])
+        .map((target) => {
+            const id = Number(target?.id || 0);
+            if (!id) {
+                return null;
+            }
+            const placeId = Number(target?.place_id || 0);
+            return placeId > 0 ? `/kot/print/${id}/${placeId}` : `/kot/print/${id}`;
+        })
+        .filter(Boolean);
+
+    if (fromTargets.length > 0) {
+        return fromTargets.map(toSameOriginPrintUrl).filter(Boolean);
+    }
+
+    const fromLinks = (resultPayload?.links?.kot_print_urls || [])
+        .map(toSameOriginPrintUrl)
+        .filter(Boolean);
+
+    if (fromLinks.length > 0) {
+        return fromLinks;
+    }
+
+    return (resultPayload?.kot_ids || [])
+        .map((id) => toSameOriginPrintUrl(`/kot/print/${Number(id)}`))
+        .filter(Boolean);
+};
+
+/**
  * Open a print URL. Uses anchor.click (legacy print_location parity) because
  * window.open after await is often blocked as a popup.
  *
@@ -1854,22 +1906,27 @@ const openBillPrintWindow = (id, existingWindow = null) => {
  * (often seen in production when the pre-opened placeholder tab is used).
  */
 const openPrintUrl = (url, existingWindow = null) => {
-    if (!url) {
+    const absoluteUrl = toSameOriginPrintUrl(url);
+    if (!absoluteUrl) {
         return false;
     }
 
     if (typeof window.openPosPrintTab === "function") {
-        return window.openPosPrintTab(url, existingWindow);
+        return window.openPosPrintTab(absoluteUrl, existingWindow);
     }
 
     if (existingWindow && !existingWindow.closed) {
-        existingWindow.location.href = url;
+        try {
+            existingWindow.location.replace(absoluteUrl);
+        } catch (e) {
+            existingWindow.location.href = absoluteUrl;
+        }
 
         return true;
     }
 
     const anchor = document.createElement("a");
-    anchor.href = url;
+    anchor.href = absoluteUrl;
     anchor.target = "_blank";
     anchor.rel = "noopener";
     document.body.appendChild(anchor);
@@ -1880,7 +1937,7 @@ const openPrintUrl = (url, existingWindow = null) => {
 };
 
 const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
-    const printUrls = (resultPayload?.links?.kot_print_urls || []).filter(Boolean);
+    const printUrls = resolveKotPrintUrls(resultPayload);
 
     if (printUrls.length === 0) {
         if (placeholderWindow && !placeholderWindow.closed) {
@@ -1894,7 +1951,13 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
         return false;
     }
 
-    openPrintUrl(printUrls[0], placeholderWindow);
+    const opened = openPrintUrl(printUrls[0], placeholderWindow);
+    if (!opened && placeholderWindow && !placeholderWindow.closed) {
+        placeholderWindow.close();
+        showPosAlert("warning", "Could not open KOT print view. Please allow popups and try again.");
+        return false;
+    }
+
     printUrls.slice(1).forEach((url, index) => {
         setTimeout(() => openPrintUrl(url), (index + 1) * 650);
     });
@@ -2253,9 +2316,14 @@ const runSaveOrder = async (...actions) => {
             const shouldOpenPayment = Boolean(
                 nextAction.open_payment ?? openPayment
             );
+            // Prefer the click-time intent (wantsKotPrint) so a falsey server
+            // print_kot flag cannot leave the pre-opened tab stranded on about:blank.
             const shouldPrintKot = Boolean(
-                nextAction.print_kot ??
-                    (action === "kot" && actionList.includes("print") && !actionList.includes("bill"))
+                wantsKotPrint ||
+                    nextAction.print_kot ||
+                    (action === "kot" &&
+                        actionList.includes("print") &&
+                        !actionList.includes("bill"))
             );
             const shouldPrintReceipt = Boolean(
                 nextAction.print_receipt ??

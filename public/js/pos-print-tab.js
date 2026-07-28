@@ -2,27 +2,40 @@
     const PLACEHOLDER_KEY = "_posPrintPlaceholder";
     const PLACEHOLDER_TIMER_KEY = "_posPrintPlaceholderTimer";
 
+    function toSameOriginUrl(url) {
+        if (!url) {
+            return null;
+        }
+
+        try {
+            const parsed = new URL(String(url), window.location.origin);
+            return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function resolvePrintUrl(url) {
         if (!url) {
             return null;
         }
 
         if (typeof url === "string") {
-            return url;
+            return toSameOriginUrl(url);
         }
 
         if (Array.isArray(url)) {
             const first = url[0];
             if (typeof first === "string") {
-                return first;
+                return toSameOriginUrl(first);
             }
             if (first && typeof first === "object") {
-                return first.url ?? first[0] ?? null;
+                return toSameOriginUrl(first.url ?? first[0] ?? null);
             }
         }
 
         if (typeof url === "object" && url.url) {
-            return url.url;
+            return toSameOriginUrl(url.url);
         }
 
         return null;
@@ -73,7 +86,11 @@
         }
 
         if (targetWindow && !targetWindow.closed) {
-            targetWindow.location.href = resolvedUrl;
+            try {
+                targetWindow.location.replace(resolvedUrl);
+            } catch (e) {
+                targetWindow.location.href = resolvedUrl;
+            }
             window[PLACEHOLDER_KEY] = null;
             return true;
         }

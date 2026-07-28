@@ -1193,16 +1193,16 @@ class PosVueOrderController extends Controller
                     'show_order_detail' => $billFollowUp['show_order_detail'],
                 ],
                 'kot_ids' => $result['kot_ids'],
+                'kot_print_targets' => $result['kot_print_targets'] ?? [],
                 'order_item_ids' => $result['order_item_ids'],
                 'links' => [
                     'order' => route('pos.order', ['id' => $result['order']->id]),
                     'kot' => route('pos.kot', ['id' => $result['order']->id]),
                     'bill' => route('orders.print', ['id' => $result['order']->id]),
+                    // Paths only — Vue resolves against window.location.origin so a
+                    // mismatched APP_URL cannot strand the pre-opened print tab.
                     'kot_print_urls' => array_map(
-                        fn (array $target) => route('kot.print', [
-                            'id' => $target['id'],
-                            'kotPlaceid' => $target['place_id'],
-                        ]),
+                        fn (array $target) => '/kot/print/'.$target['id'].'/'.$target['place_id'],
                         $result['kot_print_targets'] ?? []
                     ),
                 ],
