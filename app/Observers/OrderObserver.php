@@ -56,16 +56,14 @@ class OrderObserver
             }
         }
 
-        $todayKotCount = $this->todayKotCount(forceRefresh: true);
-
-        // Defer Pusher/broadcasts until after the HTTP response so POS KOT/print
-        // can open immediately (VPS→Pusher latency often blocks sync broadcasts).
+        // Defer count + Pusher until after the HTTP response so POS KOT/print
+        // is not blocked by the today-KOT join or VPS→Pusher latency.
         $this->dispatchBroadcastsAfterResponse(
             orderId: (int) $order->id,
             action: 'created',
             orderBecamePaid: false,
-            todayKotCount: $todayKotCount,
-            notifyTodayOrders: true
+            notifyTodayOrders: true,
+            forceRefreshKotCount: true
         );
     }
 
@@ -120,14 +118,12 @@ class OrderObserver
             return;
         }
 
-        $todayKotCount = $this->todayKotCount(forceRefresh: $statusChanged);
-
         $this->dispatchBroadcastsAfterResponse(
             orderId: (int) $order->id,
             action: 'updated',
             orderBecamePaid: $statusChanged && $newStatus == 'paid' && $oldStatus != 'paid',
-            todayKotCount: $todayKotCount,
-            notifyTodayOrders: $statusChanged
+            notifyTodayOrders: $statusChanged,
+            forceRefreshKotCount: $statusChanged
         );
     }
 
@@ -159,7 +155,7 @@ class OrderObserver
     /**
      * Cache briefly so multi-update POS saves (items → totals → billed) don't repeat the join.
      */
-    private function todayKotCount(bool $forceRefresh = false): int
+    private static function resolveTodayKotCount(bool $forceRefresh = false): int
     {
         $branchId = (int) (branch()?->id ?? 0);
         $cacheKey = 'pos.today_kot_count.'.$branchId.'.'.now()->toDateString();
@@ -182,10 +178,10 @@ class OrderObserver
         int $orderId,
         string $action,
         bool $orderBecamePaid,
-        int $todayKotCount,
-        bool $notifyTodayOrders
+        bool $notifyTodayOrders,
+        bool $forceRefreshKotCount = false
     ): void {
-        dispatch(function () use ($orderId, $action, $orderBecamePaid, $todayKotCount, $notifyTodayOrders) {
+        dispatch(function () use ($orderId, $action, $orderBecamePaid, $notifyTodayOrders, $forceRefreshKotCount) {
             $order = Order::query()->find($orderId);
             if (! $order) {
                 return;
@@ -194,13 +190,17 @@ class OrderObserver
             event(new OrderUpdated($order, $action));
 
             // Dashboard badge only needs refresh when order lifecycle changes.
-            if ($notifyTodayOrders) {
-                event(new TodayOrdersUpdated($todayKotCount));
-            }
+            if ($notifyTodayOrders || $orderBecamePaid) {
+                $todayKotCount = self::resolveTodayKotCount($forceRefreshKotCount);
 
-            // Customer order-success page expects an integer count, not the Order model.
-            if ($orderBecamePaid) {
-                event(new OrderSuccessEvent($todayKotCount));
+                if ($notifyTodayOrders) {
+                    event(new TodayOrdersUpdated($todayKotCount));
+                }
+
+                // Customer order-success page expects an integer count, not the Order model.
+                if ($orderBecamePaid) {
+                    event(new OrderSuccessEvent($todayKotCount));
+                }
             }
         })->afterResponse();
     }

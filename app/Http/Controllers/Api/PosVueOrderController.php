@@ -1145,6 +1145,11 @@ class PosVueOrderController extends Controller
             ];
         });
 
+        $kotTickets = self::buildKotPrintTickets(
+            $result['kot_ids'] ?? [],
+            $restaurant->timezone ?? config('app.timezone', 'UTC')
+        );
+
         // Update session only after transaction succeeds
         if ($sessionDeliveryAppId !== null) {
             if ($sessionDeliveryAppId === false) {
@@ -1194,6 +1199,8 @@ class PosVueOrderController extends Controller
                 ],
                 'kot_ids' => $result['kot_ids'],
                 'kot_print_targets' => $result['kot_print_targets'] ?? [],
+                // Ready-to-print ticket payloads so Vue POS can print without a second page load.
+                'kot_tickets' => $kotTickets,
                 'order_item_ids' => $result['order_item_ids'],
                 'links' => [
                     'order' => route('pos.order', ['id' => $result['order']->id]),
@@ -1208,6 +1215,70 @@ class PosVueOrderController extends Controller
                 ],
             ],
         ]);
+    }
+
+    /**
+     * Compact KOT ticket payloads for Vue POS instant print (no second page load).
+     *
+     * @param  array<int>  $kotIds
+     * @return array<int, array<string, mixed>>
+     */
+    private static function buildKotPrintTickets(array $kotIds, string $timezone): array
+    {
+        $kotIds = array_values(array_filter(array_map('intval', $kotIds)));
+        if ($kotIds === []) {
+            return [];
+        }
+
+        $kots = Kot::query()
+            ->with([
+                'items.menuItem:id,item_name',
+                'items.menuItemVariation:id,variation',
+                'items.modifierOptions:id,name',
+                'order.table:id,table_code',
+                'order.waiter:id,name',
+                'kotPlace:id,name',
+            ])
+            ->whereIn('id', $kotIds)
+            ->orderBy('id')
+            ->get();
+
+        return $kots->map(function (Kot $kot) use ($timezone) {
+            $createdAt = $kot->created_at?->timezone($timezone);
+
+            return [
+                'id' => (int) $kot->id,
+                'place_id' => (int) ($kot->kitchen_place_id ?? 0),
+                'place_name' => (string) ($kot->kotPlace?->name ?? ''),
+                'kot_number' => (string) ($kot->kot_number ?? ''),
+                'token_number' => $kot->token_number,
+                'order_number' => (string) ($kot->order?->show_formatted_order_number
+                    ?? $kot->order?->order_number
+                    ?? ''),
+                'table' => (string) ($kot->order?->table?->table_code ?? '-'),
+                'date' => $createdAt ? $createdAt->format('d-m-Y') : '',
+                'time' => $createdAt ? $createdAt->format('h:i A') : '',
+                'waiter' => $kot->order?->waiter?->name,
+                'order_type' => $kot->order?->order_type
+                    ? ucwords(str_replace('_', ' ', (string) $kot->order->order_type))
+                    : null,
+                'note' => $kot->note,
+                'items' => $kot->items->map(function ($item) {
+                    return [
+                        'name' => (string) ($item->menuItem?->item_name ?? 'Item'),
+                        'variation' => $item->menuItemVariation?->variation,
+                        'qty' => (int) $item->quantity,
+                        'note' => $item->note,
+                        'modifiers' => $item->modifierOptions->map(function ($modifier) {
+                            return [
+                                'name' => (string) $modifier->name,
+                                'qty' => (int) ($modifier->pivot->quantity ?? 1),
+                            ];
+                        })->values()->all(),
+                    ];
+                })->values()->all(),
+            ];
+        })->values()->all();
     }
 
     /**

@@ -1897,6 +1897,183 @@ const resolveKotPrintUrls = (resultPayload = {}) => {
         .filter(Boolean);
 };
 
+const escapePrintHtml = (value) =>
+    String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+/**
+ * Render KOT ticket HTML (matches pos/printKot blade layout) for instant print
+ * without a second full-page navigation.
+ */
+const buildKotTicketsHtml = (tickets = []) => {
+    const receipts = tickets
+        .map((ticket) => {
+            const itemRows = (ticket.items || [])
+                .map((item) => {
+                    const modifiers = (item.modifiers || [])
+                        .map((modifier) => {
+                            const qty =
+                                Number(modifier.qty || 1) > 1
+                                    ? ` ×${Number(modifier.qty)}`
+                                    : "";
+                            return `<div class="modifiers">• ${escapePrintHtml(
+                                modifier.name
+                            )}${qty}</div>`;
+                        })
+                        .join("");
+                    const variation = item.variation
+                        ? `<br><small>(${escapePrintHtml(item.variation)})</small>`
+                        : "";
+                    const note = item.note
+                        ? `<div class="modifiers"><strong>Note:</strong> ${escapePrintHtml(
+                              item.note
+                          )}</div>`
+                        : "";
+
+                    return `<tr>
+                        <td class="description">${escapePrintHtml(item.name)}${variation}${modifiers}${note}</td>
+                        <td class="qty">${escapePrintHtml(item.qty)}</td>
+                    </tr>`;
+                })
+                .join("");
+
+            const placeName = ticket.place_name
+                ? `<div class="restaurant-info">${escapePrintHtml(ticket.place_name)}</div>`
+                : "";
+            const token = ticket.token_number
+                ? `<div style="font-size:12pt;margin-top:1mm;">Token: <span class="bold">${escapePrintHtml(
+                      ticket.token_number
+                  )}</span></div>`
+                : "";
+            const waiter = ticket.waiter
+                ? `<div class="order-row"><div class="order-left">Waiter: <span class="bold">${escapePrintHtml(
+                      ticket.waiter
+                  )}</span></div><div class="order-right"></div></div>`
+                : "";
+            const orderType = ticket.order_type
+                ? `<div class="order-row"><div class="order-left">Order Type: <span class="bold">${escapePrintHtml(
+                      ticket.order_type
+                  )}</span></div></div>`
+                : "";
+            const noteFooter = ticket.note
+                ? `<div class="footer"><strong>Special Instructions:</strong><div class="italic">${escapePrintHtml(
+                      ticket.note
+                  )}</div></div>`
+                : "";
+
+            return `<div class="receipt">
+                <div class="header">${placeName}</div>
+                <div class="kot-title">KOT <span class="bold">#${escapePrintHtml(
+                    ticket.kot_number
+                )}</span>${token}</div>
+                <div class="order-info">
+                    <div class="order-row">
+                        <div class="order-left"><span class="bold">${escapePrintHtml(
+                            ticket.order_number
+                        )}</span></div>
+                        <div class="order-right">Table: <span class="bold">${escapePrintHtml(
+                            ticket.table || "-"
+                        )}</span></div>
+                    </div>
+                    <div class="order-row">
+                        <div class="order-left">Date: ${escapePrintHtml(ticket.date)}</div>
+                        <div class="order-right">Time: ${escapePrintHtml(ticket.time)}</div>
+                    </div>
+                    ${waiter}
+                    ${orderType}
+                </div>
+                <table class="items-table">
+                    <thead><tr><th class="description">Item Name</th><th class="qty">Qty</th></tr></thead>
+                    <tbody>${itemRows}</tbody>
+                </table>
+                ${noteFooter}
+            </div>`;
+        })
+        .join("");
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>KOT Print</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
+.receipt{width:75mm;padding:6.35mm;page-break-after:always}
+.header{text-align:center;margin-bottom:3mm}
+.bold{font-weight:bold}
+.restaurant-info{font-size:9pt;margin-bottom:1mm}
+.kot-title{font-size:14pt;font-weight:bold;text-align:center;margin-bottom:2mm}
+.order-info{text-align:center;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:2mm 0;margin-bottom:3mm;font-size:10pt}
+.order-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.order-left{text-align:left;width:50%}
+.order-right{text-align:right;width:50%}
+.items-table{width:100%;border-collapse:collapse;margin-bottom:3mm;font-size:10pt}
+.items-table th{padding:1mm;border-bottom:1px solid #000;text-align:left}
+.items-table td{padding:1mm 0;vertical-align:top}
+.qty{width:15%;text-align:center}
+.description{width:85%}
+.modifiers{font-size:8pt;color:#555}
+.footer{text-align:center;margin-top:3mm;font-size:9pt;padding-top:2mm;border-top:1px dashed #000}
+.italic{font-style:italic}
+@media print{@page{margin:0;size:80mm auto}}
+</style>
+</head>
+<body>
+${receipts}
+<script>
+(function(){
+  function closePrintTab(){
+    window.close();
+    if(!window.closed && window.opener && !window.opener.closed){
+      try{window.opener.focus();}catch(e){}
+    }
+  }
+  window.addEventListener('afterprint', closePrintTab);
+  window.onload=function(){ if(window.self===window.top){ window.print(); } };
+})();
+<\/script>
+</body>
+</html>`;
+};
+
+/**
+ * Write ticket HTML into the pre-opened tab and trigger print — no /kot/print round-trip.
+ */
+const printKotTicketsInWindow = (tickets = [], placeholderWindow = null) => {
+    if (!Array.isArray(tickets) || tickets.length === 0) {
+        return false;
+    }
+
+    const html = buildKotTicketsHtml(tickets);
+    let target = placeholderWindow && !placeholderWindow.closed ? placeholderWindow : null;
+
+    if (!target) {
+        target = window.open("about:blank", "_blank");
+    }
+
+    if (!target) {
+        return false;
+    }
+
+    try {
+        target.document.open();
+        target.document.write(html);
+        target.document.close();
+        try {
+            target.focus();
+        } catch (e) {
+            // ignore
+        }
+        return true;
+    } catch (e) {
+        console.warn("[POS] Instant KOT print failed, falling back to URL", e);
+        return false;
+    }
+};
+
 /**
  * Open a print URL. Uses anchor.click (legacy print_location parity) because
  * window.open after await is often blocked as a popup.
@@ -1937,6 +2114,15 @@ const openPrintUrl = (url, existingWindow = null) => {
 };
 
 const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
+    const tickets = Array.isArray(resultPayload?.kot_tickets)
+        ? resultPayload.kot_tickets.filter(Boolean)
+        : [];
+
+    // Prefer instant Vue print from API ticket payloads (no second page load).
+    if (tickets.length > 0 && printKotTicketsInWindow(tickets, placeholderWindow)) {
+        return true;
+    }
+
     const printUrls = resolveKotPrintUrls(resultPayload);
 
     if (printUrls.length === 0) {
