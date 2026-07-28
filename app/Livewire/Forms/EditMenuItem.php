@@ -16,6 +16,7 @@ use App\Services\MenuBranchProvisioningService;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Attributes\Computed;
 use App\Models\Tax;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -65,6 +66,9 @@ class EditMenuItem extends Component
 
     public function mount()
     {
+        $this->menuItem = app(MenuBranchProvisioningService::class)
+            ->peekCatalogFromSiblingIfEmpty($this->menuItem->loadMissing(['variations', 'prices']));
+
         $this->initializeMenuBranchSelection();
         $this->languages = languages()->pluck('language_name', 'language_code')->toArray();
         $this->translationNames = array_fill_keys(array_keys($this->languages), '');
@@ -301,21 +305,108 @@ class EditMenuItem extends Component
         $this->menuItem = $this->ensureEditMenuItemOnSelectedBranch($this->menuItem);
 
         try {
-            MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
-                'item_name' => $this->translationNames[$this->globalLocale],
-                'item_code' => $this->itemCode,
-                'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
-                'item_category_id' => $this->itemCategory,
-                'description' => $this->translationDescriptions[$this->globalLocale],
-                'type' => $this->itemType,
-                'preparation_time' => $this->preparationTime,
-                'menu_id' => $this->menu,
-                'is_available' => $this->isAvailable,
-                'kot_place_id' => $this->kitchenIdsForBranch((int) $this->menuItem->branch_id)[0] ?? null,
-                'show_on_customer_site' => $this->showOnCustomerSite,
-                'tax_inclusive' => (restaurant()->tax_mode === 'item') ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
-            ]);
+            DB::transaction(function () use ($traceId) {
+                MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
+                    'item_name' => $this->translationNames[$this->globalLocale],
+                    'item_code' => $this->itemCode,
+                    'price' => (!$this->hasVariations) ? $this->itemPrice : 0,
+                    'item_category_id' => $this->itemCategory,
+                    'description' => $this->translationDescriptions[$this->globalLocale],
+                    'type' => $this->itemType,
+                    'preparation_time' => $this->preparationTime,
+                    'menu_id' => $this->menu,
+                    'is_available' => $this->isAvailable,
+                    'kot_place_id' => $this->kitchenIdsForBranch((int) $this->menuItem->branch_id)[0] ?? null,
+                    'show_on_customer_site' => $this->showOnCustomerSite,
+                    'tax_inclusive' => (restaurant()->tax_mode === 'item') ? $this->taxInclusive : (restaurant()->tax_inclusive ?? false),
+                ]);
 
+                if (in_array('Inventory', restaurant_modules())) {
+                    MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
+                        'in_stock' => $this->inStock,
+                    ]);
+                }
+
+                // Sync taxes if tax_mode is 'item'
+                if (restaurant()->tax_mode === 'item') {
+                    $this->menuItem->taxes()->sync($this->selectedTaxes);
+                }
+
+                // Efficiently update translations - only update what has changed
+                foreach ($this->translationNames as $locale => $name) {
+                    $description = $this->translationDescriptions[$locale];
+
+                    // Skip empty translations
+                    if (empty($name) && empty($description)) {
+                        continue;
+                    }
+
+                    $isNew = !isset($this->originalTranslations[$locale]);
+                    $hasChanged = $isNew ||
+                        $this->originalTranslations[$locale]['item_name'] !== $name ||
+                        $this->originalTranslations[$locale]['description'] !== $description;
+
+                    if ($hasChanged) {
+                        if ($isNew) {
+                            $this->menuItem->translations()->create([
+                                'locale' => $locale,
+                                'item_name' => $name,
+                                'description' => $description
+                            ]);
+                        } else {
+                            $this->menuItem->translations()
+                                ->where('locale', $locale)
+                                ->update([
+                                    'item_name' => $name,
+                                    'description' => $description
+                                ]);
+                        }
+                    }
+                }
+
+                if ($this->itemImageTemp) {
+                    $this->menuItem->update([
+                        'image' => Files::uploadLocalOrS3($this->itemImageTemp, 'item', width: 350, height: 350),
+                    ]);
+                }
+
+                if ($this->hasVariations) {
+                    $existingVariationIds = $this->menuItem->variations()->pluck('id')->toArray();
+                    $submittedVariationIds = [];
+
+                    foreach ($this->inputs as $key => $value) {
+                        if (
+                            isset($this->variationName[$key]) && isset($this->variationPrice[$key]) &&
+                            !empty(trim($this->variationName[$key])) && !empty(trim($this->variationPrice[$key]))
+                        ) {
+                            $variationData = [
+                                'variation' => trim($this->variationName[$key]),
+                                'price' => $this->variationPrice[$key],
+                                'menu_item_id' => $this->menuItem->id
+                            ];
+
+                            if (isset($this->variationId[$key]) && !empty($this->variationId[$key])) {
+                                MenuItemVariation::where('id', $this->variationId[$key])->update($variationData);
+                                $submittedVariationIds[] = $this->variationId[$key];
+                            } else {
+                                $newVariation = MenuItemVariation::create($variationData);
+                                $submittedVariationIds[] = $newVariation->id;
+                            }
+                        }
+                    }
+
+                    $variationsToDelete = array_diff($existingVariationIds, $submittedVariationIds);
+                    if (!empty($variationsToDelete)) {
+                        app(MenuBranchProvisioningService::class)->deleteVariationsIfUnreferenced($variationsToDelete);
+                    }
+                } else {
+                    $variationIds = $this->menuItem->variations()->pluck('id')->all();
+                    app(MenuBranchProvisioningService::class)->deleteVariationsIfUnreferenced($variationIds);
+                }
+
+                $this->menuItem->refresh();
+                $this->provisionMenuItemBranchesOnEdit($this->menuItem);
+            });
         } catch (\Throwable $e) {
             report($e);
             Log::error('menu_item.edit.submit.exception', [
@@ -329,102 +420,9 @@ class EditMenuItem extends Component
                 'toast' => true,
                 'position' => 'top-end',
             ]);
+
             return;
         }
-
-        if (in_array('Inventory', restaurant_modules())) {
-            MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->where('id', $this->menuItem->id)->update([
-                'in_stock' => $this->inStock,
-            ]);
-        }
-
-        // Sync taxes if tax_mode is 'item'
-        if (restaurant()->tax_mode === 'item') {
-            $this->menuItem->taxes()->sync($this->selectedTaxes);
-        }
-
-        // Efficiently update translations - only update what has changed
-        foreach ($this->translationNames as $locale => $name) {
-            $description = $this->translationDescriptions[$locale];
-
-            // Skip empty translations
-            if (empty($name) && empty($description)) {
-                continue;
-            }
-
-            $isNew = !isset($this->originalTranslations[$locale]);
-            $hasChanged = $isNew ||
-                $this->originalTranslations[$locale]['item_name'] !== $name ||
-                $this->originalTranslations[$locale]['description'] !== $description;
-
-            if ($hasChanged) {
-                if ($isNew) {
-                    // Create new translation
-                    $this->menuItem->translations()->create([
-                        'locale' => $locale,
-                        'item_name' => $name,
-                        'description' => $description
-                    ]);
-                } else {
-                    // Update existing translation
-                    $this->menuItem->translations()
-                        ->where('locale', $locale)
-                        ->update([
-                            'item_name' => $name,
-                            'description' => $description
-                        ]);
-                }
-            }
-        }
-
-        if ($this->itemImageTemp) {
-            $this->menuItem->update([
-                'image' => Files::uploadLocalOrS3($this->itemImageTemp, 'item', width: 350, height: 350),
-            ]);
-        }
-
-        if ($this->hasVariations) {
-            // Get all existing variation IDs
-            $existingVariationIds = $this->menuItem->variations()->pluck('id')->toArray();
-            $submittedVariationIds = [];
-
-            foreach ($this->inputs as $key => $value) {
-                // Check if variation data exists and is not empty
-                if (
-                    isset($this->variationName[$key]) && isset($this->variationPrice[$key]) &&
-                    !empty(trim($this->variationName[$key])) && !empty(trim($this->variationPrice[$key]))
-                ) {
-                    $variationData = [
-                        'variation' => trim($this->variationName[$key]),
-                        'price' => $this->variationPrice[$key],
-                        'menu_item_id' => $this->menuItem->id
-                    ];
-
-                    // Check if this is an existing variation (has ID) or a new one
-                    if (isset($this->variationId[$key]) && !empty($this->variationId[$key])) {
-                        // Update existing variation
-                        MenuItemVariation::where('id', $this->variationId[$key])->update($variationData);
-                        $submittedVariationIds[] = $this->variationId[$key];
-                    } else {
-                        // Create new variation
-                        $newVariation = MenuItemVariation::create($variationData);
-                        $submittedVariationIds[] = $newVariation->id;
-                    }
-                }
-            }
-
-            // Delete variations that were removed (not in submitted list)
-            $variationsToDelete = array_diff($existingVariationIds, $submittedVariationIds);
-            if (!empty($variationsToDelete)) {
-                MenuItemVariation::whereIn('id', $variationsToDelete)->delete();
-            }
-        } else {
-            // If variations are now disabled, delete all old variations
-            MenuItemVariation::where('menu_item_id', $this->menuItem->id)->delete();
-        }
-
-        $this->menuItem->refresh();
-        $this->provisionMenuItemBranchesOnEdit($this->menuItem);
 
         $this->dispatch('hideEditMenuItem');
         $this->resetForm();

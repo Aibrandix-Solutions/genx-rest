@@ -63,9 +63,9 @@ class OrderObserver
         $this->dispatchBroadcastsAfterResponse(
             orderId: (int) $order->id,
             action: 'created',
-            statusChanged: true,
+            orderBecamePaid: false,
             todayKotCount: $todayKotCount,
-            newStatus: (string) $order->status
+            notifyTodayOrders: true
         );
     }
 
@@ -125,9 +125,9 @@ class OrderObserver
         $this->dispatchBroadcastsAfterResponse(
             orderId: (int) $order->id,
             action: 'updated',
-            statusChanged: $statusChanged && $newStatus == 'paid' && $oldStatus != 'paid',
+            orderBecamePaid: $statusChanged && $newStatus == 'paid' && $oldStatus != 'paid',
             todayKotCount: $todayKotCount,
-            newStatus: (string) $newStatus
+            notifyTodayOrders: $statusChanged
         );
     }
 
@@ -156,6 +156,9 @@ class OrderObserver
         return false;
     }
 
+    /**
+     * Cache briefly so multi-update POS saves (items → totals → billed) don't repeat the join.
+     */
     private function todayKotCount(bool $forceRefresh = false): int
     {
         $branchId = (int) (branch()?->id ?? 0);
@@ -178,22 +181,26 @@ class OrderObserver
     private function dispatchBroadcastsAfterResponse(
         int $orderId,
         string $action,
-        bool $statusChanged,
+        bool $orderBecamePaid,
         int $todayKotCount,
-        string $newStatus
+        bool $notifyTodayOrders
     ): void {
-        dispatch(function () use ($orderId, $action, $statusChanged, $todayKotCount, $newStatus) {
+        dispatch(function () use ($orderId, $action, $orderBecamePaid, $todayKotCount, $notifyTodayOrders) {
             $order = Order::query()->find($orderId);
             if (! $order) {
                 return;
             }
 
             event(new OrderUpdated($order, $action));
-            event(new TodayOrdersUpdated($todayKotCount));
 
-            // Only notify "order success" when the order becomes paid — not on every total tweak.
-            if ($statusChanged && $newStatus === 'paid') {
-                event(new OrderSuccessEvent($order));
+            // Dashboard badge only needs refresh when order lifecycle changes.
+            if ($notifyTodayOrders) {
+                event(new TodayOrdersUpdated($todayKotCount));
+            }
+
+            // Customer order-success page expects an integer count, not the Order model.
+            if ($orderBecamePaid) {
+                event(new OrderSuccessEvent($todayKotCount));
             }
         })->afterResponse();
     }

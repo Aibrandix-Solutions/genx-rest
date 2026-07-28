@@ -8,9 +8,9 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
 use Livewire\Features\SupportFileUploads\WithFileUploads;
-use Livewire\WithPagination;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Hrm\Entities\AttendanceLog;
 use Modules\Hrm\Entities\Employee;
@@ -21,10 +21,12 @@ use Modules\Hrm\Entities\HrmSetting;
 use Modules\Hrm\Exports\PayrollImportTemplateExport;
 use Modules\Hrm\Exports\PayrollMonthlyExport;
 use Modules\Hrm\Imports\PayrollMonthlyImport;
+use Modules\Hrm\Services\PayrollSalaryExpenseSync;
+use Modules\Hrm\Support\Workplace;
 
 class PayrollMonthly extends Component
 {
-    use WithPagination, AuthorizesRequests, WithFileUploads;
+    use AuthorizesRequests, LivewireAlert, WithFileUploads;
 
     public ?int $branchId = null;
     public array $branches = [];
@@ -36,8 +38,22 @@ class PayrollMonthly extends Component
     public string $month = '';
     public string $search = '';
 
+    /** @var string all|paid|unpaid */
+    public string $paymentStatusFilter = 'all';
+
+    /** @var array<int, int|string> */
+    public array $selectedEmployeeIds = [];
+
+    public ?string $bulkPaymentDate = null;
+
     public bool $showAdjustModal = false;
     public ?int $adjustEmployeeId = null;
+
+    public bool $showConfirmModal = false;
+    public string $confirmAction = '';
+    public ?int $confirmEmployeeId = null;
+    public string $confirmTitle = '';
+    public string $confirmMessage = '';
 
     public float $additional_pay = 0;
     public float $advance = 0;
@@ -52,7 +68,15 @@ class PayrollMonthly extends Component
     public $importFile;
     public ?string $importMessage = null;
 
-    protected $queryString = ['branchId', 'month', 'search', 'departmentId', 'designationId'];
+    /**
+     * Per-request memoized payroll grid data. buildPayrollRows() is expensive
+     * (multiple aggregate queries), so bulk actions reuse a single build.
+     *
+     * @var array<string, mixed>|null
+     */
+    private ?array $payrollDataCache = null;
+
+    protected $queryString = ['branchId', 'month', 'search', 'departmentId', 'designationId', 'paymentStatusFilter'];
 
     private function normalizeMonth(string $value): string
     {
@@ -120,11 +144,20 @@ class PayrollMonthly extends Component
             ->all();
 
         $this->departments = DB::table('hrm_departments')
-            ->select('id', 'name')
+            ->select('id', 'name', 'workplace')
             ->when(restaurant(), fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->when(! Workplace::hotelAvailable(), fn ($q) => $q->where('workplace', Workplace::RESTAURANT))
+            ->orderBy('workplace')
             ->orderBy('name')
             ->get()
-            ->map(fn ($d) => ['id' => $d->id, 'name' => $d->name])
+            ->map(function ($d) {
+                $prefix = ($d->workplace ?? '') === Workplace::HOTEL ? 'Hotel: ' : '';
+                if (Workplace::hotelAvailable() && ($d->workplace ?? '') === Workplace::RESTAURANT) {
+                    $prefix = 'Restaurant: ';
+                }
+
+                return ['id' => $d->id, 'name' => $prefix . $d->name];
+            })
             ->all();
 
         $this->designations = DB::table('hrm_designations')
@@ -150,9 +183,15 @@ class PayrollMonthly extends Component
 
     public function updating($name, $value): void
     {
-        if (in_array($name, ['branchId', 'month', 'search', 'departmentId', 'designationId'], true)) {
-            $this->resetPage();
+        if (in_array($name, ['branchId', 'month', 'search', 'departmentId', 'designationId', 'paymentStatusFilter'], true)) {
+            $this->selectedEmployeeIds = [];
+            $this->payrollDataCache = null;
         }
+    }
+
+    public function updatedBranchId(): void
+    {
+        $this->selectedEmployeeIds = [];
     }
 
     private function monthRange(): array
@@ -219,19 +258,27 @@ class PayrollMonthly extends Component
         $this->additional_pay = (float) ($adj->additional_pay ?? 0);
         $this->advance = (float) ($adj->advance ?? 0);
         
-        // Auto-calculate EPF/ETF if enabled
+        // Prefill EPF/ETF. A saved manual value (> 0) is always kept; otherwise
+        // fall back to the auto-calculated settings value when enabled. This
+        // matches how the payroll grid resolves EPF/ETF.
         $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
         $etfAutoCalc = HrmSetting::get('etf_auto_calculate', false);
-        
-        if ($epfAutoCalc) {
+
+        $savedEpf = (float) ($adj->epf ?? 0);
+        if ($savedEpf > 0) {
+            $this->epf = $savedEpf;
+        } elseif ($epfAutoCalc) {
             $epfBasic = HrmSetting::get('epf_basic_salary', 0);
             $epfRate = HrmSetting::get('epf_employee_rate', 8);
             $this->epf = ($epfBasic * $epfRate) / 100;
         } else {
-            $this->epf = (float) ($adj->epf ?? 0);
+            $this->epf = $savedEpf;
         }
-        
-        if ($etfAutoCalc) {
+
+        $savedEtf = (float) ($adj->etf ?? 0);
+        if ($savedEtf > 0) {
+            $this->etf = $savedEtf;
+        } elseif ($etfAutoCalc) {
             $etfBasic = HrmSetting::get('etf_basic_salary', 0);
             $etfRate = HrmSetting::get('etf_employer_rate', 3);
             $this->etf = ($etfBasic * $etfRate) / 100;
@@ -292,7 +339,7 @@ class PayrollMonthly extends Component
 
         [$from, $to] = $this->monthRange();
 
-        PayrollAdjustment::query()->updateOrCreate([
+        $adjustment = PayrollAdjustment::query()->updateOrCreate([
             'restaurant_id' => restaurant()->id,
             'branch_id' => $this->effectiveBranchId(),
             'employee_id' => (int) $this->adjustEmployeeId,
@@ -310,8 +357,399 @@ class PayrollMonthly extends Component
             'note' => $this->note,
         ]);
 
+        $payable = $this->resolvePayableForEmployee((int) $this->adjustEmployeeId);
+        app(PayrollSalaryExpenseSync::class)->sync($adjustment, $payable);
+
         $this->showAdjustModal = false;
         $this->resetAdjustmentForm();
+    }
+
+    public function askBulkMarkPaid(): void
+    {
+        $this->authorize('Manage Payroll');
+
+        $this->validate([
+            'bulkPaymentDate' => ['nullable', 'date'],
+            'selectedEmployeeIds' => ['required', 'array', 'min:1'],
+            'selectedEmployeeIds.*' => ['integer'],
+        ]);
+
+        $count = count($this->selectedEmployeeIds);
+        $this->confirmAction = 'bulk_mark_paid';
+        $this->confirmEmployeeId = null;
+        $this->confirmTitle = 'Mark selected as paid?';
+        $this->confirmMessage = $count === 1
+            ? 'Mark 1 selected employee as paid? This will set the payment date and sync salary expenses.'
+            : "Mark {$count} selected employees as paid? This will set the payment date and sync salary expenses.";
+        $this->showConfirmModal = true;
+    }
+
+    public function askBulkClearPayment(): void
+    {
+        $this->authorize('Manage Payroll');
+
+        $this->validate([
+            'selectedEmployeeIds' => ['required', 'array', 'min:1'],
+            'selectedEmployeeIds.*' => ['integer'],
+        ]);
+
+        $count = count($this->selectedEmployeeIds);
+        $this->confirmAction = 'bulk_clear_payment';
+        $this->confirmEmployeeId = null;
+        $this->confirmTitle = 'Clear selected payments?';
+        $this->confirmMessage = $count === 1
+            ? 'Clear payment for 1 selected employee? This will mark them unpaid and remove linked salary expenses.'
+            : "Clear payment for {$count} selected employees? This will mark them unpaid and remove linked salary expenses.";
+        $this->showConfirmModal = true;
+    }
+
+    public function askMarkPaid(int $employeeId): void
+    {
+        $this->authorize('Manage Payroll');
+
+        if ($this->branchId === null) {
+            return;
+        }
+
+        $this->assertEmployeeInScope($employeeId);
+
+        $this->confirmAction = 'mark_paid';
+        $this->confirmEmployeeId = $employeeId;
+        $this->confirmTitle = 'Mark as paid?';
+        $this->confirmMessage = 'Mark this employee as paid? This will set the payment date and sync the salary expense.';
+        $this->showConfirmModal = true;
+    }
+
+    public function askClearPayment(int $employeeId): void
+    {
+        $this->authorize('Manage Payroll');
+
+        if ($this->branchId === null) {
+            return;
+        }
+
+        $this->assertEmployeeInScope($employeeId);
+
+        $this->confirmAction = 'clear_payment';
+        $this->confirmEmployeeId = $employeeId;
+        $this->confirmTitle = 'Clear payment?';
+        $this->confirmMessage = 'Clear payment for this employee? This will mark them unpaid and remove the linked salary expense.';
+        $this->showConfirmModal = true;
+    }
+
+    public function closeConfirmModal(): void
+    {
+        $this->showConfirmModal = false;
+        $this->confirmAction = '';
+        $this->confirmEmployeeId = null;
+        $this->confirmTitle = '';
+        $this->confirmMessage = '';
+    }
+
+    public function executeConfirmedAction(): void
+    {
+        $this->authorize('Manage Payroll');
+
+        $action = $this->confirmAction;
+        $employeeId = $this->confirmEmployeeId;
+        $this->closeConfirmModal();
+
+        match ($action) {
+            'bulk_mark_paid' => $this->bulkMarkPaid(),
+            'bulk_clear_payment' => $this->bulkUnmarkPaid(),
+            'mark_paid' => $employeeId ? $this->markPaid($employeeId) : null,
+            'clear_payment' => $employeeId ? $this->unmarkPaid($employeeId) : null,
+            default => null,
+        };
+    }
+
+    public function markPaid(int $employeeId, ?string $date = null): void
+    {
+        $this->authorize('Manage Payroll');
+
+        if ($this->branchId === null) {
+            return;
+        }
+
+        $this->assertEmployeeInScope($employeeId);
+
+        $payable = $this->resolvePayableForEmployee($employeeId);
+        if ($payable <= 0) {
+            $this->showToast(
+                'error',
+                'Cannot mark as paid: net payable is 0.00. Set the salary/earnings for this employee first.'
+            );
+
+            return;
+        }
+
+        $this->applyPayment($employeeId, $date ?: now()->toDateString(), $payable);
+        $this->invalidatePayrollCache();
+
+        $this->showToast('success', 'Marked as paid and salary expense synced.');
+    }
+
+    public function unmarkPaid(int $employeeId): void
+    {
+        $this->authorize('Manage Payroll');
+
+        if ($this->branchId === null) {
+            return;
+        }
+
+        $this->assertEmployeeInScope($employeeId);
+
+        $this->applyClear($employeeId);
+        $this->invalidatePayrollCache();
+
+        $this->showToast('success', 'Payment cleared and linked salary expense removed.');
+    }
+
+    /**
+     * Persist a payment date for one employee and (re)sync its salary expense.
+     * Caller is responsible for scope checks and payable > 0 validation.
+     */
+    private function applyPayment(int $employeeId, string $paymentDate, float $payable): void
+    {
+        [$from] = $this->monthRange();
+
+        $adjustment = PayrollAdjustment::query()->updateOrCreate([
+            'restaurant_id' => restaurant()->id,
+            'branch_id' => $this->effectiveBranchId(),
+            'employee_id' => $employeeId,
+            'year' => (int) $from->format('Y'),
+            'month' => (int) $from->format('m'),
+        ], [
+            'payment_date' => $paymentDate,
+        ]);
+
+        app(PayrollSalaryExpenseSync::class)->sync($adjustment->fresh(), $payable);
+    }
+
+    /**
+     * Clear the payment date for one employee and remove any linked expense.
+     * Caller is responsible for scope checks.
+     */
+    private function applyClear(int $employeeId): void
+    {
+        [$from] = $this->monthRange();
+
+        $adjustment = PayrollAdjustment::query()->firstOrCreate([
+            'restaurant_id' => restaurant()->id,
+            'branch_id' => $this->effectiveBranchId(),
+            'employee_id' => $employeeId,
+            'year' => (int) $from->format('Y'),
+            'month' => (int) $from->format('m'),
+        ]);
+
+        $adjustment->update(['payment_date' => null]);
+
+        // payable is irrelevant when clearing; the sync removes the expense.
+        app(PayrollSalaryExpenseSync::class)->sync($adjustment->fresh(), 0.0);
+    }
+
+    public function bulkMarkPaid(): void
+    {
+        $this->authorize('Manage Payroll');
+
+        $this->validate([
+            'bulkPaymentDate' => ['nullable', 'date'],
+            'selectedEmployeeIds' => ['required', 'array', 'min:1'],
+            'selectedEmployeeIds.*' => ['integer'],
+        ]);
+
+        $date = $this->bulkPaymentDate ?: now()->toDateString();
+
+        // Build the grid once; the loop reuses these payables (grid membership
+        // also acts as the branch/scope guard).
+        $rowsByEmployee = collect($this->payrollData()['rows'] ?? [])
+            ->keyBy(fn ($r) => (int) ($r['employee_id'] ?? 0));
+
+        $paid = 0;
+        $skipped = 0;
+
+        foreach ($this->selectedEmployeeIds as $employeeId) {
+            $employeeId = (int) $employeeId;
+            $row = $rowsByEmployee->get($employeeId);
+            if (! $row) {
+                continue;
+            }
+
+            $payable = (float) ($row['payable_salary'] ?? 0);
+            if ($payable <= 0) {
+                $skipped++;
+
+                continue;
+            }
+
+            $this->applyPayment($employeeId, $date, $payable);
+            $paid++;
+        }
+
+        $this->invalidatePayrollCache();
+        $this->selectedEmployeeIds = [];
+
+        $this->showToast(
+            $paid > 0 ? 'success' : 'warning',
+            $this->buildBulkMarkPaidMessage($paid, $skipped)
+        );
+    }
+
+    public function bulkUnmarkPaid(): void
+    {
+        $this->authorize('Manage Payroll');
+
+        $this->validate([
+            'selectedEmployeeIds' => ['required', 'array', 'min:1'],
+            'selectedEmployeeIds.*' => ['integer'],
+        ]);
+
+        $inScope = collect($this->payrollData()['rows'] ?? [])
+            ->keyBy(fn ($r) => (int) ($r['employee_id'] ?? 0));
+
+        $cleared = 0;
+
+        foreach ($this->selectedEmployeeIds as $employeeId) {
+            $employeeId = (int) $employeeId;
+            if (! $inScope->has($employeeId)) {
+                continue;
+            }
+
+            $this->applyClear($employeeId);
+            $cleared++;
+        }
+
+        $this->invalidatePayrollCache();
+        $this->selectedEmployeeIds = [];
+
+        $message = $cleared === 1
+            ? 'Payment cleared for 1 employee.'
+            : "Payment cleared for {$cleared} employees.";
+
+        $this->showToast('success', $message);
+    }
+
+    private function showToast(string $type, string $message): void
+    {
+        $this->alert($type, $message, [
+            'toast' => true,
+            'position' => 'top-end',
+        ]);
+    }
+
+    private function buildBulkMarkPaidMessage(int $paid, int $skipped): string
+    {
+        $parts = [];
+        $parts[] = $paid === 1 ? '1 employee marked paid.' : "{$paid} employees marked paid.";
+
+        if ($skipped > 0) {
+            $parts[] = $skipped === 1
+                ? '1 skipped because net payable is 0.00.'
+                : "{$skipped} skipped because net payable is 0.00.";
+        }
+
+        return implode(' ', $parts);
+    }
+
+    public function toggleSelectAll(bool $checked): void
+    {
+        if (! $checked) {
+            $this->selectedEmployeeIds = [];
+
+            return;
+        }
+
+        $rows = $this->filterRowsByPaymentStatus($this->payrollData()['rows'] ?? []);
+        $this->selectedEmployeeIds = collect($rows)->pluck('employee_id')->map(fn ($id) => (int) $id)->all();
+    }
+
+    private function assertEmployeeInScope(int $employeeId): void
+    {
+        Employee::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->tap($this->branchFilter())
+            ->findOrFail($employeeId);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterRowsByPaymentStatus(array $rows): array
+    {
+        if ($this->paymentStatusFilter === 'paid') {
+            return array_values(array_filter($rows, fn ($r) => ! empty($r['is_paid'])));
+        }
+
+        if ($this->paymentStatusFilter === 'unpaid') {
+            return array_values(array_filter($rows, fn ($r) => empty($r['is_paid'])));
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $rows
+     * @return array{employee_count:int,total_payable:float,paid_count:int,unpaid_count:int,paid_amount:float,holiday_count:int}
+     */
+    private function buildPayrollSummary(array $rows, int $holidayCount = 0): array
+    {
+        $paidCount = 0;
+        $paidAmount = 0.0;
+        $totalPayable = 0.0;
+
+        foreach ($rows as $row) {
+            $payable = (float) ($row['payable_salary'] ?? 0);
+            $totalPayable += $payable;
+
+            if (! empty($row['is_paid'])) {
+                $paidCount++;
+                $paidAmount += $payable;
+            }
+        }
+
+        $employeeCount = count($rows);
+
+        return [
+            'employee_count' => $employeeCount,
+            'total_payable' => round($totalPayable, 2),
+            'paid_count' => $paidCount,
+            'unpaid_count' => $employeeCount - $paidCount,
+            'paid_amount' => round($paidAmount, 2),
+            'holiday_count' => $holidayCount,
+        ];
+    }
+
+    /**
+     * Memoized payroll grid data for the current request. Bulk pay/clear loops
+     * reuse this instead of rebuilding the (expensive) grid per employee.
+     *
+     * @return array<string, mixed>
+     */
+    private function payrollData(): array
+    {
+        return $this->payrollDataCache ??= $this->buildPayrollRows();
+    }
+
+    /** Drop the cached grid so the next read reflects fresh payment status. */
+    private function invalidatePayrollCache(): void
+    {
+        $this->payrollDataCache = null;
+    }
+
+    /**
+     * Net payable for one employee using the same rules as the payroll grid.
+     */
+    private function resolvePayableForEmployee(int $employeeId): float
+    {
+        $data = $this->payrollData();
+        foreach ($data['rows'] ?? [] as $row) {
+            if ((int) ($row['employee_id'] ?? 0) === $employeeId) {
+                return (float) ($row['payable_salary'] ?? 0);
+            }
+        }
+
+        return 0.0;
     }
 
     private function buildPayrollRows(): array
@@ -342,7 +780,7 @@ class PayrollMonthly extends Component
                 });
             })
             ->orderBy('name')
-            ->get(['id', 'name', 'staff_code', 'department_id', 'designation_id', 'basic_salary_per_day', 'basic_salary_per_month', 'is_epf_eligible']);
+            ->get(['id', 'name', 'staff_code', 'department_id', 'designation_id', 'basic_salary_per_day', 'basic_salary_per_month', 'is_epf_eligible', 'workplace']);
 
         $employeeIds = $employees->pluck('id')->all();
 
@@ -422,11 +860,16 @@ class PayrollMonthly extends Component
         $rows = [];
         $sn = 1;
 
-        // Pre-fetch EPF settings once outside the loop to avoid N+1 queries
+        // Pre-fetch EPF/ETF settings once outside the loop to avoid N+1 queries
         $epfAutoCalc = HrmSetting::get('epf_auto_calculate', false);
         $epfBasic = $epfAutoCalc ? HrmSetting::get('epf_basic_salary', 0) : 0;
         $epfRate = (float) HrmSetting::get('epf_employee_rate', 8);
         $epfCalculated = $epfAutoCalc ? ($epfBasic * $epfRate) / 100 : 0;
+
+        $etfAutoCalc = HrmSetting::get('etf_auto_calculate', false);
+        $etfBasic = $etfAutoCalc ? HrmSetting::get('etf_basic_salary', 0) : 0;
+        $etfRate = (float) HrmSetting::get('etf_employer_rate', 3);
+        $etfCalculated = $etfAutoCalc ? ($etfBasic * $etfRate) / 100 : 0;
 
         foreach ($employees as $e) {
             $presentDays = (int) ($presentCounts[$e->id] ?? 0);
@@ -440,20 +883,23 @@ class PayrollMonthly extends Component
             $additionalPay = (float) ($adj?->additional_pay ?? 0);
             $advance = (float) ($adj?->advance ?? 0);
             
-            // Only deduct EPF if employee is eligible
+            // Only deduct EPF if employee is eligible. A saved manual value
+            // (> 0) always wins over the auto-calculated settings value.
             $isEpfEligible = (bool) ($e->is_epf_eligible ?? true);
+            $savedEpf = (float) ($adj?->epf ?? 0);
 
-            if ($isEpfEligible && $epfAutoCalc) {
-                $epf = $epfCalculated;
-            } elseif ($isEpfEligible) {
-                $epf = (float) ($adj?->epf ?? 0);
-            } else {
+            if (! $isEpfEligible) {
                 $epf = 0;
+            } elseif ($savedEpf > 0) {
+                $epf = $savedEpf;
+            } else {
+                $epf = $epfAutoCalc ? $epfCalculated : $savedEpf;
             }
-            
-            // NOTE: ETF is NOT deducted from employee salary - it's employer-only contribution
-            // Employee ETF contribution is always 0%
-            $etf = 0;
+
+            // ETF is employer contribution only — do not deduct from payable.
+            // A saved manual value (> 0) wins over the auto-calculated one.
+            $savedEtf = (float) ($adj?->etf ?? 0);
+            $etf = $savedEtf > 0 ? $savedEtf : ($etfAutoCalc ? $etfCalculated : $savedEtf);
             
             $timeDeduction = (float) ($adj?->time_deduction ?? 0);
             $creditPurchaseAuto = (float) ($posDueByEmployee[$e->id] ?? 0);
@@ -464,6 +910,9 @@ class PayrollMonthly extends Component
             $totalEarning = $monthlyBasic + $additionalPay;
             $totalDeduction = $advance + $epf + $timeDeduction + $creditPurchase + $otherDeduction;
             $payable = $totalEarning - $totalDeduction;
+
+            $paymentDate = $adj?->payment_date?->toDateString();
+            $isPaid = $paymentDate !== null && $paymentDate !== '';
 
             $rows[] = [
                 'employee_id' => $e->id,
@@ -484,12 +933,16 @@ class PayrollMonthly extends Component
                 'epf' => round($epf, 2),
                 'epf_rate' => round((float) $epfRate, 2),
                 'etf' => round($etf, 2),
+                'etf_rate' => round((float) $etfRate, 2),
                 'time_deduction' => round($timeDeduction, 2),
                 'credit_purchase' => round($creditPurchase, 2),
                 'other_deduction' => round($otherDeduction, 2),
                 'total_of_deduction' => round($totalDeduction, 2),
                 'payable_salary' => round($payable, 2),
-                'payment_date' => $adj?->payment_date?->toDateString(),
+                'payment_date' => $paymentDate,
+                'is_paid' => $isPaid,
+                'payment_status' => $isPaid ? 'paid' : 'unpaid',
+                'workplace' => Workplace::label($e->workplace ?? null),
                 'department' => $deptNames[$e->department_id] ?? null,
                 'designation' => $desigNames[$e->designation_id] ?? null,
             ];
@@ -640,7 +1093,12 @@ class PayrollMonthly extends Component
         $path = $this->importFile->store('imports', 'local');
         $fullPath = Storage::disk('local')->path($path);
 
-        $import = new PayrollMonthlyImport(restaurant()->id, (int) $this->branchId, (int) $from->format('Y'), (int) $from->format('m'));
+        $import = new PayrollMonthlyImport(
+            restaurant()->id,
+            $this->effectiveBranchId(),
+            (int) $from->format('Y'),
+            (int) $from->format('m')
+        );
         Excel::import($import, $fullPath);
 
         Storage::disk('local')->delete($path);
@@ -648,17 +1106,68 @@ class PayrollMonthly extends Component
         $r = $import->results();
         $this->importMessage = "Imported {$r['imported']} rows. Skipped {$r['skipped']} (missing employee: {$r['skipped_missing_employee']}). Failed {$r['failed']}.";
 
+        $this->syncAllPayrollSalaryExpenses();
+
         $this->importFile = null;
+    }
+
+    /**
+     * Post / refresh salary expenses for the current branch+month from payroll payables.
+     */
+    private function syncAllPayrollSalaryExpenses(): void
+    {
+        if ($this->branchId === null) {
+            return;
+        }
+
+        [$from] = $this->monthRange();
+        $data = $this->payrollData();
+
+        $adjustments = PayrollAdjustment::query()
+            ->where('restaurant_id', restaurant()->id)
+            ->when(
+                $this->isCompanyLevel(),
+                fn ($q) => $q->whereNull('branch_id'),
+                fn ($q) => $q->where('branch_id', (int) $this->branchId)
+            )
+            ->where('year', (int) $from->format('Y'))
+            ->where('month', (int) $from->format('m'))
+            ->get()
+            ->keyBy('employee_id');
+
+        $sync = app(PayrollSalaryExpenseSync::class);
+
+        foreach ($data['rows'] ?? [] as $row) {
+            $adj = $adjustments->get($row['employee_id'] ?? null);
+            if (! $adj) {
+                continue;
+            }
+            $sync->sync($adj, (float) ($row['payable_salary'] ?? 0));
+        }
     }
 
     public function render()
     {
         $this->authorize('Manage Payroll');
 
-        $data = $this->branchId !== null ? $this->buildPayrollRows() : ['rows' => [], 'title' => null];
+        $data = $this->branchId !== null
+            ? $this->payrollData()
+            : ['rows' => [], 'title' => null, 'holiday_count' => 0];
+
+        $allRows = $data['rows'] ?? [];
+        $filteredRows = $this->filterRowsByPaymentStatus($allRows);
+        // Re-number S/N for filtered view
+        $sn = 1;
+        foreach ($filteredRows as &$row) {
+            $row['sn'] = $sn++;
+        }
+        unset($row);
+
+        $summary = $this->buildPayrollSummary($allRows, (int) ($data['holiday_count'] ?? 0));
 
         return view('hrm::livewire.payroll.payroll-monthly', [
-            'payrollRows' => $data['rows'] ?? [],
+            'payrollRows' => $filteredRows,
+            'payrollSummary' => $summary,
         ])->layout('layouts.app');
     }
 }

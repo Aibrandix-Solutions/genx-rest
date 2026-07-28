@@ -53,6 +53,7 @@ class PayrollMonthlyExport implements FromArray, WithHeadings, ShouldAutoSize, W
             'OTHER DEDUCTION',
             'TOTAL DEDUCTION',
             'PAYABLE SALARY',
+            'STATUS',
             'PAYMENT DATE',
         ];
     }
@@ -60,6 +61,10 @@ class PayrollMonthlyExport implements FromArray, WithHeadings, ShouldAutoSize, W
     public function array(): array
     {
         return array_map(function (array $r) {
+            $status = ! empty($r['is_paid']) || (($r['payment_status'] ?? '') === 'paid')
+                ? 'Paid'
+                : 'Unpaid';
+
             return [
                 $r['sn'] ?? null,
                 $r['name'] ?? null,
@@ -79,6 +84,7 @@ class PayrollMonthlyExport implements FromArray, WithHeadings, ShouldAutoSize, W
                 $r['other_deduction'] ?? null,
                 $r['total_of_deduction'] ?? null,
                 $r['payable_salary'] ?? null,
+                $status,
                 $r['payment_date'] ?? null,
             ];
         }, $this->rows);
@@ -90,7 +96,7 @@ class PayrollMonthlyExport implements FromArray, WithHeadings, ShouldAutoSize, W
             AfterSheet::class => function (AfterSheet $event) {
                 $sheet = $event->sheet->getDelegate();
 
-                $lastColumn = 'S'; // 19 columns
+                $lastColumn = 'T'; // 20 columns
 
                 $sheet->mergeCells('A1:' . $lastColumn . '1');
                 $sheet->setCellValue('A1', $this->title);

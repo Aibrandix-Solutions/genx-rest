@@ -67,11 +67,11 @@ class AddPayment extends Component
     {
         $this->pendingDueSplitIdForCustomerModal = null;
         $this->order = Order::with([
-            'items',
             'items.menuItem',
-            'taxes',
+            'taxes.tax',
             'payments',
-            'splitOrders.items'
+            'charges.charge',
+            'splitOrders.items',
         ])->find($id);
 
         $this->canAddTip = restaurant()->enable_tip_pos && $this->order->status !== 'paid';
@@ -119,8 +119,9 @@ class AddPayment extends Component
             $this->roomChargeReservationId = $this->order->hotel_reservation_id;
             if ($this->order->hotel_reservation_id) {
                 $this->paymentMethod = 'room_charge';
+                // Only load hotel reservations when room charge is the active method.
+                $this->loadInHouseReservations();
             }
-            $this->loadInHouseReservations();
         }
     }
 

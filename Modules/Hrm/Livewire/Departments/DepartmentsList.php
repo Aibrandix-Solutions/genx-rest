@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Livewire\Component;
 use Livewire\WithPagination;
 use Modules\Hrm\Entities\Department;
+use Modules\Hrm\Support\Workplace;
 
 class DepartmentsList extends Component
 {
@@ -14,19 +15,32 @@ class DepartmentsList extends Component
 
     public string $search = '';
 
+    public string $workplaceFilter = 'all';
+
     public bool $showModal = false;
     public ?int $editingId = null;
 
     public string $name = '';
+    public string $workplace = Workplace::RESTAURANT;
     public ?string $description = null;
     public bool $is_active = true;
 
     public bool $showDeleteModal = false;
     public ?int $deleteId = null;
 
-    protected $queryString = ['search'];
+    protected $queryString = ['search', 'workplaceFilter'];
+
+    public function mount(): void
+    {
+        $this->workplace = Workplace::default();
+    }
 
     public function updatingSearch(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatingWorkplaceFilter(): void
     {
         $this->resetPage();
     }
@@ -49,6 +63,7 @@ class DepartmentsList extends Component
 
         $this->editingId = $department->id;
         $this->name = (string) $department->name;
+        $this->workplace = Workplace::normalize($department->workplace);
         $this->description = $department->description;
         $this->is_active = (bool) $department->is_active;
 
@@ -63,13 +78,18 @@ class DepartmentsList extends Component
             $this->authorize('Create Department');
         }
 
+        $this->workplace = Workplace::normalize($this->workplace);
+
         $this->validate([
+            'workplace' => ['required', Rule::in(Workplace::allowedValues())],
             'name' => [
                 'required',
                 'string',
                 'max:255',
                 Rule::unique('hrm_departments', 'name')
-                    ->where(fn($q) => $q->where('restaurant_id', restaurant()->id))
+                    ->where(fn ($q) => $q
+                        ->where('restaurant_id', restaurant()->id)
+                        ->where('workplace', $this->workplace))
                     ->ignore($this->editingId),
             ],
             'description' => ['nullable', 'string'],
@@ -81,6 +101,7 @@ class DepartmentsList extends Component
             : new Department();
 
         $department->restaurant_id = restaurant()->id;
+        $department->workplace = $this->workplace;
         $department->name = $this->name;
         $department->description = $this->description;
         $department->is_active = $this->is_active;
@@ -126,20 +147,30 @@ class DepartmentsList extends Component
     {
         $this->editingId = null;
         $this->name = '';
+        $this->workplace = Workplace::default();
         $this->description = null;
         $this->is_active = true;
     }
 
     public function render()
     {
+        $workplaceOptions = Workplace::options();
+
         $departments = Department::query()
             ->where('restaurant_id', restaurant()->id)
-            ->when($this->search, fn($q) => $q->where('name', 'like', "%{$this->search}%"))
+            ->when(
+                $this->workplaceFilter !== 'all' && isset($workplaceOptions[$this->workplaceFilter]),
+                fn ($q) => $q->where('workplace', $this->workplaceFilter)
+            )
+            ->when($this->search, fn ($q) => $q->where('name', 'like', "%{$this->search}%"))
+            ->orderBy('workplace')
             ->orderBy('name')
             ->paginate(15);
 
         return view('hrm::livewire.departments-list', [
             'departments' => $departments,
+            'workplaceOptions' => $workplaceOptions,
+            'showWorkplaceFilter' => count($workplaceOptions) > 1,
         ])->layout('layouts.app');
     }
 }
