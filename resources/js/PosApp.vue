@@ -2017,6 +2017,18 @@ const runSaveOrder = async (...actions) => {
     // Open a tab synchronously on click so print is not blocked after await.
     let printPlaceholder =
         wantsKotPrint || wantsReceiptPrint ? window.open("about:blank", "_blank") : null;
+    if (printPlaceholder && !printPlaceholder.closed && wantsKotPrint) {
+        try {
+            printPlaceholder.document.write(
+                "<!DOCTYPE html><html><head><title>Preparing KOT…</title></head>" +
+                    '<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#444">' +
+                    "<p>Preparing KOT print…</p></body></html>"
+            );
+            printPlaceholder.document.close();
+        } catch (e) {
+            // Cross-origin / closed tab — ignore; URL will still be set after save.
+        }
+    }
     let draftSnapshot = null;
     let optimisticNewOrderClear = false;
 
