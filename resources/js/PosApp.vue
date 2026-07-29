@@ -1960,6 +1960,7 @@ const handleVuePaymentSubmit = async (payload) => {
         return;
     }
 
+    const _t0 = performance.now();
     vuePaymentSubmitting.value = true;
     try {
         const response = await axios.post(`/api/pos/orders/${id}/pay`, {
@@ -1999,6 +2000,7 @@ const handleVuePaymentSubmit = async (payload) => {
         }
     } finally {
         vuePaymentSubmitting.value = false;
+        console.log(`[POS TIMING] paymentSubmit(order #${id}) — ${Math.round(performance.now() - _t0)}ms`);
     }
 };
 
@@ -2433,6 +2435,7 @@ const runSaveOrder = async (...actions) => {
         return;
     }
 
+    const _t0 = performance.now();
     const actionList = Array.isArray(actions) ? actions : [];
     const wantsKotPrint =
         actionList.includes("kot") &&
@@ -2736,6 +2739,7 @@ const runSaveOrder = async (...actions) => {
                 shouldPrintReceipt,
                 shouldShowOrderDetail,
             });
+            console.log(`[POS TIMING] saveOrder(${actions.join(", ")}) API — ${Math.round(performance.now() - _t0)}ms (total incl. navigation logged in finally)`);
 
             // Open payment as soon as we have an order id — don't wait for
             // linked-order refresh / cart clear / order-number fetch.
@@ -2965,6 +2969,7 @@ const runSaveOrder = async (...actions) => {
         }
     } finally {
         orderSaveInFlight.value = false;
+        console.log(`[POS TIMING] saveOrder(${actions.join(", ")}) — ${Math.round(performance.now() - _t0)}ms`);
     }
 };
 
@@ -3188,6 +3193,7 @@ const handleDeliveryFeeUpdate = async (newDeliveryFee) => {
 };
 
 const handleOpenPayment = () => {
+    const _t0 = performance.now();
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     console.log("[POS DEBUG] open payment clicked", {
         activeOrderId,
@@ -3204,6 +3210,7 @@ const handleOpenPayment = () => {
         if (!openedPayment) {
             navigateToPayment(activeOrderId);
         }
+        console.log(`[POS TIMING] openPayment(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
         return;
     }
 
@@ -3213,6 +3220,7 @@ const handleOpenPayment = () => {
         activeOrderId,
         openedPayment,
     });
+    console.log(`[POS TIMING] openPayment(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
 
     if (!openedPayment) {
         window.location.href = `/orders/${activeOrderId}?payment=true`;
@@ -3247,6 +3255,7 @@ const handleNewKot = () => {
 };
 
 const handleDeleteOrder = async () => {
+    const _t0 = performance.now();
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     console.log("[POS DEBUG] delete order clicked", {
         activeOrderId,
@@ -3278,9 +3287,7 @@ const handleDeleteOrder = async () => {
         const response = await axios.delete(`/api/pos/orders/${activeOrderId}`);
 
         if (response.data?.success) {
-            console.log("[POS DEBUG] delete order success", {
-                activeOrderId,
-            });
+            console.log(`[POS TIMING] deleteOrder(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
             showPosAlert("success", response.data?.message || "Order deleted successfully");
             clearCartAfterSave();
             window.location.href = "/pos";
@@ -3291,6 +3298,7 @@ const handleDeleteOrder = async () => {
             status: error?.response?.status,
             data: error?.response?.data,
         });
+        console.log(`[POS TIMING] deleteOrder(order #${activeOrderId}) failed — ${Math.round(performance.now() - _t0)}ms`);
         console.error("Error deleting order:", error);
         showPosAlert("error", error.response?.data?.message || "Failed to delete order");
     }
