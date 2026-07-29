@@ -1,4 +1,4 @@
-name: Deploy digierp.cloud VPS
+name: Deploy mri.digierp.cloud VPS
 
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
             --exclude="storage" \
             --exclude="bootstrap/cache" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/mri/
+            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/mri.digierp.cloud/public_html/
 
       - name: SSH - Laravel Deploy Commands
         uses: appleboy/ssh-action@v1.0.3
@@ -65,7 +65,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/admin/domains/digierp.cloud/public_html/mri
+            cd /home/admin/domains/mri.digierp.cloud/public_html
 
             if [ ! -f .env ]; then
               echo "Missing .env file"
@@ -89,6 +89,6 @@ jobs:
             php artisan view:cache
 
             chmod -R 775 storage bootstrap/cache
-            chown -R admin:admin /home/admin/domains/digierp.cloud/public_html/mri || true
+            chown -R admin:admin /home/admin/domains/mri.digierp.cloud/public_html || true
 
             echo "Deployment completed successfully"
