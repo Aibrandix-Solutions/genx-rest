@@ -451,6 +451,18 @@ class PosVueOrderController extends Controller
         abort_if(! $branch || ! $restaurant, 422, 'Branch/restaurant context is required');
         $posUserId = auth()->id();
 
+        // Cache schema checks outside the transaction loop — Schema::hasColumn()
+        // hits the DB on every call. These columns are added by migrations and
+        // never removed, so a per-process in-memory cache is safe.
+        static $hasOrderItemsComboInstanceKey = null;
+        static $hasKotItemsComboInstanceKey = null;
+        if ($hasOrderItemsComboInstanceKey === null) {
+            $hasOrderItemsComboInstanceKey = \Illuminate\Support\Facades\Schema::hasColumn('order_items', 'combo_instance_key');
+        }
+        if ($hasKotItemsComboInstanceKey === null) {
+            $hasKotItemsComboInstanceKey = \Illuminate\Support\Facades\Schema::hasColumn('kot_items', 'combo_instance_key');
+        }
+
         if (! empty($validated['waiter_id'])) {
             abort_unless(
                 User::isAssignableWaiter((int) $validated['waiter_id'], (int) $restaurant->id, (int) $branch->id),
@@ -558,7 +570,7 @@ class PosVueOrderController extends Controller
             $resolvedTableId = (int) $table->id;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId, $posUserId) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId, $posUserId, $hasOrderItemsComboInstanceKey, $hasKotItemsComboInstanceKey) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -730,6 +742,18 @@ class PosVueOrderController extends Controller
                 ? collect()
                 : ModifierOption::query()->whereIn('id', $allModifierOptionIds)->get()->keyBy('id');
 
+            // Hoist KotPlace default lookup outside the per-item loop.
+            // Previously this issued up to 2 queries per item that had no kitchen assigned.
+            $defaultKotPlaceId = KotPlace::query()
+                ->where('branch_id', $order->branch_id)
+                ->where('is_default', true)
+                ->value('id');
+            if (! $defaultKotPlaceId) {
+                $defaultKotPlaceId = KotPlace::query()
+                    ->where('branch_id', $order->branch_id)
+                    ->value('id');
+            }
+
             foreach ($validated['lines'] as $line) {
                 $menuItem = $menuItemsById->get((int) $line['menu_item_id']);
                 abort_if(! $menuItem, 422, 'Invalid menu item.');
@@ -861,7 +885,7 @@ class PosVueOrderController extends Controller
                     'tax_percentage' => $taxPercentageVal,
                     'tax_breakup' => $taxBreakupVal,
                 ];
-                if (Schema::hasColumn('order_items', 'combo_instance_key')) {
+                if ($hasOrderItemsComboInstanceKey) {
                     $orderItemData['combo_instance_key'] = $isComboItem ? $comboInstanceKeyVal : null;
                 }
                 $orderItem = OrderItem::create($orderItemData);
@@ -879,19 +903,8 @@ class PosVueOrderController extends Controller
                     : [];
 
                 if (empty($kitchenIds)) {
-                    $defaultKotPlace = KotPlace::query()
-                        ->where('branch_id', $order->branch_id)
-                        ->where('is_default', true)
-                        ->value('id');
-
-                    if (! $defaultKotPlace) {
-                        $defaultKotPlace = KotPlace::query()
-                            ->where('branch_id', $order->branch_id)
-                            ->value('id');
-                    }
-
-                    if ($defaultKotPlace) {
-                        $kitchenIds = [$defaultKotPlace];
+                    if ($defaultKotPlaceId) {
+                        $kitchenIds = [$defaultKotPlaceId];
                     }
                 }
 
@@ -906,7 +919,7 @@ class PosVueOrderController extends Controller
                         'modifier_option_quantities' => $modifierQtyMap,
                         'is_multi_kitchen' => count($kitchenIds) > 1,
                     ];
-                    if (Schema::hasColumn('kot_items', 'combo_instance_key')) {
+                    if ($hasKotItemsComboInstanceKey) {
                         $seedLine['combo_instance_key'] = $isComboItem ? $comboInstanceKeyVal : null;
                     }
                     $kotLineSeed[] = $seedLine;
@@ -989,7 +1002,6 @@ class PosVueOrderController extends Controller
                 ? (float) ($validated['delivery_fee'] ?? 0)
                 : 0.0;
 
-            $order->refresh();
             $discountType = isset($validated['discount_type']) ? (string) $validated['discount_type'] : null;
             $discountValue = isset($validated['discount_value']) ? (float) $validated['discount_value'] : 0.0;
             if ($discountType === null || $discountValue <= 0) {
@@ -1127,7 +1139,7 @@ class PosVueOrderController extends Controller
                             'order_type' => $order->order_type,
                             'is_multi_kitchen' => (bool) ($item['is_multi_kitchen'] ?? false),
                         ];
-                        if (Schema::hasColumn('kot_items', 'combo_instance_key')) {
+                        if ($hasKotItemsComboInstanceKey) {
                             $kotRow['combo_instance_key'] = $item['combo_instance_key'] ?? null;
                         }
                         $kotItem = KotItem::create($kotRow);
@@ -1142,8 +1154,19 @@ class PosVueOrderController extends Controller
                 }
             }
 
+            // Sync the fields written by the final update() back onto the in-memory
+            // model so the return value is accurate without a separate SELECT.
+            $order->sub_total = round($subtotal, 2);
+            $order->total = $total;
+            $order->total_tax_amount = round($totalTax, 2);
+            $order->discount_type = $discountType;
+            $order->discount_value = $discountType ? round($discountValue, 2) : null;
+            $order->discount_amount = $discountAmount > 0 ? $discountAmount : null;
+            // $status is already 'billed' for action=bill or billAfterKot, 'kot' otherwise.
+            $order->status = $status;
+
             return [
-                'order' => $order->fresh(),
+                'order' => $order,
                 'order_item_ids' => $orderItemsCreated,
                 'kot_ids' => $kotIds,
                 'kot_print_targets' => $kotPrintTargets,
