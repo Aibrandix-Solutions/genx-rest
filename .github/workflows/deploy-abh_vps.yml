@@ -1,4 +1,4 @@
-name: Deploy abh.digierp.cloud VPS
+name: Deploy  abh.digierp.cloud VPS
 
 on:
   push:
