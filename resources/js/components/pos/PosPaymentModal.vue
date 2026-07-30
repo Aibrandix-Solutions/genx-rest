@@ -1,9 +1,11 @@
 <template>
-    <div
-        v-if="show"
-        class="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6"
-        @keydown.esc.prevent="emitClose"
-    >
+    <teleport to="body">
+        <div
+            v-if="show"
+            class="fixed inset-0 flex items-center justify-center p-3 sm:p-6"
+            style="z-index: 999999;"
+            @keydown.esc.prevent="emitClose"
+        >
         <div class="absolute inset-0 bg-gray-900/50" @click="emitClose"></div>
 
         <div
@@ -16,7 +18,7 @@
             <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-200 dark:border-gray-700">
                 <div class="flex items-center gap-2 min-w-0">
                     <svg class="w-5 h-5 text-skin-base shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5 5.5L9 14m0 0l-1.5 1.5M15 8l1.5-1.5M4 6h16v12H4z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
                     </svg>
                     <div class="min-w-0">
                         <div class="text-lg font-semibold text-gray-900 dark:text-white">Payment</div>
@@ -60,19 +62,55 @@
                 <!-- Full Payment Section -->
                 <div v-if="!isSplit" class="grid grid-cols-1 md:grid-cols-2 gap-5">
                     <div class="space-y-4">
-                        <div class="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                        <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
                             <button
-                                v-for="method in methods"
+                                v-for="method in visibleMethods"
                                 :key="method.id"
                                 type="button"
-                                class="p-2 text-center border rounded-lg text-sm transition-all duration-200"
+                                class="p-3 text-center border rounded-lg transition-all duration-200 flex flex-col items-center justify-center gap-1 min-h-[80px]"
                                 :class="paymentMethod === method.id
                                     ? 'border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200'
                                     : 'border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200'"
                                 @click="paymentMethod = method.id"
                             >
-                                {{ method.label }}
+                                <span v-html="method.svg" class="w-6 h-6 block text-current"></span>
+                                <span class="text-xs font-semibold">{{ method.label }}</span>
                             </button>
+
+                            <!-- Add Tip Button -->
+                            <button
+                                v-if="orderDetails?.can_add_tip"
+                                type="button"
+                                class="p-3 text-center border-2 border-dashed rounded-lg transition-all duration-200 flex flex-col items-center justify-center gap-1 min-h-[80px]"
+                                :class="orderDetails.tip_amount > 0
+                                    ? 'bg-green-50 dark:bg-green-900/50 border-green-200 dark:border-green-800 text-green-600 dark:text-green-400'
+                                    : 'border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-500 hover:border-blue-500'"
+                                @click="openTipDialog"
+                            >
+                                <svg class="w-6 h-6 mx-auto text-current" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"/>
+                                </svg>
+                                <span class="text-xs font-semibold">
+                                    {{ orderDetails.tip_amount > 0 ? `Tip: ${currencySymbol}${orderDetails.tip_amount}` : 'Add Tip' }}
+                                </span>
+                            </button>
+                        </div>
+
+                        <!-- Room Charge: Guest/Room selector -->
+                        <div v-if="paymentMethod === 'room_charge' && orderDetails?.show_room_charge" class="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
+                            <label class="block text-sm font-medium text-purple-800 dark:text-purple-300 mb-1.5">
+                                Charge to Room
+                            </label>
+                            <select v-model="roomChargeReservationId"
+                                class="w-full rounded-lg border-purple-300 dark:border-purple-600 dark:bg-gray-800 dark:text-gray-200 focus:border-purple-500 focus:ring-purple-500 text-sm">
+                                <option value="">Select in-house guest...</option>
+                                <option v-for="res in orderDetails.in_house_reservations" :key="res.id" :value="res.id">
+                                    {{ res.label }}
+                                </option>
+                            </select>
+                            <p v-if="!orderDetails.in_house_reservations || orderDetails.in_house_reservations.length === 0" class="mt-1 text-xs text-purple-600 dark:text-purple-400">
+                                No checked-in guests found.
+                            </p>
                         </div>
 
                         <div>
@@ -486,7 +524,61 @@
                 </button>
             </div>
         </div>
+
+        <!-- Tip Modal -->
+        <div v-if="showTipDialog" class="fixed inset-0 flex items-center justify-center p-4" style="z-index: 1000000;">
+            <div class="absolute inset-0 bg-gray-900/50" @click="showTipDialog = false"></div>
+            <div class="relative w-full max-w-md bg-white dark:bg-gray-800 rounded-xl shadow-2xl p-5 space-y-4">
+                <div class="flex items-center justify-between border-b pb-2 dark:border-gray-700">
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white">Add Tip</h3>
+                    <button type="button" @click="showTipDialog = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Tip Amount</label>
+                        <input
+                            type="number"
+                            v-model="tipAmountInput"
+                            placeholder="Enter amount..."
+                            class="w-full px-3 py-2 border rounded-lg dark:bg-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+                            min="0"
+                            step="0.01"
+                        />
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Note (Optional)</label>
+                        <textarea
+                            v-model="tipNoteInput"
+                            placeholder="Add a note..."
+                            class="w-full px-3 py-2 border rounded-lg dark:bg-gray-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+                            rows="2"
+                        ></textarea>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        type="button"
+                        class="flex-1 py-2 px-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium"
+                        @click="showTipDialog = false"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        class="flex-1 py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium"
+                        @click="submitTip"
+                    >
+                        Save Tip
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
+    </teleport>
 </template>
 
 <script setup>
@@ -503,7 +595,7 @@ const props = defineProps({
     submitting: { type: Boolean, default: false },
 });
 
-const emit = defineEmits(["close", "submit", "open-advanced"]);
+const emit = defineEmits(["close", "submit", "open-advanced", "update-totals"]);
 
 const paymentMethod = ref("cash");
 const amountInput = ref("");
@@ -511,6 +603,47 @@ const amountTouched = ref(false);
 
 const orderDetails = ref(null);
 const loadingOrder = ref(false);
+
+const roomChargeReservationId = ref("");
+const showTipDialog = ref(false);
+const tipAmountInput = ref("");
+const tipNoteInput = ref("");
+
+const openTipDialog = () => {
+    tipAmountInput.value = orderDetails.value?.tip_amount || "";
+    tipNoteInput.value = orderDetails.value?.tip_note || "";
+    showTipDialog.value = true;
+};
+
+const submitTip = async () => {
+    try {
+        const amt = Number(tipAmountInput.value || 0);
+        const response = await axios.post(`/api/pos/orders/${props.orderId}/tip`, {
+            tip_amount: amt,
+            tip_note: tipNoteInput.value || "",
+        });
+        
+        if (response.data?.success) {
+            if (orderDetails.value) {
+                orderDetails.value.tip_amount = response.data.data.tip_amount;
+                orderDetails.value.tip_note = response.data.data.tip_note;
+                orderDetails.value.total = response.data.data.total;
+            }
+            amountInput.value = String(response.data.data.total);
+            amountTouched.value = false;
+            showTipDialog.value = false;
+            emit("update-totals");
+        }
+    } catch (error) {
+        console.error("Failed to update tip:", error);
+    }
+};
+
+watch(orderDetails, (newVal) => {
+    if (newVal) {
+        roomChargeReservationId.value = newVal.hotel_reservation_id || "";
+    }
+});
 
 // Split parameters
 const isSplit = ref(false);
@@ -535,13 +668,43 @@ const itemSplits = ref([
 ]);
 const activeSplitId = ref(1);
 
-const methods = [
-    { id: "cash", label: "Cash" },
-    { id: "card", label: "Card" },
-    { id: "upi", label: "UPI" },
-    { id: "bank_transfer", label: "Bank Transfer" },
-    { id: "due", label: "Due" },
-];
+const visibleMethods = computed(() => {
+    const list = [
+        { 
+            id: "cash", 
+            label: "Cash",
+            svg: `<svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2m2 4h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2m7-5a2 2 0 1 1-4 0 2 2 0 0 1 4 0"/></svg>`
+        },
+        { 
+            id: "card", 
+            label: "Card",
+            svg: `<svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 0 0 3-3V8a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v8a3 3 0 0 0 3 3"/></svg>`
+        },
+        { 
+            id: "upi", 
+            label: "UPI",
+            svg: `<svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" class="bi bi-qr-code-scan w-6 h-6 mx-auto" viewBox="0 0 16 16"><path d="M0 .5A.5.5 0 0 1 .5 0h3a.5.5 0 0 1 0 1H1v2.5a.5.5 0 0 1-1 0zm12 0a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-1 0V1h-2.5a.5.5 0 0 1-.5-.5M.5 12a.5.5 0 0 1 .5.5V15h2.5a.5.5 0 0 1 0 1h-3a.5.5 0 0 1-.5-.5v-3a.5.5 0 0 1 .5-.5m15 0a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1 0-1H15v-2.5a.5.5 0 0 1 .5-.5M4 4h1v1H4z"/><path d="M7 2H2v5h5zM3 3h3v3H3zm2 8H4v1h1z"/><path d="M7 9H2v5h5zm-4 1h3v3H3zm8-6h1v1h-1z"/><path d="M9 2h5v5H9zm1 1v3h3V3zM8 8v2h1v1H8v1h2v-2h1v2h1v-1h2v-1h-3V8zm2 2H9V9h1zm4 2h-1v1h-2v1h3zm-4 2v-1H8v1z"/><path d="M12 9h2V8h-2z"/></svg>`
+        },
+        { 
+            id: "bank_transfer", 
+            label: "Bank Transfer",
+            svg: `<svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>`
+        },
+        { 
+            id: "due", 
+            label: "Due",
+            svg: `<svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0118 0z" /></svg>`
+        },
+    ];
+    if (orderDetails.value?.show_room_charge) {
+        list.push({
+            id: "room_charge",
+            label: "Room Charge",
+            svg: `<svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>`
+        });
+    }
+    return list;
+});
 
 const splitMethods = [
     { id: "cash", label: "Cash" },
@@ -790,24 +953,43 @@ const removeItemSplit = (id) => {
 };
 
 const addItemToSplit = (orderItemId, quantityToAdd) => {
-    const item = availableItemsList.value.find(i => i.order_item_id === orderItemId);
-    if (!item || item.remaining <= 0) return;
+    if (!orderDetails.value || !orderDetails.value.lines) return;
 
-    const qty = Math.min(item.remaining, quantityToAdd);
-    if (qty <= 0) return;
+    const line = orderDetails.value.lines.find(l => l.order_item_id === orderItemId);
+    if (!line) return;
+
+    const qty = parseInt(line.qty || 1);
+    const paidQty = (orderDetails.value.paid_item_quantities || {})[orderItemId] || 0;
+
+    let assignedQty = 0;
+    itemSplits.value.forEach(s => {
+        const found = s.items.find(si => si.order_item_id === orderItemId);
+        if (found) {
+            assignedQty += found.quantity;
+        }
+    });
+
+    const remainingQty = qty - paidQty - assignedQty;
+    if (remainingQty <= 0) return;
+
+    const qtyToAddActual = Math.min(remainingQty, quantityToAdd);
+    if (qtyToAddActual <= 0) return;
 
     const split = itemSplits.value.find(s => s.id === activeSplitId.value);
     if (!split) return;
 
+    const availableItem = availableItemsList.value.find(i => i.order_item_id === orderItemId);
+    const price = availableItem ? availableItem.price : 0;
+
     const existing = split.items.find(si => si.order_item_id === orderItemId);
     if (existing) {
-        existing.quantity += qty;
+        existing.quantity += qtyToAddActual;
     } else {
         split.items.push({
             order_item_id: orderItemId,
-            name: item.name,
-            quantity: qty,
-            price: item.price
+            name: line.item_name,
+            quantity: qtyToAddActual,
+            price: price
         });
     }
 };
@@ -829,8 +1011,24 @@ const incrementItemInSplit = (splitId, itemIndex) => {
     if (!split) return;
 
     const item = split.items[itemIndex];
-    const origItem = availableItemsList.value.find(i => i.order_item_id === item.order_item_id);
-    if (origItem && origItem.remaining > 0) {
+    if (!orderDetails.value || !orderDetails.value.lines) return;
+
+    const line = orderDetails.value.lines.find(l => l.order_item_id === item.order_item_id);
+    if (!line) return;
+
+    const qty = parseInt(line.qty || 1);
+    const paidQty = (orderDetails.value.paid_item_quantities || {})[item.order_item_id] || 0;
+
+    let assignedQty = 0;
+    itemSplits.value.forEach(s => {
+        const found = s.items.find(si => si.order_item_id === item.order_item_id);
+        if (found) {
+            assignedQty += found.quantity;
+        }
+    });
+
+    const remainingQty = qty - paidQty - assignedQty;
+    if (remainingQty > 0) {
         item.quantity++;
     }
 };
@@ -937,11 +1135,15 @@ const submit = () => {
     }
 
     if (!isSplit.value) {
-        emit("submit", {
+        const payload = {
             order_id: Number(props.orderId),
             payment_method: paymentMethod.value,
             amount: paymentMethod.value === "due" ? 0 : payableAmount.value,
-        });
+        };
+        if (paymentMethod.value === "room_charge") {
+            payload.room_charge_reservation_id = roomChargeReservationId.value;
+        }
+        emit("submit", payload);
     } else {
         if (splitType.value === "equal") {
             const splitsPayload = equalSplits.value.map(s => ({
@@ -1003,3 +1205,9 @@ watch(
     }
 );
 </script>
+
+<style>
+.swal2-container {
+    z-index: 10000000 !important;
+}
+</style>

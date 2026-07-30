@@ -138,6 +138,7 @@
             @close="closeVuePaymentModal"
             @submit="handleVuePaymentSubmit"
             @open-advanced="openAdvancedPaymentFromVue"
+            @update-totals="getOrder"
         />
     </div>
 </template>
@@ -1550,6 +1551,12 @@ watch(
     { deep: true }
 );
 
+watch(orderPayableTotal, (newVal) => {
+    if (showVuePaymentModal.value) {
+        vuePaymentDueAmount.value = Number(newVal || 0);
+    }
+});
+
 const handleRemoveDiscount = () => {
     const previousType = discountType.value;
     const previousValue = discountValue.value;
@@ -1967,6 +1974,9 @@ const handleVuePaymentSubmit = async (payload) => {
             payment_method: payload.payment_method,
             amount: payload.amount,
         };
+        if (payload.room_charge_reservation_id !== undefined && payload.room_charge_reservation_id !== null) {
+            requestData.room_charge_reservation_id = payload.room_charge_reservation_id;
+        }
         if (payload.split_type) {
             requestData.split_type = payload.split_type;
             requestData.splits = payload.splits;

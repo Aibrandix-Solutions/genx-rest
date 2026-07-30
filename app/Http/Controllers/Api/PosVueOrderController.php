@@ -393,6 +393,11 @@ class PosVueOrderController extends Controller
                     ],
                     'lines' => $lines,
                     'kots' => $kots,
+                    'show_room_charge' => (bool) PosHotelSupport::showRoomChargePayment(),
+                    'in_house_reservations' => PosHotelSupport::showRoomChargePayment() ? PosHotelSupport::checkedInReservationsForPos()->values()->all() : [],
+                    'can_add_tip' => (bool) (restaurant()->enable_tip_pos && $order->status !== 'paid'),
+                    'tip_amount' => (float) ($order->tip_amount ?? 0),
+                    'tip_note' => (string) ($order->tip_note ?? ''),
                 ],
             ],
         ]);
@@ -1285,11 +1290,12 @@ class PosVueOrderController extends Controller
         abort_if(! $branch, 422, 'Branch context is required');
 
         $validated = $request->validate([
-            'payment_method' => ['nullable', 'required_without:split_type', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due'])],
+            'payment_method' => ['nullable', 'required_without:split_type', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due', 'room_charge'])],
             'amount' => ['nullable', 'numeric', 'min:0'],
+            'room_charge_reservation_id' => ['nullable', 'integer'],
             'split_type' => ['nullable', Rule::in(['equal', 'custom', 'items'])],
             'splits' => ['nullable', 'required_with:split_type', 'array'],
-            'splits.*.payment_method' => ['required_with:splits', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due'])],
+            'splits.*.payment_method' => ['required_with:splits', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due', 'room_charge'])],
             'splits.*.amount' => ['required_if:split_type,equal,custom', 'numeric', 'min:0'],
             'splits.*.items' => ['required_if:split_type,items', 'array'],
             'splits.*.items.*.order_item_id' => ['required_with:splits.*.items', 'integer'],
@@ -1443,84 +1449,109 @@ class PosVueOrderController extends Controller
                 } else {
                     $paymentMethod = (string) $validated['payment_method'];
                     $isDueMethod = $paymentMethod === 'due';
+                    $isRoomCharge = $paymentMethod === 'room_charge';
                     $rawAmount = max(0, (float) ($validated['amount'] ?? 0));
-                    $netPay = $isDueMethod ? 0.0 : min($rawAmount, $outstanding);
-                    $returnAmount = $isDueMethod ? 0.0 : max(0, round($rawAmount - $outstanding, 2));
+                    $netPay = ($isDueMethod || $isRoomCharge) ? 0.0 : min($rawAmount, $outstanding);
+                    $returnAmount = ($isDueMethod || $isRoomCharge) ? 0.0 : max(0, round($rawAmount - $outstanding, 2));
 
-                    if (! $isDueMethod && $netPay <= $epsilon) {
-                        return [
-                            'error' => true,
-                            'status' => 422,
-                            'message' => __('modules.customer.payment_amount_required'),
-                        ];
+                    if ($isRoomCharge) {
+                        if (!class_exists(PosHotelSupport::class) || !PosHotelSupport::showRoomChargePayment()) {
+                            return [
+                                'error' => true,
+                                'status' => 422,
+                                'message' => 'Room charge payment is not enabled.',
+                            ];
+                        }
+                        $resId = $validated['room_charge_reservation_id'] ?? null;
+                        if (!$resId) {
+                            return [
+                                'error' => true,
+                                'status' => 422,
+                                'message' => __('modules.order.selectRoom'),
+                            ];
+                        }
+                        OrderFolioSettlement::chargeToFolio($order, (int) $resId);
+                        $chargedToFolio = true;
+                    } else {
+                        if (! $isDueMethod && $netPay <= $epsilon) {
+                            return [
+                                'error' => true,
+                                'status' => 422,
+                                'message' => __('modules.customer.payment_amount_required'),
+                            ];
+                        }
+
+                        $leavesOutstanding = $isDueMethod || ($outstanding - $netPay) > $epsilon;
+                        if ($leavesOutstanding && ! $order->canRecordDueBalance()) {
+                            return [
+                                'error' => true,
+                                'status' => 422,
+                                'message' => __('modules.order.customerRequiredForDuePayment'),
+                                'needs_customer' => true,
+                            ];
+                        }
+
+                        if (! $isDueMethod && $netPay > $epsilon) {
+                            Payment::create([
+                                'order_id' => $order->id,
+                                'payment_method' => $paymentMethod,
+                                'amount' => $netPay,
+                                'balance' => $returnAmount,
+                                'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                                    (int) $order->branch_id,
+                                    $paymentMethod
+                                )?->id,
+                            ]);
+                        }
                     }
+                }
 
-                    $leavesOutstanding = $isDueMethod || ($outstanding - $netPay) > $epsilon;
-                    if ($leavesOutstanding && ! $order->canRecordDueBalance()) {
-                        return [
-                            'error' => true,
-                            'status' => 422,
-                            'message' => __('modules.order.customerRequiredForDuePayment'),
-                            'needs_customer' => true,
-                        ];
+                if (!empty($chargedToFolio)) {
+                    // Skipped post-payment status computation as OrderFolioSettlement handles it
+                } else {
+                    $order->refresh();
+                    $order->load('payments');
+
+                    $orderPaidAmount = (float) $order->nonDuePaymentsSum();
+                    $remaining = round((float) $order->total - $orderPaidAmount, 2);
+                    $nextFinancialStatus = $remaining <= $epsilon ? 'paid' : 'payment_due';
+                    $currentProgressStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
+
+                    $order->amount_paid = $orderPaidAmount;
+                    $order->status = $nextFinancialStatus;
+                    if (auth()->id()) {
+                        $order->pos_user_id = auth()->id();
                     }
+                    if (
+                        $nextFinancialStatus === 'paid'
+                        && ! in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
+                    ) {
+                        $order->order_status = OrderStatus::SERVED;
+                    }
+                    $order->save();
 
-                    if (! $isDueMethod && $netPay > $epsilon) {
+                    Payment::where('order_id', $order->id)->where('payment_method', 'due')->delete();
+
+                    if ($remaining > $epsilon) {
+                        if (!$order->canRecordDueBalance()) {
+                            return [
+                                'error' => true,
+                                'status' => 422,
+                                'message' => __('modules.order.customerRequiredForDuePayment'),
+                                'needs_customer' => true,
+                            ];
+                        }
+
                         Payment::create([
                             'order_id' => $order->id,
-                            'payment_method' => $paymentMethod,
-                            'amount' => $netPay,
-                            'balance' => $returnAmount,
+                            'payment_method' => 'due',
+                            'amount' => $remaining,
                             'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
                                 (int) $order->branch_id,
-                                $paymentMethod
+                                'due'
                             )?->id,
                         ]);
                     }
-                }
-
-                $order->refresh();
-                $order->load('payments');
-
-                $orderPaidAmount = (float) $order->nonDuePaymentsSum();
-                $remaining = round((float) $order->total - $orderPaidAmount, 2);
-                $nextFinancialStatus = $remaining <= $epsilon ? 'paid' : 'payment_due';
-                $currentProgressStatus = $order->order_status?->value ?? (string) ($order->order_status ?? '');
-
-                $order->amount_paid = $orderPaidAmount;
-                $order->status = $nextFinancialStatus;
-                if (auth()->id()) {
-                    $order->pos_user_id = auth()->id();
-                }
-                if (
-                    $nextFinancialStatus === 'paid'
-                    && ! in_array($currentProgressStatus, ['served', 'delivered', 'cancelled'], true)
-                ) {
-                    $order->order_status = OrderStatus::SERVED;
-                }
-                $order->save();
-
-                Payment::where('order_id', $order->id)->where('payment_method', 'due')->delete();
-
-                if ($remaining > $epsilon) {
-                    if (!$order->canRecordDueBalance()) {
-                        return [
-                            'error' => true,
-                            'status' => 422,
-                            'message' => __('modules.order.customerRequiredForDuePayment'),
-                            'needs_customer' => true,
-                        ];
-                    }
-
-                    Payment::create([
-                        'order_id' => $order->id,
-                        'payment_method' => 'due',
-                        'amount' => $remaining,
-                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
-                            (int) $order->branch_id,
-                            'due'
-                        )?->id,
-                    ]);
                 }
 
                 return [
@@ -1589,6 +1620,50 @@ class PosVueOrderController extends Controller
                 'total' => (float) $order->total,
                 'direct_print' => $directPrint,
                 'print_url' => '/orders/print/'.$order->id,
+            ],
+        ]);
+    }
+
+    public function updateTip(Request $request, int $id)
+    {
+        $canAccess = user_can('Create Order') || user_can('Update Order') || user_can('Show Order');
+        abort_if(! in_array('Order', restaurant_modules()) || ! $canAccess, 403);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $validated = $request->validate([
+            'tip_amount' => ['required', 'numeric', 'min:0'],
+            'tip_note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $order = Order::query()
+            ->whereKey($id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        if ($order->status === 'paid') {
+            abort(422, 'Cannot add tip to a paid order');
+        }
+
+        $previousTip = (float) ($order->tip_amount ?? 0);
+        $newTip = (float) $validated['tip_amount'];
+
+        DB::transaction(function () use ($order, $previousTip, $newTip, $validated) {
+            $order->total = round((float) $order->total - $previousTip + $newTip, 2);
+            $order->tip_amount = $newTip;
+            $order->tip_note = $newTip > 0 ? $validated['tip_note'] : null;
+            $order->save();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => $newTip > 0 ? __('messages.tipAddedSuccessfully') : __('messages.tipRemovedSuccessfully'),
+            'data' => [
+                'order_id' => (int) $order->id,
+                'total' => (float) $order->total,
+                'tip_amount' => (float) $order->tip_amount,
+                'tip_note' => (string) $order->tip_note,
             ],
         ]);
     }
