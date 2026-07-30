@@ -63,6 +63,7 @@ class PosVueOrderController extends Controller
                 'waiter:id,name',
                 'hotelReservation.room.roomType',
                 'hotelReservation.guest',
+                'splitOrders.items',
             ])
             ->where('id', $id)
             ->where('branch_id', $branch->id)
@@ -301,6 +302,19 @@ class PosVueOrderController extends Controller
             $customerPhone = $phoneCode !== '' ? $phoneCode.$phone : $phone;
         }
 
+        $paidQuantities = [];
+        $paidSplitOrders = $order->splitOrders()
+            ->where('status', 'paid')
+            ->with('items')
+            ->get();
+
+        foreach ($paidSplitOrders as $splitOrder) {
+            foreach ($splitOrder->items as $splitItem) {
+                $orderItemId = $splitItem->order_item_id;
+                $paidQuantities[$orderItemId] = ($paidQuantities[$orderItemId] ?? 0) + $splitItem->quantity;
+            }
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -309,6 +323,18 @@ class PosVueOrderController extends Controller
                     'order_number' => (string) ($order->order_number ?? ''),
                     'formatted_order_number' => (string) ($order->show_formatted_order_number ?? ''),
                     'status' => (string) $order->status,
+                    'split_type' => (string) $order->split_type,
+                    'paid_item_quantities' => (object) $paidQuantities,
+                    'split_orders' => $paidSplitOrders->map(fn($so) => [
+                        'id' => $so->id,
+                        'amount' => (float) $so->amount,
+                        'payment_method' => $so->payment_method,
+                        'status' => $so->status,
+                        'items' => $so->items->map(fn($si) => [
+                            'order_item_id' => $si->order_item_id,
+                            'quantity' => $si->quantity,
+                        ]),
+                    ]),
                     'order_status' => $order->order_status?->value ?? (string) ($order->order_status ?? ''),
                     'order_type' => (string) ($order->order_type ?? 'dine_in'),
                     'order_type_id' => $order->order_type_id ? (int) $order->order_type_id : null,
@@ -1259,15 +1285,22 @@ class PosVueOrderController extends Controller
         abort_if(! $branch, 422, 'Branch context is required');
 
         $validated = $request->validate([
-            'payment_method' => ['required', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due'])],
+            'payment_method' => ['nullable', 'required_without:split_type', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due'])],
             'amount' => ['nullable', 'numeric', 'min:0'],
+            'split_type' => ['nullable', Rule::in(['equal', 'custom', 'items'])],
+            'splits' => ['nullable', 'required_with:split_type', 'array'],
+            'splits.*.payment_method' => ['required_with:splits', Rule::in(['cash', 'card', 'upi', 'bank_transfer', 'due'])],
+            'splits.*.amount' => ['required_if:split_type,equal,custom', 'numeric', 'min:0'],
+            'splits.*.items' => ['required_if:split_type,items', 'array'],
+            'splits.*.items.*.order_item_id' => ['required_with:splits.*.items', 'integer'],
+            'splits.*.items.*.quantity' => ['required_with:splits.*.items', 'integer', 'min:1'],
+            'splits.*.items.*.price' => ['required_with:splits.*.items', 'numeric', 'min:0'],
         ]);
 
-        $paymentMethod = (string) $validated['payment_method'];
         $epsilon = 0.0001;
 
         try {
-            $result = DB::transaction(function () use ($id, $branch, $paymentMethod, $validated, $epsilon) {
+            $result = DB::transaction(function () use ($id, $branch, $validated, $epsilon) {
                 $order = Order::query()
                     ->whereKey($id)
                     ->where('branch_id', $branch->id)
@@ -1276,14 +1309,6 @@ class PosVueOrderController extends Controller
 
                 if (! $order) {
                     abort(404, __('messages.orderNotFound'));
-                }
-
-                if ($order->split_type === 'items') {
-                    return [
-                        'error' => true,
-                        'status' => 422,
-                        'message' => __('Please use Split Bill for item-split orders'),
-                    ];
                 }
 
                 if (class_exists(OrderFolioSettlement::class)
@@ -1306,40 +1331,152 @@ class PosVueOrderController extends Controller
                     ];
                 }
 
-                $isDueMethod = $paymentMethod === 'due';
-                $rawAmount = max(0, (float) ($validated['amount'] ?? 0));
-                $netPay = $isDueMethod ? 0.0 : min($rawAmount, $outstanding);
-                $returnAmount = $isDueMethod ? 0.0 : max(0, round($rawAmount - $outstanding, 2));
+                $splitType = $validated['split_type'] ?? null;
 
-                if (! $isDueMethod && $netPay <= $epsilon) {
-                    return [
-                        'error' => true,
-                        'status' => 422,
-                        'message' => __('modules.customer.payment_amount_required'),
-                    ];
-                }
+                if ($splitType) {
+                    if (in_array($splitType, ['equal', 'custom'], true)
+                        && $order->splitOrders()->where('status', 'paid')->exists()) {
+                        return [
+                            'error' => true,
+                            'status' => 422,
+                            'message' => __('modules.order.orderAlreadyPaid'),
+                        ];
+                    }
 
-                $leavesOutstanding = $isDueMethod || ($outstanding - $netPay) > $epsilon;
-                if ($leavesOutstanding && ! $order->canRecordDueBalance()) {
-                    return [
-                        'error' => true,
-                        'status' => 422,
-                        'message' => __('modules.order.customerRequiredForDuePayment'),
-                        'needs_customer' => true,
-                    ];
-                }
+                    if ($splitType === 'equal') {
+                        $order->split_type = 'even';
+                        $order->saveQuietly();
 
-                if (! $isDueMethod && $netPay > $epsilon) {
-                    Payment::create([
-                        'order_id' => $order->id,
-                        'payment_method' => $paymentMethod,
-                        'amount' => $netPay,
-                        'balance' => $returnAmount,
-                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
-                            (int) $order->branch_id,
-                            $paymentMethod
-                        )?->id,
-                    ]);
+                        foreach ($validated['splits'] as $split) {
+                            $splitAmt = (float) $split['amount'];
+                            if ($splitAmt > 0) {
+                                \App\Models\SplitOrder::create([
+                                    'order_id' => $order->id,
+                                    'amount' => $splitAmt,
+                                    'payment_method' => $split['payment_method'],
+                                    'status' => 'paid'
+                                ]);
+
+                                if ($split['payment_method'] !== 'due') {
+                                    Payment::create([
+                                        'order_id' => $order->id,
+                                        'payment_method' => $split['payment_method'],
+                                        'amount' => $splitAmt,
+                                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                                            (int) $order->branch_id,
+                                            $split['payment_method']
+                                        )?->id
+                                    ]);
+                                }
+                            }
+                        }
+                    } elseif ($splitType === 'custom') {
+                        $order->split_type = 'custom';
+                        $order->saveQuietly();
+
+                        foreach ($validated['splits'] as $split) {
+                            $splitAmt = (float) $split['amount'];
+                            if ($splitAmt > 0) {
+                                \App\Models\SplitOrder::create([
+                                    'order_id' => $order->id,
+                                    'amount' => $splitAmt,
+                                    'payment_method' => $split['payment_method'],
+                                    'status' => 'paid'
+                                ]);
+
+                                if ($split['payment_method'] !== 'due') {
+                                    Payment::create([
+                                        'order_id' => $order->id,
+                                        'payment_method' => $split['payment_method'],
+                                        'amount' => $splitAmt,
+                                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                                            (int) $order->branch_id,
+                                            $split['payment_method']
+                                        )?->id
+                                    ]);
+                                }
+                            }
+                        }
+                    } elseif ($splitType === 'items') {
+                        $order->split_type = 'items';
+                        $order->saveQuietly();
+
+                        foreach ($validated['splits'] as $split) {
+                            $splitItems = $split['items'] ?? [];
+                            if (empty($splitItems)) {
+                                continue;
+                            }
+
+                            $splitTotal = round(collect($splitItems)->sum(function ($item) {
+                                return floatval($item['price']) * intval($item['quantity']);
+                            }), 2);
+
+                            if ($splitTotal > 0) {
+                                $splitOrder = \App\Models\SplitOrder::create([
+                                    'order_id' => $order->id,
+                                    'amount' => $splitTotal,
+                                    'payment_method' => $split['payment_method'],
+                                    'status' => 'paid'
+                                ]);
+
+                                if ($split['payment_method'] !== 'due') {
+                                    Payment::create([
+                                        'order_id' => $order->id,
+                                        'payment_method' => $split['payment_method'],
+                                        'amount' => $splitTotal,
+                                        'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                                            (int) $order->branch_id,
+                                            $split['payment_method']
+                                        )?->id
+                                    ]);
+                                }
+
+                                foreach ($splitItems as $item) {
+                                    $splitOrder->items()->create([
+                                        'order_item_id' => $item['order_item_id'],
+                                        'quantity' => $item['quantity']
+                                    ]);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    $paymentMethod = (string) $validated['payment_method'];
+                    $isDueMethod = $paymentMethod === 'due';
+                    $rawAmount = max(0, (float) ($validated['amount'] ?? 0));
+                    $netPay = $isDueMethod ? 0.0 : min($rawAmount, $outstanding);
+                    $returnAmount = $isDueMethod ? 0.0 : max(0, round($rawAmount - $outstanding, 2));
+
+                    if (! $isDueMethod && $netPay <= $epsilon) {
+                        return [
+                            'error' => true,
+                            'status' => 422,
+                            'message' => __('modules.customer.payment_amount_required'),
+                        ];
+                    }
+
+                    $leavesOutstanding = $isDueMethod || ($outstanding - $netPay) > $epsilon;
+                    if ($leavesOutstanding && ! $order->canRecordDueBalance()) {
+                        return [
+                            'error' => true,
+                            'status' => 422,
+                            'message' => __('modules.order.customerRequiredForDuePayment'),
+                            'needs_customer' => true,
+                        ];
+                    }
+
+                    if (! $isDueMethod && $netPay > $epsilon) {
+                        Payment::create([
+                            'order_id' => $order->id,
+                            'payment_method' => $paymentMethod,
+                            'amount' => $netPay,
+                            'balance' => $returnAmount,
+                            'payment_account_id' => BranchPaymentAccountSetting::getDefaultAccount(
+                                (int) $order->branch_id,
+                                $paymentMethod
+                            )?->id,
+                        ]);
+                    }
                 }
 
                 $order->refresh();
@@ -1366,6 +1503,15 @@ class PosVueOrderController extends Controller
                 Payment::where('order_id', $order->id)->where('payment_method', 'due')->delete();
 
                 if ($remaining > $epsilon) {
+                    if (!$order->canRecordDueBalance()) {
+                        return [
+                            'error' => true,
+                            'status' => 422,
+                            'message' => __('modules.order.customerRequiredForDuePayment'),
+                            'needs_customer' => true,
+                        ];
+                    }
+
                     Payment::create([
                         'order_id' => $order->id,
                         'payment_method' => 'due',

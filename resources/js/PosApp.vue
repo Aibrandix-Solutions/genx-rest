@@ -1963,10 +1963,15 @@ const handleVuePaymentSubmit = async (payload) => {
     const _t0 = performance.now();
     vuePaymentSubmitting.value = true;
     try {
-        const response = await axios.post(`/api/pos/orders/${id}/pay`, {
+        const requestData = {
             payment_method: payload.payment_method,
             amount: payload.amount,
-        });
+        };
+        if (payload.split_type) {
+            requestData.split_type = payload.split_type;
+            requestData.splits = payload.splits;
+        }
+        const response = await axios.post(`/api/pos/orders/${id}/pay`, requestData);
         const data = response.data?.data || {};
         const status = String(data.status || "").toLowerCase();
 
