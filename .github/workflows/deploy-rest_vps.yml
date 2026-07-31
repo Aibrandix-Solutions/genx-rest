@@ -52,6 +52,7 @@ jobs:
             --exclude="node_modules" \
             --exclude="storage" \
             --exclude="bootstrap/cache" \
+            --exclude="public/user-uploads" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
             ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
 
@@ -78,6 +79,33 @@ jobs:
             mkdir -p storage/framework/views
             mkdir -p storage/logs
             mkdir -p bootstrap/cache
+
+            # -------------------------------------------------------
+            # Persistent uploads symlink setup
+            #
+            # Keeps all uploaded images (menu items, restaurants, etc.)
+            # inside storage/app/public/user-uploads which rsync never
+            # touches. public/user-uploads is a symlink pointing there.
+            #
+            # First deploy:  real folder is migrated into storage, then
+            #                replaced with a symlink.
+            # Every deploy after that: symlink already exists, skip.
+            # -------------------------------------------------------
+            mkdir -p storage/app/public/user-uploads/temp
+
+            if [ -d public/user-uploads ] && [ ! -L public/user-uploads ]; then
+              echo "Migrating existing uploads into storage..."
+              cp -a public/user-uploads/. storage/app/public/user-uploads/
+              rm -rf public/user-uploads
+              echo "Migration done."
+            fi
+
+            if [ ! -L public/user-uploads ]; then
+              ln -sf "$(pwd)/storage/app/public/user-uploads" public/user-uploads
+              echo "Symlink created: public/user-uploads -> storage/app/public/user-uploads"
+            else
+              echo "Symlink OK: public/user-uploads already points to storage."
+            fi
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
