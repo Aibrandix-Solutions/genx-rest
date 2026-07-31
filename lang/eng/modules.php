@@ -826,6 +826,8 @@ return [
         'showCurrencyPrefix' => 'Show Currency Prefix (Rs, $, etc.)',
         'directPrintAfterPayment' => 'Print receipt immediately after full payment',
         'directPrintAfterPaymentHelp' => 'When enabled, completing payment opens the bill print (same as the Print button) instead of opening the order side panel. Only applies when the order is fully paid.',
+        'showKotPrint' => 'Show KOT Print Button on POS',
+        'showKotPrintHelp' => 'When enabled, displays a print action button for existing KOT orders in the POS cashier panel, allowing cashiers to easily print/re-print KOTs.',
         'noTaxFound' => 'No Tax Found',
         'selectEnvironment' => 'Select Environment',
         'enablePushNotification' => 'Enable Push Notifications',

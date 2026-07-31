@@ -1225,6 +1225,17 @@
                             :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
                             Delete Order
                         </button>
+                        <button v-if="showKotPrint && kotGroups.length > 0"
+                            class="col-span-1 md:col-span-2 inline-flex items-center justify-center gap-x-1 w-full p-2 text-gray-800 border border-gray-300 rounded dark:border-gray-600 dark:text-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600"
+                            @click="$emit('print-kot')" :disabled="anySaving"
+                            :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                            <svg class="w-5 h-5 text-current" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                                fill="none" viewBox="0 0 24 24">
+                                <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+                                    d="M16.444 18H19a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.556M17 11V5a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v6h10ZM7 15h10v4a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-4Z" />
+                            </svg>
+                            Print KOT
+                        </button>
                     </div>
 
                     <template v-else-if="linkedLifecycleStatus === 'billed'">
@@ -1243,6 +1254,20 @@
                                 @click="handleNewKot" :disabled="anySaving"
                                 :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
                                 New KOT
+                            </button>
+                        </div>
+
+                        <div v-if="showKotPrint && kotGroups.length > 0" class="flex gap-2 mt-2">
+                            <button
+                                class="inline-flex items-center justify-center gap-x-1 w-full p-2 text-gray-800 border border-gray-300 rounded dark:border-gray-600 dark:text-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600"
+                                @click="$emit('print-kot')" :disabled="anySaving"
+                                :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                                <svg class="w-5 h-5 text-current" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M16.444 18H19a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.556M17 11V5a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v6h10ZM7 15h10v4a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-4Z" />
+                                </svg>
+                                Print KOT
                             </button>
                         </div>
                     </template>
@@ -1269,6 +1294,20 @@
                                         d="M16.444 18H19a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.556M17 11V5a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v6h10ZM7 15h10v4a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-4Z" />
                                 </svg>
                                 Print Receipt
+                            </button>
+                        </div>
+
+                        <div v-if="showKotPrint && kotGroups.length > 0" class="flex gap-2 mt-2">
+                            <button
+                                class="inline-flex items-center justify-center gap-x-1 w-full p-2 text-gray-800 border border-gray-300 rounded dark:border-gray-600 dark:text-gray-200 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600"
+                                @click="$emit('print-kot')" :disabled="anySaving"
+                                :class="{ 'opacity-50 cursor-not-allowed': anySaving }">
+                                <svg class="w-5 h-5 text-current" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"
+                                    fill="none" viewBox="0 0 24 24">
+                                    <path stroke="currentColor" stroke-linejoin="round" stroke-width="2"
+                                        d="M16.444 18H19a1 1 0 0 0 1-1v-5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h2.556M17 11V5a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v6h10ZM7 15h10v4a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1v-4Z" />
+                                </svg>
+                                Print KOT
                             </button>
                         </div>
                     </template>
@@ -1576,6 +1615,10 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    showKotPrint: {
+        type: Boolean,
+        default: true,
+    },
     // Legacy parity (restaurant()->allow_custom_order_extras setting):
     // gates the whole "Custom Extras" section (+ Add button, input rows,
     // per-row line in the totals panel, inclusion in the Total line).
@@ -1729,6 +1772,7 @@ const emit = defineEmits([
     "delete-order",
     "new-kot",
     "print-receipt",
+    "print-kot",
     "update:pickupDateTime",
     "add-custom-extra",
     "remove-custom-extra",
