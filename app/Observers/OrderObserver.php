@@ -8,8 +8,10 @@ use App\Events\OrderUpdated;
 use App\Events\TodayOrdersUpdated;
 use App\Models\Kot;
 use App\Models\Order;
+use App\Models\Table;
 use App\Services\RewardPointsService;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class OrderObserver
 {
@@ -39,13 +41,13 @@ class OrderObserver
 
         // Auto-lock table when order is created (if feature enabled and has table)
         if ($order->table_id && ($orderRestaurant?->enable_table_lock_on_order ?? false)) {
-            $table = \App\Models\Table::find($order->table_id);
+            $table = Table::find($order->table_id);
             if ($table) {
                 $userId = $order->waiter_id ?? auth()->id();
                 $result = $table->lockForOrder($userId, $order->id);
 
                 if (! $result['success']) {
-                    \Illuminate\Support\Facades\Log::warning('Failed to lock table for order', [
+                    Log::warning('Failed to lock table for order', [
                         'order_id' => $order->id,
                         'table_id' => $order->table_id,
                         'message' => $result['message'],
@@ -54,10 +56,15 @@ class OrderObserver
             }
         }
 
-        $todayKotCount = $this->todayKotCount(forceRefresh: true);
-
-        event(new OrderUpdated($order, 'created'));
-        event(new TodayOrdersUpdated($todayKotCount));
+        // Defer count + Pusher until after the HTTP response so POS KOT/print
+        // is not blocked by the today-KOT join or VPS→Pusher latency.
+        $this->dispatchBroadcastsAfterResponse(
+            orderId: (int) $order->id,
+            action: 'created',
+            orderBecamePaid: false,
+            notifyTodayOrders: true,
+            forceRefreshKotCount: true
+        );
     }
 
     public function updated(Order $order)
@@ -73,11 +80,11 @@ class OrderObserver
         // Handle table unlock when order is billed or canceled
         if ($statusChanged && in_array($newStatus, ['billed', 'canceled'], true)) {
             if ($order->table_id && ($orderRestaurant?->enable_table_lock_on_order ?? false)) {
-                $table = \App\Models\Table::find($order->table_id);
+                $table = Table::find($order->table_id);
                 if ($table) {
                     $result = $table->unlockFromOrder($order->id);
 
-                    \Illuminate\Support\Facades\Log::info('Table unlock on order status change', [
+                    Log::info('Table unlock on order status change', [
                         'order_id' => $order->id,
                         'table_id' => $order->table_id,
                         'old_status' => $oldStatus,
@@ -111,19 +118,13 @@ class OrderObserver
             return;
         }
 
-        $todayKotCount = $this->todayKotCount(forceRefresh: $statusChanged);
-
-        event(new OrderUpdated($order, 'updated'));
-
-        // Dashboard badge only needs refresh when order lifecycle changes.
-        if ($statusChanged) {
-            event(new TodayOrdersUpdated($todayKotCount));
-        }
-
-        // Customer order-success page expects an integer count, not the Order model.
-        if ($statusChanged && $newStatus === 'paid') {
-            event(new OrderSuccessEvent($todayKotCount));
-        }
+        $this->dispatchBroadcastsAfterResponse(
+            orderId: (int) $order->id,
+            action: 'updated',
+            orderBecamePaid: $statusChanged && $newStatus == 'paid' && $oldStatus != 'paid',
+            notifyTodayOrders: $statusChanged,
+            forceRefreshKotCount: $statusChanged
+        );
     }
 
     public function deleted(Order $order): void
@@ -133,7 +134,7 @@ class OrderObserver
         $orderRestaurant = $order->branch?->restaurant;
 
         if ($order->table_id && ($orderRestaurant?->enable_table_lock_on_order ?? false)) {
-            $table = \App\Models\Table::find($order->table_id);
+            $table = Table::find($order->table_id);
             if ($table) {
                 $table->unlockFromOrder($order->id);
             }
@@ -154,10 +155,10 @@ class OrderObserver
     /**
      * Cache briefly so multi-update POS saves (items → totals → billed) don't repeat the join.
      */
-    private function todayKotCount(bool $forceRefresh = false): int
+    private static function resolveTodayKotCount(bool $forceRefresh = false): int
     {
-        $branchId = branch()?->id ?? 0;
-        $cacheKey = 'pos.today_kot_count.'.$branchId.'.'.now()->format('Y-m-d');
+        $branchId = (int) (branch()?->id ?? 0);
+        $cacheKey = 'pos.today_kot_count.'.$branchId.'.'.now()->toDateString();
 
         if ($forceRefresh) {
             Cache::forget($cacheKey);
@@ -171,5 +172,36 @@ class OrderObserver
                 ->where('orders.status', '<>', 'draft')
                 ->count();
         });
+    }
+
+    private function dispatchBroadcastsAfterResponse(
+        int $orderId,
+        string $action,
+        bool $orderBecamePaid,
+        bool $notifyTodayOrders,
+        bool $forceRefreshKotCount = false
+    ): void {
+        dispatch(function () use ($orderId, $action, $orderBecamePaid, $notifyTodayOrders, $forceRefreshKotCount) {
+            $order = Order::query()->find($orderId);
+            if (! $order) {
+                return;
+            }
+
+            event(new OrderUpdated($order, $action));
+
+            // Dashboard badge only needs refresh when order lifecycle changes.
+            if ($notifyTodayOrders || $orderBecamePaid) {
+                $todayKotCount = self::resolveTodayKotCount($forceRefreshKotCount);
+
+                if ($notifyTodayOrders) {
+                    event(new TodayOrdersUpdated($todayKotCount));
+                }
+
+                // Customer order-success page expects an integer count, not the Order model.
+                if ($orderBecamePaid) {
+                    event(new OrderSuccessEvent($todayKotCount));
+                }
+            }
+        })->afterResponse();
     }
 }

@@ -16,7 +16,6 @@ use Livewire\Component;
 use Illuminate\Support\Facades\Log;
 use App\Events\SendOrderBillEvent;
 use App\Livewire\Customer\AddCustomer;
-use App\Livewire\Order\OrderDetail;
 use App\Services\Pos\PosHotelSupport;
 use Illuminate\Support\Facades\DB;
 use Modules\Hotel\Services\OrderFolioSettlement;
@@ -66,63 +65,107 @@ class AddPayment extends Component
     public function showPaymentModal($id)
     {
         $this->pendingDueSplitIdForCustomerModal = null;
-        $this->order = Order::with([
-            'items.menuItem',
-            'taxes.tax',
-            'payments',
-            'charges.charge',
-            'splitOrders.items',
-        ])->find($id);
+        $this->showSplitOptions = false;
+        $this->splitType = null;
+        $this->splits = [];
+        $this->availableItems = [];
+        $this->paymentMethod = 'cash';
+        $this->tipAmount = null;
+        $this->tipPercentage = null;
+        $this->showTipModal = false;
+        $this->showRoomCharge = false;
+        $this->inHouseReservations = [];
+        $this->roomChargeReservationId = null;
+        $this->totalExtraCharges = 0;
 
-        $this->canAddTip = restaurant()->enable_tip_pos && $this->order->status !== 'paid';
+        // Minimal query so the modal can paint immediately; extras load after open.
+        $this->order = Order::query()
+            ->with(['payments'])
+            ->find($id);
 
-        // Load predefined amounts
-        $this->predefinedAmounts = restaurant()->predefinedAmounts()->pluck('amount')->toArray();
-
-        // If no predefined amounts exist, use defaults
-        if (empty($this->predefinedAmounts)) {
-            $this->predefinedAmounts = [50, 100, 500, 1000];
+        if (! $this->order) {
+            return;
         }
-
-        $totalDiscount = floatval($this->order->discount_amount ?? 0);
-
-        $subTotal = floatval($this->order->sub_total ?? 0);
-        $discountedSubTotal = max(0, $subTotal - $totalDiscount);
-
-        $charges = $this->order->charges;
-        $extraCharges = $charges->map(function ($charge) use ($discountedSubTotal) {
-            $chargeAmount = $charge->charge->charge_type == 'percent'
-                ? ($charge->charge->charge_value / 100) * $discountedSubTotal
-                : $charge->charge->charge_value;
-            return [
-                'name' => $charge->charge->charge_name,
-                'amount' => $chargeAmount,
-                'rate' => $charge->charge->charge_value,
-                'type' => $charge->charge->charge_type,
-            ];
-        })->toArray();
-        $this->totalExtraCharges = collect($extraCharges)->sum('amount');
 
         $this->updateAmountDetails();
         $this->showAddPaymentModal = true;
 
-        // Refresh available items data
-        $this->refreshAvailableItems();
+        // Second tick: tip/charges/hotel/predefined amounts (does not block first paint).
+        $this->js('setTimeout(() => $wire.loadPaymentModalExtras(), 1)');
+    }
 
-        $this->initializeSplits();
+    /**
+     * Load non-critical payment modal data after the dialog is already visible.
+     */
+    public function loadPaymentModalExtras(): void
+    {
+        if (! $this->order || ! $this->showAddPaymentModal) {
+            return;
+        }
+
+        $this->order->loadMissing([
+            'charges.charge',
+            'taxes.tax',
+        ]);
+
+        $this->canAddTip = (bool) (restaurant()->enable_tip_pos && $this->order->status !== 'paid');
+
+        $predefined = restaurant()->predefinedAmounts()->pluck('amount')->toArray();
+        $this->predefinedAmounts = ! empty($predefined) ? $predefined : [50, 100, 500, 1000];
+
+        $totalDiscount = floatval($this->order->discount_amount ?? 0);
+        $subTotal = floatval($this->order->sub_total ?? 0);
+        $discountedSubTotal = max(0, $subTotal - $totalDiscount);
+
+        $this->totalExtraCharges = $this->order->charges->sum(function ($charge) use ($discountedSubTotal) {
+            if (! $charge->charge) {
+                return 0;
+            }
+
+            return $charge->charge->charge_type == 'percent'
+                ? ($charge->charge->charge_value / 100) * $discountedSubTotal
+                : $charge->charge->charge_value;
+        });
+
+        $this->updateAmountDetails();
 
         $this->showRoomCharge = PosHotelSupport::showRoomChargePayment();
-        $this->inHouseReservations = [];
-        $this->roomChargeReservationId = null;
-
         if ($this->showRoomCharge) {
             $this->roomChargeReservationId = $this->order->hotel_reservation_id;
             if ($this->order->hotel_reservation_id) {
                 $this->paymentMethod = 'room_charge';
-                // Only load hotel reservations when room charge is the active method.
                 $this->loadInHouseReservations();
             }
         }
+
+        if ($this->order->split_type === 'items') {
+            $this->ensureSplitPaymentDataLoaded();
+            $this->showSplitOptions = true;
+            $this->splitType = 'items';
+            $this->initializeSplits();
+        }
+    }
+
+    #[On('closePaymentModal')]
+    public function closePaymentModal(): void
+    {
+        $this->showAddPaymentModal = false;
+        $this->pendingDueSplitIdForCustomerModal = null;
+    }
+
+    /**
+     * Eager-load item rows only when Split Bill needs them.
+     */
+    private function ensureSplitPaymentDataLoaded(): void
+    {
+        if (! $this->order) {
+            return;
+        }
+
+        $this->order->loadMissing([
+            'items.menuItem',
+            'splitOrders.items',
+        ]);
     }
 
     public function loadInHouseReservations(): void
@@ -804,20 +847,31 @@ class AddPayment extends Component
         }
 
         if ($this->order->customer_id) {
-            try {
-                SendOrderBillEvent::dispatch($this->order);
-            } catch (\Exception $e) {
-                Log::error('Error sending notification: ' . $e->getMessage());
-            }
+            $orderIdForBill = (int) $this->order->id;
+            dispatch(function () use ($orderIdForBill) {
+                $order = Order::query()->find($orderIdForBill);
+                if (! $order || ! $order->customer_id) {
+                    return;
+                }
+
+                try {
+                    SendOrderBillEvent::dispatch($order);
+                } catch (\Exception $e) {
+                    Log::error('Error sending notification: ' . $e->getMessage());
+                }
+            })->afterResponse();
         }
 
         $receipt = restaurant()->receiptSetting;
         $directPrint = $receipt
-            && (bool)($receipt->direct_print_after_payment ?? false)
+            && (bool) ($receipt->direct_print_after_payment ?? false)
             && $this->order->status === 'paid';
 
         if ($directPrint) {
-            $this->dispatch('receiptPrintFromPayment', id: $this->order->id)->to(OrderDetail::class);
+            // Navigate the click-time print placeholder immediately — do not wait
+            // for OrderDetail / other Livewire listeners before opening the receipt.
+            $printPath = '/orders/print/'.$this->order->id;
+            $this->js('window.openPosPrintTab && window.openPosPrintTab('.json_encode($printPath).')');
         } else {
             $this->dispatch('closePosPrintPlaceholder');
             $this->dispatch('showOrderDetail', id: $this->order->id);
@@ -1220,6 +1274,7 @@ class AddPayment extends Component
     public function updatedSplitType()
     {
         if ($this->splitType) {
+            $this->ensureSplitPaymentDataLoaded();
             $this->initializeSplits();
         }
     }
@@ -1228,10 +1283,18 @@ class AddPayment extends Component
     {
         $this->showSplitOptions = $show;
         if ($show) {
+            $this->ensureSplitPaymentDataLoaded();
             $this->splitType = null; // Reset split type when showing options
         } else {
             $this->splitType = null;
             $this->splits = [];
+        }
+    }
+
+    public function updatedShowSplitOptions($value): void
+    {
+        if ($value) {
+            $this->ensureSplitPaymentDataLoaded();
         }
     }
 

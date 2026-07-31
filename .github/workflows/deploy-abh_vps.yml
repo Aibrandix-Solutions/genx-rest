@@ -1,13 +1,13 @@
-name: Deploy digierp.cloud VPS Sharaf
+name: Deploy abh.digierp.cloud VPS
 
 on:
   push:
-    branches: [sharaf]
+    branches: [abh]
   workflow_dispatch:
 
-# Only one deploy at a time; cancel older runs so the latest sharaf code wins.
+# Only one deploy at a time; cancel older runs so the latest abh code wins.
 concurrency:
-  group: deploy-digierp-cloud
+  group: deploy-abh-digierp-cloud
   cancel-in-progress: true
 
 jobs:
@@ -16,11 +16,11 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # Always deploy the sharaf branch, no matter how the workflow was triggered.
-      - name: Checkout sharaf branch
+      # Always deploy the abh branch, no matter how the workflow was triggered.
+      - name: Checkout abh branch
         uses: actions/checkout@v4
         with:
-          ref: sharaf
+          ref: abh
 
       - name: Confirm branch
         run: |
@@ -54,7 +54,7 @@ jobs:
             --exclude="bootstrap/cache" \
             --exclude="public/user-uploads" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
+            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/abh.digierp.cloud/public_html/
 
       - name: SSH - Laravel Deploy Commands
         uses: appleboy/ssh-action@v1.0.3
@@ -66,7 +66,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/admin/domains/digierp.cloud/public_html
+            cd /home/admin/domains/abh.digierp.cloud/public_html
 
             if [ ! -f .env ]; then
               echo "Missing .env file"
@@ -83,12 +83,12 @@ jobs:
             # -------------------------------------------------------
             # Persistent uploads symlink setup
             #
-            # Keeps all uploaded images (menu items, restaurants, etc.)
-            # inside storage/app/public/user-uploads which rsync never
-            # touches. public/user-uploads is a symlink pointing there.
+            # All uploaded images live in storage/app/public/user-uploads
+            # which rsync never touches (storage + public/user-uploads
+            # are both excluded). public/user-uploads is a symlink there.
             #
-            # First deploy:  real folder is migrated into storage, then
-            #                replaced with a symlink.
+            # First deploy:  any existing real folder is migrated into
+            #                storage, then replaced with the symlink.
             # Every deploy after that: symlink already exists, skip.
             # -------------------------------------------------------
             mkdir -p storage/app/public/user-uploads/temp
@@ -117,6 +117,6 @@ jobs:
             php artisan view:cache
 
             chmod -R 775 storage bootstrap/cache
-            chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
+            chown -R admin:admin /home/admin/domains/abh.digierp.cloud/public_html || true
 
             echo "Deployment completed successfully"

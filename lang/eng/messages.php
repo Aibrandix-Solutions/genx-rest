@@ -32,7 +32,7 @@ return array(
     'kotGenerated' => 'KOT Generated Successfully.',
     'billedSuccess' => 'Order Billed Successfully.',
     'addCustomerDetails' => 'Add customer details.',
-    'thankYouVisit' => 'Thank you for your visit!',
+    'thankYouVisit' => 'Thank You! Visit Again!',
     'emailVerificationCode' => 'Email verification code.',
     'invalidVerificationCode' => 'Invalid verification code.',
     'verificationCodeSent' => 'Verification Code Sent',

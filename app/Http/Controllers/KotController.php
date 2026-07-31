@@ -22,8 +22,17 @@ class KotController extends Controller
 
     public function printKot($id, $kotPlaceid = null, $width = 56, $thermal = false)
     {
-        $kot = Kot::with('items', 'order.waiter', 'table')->find($id);
-        $kotPlace = KotPlace::find($kotPlaceid);
+        // Eager-load everything the print blade touches so the tab opens without N+1 queries.
+        $kot = Kot::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'order.waiter',
+            'order.table',
+            'branch.restaurant',
+            'kotPlace',
+        ])->find($id);
+        $kotPlace = $kotPlaceid ? KotPlace::find($kotPlaceid) : ($kot->kotPlace ?? null);
 
         return view('pos.printKot', compact('kot', 'kotPlaceid', 'width', 'thermal', 'kotPlace'));
     }

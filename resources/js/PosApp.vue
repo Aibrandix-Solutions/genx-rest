@@ -56,6 +56,7 @@
                 :order-lifecycle-status="orderLifecycleStatus"
                 :order-permissions="orderPermissions" :kot-groups="kotGroups"
                 :allow-custom-order-extras="allowCustomOrderExtras" :custom-extras="customExtras"
+                :show-kot-print="showKotPrint"
                 :delivery-address="deliveryAddress" :customer-phone="customerPhone"
                 :customer-lat="customerLat" :customer-lng="customerLng"
                 :branch-lat="branchLat" :branch-lng="branchLng"
@@ -75,6 +76,7 @@
                 :can-redeem-reward-points="canRedeemRewardPoints"
                 @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
+                @print-kot="handlePrintKot"
                 @select-table="handleSelectTable" @remove-table="handleRemoveTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
                 @update:orderStatus="handleOrderStatusUpdate" @add-note="handleAddNote"
                 @update:selectedDeliveryExecutive="handleDeliveryExecutiveUpdate"
@@ -126,6 +128,20 @@
         <RoomServiceSelectorModal :show="showRoomServiceModal" :reservations="roomServiceReservations"
             :selected-id="hotelReservationId" @close="showRoomServiceModal = false" @select="handleRoomServiceSelected"
             @update:reservations="roomServiceReservations = $event" />
+
+        <PosPaymentModal
+            :show="showVuePaymentModal"
+            :order-id="vuePaymentOrderId"
+            :order-number="vuePaymentOrderNumber"
+            :due-amount="vuePaymentDueAmount"
+            :currency-symbol="currencySymbol"
+            :saving="vuePaymentSaving"
+            :submitting="vuePaymentSubmitting"
+            @close="closeVuePaymentModal"
+            @submit="handleVuePaymentSubmit"
+            @open-advanced="openAdvancedPaymentFromVue"
+            @update-totals="getOrder"
+        />
     </div>
 </template>
 
@@ -140,6 +156,7 @@ import AddCustomerModal from "./components/pos/AddCustomerModal.vue";
 import AddNoteModal from "./components/pos/AddNoteModal.vue";
 import CancelOrderModal from "./components/pos/CancelOrderModal.vue";
 import RoomServiceSelectorModal from "./components/pos/RoomServiceSelectorModal.vue";
+import PosPaymentModal from "./components/pos/PosPaymentModal.vue";
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
@@ -305,6 +322,15 @@ const roomServiceEnabled = computed(
     () => !!hotelCapabilities.value?.room_service_enabled
 );
 
+// Instant Vue payment modal (no Livewire round-trip on open)
+const showVuePaymentModal = ref(false);
+const vuePaymentOrderId = ref(null);
+const vuePaymentOrderNumber = ref("");
+const vuePaymentDueAmount = ref(0);
+const vuePaymentSaving = ref(false);
+const vuePaymentSubmitting = ref(false);
+const orderPayableTotal = ref(0);
+
 // Order data
 const orderType = ref("Dine In");
 const orderNumber = ref("");
@@ -339,6 +365,7 @@ const orderLifecycleStatus = ref("");
 // Each row is { amount: number, note: string }. Persisted via order_extras
 // when the restaurant setting allow_custom_order_extras is enabled.
 const allowCustomOrderExtras = ref(false);
+const showKotPrint = ref(true);
 const customExtras = ref([]);
 // Reward Points state
 const rewardPointDiscount = ref(0);
@@ -1433,6 +1460,45 @@ const totalTaxAmount = computed(() => {
     return taxes.value.reduce((sum, tax) => sum + (tax.amount || 0), 0);
 });
 
+// Fast estimate for opening the payment modal before server total is known
+const estimatePayableTotal = computed(() => {
+    if (orderPayableTotal.value > 0 && (!cartItems.value || cartItems.value.length === 0)) {
+        return Number(orderPayableTotal.value);
+    }
+
+    let calculatedTotal = cartItems.value.reduce(
+        (sum, item) => sum + lineTotalAmount(item),
+        0
+    );
+
+    if (discountAmount.value && discountAmount.value > 0) {
+        calculatedTotal -= Number(discountAmount.value);
+    }
+    if (rewardPointDiscount.value && rewardPointDiscount.value > 0) {
+        calculatedTotal -= Number(rewardPointDiscount.value);
+    }
+    if (deliveryFee.value && deliveryFee.value > 0) {
+        calculatedTotal += Number(deliveryFee.value);
+    }
+    if (extraCharges.value && extraCharges.value.length > 0) {
+        calculatedTotal += extraCharges.value.reduce(
+            (sum, charge) => sum + (Number(charge.amount) || 0),
+            0
+        );
+    }
+    calculatedTotal += totalTaxAmount.value;
+    if (tipAmount.value && tipAmount.value > 0) {
+        calculatedTotal += Number(tipAmount.value);
+    }
+
+    if (orderPayableTotal.value > 0 && cartItems.value?.length > 0) {
+        // Existing billed total + new cart lines estimate
+        return Math.max(0, Number(orderPayableTotal.value) + Math.max(0, calculatedTotal));
+    }
+
+    return Math.max(0, calculatedTotal);
+});
+
 // Calculate taxes based on subtotal (after discount)
 const calculateTaxes = () => {
     if (availableTaxes.value.length === 0) {
@@ -1487,6 +1553,12 @@ watch(
     },
     { deep: true }
 );
+
+watch(orderPayableTotal, (newVal) => {
+    if (showVuePaymentModal.value) {
+        vuePaymentDueAmount.value = Number(newVal || 0);
+    }
+});
 
 const handleRemoveDiscount = () => {
     const previousType = discountType.value;
@@ -1816,14 +1888,138 @@ const navigateToPayment = (id) => {
     window.location.href = `/orders/${id}?payment=true`;
 };
 
+const resetVuePaymentState = () => {
+    showVuePaymentModal.value = false;
+    vuePaymentOrderId.value = null;
+    vuePaymentOrderNumber.value = "";
+    vuePaymentDueAmount.value = 0;
+    vuePaymentSaving.value = false;
+    vuePaymentSubmitting.value = false;
+};
+
+const openVuePaymentModal = (opts = {}) => {
+    vuePaymentOrderId.value = opts.orderId ? Number(opts.orderId) : null;
+    vuePaymentOrderNumber.value =
+        opts.orderNumber || orderNumber.value || (opts.orderId ? `Order #${opts.orderId}` : "New order");
+    vuePaymentDueAmount.value = Number(
+        opts.total ?? orderPayableTotal.value ?? estimatePayableTotal.value ?? 0
+    );
+    vuePaymentSaving.value = !!opts.saving;
+    vuePaymentSubmitting.value = false;
+    showVuePaymentModal.value = true;
+    return true;
+};
+
+const closeVuePaymentModal = () => {
+    if (vuePaymentSubmitting.value) {
+        return;
+    }
+    resetVuePaymentState();
+};
+
+const syncVuePaymentAfterSave = (payload = {}) => {
+    if (!showVuePaymentModal.value) {
+        return;
+    }
+    if (payload.order_id) {
+        vuePaymentOrderId.value = Number(payload.order_id);
+    }
+    if (payload.order_number || payload.formatted_order_number) {
+        vuePaymentOrderNumber.value =
+            payload.formatted_order_number || payload.order_number || vuePaymentOrderNumber.value;
+    }
+    if (payload.total !== undefined && payload.total !== null) {
+        const total = Number(payload.total);
+        vuePaymentDueAmount.value = total;
+        orderPayableTotal.value = total;
+    }
+    vuePaymentSaving.value = false;
+};
+
 const openPaymentInPlace = (id) => {
     if (!id) {
         return false;
     }
 
-    return dispatchLivewireEvent("showPaymentModal", {
-        id,
+    // Instant Vue modal — no Livewire network round-trip
+    return openVuePaymentModal({
+        orderId: id,
+        total: orderPayableTotal.value || estimatePayableTotal.value,
+        saving: false,
     });
+};
+
+const closePaymentInPlace = () => {
+    resetVuePaymentState();
+    dispatchLivewireEvent("closePaymentModal", {});
+};
+
+const openAdvancedPaymentFromVue = () => {
+    const id = vuePaymentOrderId.value ? Number(vuePaymentOrderId.value) : null;
+    if (!id) {
+        showPosAlert("error", "Order is still saving. Please wait a moment.");
+        return;
+    }
+    resetVuePaymentState();
+    dispatchLivewireEvent("showPaymentModal", { id });
+};
+
+const handleVuePaymentSubmit = async (payload) => {
+    const id = payload?.order_id ? Number(payload.order_id) : null;
+    if (!id || vuePaymentSubmitting.value) {
+        return;
+    }
+
+    const _t0 = performance.now();
+    vuePaymentSubmitting.value = true;
+    try {
+        const requestData = {
+            payment_method: payload.payment_method,
+            amount: payload.amount,
+        };
+        if (payload.room_charge_reservation_id !== undefined && payload.room_charge_reservation_id !== null) {
+            requestData.room_charge_reservation_id = payload.room_charge_reservation_id;
+        }
+        if (payload.split_type) {
+            requestData.split_type = payload.split_type;
+            requestData.splits = payload.splits;
+        }
+        const response = await axios.post(`/api/pos/orders/${id}/pay`, requestData);
+        const data = response.data?.data || {};
+        const status = String(data.status || "").toLowerCase();
+
+        resetVuePaymentState();
+
+        if (data.direct_print && data.print_url) {
+            openPrintUrl(data.print_url);
+        } else {
+            openOrderDetailInPlace(id);
+        }
+
+        if (isLinkedOrderMode.value) {
+            orderLifecycleStatus.value = status || orderLifecycleStatus.value;
+            scheduleLinkedOrderRefresh(id);
+        } else {
+            clearCartAfterSave();
+            if (isOnline.value) {
+                void fetchNewOrderNumber();
+            } else {
+                void incrementOrderNumberOffline();
+            }
+        }
+
+        showPosAlert("success", response.data?.message || "Payment successful");
+    } catch (error) {
+        const message =
+            error?.response?.data?.message || error?.message || "Failed to record payment";
+        showPosAlert("error", message);
+        if (error?.response?.data?.needs_customer) {
+            showAddCustomerModal.value = true;
+        }
+    } finally {
+        vuePaymentSubmitting.value = false;
+        console.log(`[POS TIMING] paymentSubmit(order #${id}) — ${Math.round(performance.now() - _t0)}ms`);
+    }
 };
 
 const openOrderDetailInPlace = (id) => {
@@ -1846,6 +2042,235 @@ const openBillPrintWindow = (id, existingWindow = null) => {
 };
 
 /**
+ * Force print URLs onto the current browser origin.
+ * Laravel route()/APP_URL can point at the wrong host in production; after
+ * document.write on about:blank, relative hrefs also fail to resolve — always
+ * navigate with an absolute same-origin URL.
+ */
+const toSameOriginPrintUrl = (url) => {
+    if (!url) {
+        return null;
+    }
+
+    try {
+        const parsed = new URL(String(url), window.location.origin);
+        return `${window.location.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch (e) {
+        return null;
+    }
+};
+
+/**
+ * Build KOT print URLs from the store response.
+ * Prefer explicit targets (id + place), then server paths, then kot_ids alone.
+ */
+const resolveKotPrintUrls = (resultPayload = {}) => {
+    const fromTargets = (resultPayload?.kot_print_targets || [])
+        .map((target) => {
+            const id = Number(target?.id || 0);
+            if (!id) {
+                return null;
+            }
+            const placeId = Number(target?.place_id || 0);
+            return placeId > 0 ? `/kot/print/${id}/${placeId}` : `/kot/print/${id}`;
+        })
+        .filter(Boolean);
+
+    if (fromTargets.length > 0) {
+        return fromTargets.map(toSameOriginPrintUrl).filter(Boolean);
+    }
+
+    const fromLinks = (resultPayload?.links?.kot_print_urls || [])
+        .map(toSameOriginPrintUrl)
+        .filter(Boolean);
+
+    if (fromLinks.length > 0) {
+        return fromLinks;
+    }
+
+    return (resultPayload?.kot_ids || [])
+        .map((id) => toSameOriginPrintUrl(`/kot/print/${Number(id)}`))
+        .filter(Boolean);
+};
+
+const escapePrintHtml = (value) =>
+    String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+/**
+ * Render KOT ticket HTML (matches pos/printKot blade layout) for instant print
+ * without a second full-page navigation.
+ */
+const buildKotTicketsHtml = (tickets = []) => {
+    const receipts = tickets
+        .map((ticket) => {
+            const itemRows = (ticket.items || [])
+                .map((item) => {
+                    const modifiers = (item.modifiers || [])
+                        .map((modifier) => {
+                            const qty =
+                                Number(modifier.qty || 1) > 1
+                                    ? ` ×${Number(modifier.qty)}`
+                                    : "";
+                            return `<div class="modifiers">• ${escapePrintHtml(
+                                modifier.name
+                            )}${qty}</div>`;
+                        })
+                        .join("");
+                    const variation = item.variation
+                        ? `<br><small>(${escapePrintHtml(item.variation)})</small>`
+                        : "";
+                    const note = item.note
+                        ? `<div class="modifiers"><strong>Note:</strong> ${escapePrintHtml(
+                              item.note
+                          )}</div>`
+                        : "";
+
+                    return `<tr>
+                        <td class="description">${escapePrintHtml(item.name)}${variation}${modifiers}${note}</td>
+                        <td class="qty">${escapePrintHtml(item.qty)}</td>
+                    </tr>`;
+                })
+                .join("");
+
+            const placeName = ticket.place_name
+                ? `<div class="restaurant-info">${escapePrintHtml(ticket.place_name)}</div>`
+                : "";
+            const token = ticket.token_number
+                ? `<div style="font-size:12pt;margin-top:1mm;">Token: <span class="bold">${escapePrintHtml(
+                      ticket.token_number
+                  )}</span></div>`
+                : "";
+            const waiter = ticket.waiter
+                ? `<div class="order-row"><div class="order-left">Waiter: <span class="bold">${escapePrintHtml(
+                      ticket.waiter
+                  )}</span></div><div class="order-right"></div></div>`
+                : "";
+            const orderType = ticket.order_type
+                ? `<div class="order-row"><div class="order-left">Order Type: <span class="bold">${escapePrintHtml(
+                      ticket.order_type
+                  )}</span></div></div>`
+                : "";
+            const noteFooter = ticket.note
+                ? `<div class="footer"><strong>Special Instructions:</strong><div class="italic">${escapePrintHtml(
+                      ticket.note
+                  )}</div></div>`
+                : "";
+
+            return `<div class="receipt">
+                <div class="header">${placeName}</div>
+                <div class="kot-title">KOT <span class="bold">#${escapePrintHtml(
+                    ticket.kot_number
+                )}</span>${token}</div>
+                <div class="order-info">
+                    <div class="order-row">
+                        <div class="order-left"><span class="bold">${escapePrintHtml(
+                            ticket.order_number
+                        )}</span></div>
+                        <div class="order-right">Table: <span class="bold">${escapePrintHtml(
+                            ticket.table || "-"
+                        )}</span></div>
+                    </div>
+                    <div class="order-row">
+                        <div class="order-left">Date: ${escapePrintHtml(ticket.date)}</div>
+                        <div class="order-right">Time: ${escapePrintHtml(ticket.time)}</div>
+                    </div>
+                    ${waiter}
+                    ${orderType}
+                </div>
+                <table class="items-table">
+                    <thead><tr><th class="description">Item Name</th><th class="qty">Qty</th></tr></thead>
+                    <tbody>${itemRows}</tbody>
+                </table>
+                ${noteFooter}
+            </div>`;
+        })
+        .join("");
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>KOT Print</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
+.receipt{width:75mm;padding:6.35mm;page-break-after:always}
+.header{text-align:center;margin-bottom:3mm}
+.bold{font-weight:bold}
+.restaurant-info{font-size:9pt;margin-bottom:1mm}
+.kot-title{font-size:14pt;font-weight:bold;text-align:center;margin-bottom:2mm}
+.order-info{text-align:center;border-top:1px dashed #000;border-bottom:1px dashed #000;padding:2mm 0;margin-bottom:3mm;font-size:10pt}
+.order-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.order-left{text-align:left;width:50%}
+.order-right{text-align:right;width:50%}
+.items-table{width:100%;border-collapse:collapse;margin-bottom:3mm;font-size:10pt}
+.items-table th{padding:1mm;border-bottom:1px solid #000;text-align:left}
+.items-table td{padding:1mm 0;vertical-align:top}
+.qty{width:15%;text-align:center}
+.description{width:85%}
+.modifiers{font-size:8pt;color:#555}
+.footer{text-align:center;margin-top:3mm;font-size:9pt;padding-top:2mm;border-top:1px dashed #000}
+.italic{font-style:italic}
+@media print{@page{margin:0;size:80mm auto}}
+</style>
+</head>
+<body>
+${receipts}
+<script>
+(function(){
+  function closePrintTab(){
+    window.close();
+    if(!window.closed && window.opener && !window.opener.closed){
+      try{window.opener.focus();}catch(e){}
+    }
+  }
+  window.addEventListener('afterprint', closePrintTab);
+  window.onload=function(){ if(window.self===window.top){ window.print(); } };
+})();
+<\/script>
+</body>
+</html>`;
+};
+
+/**
+ * Write ticket HTML into the pre-opened tab and trigger print — no /kot/print round-trip.
+ */
+const printKotTicketsInWindow = (tickets = [], placeholderWindow = null) => {
+    if (!Array.isArray(tickets) || tickets.length === 0) {
+        return false;
+    }
+
+    const html = buildKotTicketsHtml(tickets);
+    let target = placeholderWindow && !placeholderWindow.closed ? placeholderWindow : null;
+
+    if (!target) {
+        target = window.open("about:blank", "_blank");
+    }
+
+    if (!target) {
+        return false;
+    }
+
+    try {
+        target.document.open();
+        target.document.write(html);
+        target.document.close();
+        try {
+            target.focus();
+        } catch (e) {
+            // ignore
+        }
+        return true;
+    } catch (e) {
+        console.warn("[POS] Instant KOT print failed, falling back to URL", e);
+        return false;
+    }
+};
+
+/**
  * Open a print URL. Uses anchor.click (legacy print_location parity) because
  * window.open after await is often blocked as a popup.
  *
@@ -1854,22 +2279,27 @@ const openBillPrintWindow = (id, existingWindow = null) => {
  * (often seen in production when the pre-opened placeholder tab is used).
  */
 const openPrintUrl = (url, existingWindow = null) => {
-    if (!url) {
+    const absoluteUrl = toSameOriginPrintUrl(url);
+    if (!absoluteUrl) {
         return false;
     }
 
     if (typeof window.openPosPrintTab === "function") {
-        return window.openPosPrintTab(url, existingWindow);
+        return window.openPosPrintTab(absoluteUrl, existingWindow);
     }
 
     if (existingWindow && !existingWindow.closed) {
-        existingWindow.location.href = url;
+        try {
+            existingWindow.location.replace(absoluteUrl);
+        } catch (e) {
+            existingWindow.location.href = absoluteUrl;
+        }
 
         return true;
     }
 
     const anchor = document.createElement("a");
-    anchor.href = url;
+    anchor.href = absoluteUrl;
     anchor.target = "_blank";
     anchor.rel = "noopener";
     document.body.appendChild(anchor);
@@ -1880,7 +2310,16 @@ const openPrintUrl = (url, existingWindow = null) => {
 };
 
 const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
-    const printUrls = (resultPayload?.links?.kot_print_urls || []).filter(Boolean);
+    const tickets = Array.isArray(resultPayload?.kot_tickets)
+        ? resultPayload.kot_tickets.filter(Boolean)
+        : [];
+
+    // Prefer instant Vue print from API ticket payloads (no second page load).
+    if (tickets.length > 0 && printKotTicketsInWindow(tickets, placeholderWindow)) {
+        return true;
+    }
+
+    const printUrls = resolveKotPrintUrls(resultPayload);
 
     if (printUrls.length === 0) {
         if (placeholderWindow && !placeholderWindow.closed) {
@@ -1894,7 +2333,13 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
         return false;
     }
 
-    openPrintUrl(printUrls[0], placeholderWindow);
+    const opened = openPrintUrl(printUrls[0], placeholderWindow);
+    if (!opened && placeholderWindow && !placeholderWindow.closed) {
+        placeholderWindow.close();
+        showPosAlert("warning", "Could not open KOT print view. Please allow popups and try again.");
+        return false;
+    }
+
     printUrls.slice(1).forEach((url, index) => {
         setTimeout(() => openPrintUrl(url), (index + 1) * 650);
     });
@@ -1904,6 +2349,24 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
 
 const openKotPrintWindows = (urls = []) => {
     triggerKotPrint({ links: { kot_print_urls: urls } });
+};
+
+const handlePrintKot = () => {
+    if (!kotGroups.value || kotGroups.value.length === 0) {
+        showPosAlert("warning", "No KOTs exist for this order.");
+        return;
+    }
+    const urls = kotGroups.value
+        .map((g) => {
+            if (!g.id) return null;
+            return g.kitchen_place_id
+                ? `/kot/print/${Number(g.id)}/${Number(g.kitchen_place_id)}`
+                : `/kot/print/${Number(g.id)}`;
+        })
+        .filter(Boolean);
+    if (urls.length > 0) {
+        openKotPrintWindows(urls);
+    }
 };
 
 const captureOrderDraftSnapshot = () => ({
@@ -1994,6 +2457,7 @@ const clearCartAfterSave = () => {
     currentTableId.value = null;
     hotelReservationId.value = null;
     hotelReservation.value = null;
+    orderPayableTotal.value = 0;
     calculateTaxes();
     resetRewardState();
 };
@@ -2007,6 +2471,7 @@ const runSaveOrder = async (...actions) => {
         return;
     }
 
+    const _t0 = performance.now();
     const actionList = Array.isArray(actions) ? actions : [];
     const wantsKotPrint =
         actionList.includes("kot") &&
@@ -2017,8 +2482,21 @@ const runSaveOrder = async (...actions) => {
     // Open a tab synchronously on click so print is not blocked after await.
     let printPlaceholder =
         wantsKotPrint || wantsReceiptPrint ? window.open("about:blank", "_blank") : null;
+    if (printPlaceholder && !printPlaceholder.closed && wantsKotPrint) {
+        try {
+            printPlaceholder.document.write(
+                "<!DOCTYPE html><html><head><title>Preparing KOT…</title></head>" +
+                    '<body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#444">' +
+                    "<p>Preparing KOT print…</p></body></html>"
+            );
+            printPlaceholder.document.close();
+        } catch (e) {
+            // Cross-origin / closed tab — ignore; URL will still be set after save.
+        }
+    }
     let draftSnapshot = null;
     let optimisticNewOrderClear = false;
+    let paymentOpenedEarly = false;
 
     try {
         // Validate cart has items
@@ -2054,6 +2532,23 @@ const runSaveOrder = async (...actions) => {
         const openPayment = secondaryAction === "payment";
         const selectedOrderType = resolveOrderType(orderType.value);
         const selectedSlug = normalizeOrderTypeSlug(selectedOrderType?.slug || orderType.value);
+
+        // Open payment modal immediately on click (sync) — do not wait for bill API.
+        // Complete stays disabled only when we still need a new order_id from save.
+        if (openPayment) {
+            const needsOrderIdFromSave = !isExistingOrder;
+            paymentOpenedEarly = openVuePaymentModal({
+                orderId: isExistingOrder ? effectiveOrderId : null,
+                orderNumber: orderNumber.value,
+                total: estimatePayableTotal.value,
+                saving: needsOrderIdFromSave || (cartItems.value?.length > 0),
+            });
+            console.log("[POS DEBUG] payment modal opened early (vue)", {
+                effectiveOrderId,
+                isExistingOrder,
+                paymentOpenedEarly,
+            });
+        }
 
         if (selectedSlug === "room_service") {
             if (!roomServiceEnabled.value) {
@@ -2241,9 +2736,14 @@ const runSaveOrder = async (...actions) => {
             const shouldOpenPayment = Boolean(
                 nextAction.open_payment ?? openPayment
             );
+            // Prefer the click-time intent (wantsKotPrint) so a falsey server
+            // print_kot flag cannot leave the pre-opened tab stranded on about:blank.
             const shouldPrintKot = Boolean(
-                nextAction.print_kot ??
-                    (action === "kot" && actionList.includes("print") && !actionList.includes("bill"))
+                wantsKotPrint ||
+                    nextAction.print_kot ||
+                    (action === "kot" &&
+                        actionList.includes("print") &&
+                        !actionList.includes("bill"))
             );
             const shouldPrintReceipt = Boolean(
                 nextAction.print_receipt ??
@@ -2275,6 +2775,66 @@ const runSaveOrder = async (...actions) => {
                 shouldPrintReceipt,
                 shouldShowOrderDetail,
             });
+            console.log(`[POS TIMING] saveOrder(${actions.join(", ")}) API — ${Math.round(performance.now() - _t0)}ms (total incl. navigation logged in finally)`);
+
+            // Open payment as soon as we have an order id — don't wait for
+            // linked-order refresh / cart clear / order-number fetch.
+            if (shouldOpenPayment && resolvedOrderId) {
+                console.log("[POS DEBUG] -> payment (early-path)", {
+                    resolvedOrderId,
+                    paymentOpenedEarly,
+                });
+                printPlaceholder?.close();
+                printPlaceholder = null;
+
+                if (isExistingOrder) {
+                    orderId.value = String(resolvedOrderId);
+                    if (actionList.includes("bill")) {
+                        orderLifecycleStatus.value = resultPayload?.status
+                            ? String(resultPayload.status).toLowerCase()
+                            : "billed";
+                        showOrderDetailMode.value = true;
+                        mode.value = "kot";
+                    }
+                } else if (!optimisticNewOrderClear) {
+                    clearCartAfterSave();
+                }
+
+                syncVuePaymentAfterSave(resultPayload);
+
+                if (!paymentOpenedEarly) {
+                    const openedPayment = openVuePaymentModal({
+                        orderId: resolvedOrderId,
+                        orderNumber:
+                            resultPayload.formatted_order_number ||
+                            resultPayload.order_number ||
+                            orderNumber.value,
+                        total: Number(resultPayload.total ?? estimatePayableTotal.value),
+                        saving: false,
+                    });
+                    if (!openedPayment) {
+                        if (isExistingOrder) {
+                            navigateToPayment(resolvedOrderId);
+                        } else {
+                            window.location.href = `/orders/${resolvedOrderId}?payment=true`;
+                        }
+                    } else if (isExistingOrder) {
+                        scheduleLinkedOrderRefresh(resolvedOrderId);
+                    }
+                } else if (isExistingOrder) {
+                    scheduleLinkedOrderRefresh(resolvedOrderId);
+                }
+
+                if (!isExistingOrder && !optimisticNewOrderClear) {
+                    if (isOnline.value) {
+                        void fetchNewOrderNumber();
+                    } else {
+                        void incrementOrderNumberOffline();
+                    }
+                }
+
+                return;
+            }
 
             if (isExistingOrder && resolvedOrderId) {
                 orderId.value = String(resolvedOrderId);
@@ -2298,20 +2858,6 @@ const runSaveOrder = async (...actions) => {
                 if (isNewKotMode.value && action === "kot" && !shouldOpenPayment) {
                     printPlaceholder?.close();
                     navigateToLinkedOrderDetail(resolvedOrderId);
-                    return;
-                }
-
-                if (shouldOpenPayment) {
-                    console.log("[POS DEBUG] existing order -> payment", { resolvedOrderId });
-                    printPlaceholder?.close();
-                    const openedPayment = openPaymentInPlace(resolvedOrderId);
-
-                    if (!openedPayment) {
-                        navigateToPayment(resolvedOrderId);
-                    } else {
-                        // Non-blocking refresh — don't delay the payment modal on a second GET.
-                        scheduleLinkedOrderRefresh(resolvedOrderId);
-                    }
                     return;
                 }
 
@@ -2397,14 +2943,7 @@ const runSaveOrder = async (...actions) => {
                 clearCartAfterSave();
             }
 
-            if (shouldOpenPayment && orderIdToOpen) {
-                console.log("[POS DEBUG] new order -> bill payment", { orderIdToOpen });
-                const openedPayment = openPaymentInPlace(orderIdToOpen);
-
-                if (!openedPayment) {
-                    window.location.href = `/orders/${orderIdToOpen}?payment=true`;
-                }
-            } else if (shouldShowOrderDetail && orderIdToOpen) {
+            if (shouldShowOrderDetail && orderIdToOpen) {
                 console.log("[POS DEBUG] new order -> bill detail", { orderIdToOpen });
                 const opened = openOrderDetailInPlace(orderIdToOpen);
 
@@ -2431,6 +2970,9 @@ const runSaveOrder = async (...actions) => {
         }
     } catch (error) {
         printPlaceholder?.close();
+        if (paymentOpenedEarly) {
+            closePaymentInPlace();
+        }
         const errorMessage = error?.response?.data?.message || error?.message || "Failed to save order";
         const errors = error?.response?.data?.errors || {};
         console.error("Error saving order:", {
@@ -2463,6 +3005,7 @@ const runSaveOrder = async (...actions) => {
         }
     } finally {
         orderSaveInFlight.value = false;
+        console.log(`[POS TIMING] saveOrder(${actions.join(", ")}) — ${Math.round(performance.now() - _t0)}ms`);
     }
 };
 
@@ -2686,6 +3229,7 @@ const handleDeliveryFeeUpdate = async (newDeliveryFee) => {
 };
 
 const handleOpenPayment = () => {
+    const _t0 = performance.now();
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     console.log("[POS DEBUG] open payment clicked", {
         activeOrderId,
@@ -2702,6 +3246,7 @@ const handleOpenPayment = () => {
         if (!openedPayment) {
             navigateToPayment(activeOrderId);
         }
+        console.log(`[POS TIMING] openPayment(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
         return;
     }
 
@@ -2711,6 +3256,7 @@ const handleOpenPayment = () => {
         activeOrderId,
         openedPayment,
     });
+    console.log(`[POS TIMING] openPayment(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
 
     if (!openedPayment) {
         window.location.href = `/orders/${activeOrderId}?payment=true`;
@@ -2745,6 +3291,7 @@ const handleNewKot = () => {
 };
 
 const handleDeleteOrder = async () => {
+    const _t0 = performance.now();
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     console.log("[POS DEBUG] delete order clicked", {
         activeOrderId,
@@ -2776,9 +3323,7 @@ const handleDeleteOrder = async () => {
         const response = await axios.delete(`/api/pos/orders/${activeOrderId}`);
 
         if (response.data?.success) {
-            console.log("[POS DEBUG] delete order success", {
-                activeOrderId,
-            });
+            console.log(`[POS TIMING] deleteOrder(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
             showPosAlert("success", response.data?.message || "Order deleted successfully");
             clearCartAfterSave();
             window.location.href = "/pos";
@@ -2789,6 +3334,7 @@ const handleDeleteOrder = async () => {
             status: error?.response?.status,
             data: error?.response?.data,
         });
+        console.log(`[POS TIMING] deleteOrder(order #${activeOrderId}) failed — ${Math.round(performance.now() - _t0)}ms`);
         console.error("Error deleting order:", error);
         showPosAlert("error", error.response?.data?.message || "Failed to delete order");
     }
@@ -2899,6 +3445,7 @@ const loadRestaurantData = () => {
         };
 
         allowCustomOrderExtras.value = !!bootstrap.allow_custom_order_extras;
+        showKotPrint.value = bootstrap.show_kot_print !== undefined ? !!bootstrap.show_kot_print : true;
 
         // KOT module gate — check if 'KOT' is in the restaurant's active modules
         if (Array.isArray(bootstrap.modules)) {
@@ -3181,11 +3728,15 @@ const applyOrderPayload = (payload, activeOrderId) => {
     tipAmount.value = Number(payload.tip_amount || 0);
     extraCharges.value = Array.isArray(payload.extra_charges) ? payload.extra_charges : [];
     pickupDateTime.value = payload.pickup_datetime || "";
+    orderPayableTotal.value = Number(payload.total || 0);
 
     // Legacy parity (Pos.php mount): hydrate per-order custom extras when the
     // server includes them (only sent if allow_custom_order_extras is on).
     if (payload.allow_custom_order_extras !== undefined) {
         allowCustomOrderExtras.value = !!payload.allow_custom_order_extras;
+    }
+    if (payload.show_kot_print !== undefined) {
+        showKotPrint.value = !!payload.show_kot_print;
     }
     customExtras.value = Array.isArray(payload.custom_extras)
         ? payload.custom_extras.map((row) => ({
