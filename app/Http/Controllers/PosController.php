@@ -281,6 +281,7 @@ class PosController extends Controller
         $payload['modules'] = array_values(restaurant_modules() ?? []);
         $payload['hide_menu_item_image_on_pos'] = (bool) (restaurant()->hide_menu_item_image_on_pos ?? false);
         $payload['allow_custom_order_extras'] = (bool) (restaurant()->allow_custom_order_extras ?? false);
+        $payload['show_kot_print'] = (bool) (restaurant()->receiptSetting?->show_kot_print ?? true);
         $payload['reward_settings'] = $data['reward_settings'] ?? null;
         $payload['pos_preferences'] = [
             'default_order_type_id' => (int) (auth()->user()?->default_order_type_id ?? restaurant()->default_order_type_id ?? 0),

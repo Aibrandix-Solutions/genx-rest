@@ -291,6 +291,7 @@ class PosVueOrderController extends Controller
                 'kot_number' => (string) ($kot->kot_number ?? ''),
                 'created_at' => $kot->created_at ? $kot->created_at->toIso8601String() : null,
                 'status' => (string) ($kot->status ?? ''),
+                'kitchen_place_id' => $kot->kitchen_place_id ? (int) $kot->kitchen_place_id : null,
                 'lines' => $kotLines,
             ];
         })->values();
@@ -377,6 +378,7 @@ class PosVueOrderController extends Controller
                     // Only surfaced when the setting is enabled so the UI never appears
                     // for restaurants that have it turned off.
                     'allow_custom_order_extras' => (bool) (restaurant()->allow_custom_order_extras ?? false),
+                    'show_kot_print' => (bool) (restaurant()->receiptSetting?->show_kot_print ?? true),
                     'custom_extras' => (restaurant()->allow_custom_order_extras ?? false)
                         ? $order->extras()->orderBy('id')->get(['note', 'amount'])
                             ->map(fn ($extra) => [

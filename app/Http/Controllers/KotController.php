@@ -30,8 +30,9 @@ class KotController extends Controller
             'order.waiter',
             'order.table',
             'branch.restaurant',
+            'kotPlace',
         ])->find($id);
-        $kotPlace = $kotPlaceid ? KotPlace::find($kotPlaceid) : null;
+        $kotPlace = $kotPlaceid ? KotPlace::find($kotPlaceid) : ($kot->kotPlace ?? null);
 
         return view('pos.printKot', compact('kot', 'kotPlaceid', 'width', 'thermal', 'kotPlace'));
     }

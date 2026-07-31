@@ -56,6 +56,7 @@
                 :order-lifecycle-status="orderLifecycleStatus"
                 :order-permissions="orderPermissions" :kot-groups="kotGroups"
                 :allow-custom-order-extras="allowCustomOrderExtras" :custom-extras="customExtras"
+                :show-kot-print="showKotPrint"
                 :delivery-address="deliveryAddress" :customer-phone="customerPhone"
                 :customer-lat="customerLat" :customer-lng="customerLng"
                 :branch-lat="branchLat" :branch-lng="branchLng"
@@ -75,6 +76,7 @@
                 :can-redeem-reward-points="canRedeemRewardPoints"
                 @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
+                @print-kot="handlePrintKot"
                 @select-table="handleSelectTable" @remove-table="handleRemoveTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
                 @update:orderStatus="handleOrderStatusUpdate" @add-note="handleAddNote"
                 @update:selectedDeliveryExecutive="handleDeliveryExecutiveUpdate"
@@ -363,6 +365,7 @@ const orderLifecycleStatus = ref("");
 // Each row is { amount: number, note: string }. Persisted via order_extras
 // when the restaurant setting allow_custom_order_extras is enabled.
 const allowCustomOrderExtras = ref(false);
+const showKotPrint = ref(true);
 const customExtras = ref([]);
 // Reward Points state
 const rewardPointDiscount = ref(0);
@@ -2348,6 +2351,24 @@ const openKotPrintWindows = (urls = []) => {
     triggerKotPrint({ links: { kot_print_urls: urls } });
 };
 
+const handlePrintKot = () => {
+    if (!kotGroups.value || kotGroups.value.length === 0) {
+        showPosAlert("warning", "No KOTs exist for this order.");
+        return;
+    }
+    const urls = kotGroups.value
+        .map((g) => {
+            if (!g.id) return null;
+            return g.kitchen_place_id
+                ? `/kot/print/${Number(g.id)}/${Number(g.kitchen_place_id)}`
+                : `/kot/print/${Number(g.id)}`;
+        })
+        .filter(Boolean);
+    if (urls.length > 0) {
+        openKotPrintWindows(urls);
+    }
+};
+
 const captureOrderDraftSnapshot = () => ({
     cartItems: JSON.parse(JSON.stringify(cartItems.value)),
     customer: customer.value ? { ...customer.value } : getEmptyCustomer(),
@@ -3424,6 +3445,7 @@ const loadRestaurantData = () => {
         };
 
         allowCustomOrderExtras.value = !!bootstrap.allow_custom_order_extras;
+        showKotPrint.value = bootstrap.show_kot_print !== undefined ? !!bootstrap.show_kot_print : true;
 
         // KOT module gate — check if 'KOT' is in the restaurant's active modules
         if (Array.isArray(bootstrap.modules)) {
@@ -3712,6 +3734,9 @@ const applyOrderPayload = (payload, activeOrderId) => {
     // server includes them (only sent if allow_custom_order_extras is on).
     if (payload.allow_custom_order_extras !== undefined) {
         allowCustomOrderExtras.value = !!payload.allow_custom_order_extras;
+    }
+    if (payload.show_kot_print !== undefined) {
+        showKotPrint.value = !!payload.show_kot_print;
     }
     customExtras.value = Array.isArray(payload.custom_extras)
         ? payload.custom_extras.map((row) => ({
