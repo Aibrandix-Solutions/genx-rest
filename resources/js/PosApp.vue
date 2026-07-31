@@ -56,6 +56,7 @@
                 :order-lifecycle-status="orderLifecycleStatus"
                 :order-permissions="orderPermissions" :kot-groups="kotGroups"
                 :allow-custom-order-extras="allowCustomOrderExtras" :custom-extras="customExtras"
+                :show-kot-print="showKotPrint"
                 :delivery-address="deliveryAddress" :customer-phone="customerPhone"
                 :customer-lat="customerLat" :customer-lng="customerLng"
                 :branch-lat="branchLat" :branch-lng="branchLng"
@@ -75,6 +76,7 @@
                 :can-redeem-reward-points="canRedeemRewardPoints"
                 @update:orderType="orderType = $event"
                 @show-add-customer="showAddCustomerModal = true" @remove-customer="handleRemoveCustomer"
+                @print-kot="handlePrintKot"
                 @select-table="handleSelectTable" @remove-table="handleRemoveTable" @update:pax="pax = $event" @update:waiterId="handleWaiterUpdate"
                 @update:orderStatus="handleOrderStatusUpdate" @add-note="handleAddNote"
                 @update:selectedDeliveryExecutive="handleDeliveryExecutiveUpdate"
@@ -138,6 +140,7 @@
             @close="closeVuePaymentModal"
             @submit="handleVuePaymentSubmit"
             @open-advanced="openAdvancedPaymentFromVue"
+            @update-totals="getOrder"
         />
     </div>
 </template>
@@ -362,6 +365,7 @@ const orderLifecycleStatus = ref("");
 // Each row is { amount: number, note: string }. Persisted via order_extras
 // when the restaurant setting allow_custom_order_extras is enabled.
 const allowCustomOrderExtras = ref(false);
+const showKotPrint = ref(true);
 const customExtras = ref([]);
 // Reward Points state
 const rewardPointDiscount = ref(0);
@@ -1550,6 +1554,12 @@ watch(
     { deep: true }
 );
 
+watch(orderPayableTotal, (newVal) => {
+    if (showVuePaymentModal.value) {
+        vuePaymentDueAmount.value = Number(newVal || 0);
+    }
+});
+
 const handleRemoveDiscount = () => {
     const previousType = discountType.value;
     const previousValue = discountValue.value;
@@ -1960,12 +1970,21 @@ const handleVuePaymentSubmit = async (payload) => {
         return;
     }
 
+    const _t0 = performance.now();
     vuePaymentSubmitting.value = true;
     try {
-        const response = await axios.post(`/api/pos/orders/${id}/pay`, {
+        const requestData = {
             payment_method: payload.payment_method,
             amount: payload.amount,
-        });
+        };
+        if (payload.room_charge_reservation_id !== undefined && payload.room_charge_reservation_id !== null) {
+            requestData.room_charge_reservation_id = payload.room_charge_reservation_id;
+        }
+        if (payload.split_type) {
+            requestData.split_type = payload.split_type;
+            requestData.splits = payload.splits;
+        }
+        const response = await axios.post(`/api/pos/orders/${id}/pay`, requestData);
         const data = response.data?.data || {};
         const status = String(data.status || "").toLowerCase();
 
@@ -1999,6 +2018,7 @@ const handleVuePaymentSubmit = async (payload) => {
         }
     } finally {
         vuePaymentSubmitting.value = false;
+        console.log(`[POS TIMING] paymentSubmit(order #${id}) — ${Math.round(performance.now() - _t0)}ms`);
     }
 };
 
@@ -2331,6 +2351,24 @@ const openKotPrintWindows = (urls = []) => {
     triggerKotPrint({ links: { kot_print_urls: urls } });
 };
 
+const handlePrintKot = () => {
+    if (!kotGroups.value || kotGroups.value.length === 0) {
+        showPosAlert("warning", "No KOTs exist for this order.");
+        return;
+    }
+    const urls = kotGroups.value
+        .map((g) => {
+            if (!g.id) return null;
+            return g.kitchen_place_id
+                ? `/kot/print/${Number(g.id)}/${Number(g.kitchen_place_id)}`
+                : `/kot/print/${Number(g.id)}`;
+        })
+        .filter(Boolean);
+    if (urls.length > 0) {
+        openKotPrintWindows(urls);
+    }
+};
+
 const captureOrderDraftSnapshot = () => ({
     cartItems: JSON.parse(JSON.stringify(cartItems.value)),
     customer: customer.value ? { ...customer.value } : getEmptyCustomer(),
@@ -2433,6 +2471,7 @@ const runSaveOrder = async (...actions) => {
         return;
     }
 
+    const _t0 = performance.now();
     const actionList = Array.isArray(actions) ? actions : [];
     const wantsKotPrint =
         actionList.includes("kot") &&
@@ -2736,6 +2775,7 @@ const runSaveOrder = async (...actions) => {
                 shouldPrintReceipt,
                 shouldShowOrderDetail,
             });
+            console.log(`[POS TIMING] saveOrder(${actions.join(", ")}) API — ${Math.round(performance.now() - _t0)}ms (total incl. navigation logged in finally)`);
 
             // Open payment as soon as we have an order id — don't wait for
             // linked-order refresh / cart clear / order-number fetch.
@@ -2965,6 +3005,7 @@ const runSaveOrder = async (...actions) => {
         }
     } finally {
         orderSaveInFlight.value = false;
+        console.log(`[POS TIMING] saveOrder(${actions.join(", ")}) — ${Math.round(performance.now() - _t0)}ms`);
     }
 };
 
@@ -3188,6 +3229,7 @@ const handleDeliveryFeeUpdate = async (newDeliveryFee) => {
 };
 
 const handleOpenPayment = () => {
+    const _t0 = performance.now();
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     console.log("[POS DEBUG] open payment clicked", {
         activeOrderId,
@@ -3204,6 +3246,7 @@ const handleOpenPayment = () => {
         if (!openedPayment) {
             navigateToPayment(activeOrderId);
         }
+        console.log(`[POS TIMING] openPayment(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
         return;
     }
 
@@ -3213,6 +3256,7 @@ const handleOpenPayment = () => {
         activeOrderId,
         openedPayment,
     });
+    console.log(`[POS TIMING] openPayment(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
 
     if (!openedPayment) {
         window.location.href = `/orders/${activeOrderId}?payment=true`;
@@ -3247,6 +3291,7 @@ const handleNewKot = () => {
 };
 
 const handleDeleteOrder = async () => {
+    const _t0 = performance.now();
     const activeOrderId = orderId.value ? Number(orderId.value) : null;
     console.log("[POS DEBUG] delete order clicked", {
         activeOrderId,
@@ -3278,9 +3323,7 @@ const handleDeleteOrder = async () => {
         const response = await axios.delete(`/api/pos/orders/${activeOrderId}`);
 
         if (response.data?.success) {
-            console.log("[POS DEBUG] delete order success", {
-                activeOrderId,
-            });
+            console.log(`[POS TIMING] deleteOrder(order #${activeOrderId}) — ${Math.round(performance.now() - _t0)}ms`);
             showPosAlert("success", response.data?.message || "Order deleted successfully");
             clearCartAfterSave();
             window.location.href = "/pos";
@@ -3291,6 +3334,7 @@ const handleDeleteOrder = async () => {
             status: error?.response?.status,
             data: error?.response?.data,
         });
+        console.log(`[POS TIMING] deleteOrder(order #${activeOrderId}) failed — ${Math.round(performance.now() - _t0)}ms`);
         console.error("Error deleting order:", error);
         showPosAlert("error", error.response?.data?.message || "Failed to delete order");
     }
@@ -3401,6 +3445,7 @@ const loadRestaurantData = () => {
         };
 
         allowCustomOrderExtras.value = !!bootstrap.allow_custom_order_extras;
+        showKotPrint.value = bootstrap.show_kot_print !== undefined ? !!bootstrap.show_kot_print : true;
 
         // KOT module gate — check if 'KOT' is in the restaurant's active modules
         if (Array.isArray(bootstrap.modules)) {
@@ -3689,6 +3734,9 @@ const applyOrderPayload = (payload, activeOrderId) => {
     // server includes them (only sent if allow_custom_order_extras is on).
     if (payload.allow_custom_order_extras !== undefined) {
         allowCustomOrderExtras.value = !!payload.allow_custom_order_extras;
+    }
+    if (payload.show_kot_print !== undefined) {
+        showKotPrint.value = !!payload.show_kot_print;
     }
     customExtras.value = Array.isArray(payload.custom_extras)
         ? payload.custom_extras.map((row) => ({
