@@ -158,11 +158,11 @@
                  due-payment guard (AddPayment::setPaymentMethod('due') →
                  $dispatch('showAddCustomerModal', … forDuePayment: true)) can
                  surface the "register customer first" flow inside the Vue POS. --}}
-            @livewire('order.OrderDetail')
+            <div id="global-drawer-root"></div>
             @livewire('order.addPayment')
             @livewire('customer.addCustomer')
         @else
-            @livewire('order.OrderDetail')
+            <div id="global-drawer-root"></div>
 
             @livewire('settings.upgradeLicense')
 

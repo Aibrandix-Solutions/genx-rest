@@ -109,7 +109,7 @@
         @if ($order->status == 'kot') 
             href="{{ route('pos.kot', $order->id).'?show-order-detail=true' }}"
         @else 
-            wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })"
+            @click="$dispatch('showOrderDetail', @js(['id' => $order->id, 'order_number' => $order->show_formatted_order_number, 'total' => (float)$order->total, 'status' => $order->status, 'order_type' => $order->order_type, 'customer_name' => $order->customer?->name ?? '', 'table_code' => $order->table?->table_code ?? '']))"
             href="javascript:;"
         @endif
         wire:key='order-item-{{ $order->id }}'>

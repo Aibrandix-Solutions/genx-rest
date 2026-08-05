@@ -549,6 +549,43 @@ class PosSupportController extends Controller
         ]);
     }
 
+    public function updateOrderNote(Request $request, int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()), 403);
+
+        $validated = $request->validate([
+            'note' => ['nullable', 'string'],
+        ]);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        $isBilledOrPaid = in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true);
+        abort_if($isBilledOrPaid && ! user_can('Edit Billed Order'), 403);
+        abort_if(! $isBilledOrPaid && ! user_can('Update Order'), 403);
+
+        $note = trim((string) ($validated['note'] ?? ''));
+        $note = $note !== '' ? $note : null;
+
+        $order->update([
+            'note' => $note,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Order note updated.',
+            'data' => [
+                'order_id' => (int) $order->id,
+                'note' => $order->note,
+            ],
+        ]);
+    }
+
     public function updateOrderItemNote(Request $request, int $id)
     {
         abort_if(! in_array('Order', restaurant_modules()), 403);
@@ -971,7 +1008,10 @@ class PosSupportController extends Controller
             $order->update([
                 'delivery_fee' => (float) ($validated['delivery_fee'] ?? 0),
             ]);
-            $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+            // Pass allowImmediatePaymentWithoutCustomer=true so walk-in paid orders
+            // can have their delivery fee adjusted — the service will revert them to
+            // 'billed' (require re-payment) rather than throwing a 422 error.
+            $this->recomputeOrderFinancialsFromPersistedItems($order->fresh(), allowImmediatePayment: true);
         });
 
         $order->refresh();
@@ -1136,55 +1176,89 @@ class PosSupportController extends Controller
             ->where('branch_id', $branch->id)
             ->firstOrFail();
 
-        /** @var \App\Models\KotItem $kotItem */
-        $kotItem = \App\Models\KotItem::query()
-            ->with(['kot', 'menuItem', 'menuItemVariation.menuItem', 'modifierOptions'])
-            ->whereHas('kot', fn ($q) => $q->where('order_id', $order->id))
-            ->where('id', $kotItemId)
-            ->firstOrFail();
+        $clientOrderItemId = isset($validated['order_item_id']) ? (int) $validated['order_item_id'] : null;
+
+        /** @var \App\Models\KotItem|null $kotItem */
+        $kotItem = null;
+        if ($kotItemId > 0) {
+            $kotItem = \App\Models\KotItem::query()
+                ->with(['kot', 'menuItem', 'menuItemVariation.menuItem', 'modifierOptions'])
+                ->whereHas('kot', fn ($q) => $q->where('order_id', $order->id))
+                ->where('id', $kotItemId)
+                ->first();
+        }
+
+        if (! $kotItem && $clientOrderItemId) {
+            $orderItem = OrderItem::query()->where('order_id', $order->id)->where('id', $clientOrderItemId)->first();
+            if ($orderItem && $orderItem->kot_item_id) {
+                $kotItem = \App\Models\KotItem::query()
+                    ->with(['kot', 'menuItem', 'menuItemVariation.menuItem', 'modifierOptions'])
+                    ->where('id', $orderItem->kot_item_id)
+                    ->first();
+            }
+        }
 
         $newQuantity = (int) $validated['new_quantity'];
         $reason = $validated['reason'];
-        $quantityBefore = (int) $kotItem->quantity;
-        $clientOrderItemId = isset($validated['order_item_id']) ? (int) $validated['order_item_id'] : null;
 
-        // If reducing to 0 or below — treat as a full delete
-        if ($newQuantity <= 0) {
-            // Re-use removeKotItem logic inline
-            \App\Support\KotAdjustmentLogger::log($kotItem, 'deleted', $reason, $quantityBefore, 0);
-
-            $matched = $this->findOrderItemMatchingKotItem($order, $kotItem, $clientOrderItemId);
-            if ($matched) {
-                $matched->modifierOptions()->detach();
-                $matched->delete();
+        if (! $kotItem && $clientOrderItemId) {
+            $orderItem = OrderItem::query()->where('order_id', $order->id)->where('id', $clientOrderItemId)->first();
+            if ($orderItem) {
+                $quantityBefore = (int) $orderItem->quantity;
+                if ($newQuantity <= 0) {
+                    $orderItem->modifierOptions()->detach();
+                    $orderItem->delete();
+                } else {
+                    $unitPrice = $quantityBefore > 0
+                        ? round((float) ($orderItem->amount ?? 0) / $quantityBefore, 4)
+                        : (float) ($orderItem->price ?? 0);
+                    $orderItem->update([
+                        'quantity' => $newQuantity,
+                        'amount' => round($unitPrice * $newQuantity, 2),
+                    ]);
+                }
             }
+        } elseif ($kotItem) {
+            $quantityBefore = (int) $kotItem->quantity;
 
-            $kotItem->modifierOptions()->detach();
-            $kotItem->delete();
+            // If reducing to 0 or below — treat as a full delete
+            if ($newQuantity <= 0) {
+                // Re-use removeKotItem logic inline
+                \App\Support\KotAdjustmentLogger::log($kotItem, 'deleted', $reason, $quantityBefore, 0);
 
-            $kot = $kotItem->kot;
-            $kot->refresh();
-            if ($kot->items()->count() === 0) {
-                $kot->delete();
-            }
-        } else {
-            // Log quantiy_updated
-            \App\Support\KotAdjustmentLogger::log($kotItem, 'quantity_updated', $reason, $quantityBefore, $newQuantity);
+                $matched = $this->findOrderItemMatchingKotItem($order, $kotItem, $clientOrderItemId);
+                if ($matched) {
+                    $matched->modifierOptions()->detach();
+                    $matched->delete();
+                }
 
-            // Update KotItem quantity
-            $kotItem->update(['quantity' => $newQuantity]);
+                $kotItem->modifierOptions()->detach();
+                $kotItem->delete();
 
-            // Update matching OrderItem quantity + amount
-            $matched = $this->findOrderItemMatchingKotItem($order, $kotItem, $clientOrderItemId);
-            if ($matched) {
-                $unitPrice = $quantityBefore > 0
-                    ? round((float) ($matched->amount ?? 0) / $quantityBefore, 4)
-                    : (float) ($matched->price ?? 0);
+                $kot = $kotItem->kot;
+                $kot->refresh();
+                if ($kot->items()->count() === 0) {
+                    $kot->delete();
+                }
+            } else {
+                // Log quantity_updated
+                \App\Support\KotAdjustmentLogger::log($kotItem, 'quantity_updated', $reason, $quantityBefore, $newQuantity);
 
-                $matched->update([
-                    'quantity' => $newQuantity,
-                    'amount' => round($unitPrice * $newQuantity, 2),
-                ]);
+                // Update KotItem quantity
+                $kotItem->update(['quantity' => $newQuantity]);
+
+                // Update matching OrderItem quantity + amount
+                $matched = $this->findOrderItemMatchingKotItem($order, $kotItem, $clientOrderItemId);
+                if ($matched) {
+                    $unitPrice = $quantityBefore > 0
+                        ? round((float) ($matched->amount ?? 0) / $quantityBefore, 4)
+                        : (float) ($matched->price ?? 0);
+
+                    $matched->update([
+                        'quantity' => $newQuantity,
+                        'amount' => round($unitPrice * $newQuantity, 2),
+                    ]);
+                }
             }
         }
 
@@ -1249,41 +1323,62 @@ class PosSupportController extends Controller
         $clientOrderItemId = isset($validated['order_item_id']) ? (int) $validated['order_item_id'] : null;
 
         /** @var \App\Models\KotItem|null $kotItem */
-        $kotItem = \App\Models\KotItem::query()
-            ->with(['kot', 'menuItem', 'menuItemVariation.menuItem', 'modifierOptions'])
-            ->whereHas('kot', fn ($q) => $q->where('order_id', $order->id))
-            ->where('id', $kotItemId)
-            ->firstOrFail();
-
-        $kot = $kotItem->kot;
-        $quantityBefore = (int) $kotItem->quantity;
-
-        // Log the adjustment (mirrors KotAdjustmentLogger::log)
-        \App\Support\KotAdjustmentLogger::log(
-            $kotItem,
-            'deleted',
-            $validated['reason'],
-            $quantityBefore,
-            0
-        );
-
-        // Remove corresponding order_items row (mirror legacy deletePersistedOrderItemForKotLine)
-        $matchedOrderItem = $this->findOrderItemMatchingKotItem($order, $kotItem, $clientOrderItemId);
-        if ($matchedOrderItem) {
-            $matchedOrderItem->modifierOptions()->detach();
-            $matchedOrderItem->delete();
+        $kotItem = null;
+        if ($kotItemId > 0) {
+            $kotItem = \App\Models\KotItem::query()
+                ->with(['kot', 'menuItem', 'menuItemVariation.menuItem', 'modifierOptions'])
+                ->whereHas('kot', fn ($q) => $q->where('order_id', $order->id))
+                ->where('id', $kotItemId)
+                ->first();
         }
 
-        // Delete the KotItem
-        $kotItem->modifierOptions()->detach();
-        $kotItem->delete();
-
-        // Delete the KOT if it has no items left
-        $kot->refresh();
-        $kotIsEmpty = $kot->items()->count() === 0;
-        if ($kotIsEmpty) {
-            $kot->delete();
+        if (! $kotItem && $clientOrderItemId) {
+            $orderItem = OrderItem::query()->where('order_id', $order->id)->where('id', $clientOrderItemId)->first();
+            if ($orderItem && $orderItem->kot_item_id) {
+                $kotItem = \App\Models\KotItem::query()
+                    ->with(['kot', 'menuItem', 'menuItemVariation.menuItem', 'modifierOptions'])
+                    ->where('id', $orderItem->kot_item_id)
+                    ->first();
+            }
         }
+
+        if ($kotItem) {
+            $kot = $kotItem->kot;
+            $quantityBefore = (int) $kotItem->quantity;
+
+            // Log the adjustment (mirrors KotAdjustmentLogger::log)
+            \App\Support\KotAdjustmentLogger::log(
+                $kotItem,
+                'deleted',
+                $validated['reason'],
+                $quantityBefore,
+                0
+            );
+
+            // Remove corresponding order_items row (mirror legacy deletePersistedOrderItemForKotLine)
+            $matchedOrderItem = $this->findOrderItemMatchingKotItem($order, $kotItem, $clientOrderItemId);
+            if ($matchedOrderItem) {
+                $matchedOrderItem->modifierOptions()->detach();
+                $matchedOrderItem->delete();
+            }
+
+            // Delete the KotItem
+            $kotItem->modifierOptions()->detach();
+            $kotItem->delete();
+
+            // Delete the KOT if it has no items left
+            $kot->refresh();
+            if ($kot->items()->count() === 0) {
+                $kot->delete();
+            }
+        } elseif ($clientOrderItemId) {
+            $orderItem = OrderItem::query()->where('order_id', $order->id)->where('id', $clientOrderItemId)->first();
+            if ($orderItem) {
+                $orderItem->modifierOptions()->detach();
+                $orderItem->delete();
+            }
+        }
+
 
         $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
 
@@ -1437,7 +1532,7 @@ class PosSupportController extends Controller
         return response()->json($result, ($result['success'] ?? false) ? 200 : 422);
     }
 
-    private function recomputeOrderFinancialsFromPersistedItems(Order $order): void
+    private function recomputeOrderFinancialsFromPersistedItems(Order $order, bool $allowImmediatePayment = false): void
     {
         $statusBefore = $order->status;
 
@@ -1471,7 +1566,7 @@ class PosSupportController extends Controller
         ]);
 
         if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
-            OrderPaymentBalanceSync::reconcileAfterTotalChange($order->fresh(['payments']));
+            OrderPaymentBalanceSync::reconcileAfterTotalChange($order->fresh(['payments']), $allowImmediatePayment);
         }
     }
 
@@ -1627,6 +1722,47 @@ class PosSupportController extends Controller
                 'can_redeem' => $canRedeem,
                 'minimum_order_total_to_redeem' => (float) ($settings->minimum_order_total_to_redeem ?? 0),
             ],
+        ]);
+    }
+
+    public function updatePaymentMethod(Request $request, int $id, int $paymentId)
+    {
+        abort_if(! user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', \Illuminate\Validation\Rule::in(['cash', 'card', 'upi', 'due', 'bank_transfer'])],
+        ]);
+
+        $order = Order::where('id', $id)->firstOrFail();
+        $payment = $order->payments()->where('id', $paymentId)->firstOrFail();
+
+        if ($validated['payment_method'] === 'due' && ! $order->canRecordDueBalance()) {
+            return response()->json([
+                'success' => false,
+                'message' => __('modules.order.customerRequiredForDuePayment'),
+                'needs_customer' => true,
+            ], 422);
+        }
+
+        $payment->update([
+            'payment_method' => $validated['payment_method'],
+            'payment_account_id' => \App\Models\BranchPaymentAccountSetting::getDefaultAccount(
+                (int) $order->branch_id,
+                $validated['payment_method']
+            )?->id,
+        ]);
+
+        $order->refresh();
+        $order->load('payments');
+        $orderPaidAmount = (float) $order->nonDuePaymentsSum();
+        $remaining = round((float) $order->total - $orderPaidAmount, 2);
+        $order->status = $remaining <= 0.0001 ? 'paid' : 'payment_due';
+        $order->amount_paid = $orderPaidAmount;
+        $order->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Payment method updated',
         ]);
     }
 }

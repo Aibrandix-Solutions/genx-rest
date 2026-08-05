@@ -2264,7 +2264,6 @@ const buildLineSignature = (line = {}) => {
         Number(line.menu_item_variation_id || 0),
         Number(line.combo_pack_id || 0),
         String(line.combo_instance_key || ""),
-        String(line.note || ""),
         JSON.stringify(stableSerializeForSignature(line.modifier_option_quantities || {})),
     ].join("|");
 };

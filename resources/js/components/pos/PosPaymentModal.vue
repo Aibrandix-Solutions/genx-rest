@@ -79,10 +79,10 @@
 
                             <!-- Add Tip Button -->
                             <button
-                                v-if="orderDetails?.can_add_tip"
+                                v-if="orderDetails?.can_add_tip || preloadedOrder?.can_add_tip"
                                 type="button"
                                 class="p-3 text-center border-2 border-dashed rounded-lg transition-all duration-200 flex flex-col items-center justify-center gap-1 min-h-[80px]"
-                                :class="orderDetails.tip_amount > 0
+                                :class="(orderDetails?.tip_amount || preloadedOrder?.tip_amount || 0) > 0
                                     ? 'bg-green-50 dark:bg-green-900/50 border-green-200 dark:border-green-800 text-green-600 dark:text-green-400'
                                     : 'border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-500 hover:border-blue-500'"
                                 @click="openTipDialog"
@@ -91,24 +91,24 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"/>
                                 </svg>
                                 <span class="text-xs font-semibold">
-                                    {{ orderDetails.tip_amount > 0 ? `Tip: ${currencySymbol}${orderDetails.tip_amount}` : 'Add Tip' }}
+                                    {{ (orderDetails?.tip_amount || preloadedOrder?.tip_amount || 0) > 0 ? `Tip: ${currencySymbol}${orderDetails?.tip_amount || preloadedOrder?.tip_amount}` : 'Add Tip' }}
                                 </span>
                             </button>
                         </div>
 
                         <!-- Room Charge: Guest/Room selector -->
-                        <div v-if="paymentMethod === 'room_charge' && orderDetails?.show_room_charge" class="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
+                        <div v-if="paymentMethod === 'room_charge' && (orderDetails?.show_room_charge || props.showRoomCharge)" class="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
                             <label class="block text-sm font-medium text-purple-800 dark:text-purple-300 mb-1.5">
                                 Charge to Room
                             </label>
                             <select v-model="roomChargeReservationId"
                                 class="w-full rounded-lg border-purple-300 dark:border-purple-600 dark:bg-gray-800 dark:text-gray-200 focus:border-purple-500 focus:ring-purple-500 text-sm">
                                 <option value="">Select in-house guest...</option>
-                                <option v-for="res in orderDetails.in_house_reservations" :key="res.id" :value="res.id">
+                                <option v-for="res in (orderDetails?.in_house_reservations || preloadedOrder?.in_house_reservations || [])" :key="res.id" :value="res.id">
                                     {{ res.label }}
                                 </option>
                             </select>
-                            <p v-if="!orderDetails.in_house_reservations || orderDetails.in_house_reservations.length === 0" class="mt-1 text-xs text-purple-600 dark:text-purple-400">
+                            <p v-if="!(orderDetails?.in_house_reservations || preloadedOrder?.in_house_reservations)?.length" class="mt-1 text-xs text-purple-600 dark:text-purple-400">
                                 No checked-in guests found.
                             </p>
                         </div>
@@ -125,12 +125,21 @@
                         </div>
 
                         <div class="text-sm space-y-1 text-gray-700 dark:text-gray-300">
-                            <div class="flex justify-between"><span>Total</span><span>{{ currencySymbol }}{{ formatMoney(dueAmount) }}</span></div>
+                            <div v-if="orderDetails?.amount_paid > 0 || preloadedOrder?.amount_paid > 0" class="flex justify-between text-gray-500">
+                                <span>Order Total</span><span>{{ currencySymbol }}{{ formatMoney(orderDetails?.total || preloadedOrder?.total) }}</span>
+                            </div>
+                            <div v-if="orderDetails?.amount_paid > 0 || preloadedOrder?.amount_paid > 0" class="flex justify-between text-green-600 dark:text-green-400">
+                                <span>Already Paid</span><span>{{ currencySymbol }}{{ formatMoney(orderDetails?.amount_paid || preloadedOrder?.amount_paid) }}</span>
+                            </div>
+                            <div class="flex justify-between font-semibold">
+                                <span>{{ (orderDetails?.amount_paid || preloadedOrder?.amount_paid) > 0 ? 'Balance Due' : 'Total' }}</span>
+                                <span>{{ currencySymbol }}{{ formatMoney(dueAmount) }}</span>
+                            </div>
                             <div class="flex justify-between text-blue-600 dark:text-blue-400 font-medium">
-                                <span>Payable Amount</span><span>{{ currencySymbol }}{{ formatMoney(payableAmount) }}</span>
+                                <span>Paying Now</span><span>{{ currencySymbol }}{{ formatMoney(payableAmount) }}</span>
                             </div>
                             <div class="flex justify-between text-red-600 dark:text-red-400">
-                                <span>Due Amount</span><span>{{ currencySymbol }}{{ formatMoney(remainingDue) }}</span>
+                                <span>Remaining Due</span><span>{{ currencySymbol }}{{ formatMoney(remainingDue) }}</span>
                             </div>
                         </div>
                     </div>
@@ -593,6 +602,13 @@ const props = defineProps({
     currencySymbol: { type: String, default: "Rs" },
     saving: { type: Boolean, default: false },
     submitting: { type: Boolean, default: false },
+    // Pass the already-fetched order object so the modal doesn't need its own
+    // network call for simple full-payment flow. fetchOrderDetails() is only
+    // triggered lazily when the user activates Split-by-Items, Room Charge, or Tip.
+    preloadedOrder: { type: Object, default: null },
+    // Explicit flag so room-charge payment method appears even before the
+    // lazy fetch completes (hotel users need this without waiting).
+    showRoomCharge: { type: Boolean, default: false },
 });
 
 const emit = defineEmits(["close", "submit", "open-advanced", "update-totals"]);
@@ -609,7 +625,11 @@ const showTipDialog = ref(false);
 const tipAmountInput = ref("");
 const tipNoteInput = ref("");
 
-const openTipDialog = () => {
+const openTipDialog = async () => {
+    // Lazy fetch if orderDetails not yet loaded (modal opened without preloaded data)
+    if (!orderDetails.value && props.orderId) {
+        await fetchOrderDetails();
+    }
     tipAmountInput.value = orderDetails.value?.tip_amount || "";
     tipNoteInput.value = orderDetails.value?.tip_note || "";
     showTipDialog.value = true;
@@ -696,7 +716,7 @@ const visibleMethods = computed(() => {
             svg: `<svg class="w-6 h-6 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0118 0z" /></svg>`
         },
     ];
-    if (orderDetails.value?.show_room_charge) {
+    if (orderDetails.value?.show_room_charge || props.showRoomCharge) {
         list.push({
             id: "room_charge",
             label: "Room Charge",
@@ -759,8 +779,15 @@ const calculateTotalExtraCharges = (orderVal) => {
 
 // Available unpaid order items calculation
 const availableItemsList = computed(() => {
-    if (!orderDetails.value || !orderDetails.value.lines) return [];
-
+    if (!orderDetails.value || !orderDetails.value.lines) {
+        console.log("availableItemsList: no orderDetails or lines", orderDetails.value);
+        return [];
+    }
+    console.log("availableItemsList calculation detail:", JSON.stringify({
+        lines: orderDetails.value.lines,
+        paid_item_quantities: orderDetails.value.paid_item_quantities,
+        itemSplits: itemSplits.value
+    }));
     const paidItemQuantities = orderDetails.value.paid_item_quantities || {};
     const orderVal = orderDetails.value;
     const totalDiscount = parseFloat(orderVal.discount_amount || 0);
@@ -898,6 +925,10 @@ const selectSplitType = (type) => {
             { id: 1, payment_method: "cash", items: [] }
         ];
         activeSplitId.value = 1;
+        // Lazy fetch: order lines are needed for item-split assignment
+        if (!orderDetails.value && props.orderId) {
+            fetchOrderDetails();
+        }
     }
 };
 
@@ -1044,6 +1075,7 @@ const fetchOrderDetails = async () => {
     loadingOrder.value = true;
     try {
         const response = await axios.get(`/api/pos/orders/${props.orderId}`);
+        console.log("FETCHED ORDER DETAILS IN MODAL:", JSON.stringify(response.data));
         orderDetails.value = response.data?.data?.order || null;
     } catch (error) {
         console.error("Error fetching order details for payment:", error);
@@ -1103,7 +1135,9 @@ const resetLocal = () => {
         { id: 1, payment_method: "cash", items: [] }
     ];
     activeSplitId.value = 1;
-    orderDetails.value = null;
+    // Pre-populate from the preloaded order prop (shallow copy to avoid prop mutation)
+    // If not provided, clear so the lazy fetch path can fill it when needed.
+    orderDetails.value = props.preloadedOrder ? { ...props.preloadedOrder } : null;
 };
 
 const setAmount = (value) => {
@@ -1185,16 +1219,27 @@ const submit = () => {
 };
 
 watch(
-    () => props.show,
-    (visible) => {
+    [() => props.show, () => props.orderId],
+    ([visible, orderId], oldValues) => {
+        const [oldVisible, oldOrderId] = oldValues || [];
         if (visible) {
-            resetLocal();
-            if (props.orderId) {
-                fetchOrderDetails();
+            if (!oldVisible || orderId !== oldOrderId || !orderDetails.value) {
+                resetLocal(); // resetLocal now initialises orderDetails from preloadedOrder
+                // No auto-fetch on open: fetchOrderDetails() fires lazily from
+                // selectSplitType('items'), the paymentMethod watcher (room_charge),
+                // and openTipDialog(). This eliminates "Loading order items…" on
+                // every modal open for the common full-payment path.
             }
         }
     }
 );
+
+// Lazy fetch when room-charge is selected and we don't have data yet
+watch(paymentMethod, (newMethod) => {
+    if (newMethod === 'room_charge' && !orderDetails.value && props.orderId) {
+        fetchOrderDetails();
+    }
+});
 
 watch(
     () => props.dueAmount,
@@ -1202,7 +1247,8 @@ watch(
         if (props.show && !amountTouched.value) {
             amountInput.value = Number(next || 0) > 0 ? String(Number(next || 0)) : "";
         }
-    }
+    },
+    { immediate: true }
 );
 </script>
 

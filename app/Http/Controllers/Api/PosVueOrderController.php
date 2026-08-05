@@ -64,6 +64,7 @@ class PosVueOrderController extends Controller
                 'hotelReservation.room.roomType',
                 'hotelReservation.guest',
                 'splitOrders.items',
+                'payments',
             ])
             ->where('id', $id)
             ->where('branch_id', $branch->id)
@@ -135,77 +136,22 @@ class PosVueOrderController extends Controller
         $comboInstanceByOrderItemId = self::comboInstanceKeyMapForRows($orderItemsSorted, $slotCountByPackId);
         $comboNamesByPackId = self::comboPackNamesById($packIdsForSlots);
 
-        $lines = $orderItemsSorted->map(function ($item) use ($resolveUnitPrice, $comboInstanceByOrderItemId, $comboNamesByPackId) {
-            $comboInstanceKey = $item->combo_pack_id
-                ? ($comboInstanceByOrderItemId[(int) $item->id] ?? null)
-                : null;
-
-            $modifierQtyMap = $item->modifierOptions
-                ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
-                ->all();
-
-            $qty = (int) ($item->quantity ?? 1);
-            $unitPrice = $resolveUnitPrice($item);
-            $amount = (float) ($item->amount ?? 0);
-            if ($amount <= 0 && $unitPrice > 0 && $qty > 0) {
-                $amount = round($unitPrice * $qty, 2);
-            }
-
-            $packId = $item->combo_pack_id ? (int) $item->combo_pack_id : null;
-            $comboPackName = $packId ? (string) ($comboNamesByPackId[$packId] ?? '') : '';
-            $comboDiscountPerUnit = 0.0;
-            if ($packId && $qty > 0 && (float) ($item->combo_discount_amount ?? 0) > 0) {
-                $comboDiscountPerUnit = round((float) $item->combo_discount_amount / $qty, 2);
-            }
-
-            $comboOriginalUnit = null;
-            if ($packId && $qty > 0) {
-                if ((float) ($item->original_price ?? 0) > 0) {
-                    // Persisted line total (combo): exact pre-discount unit from DB (fixed or % packs).
-                    $comboOriginalUnit = round((float) $item->original_price / $qty, 2);
-                } else {
-                    $comboOriginalUnit = round($unitPrice + $comboDiscountPerUnit, 2);
-                }
-            }
-
-            return [
-                'order_item_id' => (int) $item->id,
-                'menu_item_id' => (int) $item->menu_item_id,
-                'item_name' => (string) ($item->menuItem?->item_name ?? ''),
-                'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
-                'variation_name' => (string) ($item->menuItemVariation?->variation ?? ''),
-                'qty' => $qty,
-                'unit_price' => $unitPrice,
-                'amount' => $amount,
-                'note' => $item->note,
-                'combo_pack_id' => $packId,
-                'combo_pack_name' => $comboPackName !== '' ? $comboPackName : null,
-                'combo_discount' => $comboDiscountPerUnit > 0 ? $comboDiscountPerUnit : null,
-                'combo_original_unit_price' => $comboOriginalUnit,
-                'combo_instance_key' => $comboInstanceKey,
-                'modifier_option_quantities' => $modifierQtyMap,
-                ...OrderItemLinePricing::linePayloadFromModel($item),
-            ];
-        })->values();
-
-        // kot_items has no price / amount / original_price columns. Resolve linked
-        // KOT row pricing from matching order_items. This is required for combo
-        // discounts AND regular item modifiers, because the modifier-inclusive
-        // unit price is persisted on order_items.
         $orderItemLineQueues = [];
         foreach ($orderItemsSorted as $oi) {
             $orderItemLineQueues[$lineMatchKeyForRow($oi)][] = $oi;
         }
 
         $lineQueues = $orderItemLineQueues;
-        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice, &$lineQueues, $lineMatchKeyForRow) {
+        $orderItemToKotItemMap = [];
+
+        $kots = $order->kot->map(function ($kot) use ($resolveUnitPrice, &$lineQueues, $lineMatchKeyForRow, &$orderItemToKotItemMap) {
             $kotItemsSorted = $kot->items->sortBy('id')->values();
             $kotPackIds = $kotItemsSorted->pluck('combo_pack_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
             $kotSlotCounts = self::comboPackSlotCounts($kotPackIds);
             $kotComboInstanceByItemId = self::comboInstanceKeyMapForRows($kotItemsSorted, $kotSlotCounts);
             $kotComboNames = self::comboPackNamesById($kotPackIds);
 
-            $kotLines = $kotItemsSorted->map(function ($item) use ($resolveUnitPrice, $kotComboInstanceByItemId, $kotComboNames, &$lineQueues, $lineMatchKeyForRow) {
+            $kotLines = $kotItemsSorted->map(function ($item) use ($resolveUnitPrice, $kotComboInstanceByItemId, $kotComboNames, &$lineQueues, $lineMatchKeyForRow, &$orderItemToKotItemMap) {
                 $comboInstanceKey = $item->combo_pack_id
                     ? ($kotComboInstanceByItemId[(int) $item->id] ?? null)
                     : null;
@@ -223,6 +169,9 @@ class PosVueOrderController extends Controller
                 $matchKey = $lineMatchKeyForRow($item);
                 if (! empty($lineQueues[$matchKey])) {
                     $matchedOrderItem = array_shift($lineQueues[$matchKey]);
+                    if ($matchedOrderItem) {
+                        $orderItemToKotItemMap[$matchedOrderItem->id] = (int) $item->id;
+                    }
                 }
 
                 if ($matchedOrderItem) {
@@ -283,6 +232,11 @@ class PosVueOrderController extends Controller
                     'combo_original_unit_price' => $comboOriginalUnit,
                     'combo_instance_key' => $comboInstanceKey,
                     'modifier_option_quantities' => $modifierQtyMap,
+                    'modifier_option_details' => $item->modifierOptions->map(fn ($o) => [
+                        'id' => (int) $o->id,
+                        'name' => (string) $o->name,
+                        'price' => (float) $o->price,
+                    ])->all(),
                 ];
             })->values();
 
@@ -293,6 +247,64 @@ class PosVueOrderController extends Controller
                 'status' => (string) ($kot->status ?? ''),
                 'kitchen_place_id' => $kot->kitchen_place_id ? (int) $kot->kitchen_place_id : null,
                 'lines' => $kotLines,
+            ];
+        })->values();
+
+        $lines = $orderItemsSorted->map(function ($item) use ($resolveUnitPrice, $comboInstanceByOrderItemId, $comboNamesByPackId, $orderItemToKotItemMap) {
+            $comboInstanceKey = $item->combo_pack_id
+                ? ($comboInstanceByOrderItemId[(int) $item->id] ?? null)
+                : null;
+
+            $modifierQtyMap = $item->modifierOptions
+                ->mapWithKeys(fn ($opt) => [(int) $opt->id => (int) ($opt->pivot->quantity ?? 1)])
+                ->all();
+
+            $qty = (int) ($item->quantity ?? 1);
+            $unitPrice = $resolveUnitPrice($item);
+            $amount = (float) ($item->amount ?? 0);
+            if ($amount <= 0 && $unitPrice > 0 && $qty > 0) {
+                $amount = round($unitPrice * $qty, 2);
+            }
+
+            $packId = $item->combo_pack_id ? (int) $item->combo_pack_id : null;
+            $comboPackName = $packId ? (string) ($comboNamesByPackId[$packId] ?? '') : '';
+            $comboDiscountPerUnit = 0.0;
+            if ($packId && $qty > 0 && (float) ($item->combo_discount_amount ?? 0) > 0) {
+                $comboDiscountPerUnit = round((float) $item->combo_discount_amount / $qty, 2);
+            }
+
+            $comboOriginalUnit = null;
+            if ($packId && $qty > 0) {
+                if ((float) ($item->original_price ?? 0) > 0) {
+                    $comboOriginalUnit = round((float) $item->original_price / $qty, 2);
+                } else {
+                    $comboOriginalUnit = round($unitPrice + $comboDiscountPerUnit, 2);
+                }
+            }
+
+            return [
+                'order_item_id' => (int) $item->id,
+                'kot_item_id' => $orderItemToKotItemMap[$item->id] ?? null,
+                'menu_item_id' => (int) $item->menu_item_id,
+                'item_name' => (string) ($item->menuItem?->item_name ?? ''),
+                'menu_item_variation_id' => $item->menu_item_variation_id ? (int) $item->menu_item_variation_id : null,
+                'variation_name' => (string) ($item->menuItemVariation?->variation ?? ''),
+                'qty' => $qty,
+                'unit_price' => $unitPrice,
+                'amount' => $amount,
+                'note' => $item->note,
+                'combo_pack_id' => $packId,
+                'combo_pack_name' => $comboPackName !== '' ? $comboPackName : null,
+                'combo_discount' => $comboDiscountPerUnit > 0 ? $comboDiscountPerUnit : null,
+                'combo_original_unit_price' => $comboOriginalUnit,
+                'combo_instance_key' => $comboInstanceKey,
+                'modifier_option_quantities' => $modifierQtyMap,
+                'modifier_option_details' => $item->modifierOptions->map(fn ($o) => [
+                    'id' => (int) $o->id,
+                    'name' => (string) $o->name,
+                    'price' => (float) $o->price,
+                ])->all(),
+                ...OrderItemLinePricing::linePayloadFromModel($item),
             ];
         })->values();
 
@@ -316,9 +328,19 @@ class PosVueOrderController extends Controller
             }
         }
 
+        $restaurantId = $order->branch?->restaurant_id ?? restaurant()?->id;
+        $waiters = \App\Models\User::role('Waiter_' . $restaurantId)->get(['id', 'name']);
+        $deliveryExecutives = \App\Models\DeliveryExecutive::where('status', 'available')
+            ->orWhere('id', $order->delivery_executive_id)
+            ->get(['id', 'name']);
+        $cancelReasons = \App\Models\KotCancelReason::where('cancel_order', true)->get(['id', 'reason']);
+
         return response()->json([
             'success' => true,
             'data' => [
+                'waiters' => $waiters,
+                'delivery_executives' => $deliveryExecutives,
+                'cancel_reasons' => $cancelReasons,
                 'order' => [
                     'id' => (int) $order->id,
                     'order_number' => (string) ($order->order_number ?? ''),
@@ -400,6 +422,16 @@ class PosVueOrderController extends Controller
                     'can_add_tip' => (bool) (restaurant()->enable_tip_pos && $order->status !== 'paid'),
                     'tip_amount' => (float) ($order->tip_amount ?? 0),
                     'tip_note' => (string) ($order->tip_note ?? ''),
+                    'currency_symbol' => (string) (restaurant()?->currency?->symbol ?? 'Rs'),
+                    'amount_paid' => (float) $order->nonDuePaymentsSum(),
+                    'due_amount' => (float) $order->outstandingAmount(),
+                    'payments' => $order->payments->map(fn ($p) => [
+                        'id' => (int) $p->id,
+                        'payment_method' => (string) $p->payment_method,
+                        'amount' => (float) $p->amount,
+                        'created_at' => $p->created_at ? $p->created_at->toIso8601String() : null,
+                        'formatted_date' => $p->created_at ? $p->created_at->timezone(timezone())->translatedFormat('d M, Y h:i A') : '',
+                    ])->values()->all(),
                 ],
             ],
         ]);

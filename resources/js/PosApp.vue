@@ -137,6 +137,7 @@
             :currency-symbol="currencySymbol"
             :saving="vuePaymentSaving"
             :submitting="vuePaymentSubmitting"
+            :show-room-charge="roomServiceEnabled"
             @close="closeVuePaymentModal"
             @submit="handleVuePaymentSubmit"
             @open-advanced="openAdvancedPaymentFromVue"
@@ -330,6 +331,7 @@ const vuePaymentDueAmount = ref(0);
 const vuePaymentSaving = ref(false);
 const vuePaymentSubmitting = ref(false);
 const orderPayableTotal = ref(0);
+const pendingPaymentPayload = ref(null);
 
 // Order data
 const orderType = ref("Dine In");
@@ -666,6 +668,7 @@ const handleAddToCart = async (
             variant_id: normalizedVariantId,
             modifier_id: normalizedModifierId,
             line_key: lineKey,
+            note: "",
             modifier_option_quantities: modifierMap,
         };
         cartItems.value.push(newCartItem);
@@ -1077,42 +1080,46 @@ const handleRemoveTable = async () => {
 };
 
 const handleAddNote = async (noteData) => {
-    // If noteData is an object with id and note, it's for a cart item
-    if (noteData && typeof noteData === "object" && noteData.id) {
-        const activeOrderId = resolveActiveOrderId();
-        if (activeOrderId && (noteData.kot_item_id || noteData.order_item_id)) {
-            try {
-                await axios.post(`/api/pos/orders/${activeOrderId}/items/note`, {
-                    kot_item_id: noteData.kot_item_id || null,
-                    order_item_id: noteData.order_item_id || null,
-                    note: noteData.note || "",
-                });
-            } catch (error) {
-                const message = error?.response?.data?.message || "Failed to update item note.";
-                console.error("Error updating linked order item note:", error);
-                showPosAlert("error", message);
+    // If noteData is an object with id/line_key and note, it's for a cart item
+    if (noteData && typeof noteData === "object" && (noteData.id || noteData.line_key)) {
+        if (isLinkedOrderMode.value && (noteData.kot_item_id || noteData.order_item_id)) {
+            const activeOrderId = resolveActiveOrderId();
+            if (activeOrderId) {
+                try {
+                    await axios.post(`/api/pos/orders/${activeOrderId}/items/note`, {
+                        kot_item_id: noteData.kot_item_id || null,
+                        order_item_id: noteData.order_item_id || null,
+                        note: noteData.note || "",
+                    });
+                } catch (error) {
+                    const message = error?.response?.data?.message || "Failed to update item note.";
+                    console.error("Error updating linked order item note:", error);
+                    showPosAlert("error", message);
+                    return;
+                }
+
+                try {
+                    await loadOrderData(activeOrderId);
+                } catch (error) {
+                    console.error("Note saved but failed to refresh order:", error);
+                    showPosAlert(
+                        "warning",
+                        "Note saved but failed to refresh order. Try reopening the order if the screen looks stale."
+                    );
+                }
                 return;
             }
-
-            try {
-                await loadOrderData(activeOrderId);
-            } catch (error) {
-                console.error("Note saved but failed to refresh order:", error);
-                showPosAlert(
-                    "warning",
-                    "Note saved but failed to refresh order. Try reopening the order if the screen looks stale."
-                );
-            }
-            return;
         }
 
-        // Find the cart item and update its note
+        // Unsaved / new order cart item note update
+        const targetKey = noteData.line_key || noteData.id;
         const cartItem = cartItems.value.find(
-            (item) => (item.line_key || item.id) === (noteData.line_key || noteData.id)
+            (item) => (item.line_key || item.id) === targetKey
+                || getCartLineKey(item) === targetKey
+                || item.id === noteData.id
         );
         if (cartItem) {
             cartItem.note = noteData.note || "";
-            // Save cart to localStorage
             saveCartToStorage(cartItems.value);
             console.log("Note added to cart item:", cartItem.id, cartItem.note);
         }
@@ -1205,9 +1212,24 @@ const handleSaveCancelOrder = async ({ cancelReasonId, cancelReasonText }) => {
     }
 };
 
-const handleSaveNote = (note) => {
-    orderNote.value = note;
-    console.log("Order note saved:", note);
+const handleSaveNote = async (note) => {
+    const nextNote = String(note || "");
+    orderNote.value = nextNote;
+    showAddNoteModal.value = false;
+
+    const activeOrderId = resolveActiveOrderId();
+    if (activeOrderId) {
+        try {
+            await axios.post(`/api/pos/orders/${activeOrderId}/note`, {
+                note: nextNote,
+            });
+            showPosAlert("success", "Order note updated.");
+            await loadOrderData(activeOrderId);
+        } catch (error) {
+            console.error("Error updating order note:", error);
+            showPosAlert("error", error?.response?.data?.message || "Failed to save order note.");
+        }
+    }
 };
 
 const handleIncreaseQuantity = (itemId) => {
@@ -1965,8 +1987,16 @@ const openAdvancedPaymentFromVue = () => {
 };
 
 const handleVuePaymentSubmit = async (payload) => {
-    const id = payload?.order_id ? Number(payload.order_id) : null;
+    const id = payload?.order_id ? Number(payload.order_id) : (vuePaymentOrderId.value ? Number(vuePaymentOrderId.value) : null);
     if (!id || vuePaymentSubmitting.value) {
+        return;
+    }
+
+    const isDue = payload.payment_method === 'due' || (payload.split_type && payload.splits?.some(s => s.payment_method === 'due'));
+    const hasCustomer = !!customerId.value || !!customer.value?.id || !!order.value?.customer_id;
+    if (isDue && !hasCustomer) {
+        pendingPaymentPayload.value = { action: 'payment', payload: { ...payload, order_id: id } };
+        showAddCustomerModal.value = true;
         return;
     }
 
@@ -2010,11 +2040,15 @@ const handleVuePaymentSubmit = async (payload) => {
 
         showPosAlert("success", response.data?.message || "Payment successful");
     } catch (error) {
+        const isNeedsCustomer = !!error?.response?.data?.needs_customer;
         const message =
             error?.response?.data?.message || error?.message || "Failed to record payment";
-        showPosAlert("error", message);
-        if (error?.response?.data?.needs_customer) {
+
+        if (isNeedsCustomer) {
+            pendingPaymentPayload.value = { action: 'payment', payload };
             showAddCustomerModal.value = true;
+        } else {
+            showPosAlert("error", message);
         }
     } finally {
         vuePaymentSubmitting.value = false;
@@ -2970,9 +3004,22 @@ const runSaveOrder = async (...actions) => {
         }
     } catch (error) {
         printPlaceholder?.close();
-        if (paymentOpenedEarly) {
+        const isNeedsCustomer = !!error?.response?.data?.needs_customer;
+
+        if (paymentOpenedEarly && !isNeedsCustomer) {
             closePaymentInPlace();
         }
+
+        if (optimisticNewOrderClear && draftSnapshot && cartItems.value.length === 0) {
+            restoreOrderDraftSnapshot(draftSnapshot);
+        }
+
+        if (isNeedsCustomer) {
+            pendingPaymentPayload.value = { action: 'save_order', actions };
+            showAddCustomerModal.value = true;
+            return;
+        }
+
         const errorMessage = error?.response?.data?.message || error?.message || "Failed to save order";
         const errors = error?.response?.data?.errors || {};
         console.error("Error saving order:", {
@@ -2982,10 +3029,6 @@ const runSaveOrder = async (...actions) => {
             data: error?.response?.data,
             fullError: error
         });
-
-        if (optimisticNewOrderClear && draftSnapshot && cartItems.value.length === 0) {
-            restoreOrderDraftSnapshot(draftSnapshot);
-        }
 
         // Legacy alert style: keep the message simple and direct
         if (Object.keys(errors).length > 0) {
@@ -3032,7 +3075,12 @@ const handleConfirmTableChange = async () => {
 };
 
 const resolveActiveOrderId = () => {
-    const rawId = orderId.value || params.orderId || order.value || null;
+    const rawId = vuePaymentOrderId.value
+        || orderId.value
+        || routeLinkedOrderId.value
+        || params.orderId
+        || (typeof order.value === 'object' ? order.value?.id : order.value)
+        || null;
     const numericId = Number(rawId);
     return Number.isFinite(numericId) && numericId > 0 ? numericId : null;
 };
@@ -3048,9 +3096,12 @@ const applyCustomerState = (customerData) => {
 };
 
 const handleSaveCustomer = async (customerData) => {
-    // Customer is already created/updated in AddCustomerModal; for linked
-    // orders, immediately attach it to the order so no KOT/Bill click is needed.
-    const activeOrderId = resolveActiveOrderId();
+    // Customer is already created/updated in AddCustomerModal; for active/linked
+    // orders, immediately attach it to the order so no KOT/Bill re-click is needed.
+    const pending = pendingPaymentPayload.value;
+    const pendingOrderId = pending?.payload?.order_id ? Number(pending.payload.order_id) : null;
+    const activeOrderId = resolveActiveOrderId() || pendingOrderId;
+
     const previousCustomer = { ...customer.value };
     const previousCustomerId = customerId.value;
     const previousPhone = customerPhone.value;
@@ -3064,6 +3115,10 @@ const handleSaveCustomer = async (customerData) => {
             await axios.post(`/api/pos/orders/${activeOrderId}/customer`, {
                 customer_id: customerData?.id || null,
             });
+            if (order.value && typeof order.value === 'object') {
+                order.value.customer_id = customerData?.id || null;
+                order.value.customer = customerData;
+            }
         }
 
         clearCustomerFromStorage();
@@ -3071,6 +3126,16 @@ const handleSaveCustomer = async (customerData) => {
 
         // Sync reward points for the newly attached customer
         syncRewardState(customerData?.id);
+
+        if (pendingPaymentPayload.value) {
+            const pendingToRun = pendingPaymentPayload.value;
+            pendingPaymentPayload.value = null;
+            if (pendingToRun.action === 'payment') {
+                void handleVuePaymentSubmit(pendingToRun.payload);
+            } else if (pendingToRun.action === 'save_order') {
+                void runSaveOrder(...pendingToRun.actions);
+            }
+        }
     } catch (error) {
         customer.value = previousCustomer;
         customerId.value = previousCustomerId;

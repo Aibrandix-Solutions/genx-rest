@@ -110,7 +110,9 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
     Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
     Route::post('/pos/orders/{id}/discount', [PosSupportController::class, 'updateOrderDiscount']);
+    Route::post('/pos/orders/{id}/payments/{paymentId}/method', [PosSupportController::class, 'updatePaymentMethod']);
     Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
+    Route::post('/pos/orders/{id}/note', [PosSupportController::class, 'updateOrderNote']);
     Route::delete('/pos/orders/{id}/discount', [PosSupportController::class, 'removeOrderDiscount']);
     Route::delete('/pos/orders/{id}', [PosSupportController::class, 'deleteOrder']);
     Route::delete('/pos/orders/{orderId}/kot-items/{kotItemId}', [PosSupportController::class, 'removeKotItem']);

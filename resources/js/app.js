@@ -334,3 +334,24 @@ document.addEventListener('livewire:navigated', () => {
     initPasswordToggles();
 });
 
+import { createApp } from 'vue';
+import OrderDetailDrawer from './components/pos/OrderDetailDrawer.vue';
+
+const mountOrderDetailDrawer = () => {
+    const rootEl = document.querySelector('#global-drawer-root');
+    if (!rootEl || rootEl.dataset.drawerMounted === 'true') {
+        return;
+    }
+    rootEl.dataset.drawerMounted = 'true';
+    createApp(OrderDetailDrawer).mount(rootEl);
+};
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', mountOrderDetailDrawer);
+} else {
+    mountOrderDetailDrawer();
+}
+
+document.addEventListener('livewire:navigated', mountOrderDetailDrawer);
+
+
