@@ -62,6 +62,35 @@ const server = http.createServer((req, res) => {
             res.writeHead(500, CORS_HEADERS);
             res.end(JSON.stringify({ success: false, error: e.message }));
         }
+    } else if (req.method === 'POST' && pathname === '/configure') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+            try {
+                const data = JSON.parse(body || '{}');
+                const branchHash = trimStr(data.branch_hash);
+                const cloudUrl = trimStr(data.cloud_url) || 'https://digierp.cloud';
+
+                if (branchHash) {
+                    CONFIG.BRANCH_HASH = branchHash;
+                    CONFIG.CLOUD_URL = cloudUrl;
+
+                    const configPath = path.join(os.homedir(), '.genx_companion.json');
+                    fs.writeFileSync(configPath, JSON.stringify({ branch_hash: branchHash, cloud_url: cloudUrl }, null, 2));
+
+                    console.log(`[Companion Configured] Cloud: ${cloudUrl} | Branch Key: ${branchHash}`);
+                    if (global.triggerCompanionSync) {
+                        global.triggerCompanionSync();
+                    }
+                }
+
+                res.writeHead(200, CORS_HEADERS);
+                res.end(JSON.stringify({ success: true, message: 'Companion configured successfully', branch_hash: CONFIG.BRANCH_HASH }));
+            } catch (e) {
+                res.writeHead(500, CORS_HEADERS);
+                res.end(JSON.stringify({ success: false, message: e.message }));
+            }
+        });
     } else if (req.method === 'POST' && pathname === '/print') {
         let body = '';
         req.on('data', chunk => { body += chunk; });
@@ -170,8 +199,6 @@ function printToOSSpooler(printerName, rawBytes) {
  * Background Loop: Sync printers & poll cloud jobs
  */
 async function startCloudSyncLoop() {
-    let branchHash = CONFIG.BRANCH_HASH;
-
     const configPath = path.join(os.homedir(), '.genx_companion.json');
     if (!fs.existsSync(configPath)) {
         try {
@@ -180,20 +207,21 @@ async function startCloudSyncLoop() {
     } else {
         try {
             const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-            branchHash = cfg.branch_hash;
+            if (cfg.branch_hash) CONFIG.BRANCH_HASH = cfg.branch_hash;
             if (cfg.cloud_url) CONFIG.CLOUD_URL = cfg.cloud_url;
         } catch (e) {}
     }
 
     const syncPrinters = async () => {
-        if (!branchHash) return;
+        const activeBranchHash = CONFIG.BRANCH_HASH;
+        if (!activeBranchHash) return;
         try {
             const printers = getOSPrinters();
             await fetch(`${CONFIG.CLOUD_URL}/api/companion/register-printers`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    branch_hash: branchHash,
+                    branch_hash: activeBranchHash,
                     printers: printers,
                     os: os.platform(),
                     agent: 'GenX Print Companion v1.0.0',
@@ -203,6 +231,8 @@ async function startCloudSyncLoop() {
             // Ignore offline error
         }
     };
+
+    global.triggerCompanionSync = syncPrinters;
 
     const pollJobs = async () => {
         if (!branchHash) return;

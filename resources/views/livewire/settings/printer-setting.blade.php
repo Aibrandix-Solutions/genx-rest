@@ -554,6 +554,19 @@
                 const data = await res.json();
                 if (data.status === 'online') {
                     badge.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span> <span class="text-emerald-700 dark:text-emerald-300 font-medium">● GenX Companion Connected (Local Direct Agent)</span>`;
+                    
+                    // Zero-Touch Auto Configuration: Sync current cloud URL and branch key to local companion
+                    if (branchHash) {
+                        fetch('http://127.0.0.1:8181/configure', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                cloud_url: window.location.origin,
+                                branch_hash: branchHash
+                            })
+                        }).catch(() => {});
+                    }
+
                     fetchLocalPrinters();
                     return;
                 }
