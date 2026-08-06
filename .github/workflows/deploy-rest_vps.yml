@@ -1,4 +1,4 @@
-name: Deploy digierp.cloud VPS Sharaf
+name: Deploy sharaf digierp.cloud VPS
 
 on:
   push:
