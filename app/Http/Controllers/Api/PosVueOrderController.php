@@ -635,7 +635,7 @@ class PosVueOrderController extends Controller
             $resolvedTableId = (int) $table->id;
         }
 
-        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId, $posUserId, $hasOrderItemsComboInstanceKey, $hasKotItemsComboInstanceKey) {
+        $result = DB::transaction(function () use ($validated, $editingOrderId, $action, $secondaryAction, $status, $branch, $orderType, $orderTypeValue, $restaurant, $deliveryAppId, $appendKot, $resolvedTableId, $opensImmediatePayment, $billAfterKot, $hotelReservationId, $posUserId, $hasOrderItemsComboInstanceKey, $hasKotItemsComboInstanceKey) {
             // Note: Session updates are performed after the transaction succeeds (below)
             $isUpdate = false;
 
@@ -1187,10 +1187,6 @@ class PosVueOrderController extends Controller
                     ]);
 
                     $kotIds[] = $kot->id;
-                    $kotPrintTargets[] = [
-                        'id' => $kot->id,
-                        'place_id' => (int) $kitchenPlaceId,
-                    ];
 
                     foreach ($groupedItems as $item) {
                         $kotRow = [
@@ -1214,6 +1210,38 @@ class PosVueOrderController extends Controller
                             $kotItem->modifierOptions()->sync(
                                 collect($modifierQtyMap)->mapWithKeys(fn ($optionQty, $optionId) => [(int) $optionId => ['quantity' => (int) $optionQty]])->all()
                             );
+                        }
+                    }
+
+                    // Collect all kitchen places assigned to items in this KOT (for multi-kitchen auto-printing)
+                    $targetKitchenPlaceIds = collect([(int) $kitchenPlaceId]);
+                    foreach ($groupedItems as $item) {
+                        if (!empty($item['is_multi_kitchen'])) {
+                            $mItem = \App\Models\MenuItem::find($item['menu_item_id']);
+                            if ($mItem) {
+                                $targetKitchenPlaceIds = $targetKitchenPlaceIds->merge($mItem->getKitchenPlaceIds());
+                            }
+                        }
+                    }
+                    $targetKitchenPlaceIds = $targetKitchenPlaceIds->unique()->values();
+
+                    foreach ($targetKitchenPlaceIds as $targetPlaceId) {
+                        $kPlace = KotPlace::with('printerSetting')->find($targetPlaceId);
+                        $printer = $kPlace?->printerSetting;
+
+                        $kotPrintTargets[] = [
+                            'id' => $kot->id,
+                            'place_id' => (int) $targetPlaceId,
+                            'place_name' => (string) ($kPlace?->name ?? ''),
+                            'printer_id' => $printer?->id,
+                            'printer_name' => $printer?->name,
+                            'printing_choice' => $printer?->printing_choice ?? 'browserPopupPrint',
+                            'print_format' => $printer?->print_format ?? 'thermal80mm',
+                            'ip_address' => $printer?->ip_address,
+                        ];
+
+                        if ($secondaryAction === 'print' && $printer && $printer->is_active && $printer->printing_choice === 'directPrint') {
+                            \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
                         }
                     }
                 }
@@ -1722,7 +1750,7 @@ class PosVueOrderController extends Controller
                 'items.modifierOptions:id,name',
                 'order.table:id,table_code',
                 'order.waiter:id,name',
-                'kotPlace:id,name',
+                'kotPlace.printerSetting',
             ])
             ->whereIn('id', $kotIds)
             ->orderBy('id')
@@ -1730,11 +1758,20 @@ class PosVueOrderController extends Controller
 
         return $kots->map(function (Kot $kot) use ($timezone) {
             $createdAt = $kot->created_at?->timezone($timezone);
+            $printer = $kot->kotPlace?->printerSetting;
 
             return [
                 'id' => (int) $kot->id,
                 'place_id' => (int) ($kot->kitchen_place_id ?? 0),
                 'place_name' => (string) ($kot->kotPlace?->name ?? ''),
+                'printer' => $printer ? [
+                    'id' => (int) $printer->id,
+                    'name' => (string) $printer->name,
+                    'printing_choice' => (string) ($printer->printing_choice ?? 'browserPopupPrint'),
+                    'print_format' => (string) ($printer->print_format ?? 'thermal80mm'),
+                    'ip_address' => $printer->ip_address,
+                    'port' => (int) ($printer->port ?? 9100),
+                ] : null,
                 'kot_number' => (string) ($kot->kot_number ?? ''),
                 'token_number' => $kot->token_number,
                 'order_number' => (string) ($kot->order?->show_formatted_order_number
@@ -1857,5 +1894,53 @@ class PosVueOrderController extends Controller
                 (int) $p->id => (string) $p->getTranslation('name', app()->getLocale()),
             ])
             ->all();
+    }
+
+    /**
+     * Get KOT tickets & trigger direct print for existing order KOTs (Print KOT button).
+     */
+    public function getKotPrintData(Request $request, int $id)
+    {
+        $order = Order::with('kot.kotPlace.printerSetting')->find($id);
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Order not found'], 404);
+        }
+
+        $kotIds = $order->kot->pluck('id')->toArray();
+        if (empty($kotIds)) {
+            return response()->json(['success' => false, 'message' => 'No KOTs found for this order'], 404);
+        }
+
+        $restaurant = restaurant();
+        $timezone = $restaurant->timezone ?? config('app.timezone', 'UTC');
+        $kotTickets = self::buildKotPrintTickets($kotIds, $timezone);
+
+        $kotPrintTargets = [];
+        foreach ($order->kot as $kot) {
+            $printer = $kot->kotPlace?->printerSetting;
+            $kotPrintTargets[] = [
+                'id' => $kot->id,
+                'place_id' => (int) ($kot->kitchen_place_id ?? 0),
+                'place_name' => (string) ($kot->kotPlace?->name ?? ''),
+                'printer_id' => $printer?->id,
+                'printer_name' => $printer?->name,
+                'printing_choice' => $printer?->printing_choice ?? 'browserPopupPrint',
+                'print_format' => $printer?->print_format ?? 'thermal80mm',
+                'ip_address' => $printer?->ip_address,
+            ];
+
+            if ($printer && $printer->is_active && $printer->printing_choice === 'directPrint' && !empty($printer->ip_address)) {
+                \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'kot_ids' => $kotIds,
+                'kot_tickets' => $kotTickets,
+                'kot_print_targets' => $kotPrintTargets,
+            ]
+        ]);
     }
 }

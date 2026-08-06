@@ -24,6 +24,7 @@ class PrinterSetting extends Component
     public $charactersPerLine;
     public $printerIpAddress;
     public $printerPortAddress;
+    public $printerName;
     public $openCashDrawer;
     public $printType;
     public $ipv4Address;
@@ -49,6 +50,7 @@ class PrinterSetting extends Component
         $printer = Printer::find($id);
         $this->id = $printer->id;
         $this->title = $printer->name;
+        $this->printerName = $printer->printer_name ?? null;
         $this->selectedKots = $printer->kots ?? [];
         $this->selectedOrders = $printer->orders ?? [];
         $this->printChoice = $printer->printing_choice;
@@ -112,6 +114,7 @@ class PrinterSetting extends Component
 
         $printer = Printer::create([
             'name' => $this->title,
+            'printer_name' => $this->printerName,
             'printing_choice' => $this->printChoice,
             'print_format' => $this->selectprintFormat,
             'invoice_qr_code' => $this->invoiceQrCode,
@@ -259,6 +262,7 @@ class PrinterSetting extends Component
 
         // Optimize and avoid conflicting assignments
         $data = array_merge($data, [
+            'printer_name' => $this->printerName ?? null,
             'print_format' => $this->selectprintFormat ?? null,
             'ip_address' => $this->printerIpAddress ?? null,
             'port' => $this->printerPortAddress ?? 9100,

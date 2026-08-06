@@ -274,8 +274,7 @@ class Kots extends Component
 
             $kots = $kots->get();
         } elseif (module_enabled('Kitchen') && in_array('Kitchen', restaurant_modules())) {
-            // Kitchen module logic — show KOTs assigned to this kitchen OR
-            // KOTs containing multi-kitchen items assigned to this kitchen via pivot
+            // Kitchen module logic — show KOTs assigned to this kitchen place
             $currentKitchenId = $this->kotPlace?->id;
             $kots = Kot::withCount('items')
                 ->select('kots.*')
@@ -286,9 +285,7 @@ class Kots extends Component
                 ->where('orders.status', '<>', 'draft')
                 ->whereHas('items')
                 ->where(function ($q) use ($currentKitchenId) {
-                    // KOTs directly assigned to this kitchen
                     $q->where('kots.kitchen_place_id', $currentKitchenId)
-                      // OR KOTs with multi-kitchen items that are assigned to this kitchen
                       ->orWhereHas('items', function ($itemQuery) use ($currentKitchenId) {
                           $itemQuery->where('is_multi_kitchen', true)
                               ->whereHas('menuItem.kotPlaces', function ($pivotQuery) use ($currentKitchenId) {

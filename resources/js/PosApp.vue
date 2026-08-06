@@ -2348,8 +2348,33 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
         ? resultPayload.kot_tickets.filter(Boolean)
         : [];
 
-    // Prefer instant Vue print from API ticket payloads (no second page load).
-    if (tickets.length > 0 && printKotTicketsInWindow(tickets, placeholderWindow)) {
+    const popupTickets = tickets.filter(
+        (t) => !t.printer || t.printer.printing_choice === "browserPopupPrint"
+    );
+    const directTickets = tickets.filter(
+        (t) => t.printer && t.printer.printing_choice === "directPrint"
+    );
+
+    if (directTickets.length > 0 && popupTickets.length === 0) {
+        // All tickets printed silently via direct print on backend — close pre-opened window
+        placeholderWindow?.close();
+        showPosAlert(
+            "success",
+            `KOT sent directly to kitchen printer${directTickets.length > 1 ? "s" : ""}.`
+        );
+        return true;
+    }
+
+    if (directTickets.length > 0 && popupTickets.length > 0) {
+        showPosAlert(
+            "info",
+            `Direct KOT sent to ${directTickets.map((t) => t.place_name || "Kitchen").join(", ")}.`
+        );
+    }
+
+    // Print browser popup tickets if any
+    const ticketsToPrint = popupTickets.length > 0 ? popupTickets : tickets;
+    if (ticketsToPrint.length > 0 && printKotTicketsInWindow(ticketsToPrint, placeholderWindow)) {
         return true;
     }
 
@@ -2381,26 +2406,39 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
     return true;
 };
 
-const openKotPrintWindows = (urls = []) => {
-    triggerKotPrint({ links: { kot_print_urls: urls } });
-};
-
-const handlePrintKot = () => {
-    if (!kotGroups.value || kotGroups.value.length === 0) {
-        showPosAlert("warning", "No KOTs exist for this order.");
+const handlePrintKot = async () => {
+    const activeId = resolveActiveOrderId();
+    if (!activeId) {
+        showPosAlert("warning", "No order selected to print KOT.");
         return;
     }
-    const urls = kotGroups.value
-        .map((g) => {
-            if (!g.id) return null;
-            return g.kitchen_place_id
-                ? `/kot/print/${Number(g.id)}/${Number(g.kitchen_place_id)}`
-                : `/kot/print/${Number(g.id)}`;
-        })
-        .filter(Boolean);
-    if (urls.length > 0) {
-        openKotPrintWindows(urls);
+
+    try {
+        const response = await axios.get(`/api/pos/orders/${activeId}/kot-print`);
+        const payload = response?.data?.data || {};
+        triggerKotPrint(payload);
+    } catch (e) {
+        console.error("[POS] Failed to fetch KOT print data", e);
+        if (kotGroups.value && kotGroups.value.length > 0) {
+            const urls = kotGroups.value
+                .map((g) => {
+                    if (!g.id) return null;
+                    return g.kitchen_place_id
+                        ? `/kot/print/${Number(g.id)}/${Number(g.kitchen_place_id)}`
+                        : `/kot/print/${Number(g.id)}`;
+                })
+                .filter(Boolean);
+            if (urls.length > 0) {
+                openKotPrintWindows(urls);
+                return;
+            }
+        }
+        openPrintUrl(`/kot/print/${activeId}`);
     }
+};
+
+const openKotPrintWindows = (urls = []) => {
+    triggerKotPrint({ links: { kot_print_urls: urls } });
 };
 
 const captureOrderDraftSnapshot = () => ({

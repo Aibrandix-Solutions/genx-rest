@@ -90,6 +90,10 @@ trait PrinterSetting
 
         $this->createPrintJobRecord($kot->branch_id, $kot->branch->restaurant_id);
 
+        if ($printerSetting && $printerSetting->is_active && $printerSetting->printing_choice === 'directPrint' && !empty($printerSetting->ip_address)) {
+            \App\Services\EscPosPrinterService::printKotDirect($kot, $printerSetting);
+        }
+
         if ($alsoPrintOrder) {
             $kot = Kot::findOrFail($kotId);
             $this->handleOrderPrint($kot->order_id);

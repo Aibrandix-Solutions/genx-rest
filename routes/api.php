@@ -113,8 +113,14 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/orders/{id}/payments/{paymentId}/method', [PosSupportController::class, 'updatePaymentMethod']);
     Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
     Route::post('/pos/orders/{id}/note', [PosSupportController::class, 'updateOrderNote']);
+    Route::get('/pos/orders/{id}/kot-print', [PosVueOrderController::class, 'getKotPrintData']);
     Route::delete('/pos/orders/{id}/discount', [PosSupportController::class, 'removeOrderDiscount']);
     Route::delete('/pos/orders/{id}', [PosSupportController::class, 'deleteOrder']);
     Route::delete('/pos/orders/{orderId}/kot-items/{kotItemId}', [PosSupportController::class, 'removeKotItem']);
     Route::patch('/pos/orders/{orderId}/kot-items/{kotItemId}/quantity', [PosSupportController::class, 'reduceKotItem']);
 });
+
+// GenX Print Companion Agent Cloud Bridge Routes
+Route::post('/companion/register-printers', [\App\Http\Controllers\Api\CompanionPrintController::class, 'registerPrinters']);
+Route::get('/companion/branch-printers/{branchHash}', [\App\Http\Controllers\Api\CompanionPrintController::class, 'getBranchPrinters']);
+Route::get('/companion/poll-jobs/{branchHash}', [\App\Http\Controllers\Api\CompanionPrintController::class, 'pollPrintJobs']);

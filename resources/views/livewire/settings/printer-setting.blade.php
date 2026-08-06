@@ -105,6 +105,12 @@
                                         <span class="font-semibold">@lang('modules.printerSetting.printFormat'):</span>
                                         {{ __('modules.printerSetting.' . $printer->print_format) ?? '--' }}
                                     </li>
+                                    @if($printer->ip_address)
+                                    <li>
+                                        <span class="font-semibold">IP Address:</span>
+                                        {{ $printer->ip_address }}:{{ $printer->port ?? 9100 }}
+                                    </li>
+                                    @endif
                                 </ul>
                             </div>
                         @elseif ($printer->printing_choice === 'browserPopupPrint')
@@ -136,152 +142,150 @@
         @endforelse
     </div>
 
-    @if($desktopApp && $desktopApp->is_active)
-        {{-- Desktop App Connection Information --}}
-        <div class="md:col-span-2 mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg mb-8">
-            <h4 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-3">
-                <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                </svg>
-                @lang('modules.printerSetting.desktopAppConnection')
-            </h4>
+    {{-- Desktop App Connection Information --}}
+    <div class="md:col-span-2 mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg mb-8">
+        <h4 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-3">
+            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            @lang('modules.printerSetting.desktopAppConnection')
+        </h4>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
-                        @lang('modules.printerSetting.domainUrl')
-                    </label>
-                    <div class="flex">
-                        <input type="text"
-                            id="domainUrl"
-                            value="{{ request()->getSchemeAndHttpHost() }}"
-                            readonly
-                            class="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-blue-300 dark:border-blue-600 rounded-l-md text-sm text-gray-700 dark:text-gray-300 focus:outline-none">
-                        <button type="button"
-                            onclick="copyToClipboard('domainUrl', '{{ request()->getSchemeAndHttpHost() }}')"
-                            class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-r-md text-sm transition-colors">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
-                        @lang('modules.printerSetting.branchKey')
-                    </label>
-                    <div class="flex">
-                        <input type="password"
-                            id="branchKey"
-                            value="{{ branch()->unique_hash ?? 'No branch found' }}"
-                            readonly
-                            class="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-blue-300 dark:border-blue-600 rounded-l-md text-sm text-gray-700 dark:text-gray-300 focus:outline-none">
-                        <button type="button"
-                            onclick="copyToClipboard('branchKey', '{{ branch()->unique_hash ?? '' }}')"
-                            class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
-                            </svg>
-                        </button>
-                        <button type="button" onclick="toggleBranchKeyVisibility()" class="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-r-md text-sm transition-colors ml-1">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                        </button>
-                        <button type="button" onclick="showResetBranchKeyModal()" class="px-3 flex items-center gap-2 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded ml-1 transition-colors">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-
-                            @lang('modules.printerSetting.resetBranchKey')
-
-                        </button>
-                    </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+                <label class="block text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+                    @lang('modules.printerSetting.domainUrl')
+                </label>
+                <div class="flex">
+                    <input type="text"
+                        id="domainUrl"
+                        value="{{ url('/') }}"
+                        readonly
+                        class="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-blue-300 dark:border-blue-600 rounded-l-md text-sm text-gray-700 dark:text-gray-300 focus:outline-none">
+                    <button type="button"
+                        onclick="copyToClipboard('domainUrl', '{{ url('/') }}')"
+                        class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-r-md text-sm transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                    </button>
                 </div>
             </div>
 
-            <div class="mt-3 text-sm text-blue-700 dark:text-blue-300">
-
-                <p class="mb-2">
-                    <strong>@lang('modules.printerSetting.instructions'):</strong>
-                </p>
-
-                <ol class="list-decimal list-inside space-y-1 ml-2">
-                    <li>@lang('modules.printerSetting.instruction1')</li>
-                    <li>@lang('modules.printerSetting.instruction2')</li>
-                    <li>@lang('modules.printerSetting.instruction3')</li>
-                    <li>@lang('modules.printerSetting.instruction4')</li>
-                </ol>
+            <div>
+                <label class="block text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+                    @lang('modules.printerSetting.branchKey')
+                </label>
+                <div class="flex">
+                    <input type="password"
+                        id="branchKey"
+                        value="{{ branch()->unique_hash ?? 'No branch found' }}"
+                        readonly
+                        class="flex-1 px-3 py-2 bg-white dark:bg-gray-800 border border-blue-300 dark:border-blue-600 rounded-l-md text-sm text-gray-700 dark:text-gray-300 focus:outline-none">
+                    <button type="button"
+                        onclick="copyToClipboard('branchKey', '{{ branch()->unique_hash ?? '' }}')"
+                        class="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                        </svg>
+                    </button>
+                    <button type="button" onclick="toggleBranchKeyVisibility()" class="px-3 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-r-md text-sm transition-colors ml-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                    </button>
+                    <button type="button" onclick="showResetBranchKeyModal()" class="px-3 flex items-center gap-2 py-2 bg-red-600 hover:bg-red-700 text-white text-sm rounded ml-1 transition-colors">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        @lang('modules.printerSetting.resetBranchKey')
+                    </button>
+                </div>
             </div>
         </div>
+
+        <div class="mt-3 text-sm text-blue-700 dark:text-blue-300">
+            <p class="mb-2">
+                <strong>@lang('modules.printerSetting.instructions'):</strong>
+            </p>
+            <ol class="list-decimal list-inside space-y-1 ml-2">
+                <li>@lang('modules.printerSetting.instruction1')</li>
+                <li>@lang('modules.printerSetting.instruction2')</li>
+                <li>@lang('modules.printerSetting.instruction3')</li>
+                <li>@lang('modules.printerSetting.instruction4')</li>
+            </ol>
+        </div>
+    </div>
 
     {{-- Desktop App Download Section --}}
+    <div class="md:col-span-2 mt-6 p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-lg mb-8">
+        <h4 class="text-lg font-semibold text-emerald-900 dark:text-emerald-100 mb-4">
+            <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            @lang('modules.printerSetting.downloadDesktopApp')
+        </h4>
 
-        <div class="md:col-span-2 mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg mb-8">
-            <h4 class="text-lg font-semibold text-green-900 dark:text-green-100 mb-4">
-                <svg class="w-5 h-5 inline mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                </svg>
-                @lang('modules.printerSetting.downloadDesktopApp')
-            </h4>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            @php
+                $winLink = ($desktopApp?->windows_file_path && !str_contains($desktopApp->windows_file_path, 'froid.works'))
+                    ? $desktopApp->windows_file_path
+                    : url('/downloads/GenX_Companion_Windows.exe');
+                $macLink = ($desktopApp?->mac_file_path && !str_contains($desktopApp->mac_file_path, 'froid.works'))
+                    ? $desktopApp->mac_file_path
+                    : url('/downloads/GenX_Companion_Mac');
+            @endphp
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <!-- Windows -->
-                @if(!empty($desktopApp->windows_file_path))
-                <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center hover:shadow-md transition-shadow {{ request()->header('User-Agent') && str_contains(strtolower(request()->header('User-Agent')), 'windows') ? 'ring-2 ring-blue-500 ring-offset-2 bg-blue-50 dark:bg-blue-900/20' : '' }}">
-                    <div class="flex items-center justify-center mb-4">
-                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="w-6 h-6"><rect x="3" y="3" width="7" height="7" rx="1" fill="#2563eb"></rect><rect x="14" y="3" width="7" height="7" rx="1" fill="#2563eb"></rect><rect x="3" y="14" width="7" height="7" rx="1" fill="#2563eb"></rect><rect x="14" y="14" width="7" height="7" rx="1" fill="#2563eb"></rect></svg>
-                        <h5 class="ml-2 text-lg font-semibold text-gray-900 dark:text-white">Windows</h5>
-                        @if(request()->header('User-Agent') && str_contains(strtolower(request()->header('User-Agent')), 'windows'))
-                            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-                                <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
-                                </svg>
-                                @lang('modules.printerSetting.yourDevice')
-                            </span>
-                        @endif
-                    </div>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">@lang('modules.printerSetting.downloadDesktopAppWindows')</p>
-                    <a href="{{ $desktopApp->windows_file_path }}" target="_blank"
-                       class="inline-flex items-center px-6 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                        </svg>
-                        @lang('modules.printerSetting.downloadForWindows')
-                    </a>
+            <!-- Windows -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center hover:shadow-md transition-shadow {{ request()->header('User-Agent') && str_contains(strtolower(request()->header('User-Agent')), 'windows') ? 'ring-2 ring-blue-500 ring-offset-2 bg-blue-50 dark:bg-blue-900/20' : '' }}">
+                <div class="flex items-center justify-center mb-4">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" class="w-6 h-6"><rect x="3" y="3" width="7" height="7" rx="1" fill="#2563eb"></rect><rect x="14" y="3" width="7" height="7" rx="1" fill="#2563eb"></rect><rect x="3" y="14" width="7" height="7" rx="1" fill="#2563eb"></rect><rect x="14" y="14" width="7" height="7" rx="1" fill="#2563eb"></rect></svg>
+                    <h5 class="ml-2 text-lg font-semibold text-gray-900 dark:text-white">Windows</h5>
+                    @if(request()->header('User-Agent') && str_contains(strtolower(request()->header('User-Agent')), 'windows'))
+                        <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                            @lang('modules.printerSetting.yourDevice')
+                        </span>
+                    @endif
                 </div>
-                @endif
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">@lang('modules.printerSetting.downloadDesktopAppWindows')</p>
+                <a href="{{ $winLink }}" target="_blank"
+                   class="inline-flex items-center px-6 py-3 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+                    <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                    </svg>
+                    @lang('modules.printerSetting.downloadForWindows')
+                </a>
+            </div>
 
-                <!-- Mac -->
-                @if(!empty($desktopApp->mac_file_path))
-                <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center hover:shadow-md transition-shadow {{ request()->header('User-Agent') && (str_contains(strtolower(request()->header('User-Agent')), 'mac') || str_contains(strtolower(request()->header('User-Agent')), 'darwin')) ? 'ring-2 ring-green-500 ring-offset-2 bg-green-50 dark:bg-green-900/20' : '' }}">
-                    <div class="flex items-center justify-center mb-4">
-                        <svg fill="currentColor" viewBox="0 0 24 24" class="w-8 h-8"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"></path></svg>
-                        <h5 class="ml-2 text-lg font-semibold text-gray-900 dark:text-white">macOS</h5>
-                        @if(request()->header('User-Agent') && (str_contains(strtolower(request()->header('User-Agent')), 'mac') || str_contains(strtolower(request()->header('User-Agent')), 'darwin')))
-                            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                                <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
-                                </svg>
-                                @lang('modules.printerSetting.yourDevice')
-                            </span>
-                        @endif
-                    </div>
-                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">@lang('modules.printerSetting.downloadDesktopAppMac')</p>
-                    <a href="{{ $desktopApp->mac_file_path }}" target="_blank"
-                       class="inline-flex items-center px-6 py-3 text-sm font-medium text-white bg-gray-800 border border-transparent rounded-lg hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors">
-                        <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
-                        </svg>
-                        @lang('modules.printerSetting.downloadForMac')
-                    </a>
+            <!-- Mac -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6 text-center hover:shadow-md transition-shadow {{ request()->header('User-Agent') && (str_contains(strtolower(request()->header('User-Agent')), 'mac') || str_contains(strtolower(request()->header('User-Agent')), 'darwin')) ? 'ring-2 ring-green-500 ring-offset-2 bg-green-50 dark:bg-green-900/20' : '' }}">
+                <div class="flex items-center justify-center mb-4">
+                    <svg fill="currentColor" viewBox="0 0 24 24" class="w-8 h-8"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"></path></svg>
+                    <h5 class="ml-2 text-lg font-semibold text-gray-900 dark:text-white">macOS</h5>
+                    @if(request()->header('User-Agent') && (str_contains(strtolower(request()->header('User-Agent')), 'mac') || str_contains(strtolower(request()->header('User-Agent')), 'darwin')))
+                        <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+                            </svg>
+                            @lang('modules.printerSetting.yourDevice')
+                        </span>
+                    @endif
                 </div>
-                @endif
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">@lang('modules.printerSetting.downloadDesktopAppMac')</p>
+                <a href="{{ $macLink }}" target="_blank"
+                   class="inline-flex items-center px-6 py-3 text-sm font-medium text-white bg-gray-800 border border-transparent rounded-lg hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors">
+                    <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                    </svg>
+                    @lang('modules.printerSetting.downloadForMac')
+                </a>
             </div>
         </div>
-    @endif
+    </div>
 
     {{-- Add/Edit Printer Modal --}}
     @if ($showModal)
@@ -476,6 +480,32 @@
 
 
                             @if ($printChoice == 'directPrint')
+                                <!-- GenX Companion Agent Status & Physical Printer Picker -->
+                                <div class="p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg space-y-3">
+                                    <div class="flex items-center justify-between text-xs font-semibold text-blue-800 dark:text-blue-200">
+                                        <span id="companionBadge" class="flex items-center gap-1.5 text-gray-500">
+                                            <span class="w-2.5 h-2.5 rounded-full bg-gray-400"></span>
+                                            GenX Companion Checking...
+                                        </span>
+                                        <button type="button" onclick="checkGenXCompanion()" class="text-blue-600 dark:text-blue-400 underline hover:text-blue-800">
+                                            Refresh Printers
+                                        </button>
+                                    </div>
+
+                                    <div>
+                                        <x-label for="physicalPrinterSelect" value="Select Connected Physical Printer" />
+                                        <select id="physicalPrinterSelect" wire:model.live="printerName" class="mt-1 block w-full border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded-md shadow-sm text-sm">
+                                            <option value="">-- Direct IP Printing (Manual Network Printer) --</option>
+                                            @if($printerName)
+                                                <option value="{{ $printerName }}" selected>{{ $printerName }}</option>
+                                            @endif
+                                        </select>
+                                        <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                                            Selected physical printer will be automatically routed via GenX Print Companion.
+                                        </p>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <x-label for="selectprintFormat" value="{{ __('modules.printerSetting.printFormat') }}" />
                                     <select id="selectprintFormat" wire:model.defer="selectprintFormat" class="mt-1 block w-full border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded-md shadow-sm">
@@ -487,21 +517,16 @@
                                     <x-input-error for="selectprintFormat" class="mt-2" />
                                 </div>
 
-                                <!-- Desktop App Requirement Notice -->
-                                <div class="mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                                    <div class="flex items-start">
-                                        <svg class="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                        </svg>
-                                        <div>
-                                            <h4 class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-1">
-                                                @lang('modules.printerSetting.desktopAppRequired')
-                                            </h4>
-                                            <p class="text-sm text-blue-700 dark:text-blue-300">
-                                                @lang('modules.printerSetting.directPrintDesktopAppNote')
-                                            </p>
-                                        </div>
-                                    </div>
+                                <div>
+                                    <x-label for="printerIpAddress" value="Printer IP Address" />
+                                    <x-input id="printerIpAddress" type="text" wire:model="printerIpAddress" class="mt-1 block w-full" placeholder="e.g. 127.0.0.1 or 192.168.1.200" />
+                                    <x-input-error for="printerIpAddress" class="mt-2" />
+                                </div>
+
+                                <div>
+                                    <x-label for="printerPortAddress" value="Printer Port (Default 9100)" />
+                                    <x-input id="printerPortAddress" type="number" wire:model="printerPortAddress" class="mt-1 block w-full" placeholder="9100" />
+                                    <x-input-error for="printerPortAddress" class="mt-2" />
                                 </div>
                             @endif
                         </div>
@@ -514,6 +539,78 @@
             </div>
         </div>
     @endif
+
+    <script>
+        const branchHash = "{{ branch()->unique_hash ?? '' }}";
+
+        async function checkGenXCompanion() {
+            const badge = document.getElementById('companionBadge');
+            const select = document.getElementById('physicalPrinterSelect');
+            if (!badge) return;
+
+            // 1. Try local companion agent first
+            try {
+                const res = await fetch('http://127.0.0.1:8181/status', { method: 'GET' });
+                const data = await res.json();
+                if (data.status === 'online') {
+                    badge.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span> <span class="text-emerald-700 dark:text-emerald-300 font-medium">● GenX Companion Connected (Local Direct Agent)</span>`;
+                    fetchLocalPrinters();
+                    return;
+                }
+            } catch (e) {
+                // Ignore and try cloud bridge
+            }
+
+            // 2. Try Cloud Bridge API (for live HTTPS domains like https://digierp.cloud)
+            if (branchHash) {
+                try {
+                    const res = await fetch(`/api/companion/branch-printers/${branchHash}`);
+                    const data = await res.json();
+                    if (data.connected && Array.isArray(data.printers) && data.printers.length > 0) {
+                        badge.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span> <span class="text-emerald-700 dark:text-emerald-300 font-medium">● GenX Companion Active (${data.os || 'Cloud Relay'})</span>`;
+                        populatePrinterDropdown(data.printers);
+                        return;
+                    }
+                } catch (e) {
+                    // Ignore
+                }
+            }
+
+            badge.innerHTML = `<span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span> <span class="text-amber-600 dark:text-amber-400">GenX Companion Offline (Manual IP Fallback Active)</span>`;
+        }
+
+        async function fetchLocalPrinters() {
+            try {
+                const res = await fetch('http://127.0.0.1:8181/printers');
+                const data = await res.json();
+                if (data.success && Array.isArray(data.printers)) {
+                    populatePrinterDropdown(data.printers);
+                }
+            } catch (e) {
+                console.warn('Failed to load local physical printers', e);
+            }
+        }
+
+        function populatePrinterDropdown(printers) {
+            const select = document.getElementById('physicalPrinterSelect');
+            if (!select) return;
+
+            const currentVal = select.value;
+            select.innerHTML = '<option value="">-- Direct IP Printing (Manual Network Printer) --</option>';
+            printers.forEach(pName => {
+                const opt = document.createElement('option');
+                opt.value = pName;
+                opt.textContent = pName;
+                if (pName === currentVal) opt.selected = true;
+                select.appendChild(opt);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            checkGenXCompanion();
+        });
+        setInterval(checkGenXCompanion, 10000);
+    </script>
 
     {{-- Delete Confirmation Modal --}}
     <x-confirmation-modal wire:model.live="confrimDeletePrinter">

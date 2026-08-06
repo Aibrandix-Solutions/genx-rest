@@ -9,9 +9,9 @@ class DesktopApplication extends Model
 {
     use HasFactory;
 
-    const WINDOWS_FILE_PATH = 'https://envato.froid.works/app/download/windows';
-    const MAC_FILE_PATH = 'https://envato.froid.works/app/download/macos';
-    const LINUX_FILE_PATH = 'https://envato.froid.works/app/download/linux';
+    const WINDOWS_FILE_PATH = '/downloads/GenX_Companion_Windows.exe';
+    const MAC_FILE_PATH = '/downloads/GenX_Companion_Mac';
+    const LINUX_FILE_PATH = '/downloads/GenX_Companion_Linux';
 
     protected $guarded = ['id'];
     protected $table = 'desktop_applications';

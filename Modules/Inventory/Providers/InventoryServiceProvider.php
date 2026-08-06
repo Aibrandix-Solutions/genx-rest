@@ -23,10 +23,8 @@ use Modules\Inventory\Livewire\StockTransfer\EditStockTransfer;
 use Modules\Inventory\Livewire\StockTransfer\StockTransferList;
 use Modules\Inventory\Livewire\StockTransfer\ReceiveStockTransfer;
 use Modules\Inventory\Livewire\Setting\LocationManager;
-use Modules\Inventory\Console\CreateAutoPurchaseOrder;
 use Modules\Inventory\Console\ActivateModuleCommand;
 use Modules\Inventory\Console\ReallocateOrphanSupplierPayments;
-use Illuminate\Console\Scheduling\Schedule;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Observers\InventoryItemObserver;
 use Modules\Inventory\Entities\Unit;
@@ -110,7 +108,6 @@ class InventoryServiceProvider extends ServiceProvider
     protected function registerCommands(): void
     {
         $this->commands([
-            CreateAutoPurchaseOrder::class,
             ActivateModuleCommand::class,
             ReallocateOrphanSupplierPayments::class,
         ]);
@@ -121,10 +118,7 @@ class InventoryServiceProvider extends ServiceProvider
      */
     protected function registerCommandSchedules(): void
     {
-        $this->app->booted(function () {
-            $schedule = $this->app->make(Schedule::class);
-            $schedule->command('inventory:create-auto-purchase-order')->daily();
-        });
+        // No scheduled commands.
     }
 
     /**

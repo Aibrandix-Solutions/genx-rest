@@ -1,0 +1,11 @@
+{
+  "name": "genx-print-companion",
+  "version": "1.0.0",
+  "description": "GenX Print Companion - System Tray Direct Thermal Print Agent for Windows and macOS (Zero Dependencies)",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "build:win": "npx pkg app.js --target node18-win-x64 --output dist/GenX_Companion_Windows.exe",
+    "build:mac": "npx pkg app.js --target node18-macos-x64 --output dist/GenX_Companion_Mac"
+  }
+}

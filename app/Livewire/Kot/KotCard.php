@@ -208,89 +208,48 @@ class KotCard extends Component
         $this->executePrintKot($kot);
     }
 
-    public function executePrintKot($kot)
+    public function executePrintKot($kotId)
     {
-        if (in_array('Kitchen', restaurant_modules()) && in_array('kitchen', custom_module_plugins())) {
+        $kot = Kot::with(['items.menuItem', 'kotPlace.printerSetting'])->find($kotId);
+        if (!$kot) return;
 
-            $kot = Kot::with(['items.menuItem'])->find($kot);
-
-            // Use KOT's kitchen_place_id directly (multi-kitchen routing)
-            $kotPlaceId = $kot->kitchen_place_id;
-            if (!$kotPlaceId) {
-                // Fallback for legacy KOTs
-                $firstItem = $kot->items->first();
-                $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
-            }
-
-            if (!$kotPlaceId) return;
-
-            $kotPlace = KotPlace::with('printerSetting')->find($kotPlaceId);
-            if (!$kotPlace) return;
-
-            $printerSetting = $kotPlace->printerSetting;
-
-            if (!$printerSetting) {
-                $printerSetting = Printer::where('is_default', true)->first();
-            }
-
-            if ($printerSetting && $printerSetting->is_active == 0) {
-                $printerSetting = Printer::where('is_default', true)->first();
-            }
-
-            if (!$printerSetting) {
-                $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                $this->dispatch('print_location', $url);
-                return;
-            }
-
-            try {
-                switch ($printerSetting->printing_choice) {
-                    case 'directPrint':
-                        $this->handleKotPrint($kot->id, $kotPlace->id);
-                        break;
-                    default:
-                        $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                        $this->dispatch('print_location', $url);
-                        break;
-                }
-            } catch (\Throwable $e) {
-                $this->alert('error', __('messages.printerNotConnected') . ' executePrintKot error: ' . $e->getMessage(), [
-                    'toast' => true,
-                    'position' => 'top-end',
-                    'showCancelButton' => false,
-                    'cancelButtonText' => __('app.close')
-                ]);
-            }
-        } else {
-            $kot = Kot::with(['items.menuItem.kotPlace'])->find($kot);
-            $kotPlace = KotPlace::where('is_default', 1)->first();
-            $printerSetting = $kotPlace->printerSetting;
-            // If no printer is set, fallback to print URL dispatch
-            if (!$printerSetting) {
-                $url = route('kot.print', [$kot->id, $kotPlace?->id]);
-                $this->dispatch('print_location', $url);
-            }
-
-
-            try {
-                switch ($printerSetting->printing_choice) {
-                    case 'directPrint':
-                        $this->handleKotPrint($kot->id, $kotPlace->id);
-                        break;
-                    default:
-                        $url = route('kot.print', [$kot]);
-                        $this->dispatch('print_location', $url);
-                        break;
-                }
-            } catch (\Throwable $e) {
-                $this->alert('error', __('messages.printerNotConnected') . ' executePrintKot error else: ' . $e->getMessage(), [
-                    'toast' => true,
-                    'position' => 'top-end',
-                    'showCancelButton' => false,
-                    'cancelButtonText' => __('app.close')
-                ]);
-            }
+        // Use active kitchen view place ID if available, or fall back to KOT place ID
+        $kotPlaceId = $this->kotPlace?->id ?? $kot->kitchen_place_id;
+        if (!$kotPlaceId) {
+            $firstItem = $kot->items->first();
+            $kotPlaceId = $firstItem?->menuItem?->kot_place_id;
         }
+
+        $kotPlace = $kotPlaceId ? KotPlace::with('printerSetting')->find($kotPlaceId) : null;
+        $printerSetting = $kotPlace?->printerSetting;
+
+        if (!$printerSetting || $printerSetting->is_active == 0) {
+            $printerSetting = Printer::where('is_default', true)->first();
+        }
+
+        if ($printerSetting && $printerSetting->printing_choice === 'directPrint') {
+            try {
+                \App\Services\EscPosPrinterService::printKotDirect($kot, $printerSetting);
+                $this->alert('success', 'KOT print sent directly to ' . ($printerSetting->name ?? 'kitchen printer'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close')
+                ]);
+            } catch (\Throwable $e) {
+                $this->alert('error', __('messages.printerNotConnected') . ': ' . $e->getMessage(), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close')
+                ]);
+            }
+            return;
+        }
+
+        // Fallback for browserPopupPrint
+        $url = route('kot.print', [$kot->id, $kotPlace?->id]);
+        $this->dispatch('print_location', $url);
     }
 
     /**
