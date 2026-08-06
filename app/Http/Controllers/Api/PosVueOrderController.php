@@ -1929,7 +1929,7 @@ class PosVueOrderController extends Controller
                 'ip_address' => $printer?->ip_address,
             ];
 
-            if ($printer && $printer->is_active && $printer->printing_choice === 'directPrint' && !empty($printer->ip_address)) {
+            if ($printer && $printer->is_active && $printer->printing_choice === 'directPrint') {
                 \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
             }
         }

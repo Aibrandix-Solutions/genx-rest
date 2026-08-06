@@ -354,14 +354,67 @@ function printToOSSpooler(printerName, rawBytes) {
     try {
         if (os.platform() === 'win32') {
             const escapedPrinter = printerName.replace(/'/g, "''");
-            const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-Content -Path '${tempFile}' -Raw | Out-Printer -Name '${escapedPrinter}'"`;
+            const escapedFile = tempFile.replace(/'/g, "''");
+
+            const psCommand = `$code = @'
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+public class RawPrinterHelper {
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public class DOCINFOA {
+        [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+        [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+        [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+    }
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool OpenPrinter([MarshalAs(UnmanagedType.LPStr)] string szPrinter, out IntPtr hPrinter, IntPtr pd);
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool ClosePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndDocPrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool StartPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool EndPagePrinter(IntPtr hPrinter);
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+    public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+    public static bool PrintFile(string printerName, string filePath) {
+        byte[] bytes = File.ReadAllBytes(filePath);
+        IntPtr hPrinter = IntPtr.Zero;
+        DOCINFOA di = new DOCINFOA { pDocName = "GenX POS Receipt", pDataType = "RAW" };
+        if (OpenPrinter(printerName, out hPrinter, IntPtr.Zero)) {
+            if (StartDocPrinter(hPrinter, 1, di)) {
+                if (StartPagePrinter(hPrinter)) {
+                    IntPtr pBytes = Marshal.AllocHGlobal(bytes.Length);
+                    Marshal.Copy(bytes, 0, pBytes, bytes.Length);
+                    Int32 dwWritten = 0;
+                    bool success = WritePrinter(hPrinter, pBytes, bytes.Length, out dwWritten);
+                    Marshal.FreeHGlobal(pBytes);
+                    EndPagePrinter(hPrinter);
+                }
+                EndDocPrinter(hPrinter);
+            }
+            ClosePrinter(hPrinter);
+            return true;
+        }
+        return false;
+    }
+}
+'@;
+Add-Type -TypeDefinition $code;
+[RawPrinterHelper]::PrintFile('${escapedPrinter}', '${escapedFile}')`;
+
+            const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCommand.replace(/\r?\n/g, ' ')}"`;
             execSync(cmd);
         } else {
             const cmd = `lpr -P "${printerName}" -o raw "${tempFile}"`;
             execSync(cmd);
         }
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        addLog('SUCCESS', `PRINT SUCCESS -> Physical Printer: "${printerName}" (0 Popups)`);
+        addLog('SUCCESS', `PRINT SUCCESS -> Physical Printer: "${printerName}" (RAW Direct Bytecode)`);
         return true;
     } catch (e) {
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
