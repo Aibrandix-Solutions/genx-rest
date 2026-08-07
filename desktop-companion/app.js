@@ -23,8 +23,23 @@ const CONFIG = {
     POLL_INTERVAL_MS: 1500,
 };
 
-// In-Memory Log Stream (Last 100 lines)
+// In-Memory Log Stream & Last Receipt Preview
 const LOGS = [];
+let LAST_RECEIPT = '';
+
+function formatRawBytesToPreview(rawBytes) {
+    let str = rawBytes.toString('utf-8');
+    // Clean ESC/POS binary codes for preview
+    str = str.replace(/\x1B@/g, '')
+             .replace(/\x1Ba\x01/g, '')
+             .replace(/\x1Ba\x00/g, '')
+             .replace(/\x1BE\x01/g, '')
+             .replace(/\x1BE\x00/g, '')
+             .replace(/\x1D!\x11/g, '')
+             .replace(/\x1D!\x00/g, '')
+             .replace(/\x1DV\x41\x03/g, '\n[----------------- PAPER CUT -----------------]');
+    return str.trim();
+}
 
 function addLog(type, message) {
     const time = new Date().toLocaleTimeString();
@@ -89,6 +104,7 @@ const server = http.createServer((req, res) => {
         .printers { margin-top: 20px; background: #0f172a; padding: 16px; border-radius: 10px; border: 1px solid #334155; }
         .printers h3 { margin: 0 0 10px 0; font-size: 13px; text-transform: uppercase; color: #94a3b8; letter-spacing: 0.5px; }
         .printers ul { margin: 0; padding-left: 20px; font-size: 13px; color: #cbd5e1; }
+        .receipt-paper { background: #ffffff; color: #0f172a; font-family: 'Courier New', Courier, monospace; font-size: 13px; line-height: 1.35; padding: 24px; border-radius: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); max-width: 440px; margin: 12px auto 0 auto; white-space: pre-wrap; word-break: break-all; border-bottom: 6px dashed #cbd5e1; }
     </style>
 </head>
 <body>
@@ -109,6 +125,11 @@ const server = http.createServer((req, res) => {
         <div class="printers">
             <h3>Connected Physical OS Printers (<span id="printerCount">0</span>)</h3>
             <ul id="printerList"><li>Scanning OS Spooler...</li></ul>
+        </div>
+
+        <label>📄 Virtual Thermal Receipt Paper Roll Preview (Live Direct Print Output)</label>
+        <div id="receiptPreview" class="receipt-paper">
+            <div style="text-align: center; color: #64748b; padding: 20px 0;">No receipts printed yet. Click "Print KOT" or "Bill & Print" in your web app to preview the exact thermal paper output here!</div>
         </div>
 
         <label>Real-Time Application & Print Logs</label>
@@ -196,8 +217,19 @@ const server = http.createServer((req, res) => {
             }
         });
 
+        async function loadReceiptPreview() {
+            try {
+                const res = await fetch('/receipt-preview');
+                const data = await res.json();
+                if (data.success && data.receipt) {
+                    document.getElementById('receiptPreview').textContent = data.receipt;
+                }
+            } catch(e) {}
+        }
+
         loadConfig();
         setInterval(loadLogs, 2000);
+        setInterval(loadReceiptPreview, 2000);
     </script>
 </body>
 </html>`);
@@ -217,6 +249,9 @@ const server = http.createServer((req, res) => {
     } else if (req.method === 'GET' && pathname === '/logs') {
         res.writeHead(200, CORS_HEADERS);
         res.end(JSON.stringify({ success: true, logs: LOGS }));
+    } else if (req.method === 'GET' && pathname === '/receipt-preview') {
+        res.writeHead(200, CORS_HEADERS);
+        res.end(JSON.stringify({ success: true, receipt: LAST_RECEIPT }));
     } else if (req.method === 'GET' && pathname === '/printers') {
         try {
             const printers = getOSPrinters();
@@ -348,6 +383,10 @@ function getOSPrinters() {
  * Send raw ESC/POS payload to physical Windows/Mac spooler
  */
 function printToOSSpooler(printerName, rawBytes) {
+    try {
+        LAST_RECEIPT = formatRawBytesToPreview(rawBytes);
+    } catch (e) {}
+
     const tempFile = path.join(os.tmpdir(), `genx_print_${Date.now()}_${Math.random().toString(36).substring(7)}.bin`);
     fs.writeFileSync(tempFile, rawBytes);
 
@@ -355,8 +394,10 @@ function printToOSSpooler(printerName, rawBytes) {
         if (os.platform() === 'win32') {
             const escapedPrinter = printerName.replace(/'/g, "''");
             const escapedFile = tempFile.replace(/'/g, "''");
+            const psScriptFile = path.join(os.tmpdir(), `genx_raw_print_${Date.now()}.ps1`);
 
-            const psCommand = `$code = @'
+            const psScriptContent = `
+$code = @"
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -403,12 +444,20 @@ public class RawPrinterHelper {
         return false;
     }
 }
-'@;
-Add-Type -TypeDefinition $code;
-[RawPrinterHelper]::PrintFile('${escapedPrinter}', '${escapedFile}')`;
+"@
+if (-not ([System.Management.Automation.PSTypeName]'RawPrinterHelper').Type) {
+    Add-Type -TypeDefinition $code
+}
+[RawPrinterHelper]::PrintFile('${escapedPrinter}', '${escapedFile}')
+`;
 
-            const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psCommand.replace(/\r?\n/g, ' ')}"`;
-            execSync(cmd);
+            fs.writeFileSync(psScriptFile, psScriptContent, 'utf-8');
+            try {
+                const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScriptFile}"`;
+                execSync(cmd);
+            } finally {
+                if (fs.existsSync(psScriptFile)) fs.unlinkSync(psScriptFile);
+            }
         } else {
             const cmd = `lpr -P "${printerName}" -o raw "${tempFile}"`;
             execSync(cmd);
