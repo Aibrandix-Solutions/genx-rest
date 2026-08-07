@@ -201,10 +201,7 @@ class KotCard extends Component
 
     public function saveKotImageAndPrint($kot)
     {
-        // First, trigger the image saving process
-        $this->dispatch('saveKotImage', kotId: $kot);
-
-        // Then proceed with the original print logic
+        // Execute print logic cleanly
         $this->executePrintKot($kot);
     }
 
@@ -227,7 +224,7 @@ class KotCard extends Component
             $printerSetting = Printer::where('is_default', true)->first();
         }
 
-        if ($printerSetting && $printerSetting->printing_choice === 'directPrint') {
+        if ($printerSetting && in_array($printerSetting->printing_choice, ['directPrint', 'directImagePrint'])) {
             try {
                 \App\Services\EscPosPrinterService::printKotDirect($kot, $printerSetting);
                 $this->alert('success', 'KOT print sent directly to ' . ($printerSetting->name ?? 'kitchen printer'), [

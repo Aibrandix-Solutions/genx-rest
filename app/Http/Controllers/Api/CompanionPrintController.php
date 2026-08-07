@@ -91,6 +91,7 @@ class CompanionPrintController extends Controller
         $jobs = Cache::get($queueKey, []);
 
         if (!empty($jobs)) {
+            Log::info("[PRINT_DEBUG #4] CompanionPrintController::pollPrintJobs RETRIEVED " . count($jobs) . " queued jobs for branch #{$branchId} (Hash: {$branchHash})");
             // Clear fetched jobs from queue
             Cache::forget($queueKey);
         }
@@ -104,7 +105,7 @@ class CompanionPrintController extends Controller
     /**
      * Dispatch a silent direct print job to the branch companion queue.
      */
-    public static function dispatchPrintJob(int $branchId, string $printerName, string $payload, int $kotId = 0): bool
+    public static function dispatchPrintJob(int $branchId, string $printerName, string $payload, int $kotId = 0, bool $isImage = false): bool
     {
         if (empty($printerName)) {
             return false;
@@ -120,11 +121,12 @@ class CompanionPrintController extends Controller
             'printer_name' => $printerName,
             'payload' => base64_encode($payload),
             'base64' => true,
+            'is_image' => $isImage,
             'created_at' => now()->toIso8601String(),
         ];
 
         Cache::put($queueKey, $jobs, 300);
-        Log::info("CompanionPrintController: Dispatched print job {$jobId} for branch {$branchId} -> Printer: {$printerName}");
+        Log::info("[PRINT_DEBUG #3] CompanionPrintController::dispatchPrintJob PUSHED job {$jobId} (KOT #{$kotId}) to cloud cache queue for branch #{$branchId} -> Printer: '{$printerName}' (is_image: " . ($isImage ? 'true' : 'false') . ")");
         return true;
     }
 }

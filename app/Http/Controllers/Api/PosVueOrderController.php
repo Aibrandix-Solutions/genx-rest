@@ -1225,6 +1225,7 @@ class PosVueOrderController extends Controller
                     }
                     $targetKitchenPlaceIds = $targetKitchenPlaceIds->unique()->values();
 
+                    $printedPrinterIds = [];
                     foreach ($targetKitchenPlaceIds as $targetPlaceId) {
                         $kPlace = KotPlace::with('printerSetting')->find($targetPlaceId);
                         $printer = $kPlace?->printerSetting;
@@ -1240,8 +1241,12 @@ class PosVueOrderController extends Controller
                             'ip_address' => $printer?->ip_address,
                         ];
 
-                        if ($secondaryAction === 'print' && $printer && $printer->is_active && $printer->printing_choice === 'directPrint') {
-                            \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
+                        if ($secondaryAction === 'print' && $printer && $printer->is_active && in_array($printer->printing_choice, ['directPrint', 'directImagePrint'])) {
+                            $printerKey = $printer->id ?? $printer->printer_name;
+                            if (!in_array($printerKey, $printedPrinterIds)) {
+                                \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
+                                $printedPrinterIds[] = $printerKey;
+                            }
                         }
                     }
                 }
@@ -1915,7 +1920,7 @@ class PosVueOrderController extends Controller
         $timezone = $restaurant->timezone ?? config('app.timezone', 'UTC');
         $kotTickets = self::buildKotPrintTickets($kotIds, $timezone);
 
-        $kotPrintTargets = [];
+        $printedPrinterIds = [];
         foreach ($order->kot as $kot) {
             $printer = $kot->kotPlace?->printerSetting;
             $kotPrintTargets[] = [
@@ -1929,8 +1934,12 @@ class PosVueOrderController extends Controller
                 'ip_address' => $printer?->ip_address,
             ];
 
-            if ($printer && $printer->is_active && $printer->printing_choice === 'directPrint') {
-                \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
+            if ($printer && $printer->is_active && in_array($printer->printing_choice, ['directPrint', 'directImagePrint'])) {
+                $printerKey = $printer->id ?? $printer->printer_name;
+                if (!in_array($printerKey, $printedPrinterIds)) {
+                    \App\Services\EscPosPrinterService::printKotDirect($kot, $printer);
+                    $printedPrinterIds[] = $printerKey;
+                }
             }
         }
 

@@ -2352,7 +2352,7 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
         (t) => !t.printer || t.printer.printing_choice === "browserPopupPrint"
     );
     const directTickets = tickets.filter(
-        (t) => t.printer && t.printer.printing_choice === "directPrint"
+        (t) => t.printer && ["directPrint", "directImagePrint"].includes(t.printer.printing_choice)
     );
 
     if (directTickets.length > 0 && popupTickets.length === 0) {
@@ -2372,11 +2372,12 @@ const triggerKotPrint = (resultPayload, placeholderWindow = null) => {
         );
     }
 
-    // Print browser popup tickets if any
-    const ticketsToPrint = popupTickets.length > 0 ? popupTickets : tickets;
-    if (ticketsToPrint.length > 0 && printKotTicketsInWindow(ticketsToPrint, placeholderWindow)) {
+    if (popupTickets.length > 0 && printKotTicketsInWindow(popupTickets, placeholderWindow)) {
         return true;
     }
+
+    placeholderWindow?.close();
+    return true;
 
     const printUrls = resolveKotPrintUrls(resultPayload);
 

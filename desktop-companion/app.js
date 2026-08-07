@@ -306,12 +306,23 @@ const server = http.createServer((req, res) => {
                     return;
                 }
 
-                addLog('PRINT', `Receiving direct print job for physical printer "${printerName}"...`);
+                addLog('PRINT', `[PRINT_DEBUG] Receiving direct print job via Local HTTP Endpoint for printer "${printerName}" (ImageMode: ${Boolean(data.is_image)})...`);
                 const rawBytes = isBase64 ? Buffer.from(payload, 'base64') : Buffer.from(payload);
-                printToOSSpooler(printerName, rawBytes);
 
                 res.writeHead(200, CORS_HEADERS);
-                res.end(JSON.stringify({ success: true, message: `Printed to ${printerName}`, printer: printerName }));
+                res.end(JSON.stringify({ success: true, message: `Job queued for ${printerName}`, printer: printerName }));
+
+                setImmediate(() => {
+                    try {
+                        if (data.is_image) {
+                            printImageToOSSpooler(printerName, rawBytes);
+                        } else {
+                            printToOSSpooler(printerName, rawBytes);
+                        }
+                    } catch (err) {
+                        addLog('ERROR', `Async print error for "${printerName}": ${err.message}`);
+                    }
+                });
             } catch (e) {
                 addLog('ERROR', `Print failure for printer "${data.printer_name}": ${e.message}`);
                 res.writeHead(500, CORS_HEADERS);
@@ -473,6 +484,53 @@ if (-not ([System.Management.Automation.PSTypeName]'RawPrinterHelper').Type) {
 }
 
 /**
+ * Send PNG image payload to physical Windows/Mac spooler via System.Drawing
+ */
+function printImageToOSSpooler(printerName, imageBytes) {
+    const tempFile = path.join(os.tmpdir(), `genx_print_img_${Date.now()}_${Math.random().toString(36).substring(7)}.png`);
+    fs.writeFileSync(tempFile, imageBytes);
+
+    try {
+        if (os.platform() === 'win32') {
+            const escapedPrinter = printerName.replace(/'/g, "''");
+            const escapedFile = tempFile.replace(/'/g, "''");
+            const psScriptFile = path.join(os.tmpdir(), `genx_img_print_${Date.now()}.ps1`);
+
+            const psScriptContent = `
+Add-Type -AssemblyName System.Drawing
+$doc = New-Object System.Drawing.Printing.PrintDocument
+$doc.PrinterSettings.PrinterName = '${escapedPrinter}'
+$doc.PrintController = New-Object System.Drawing.Printing.StandardPrintController
+$image = [System.Drawing.Image]::FromFile('${escapedFile}')
+$doc.add_PrintPage({
+    param($sender, $e)
+    $e.Graphics.DrawImage($image, 0, 0, $image.Width, $image.Height)
+})
+$doc.Print()
+$image.Dispose()
+`;
+            fs.writeFileSync(psScriptFile, psScriptContent, 'utf-8');
+            try {
+                const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${psScriptFile}"`;
+                execSync(cmd);
+            } finally {
+                if (fs.existsSync(psScriptFile)) fs.unlinkSync(psScriptFile);
+            }
+        } else {
+            const cmd = `lpr -P "${printerName}" "${tempFile}"`;
+            execSync(cmd);
+        }
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        addLog('SUCCESS', `IMAGE PRINT SUCCESS -> Physical Printer: "${printerName}"`);
+        return true;
+    } catch (e) {
+        if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+        addLog('ERROR', `IMAGE PRINT ERROR -> Physical Printer: "${printerName}": ${e.message}`);
+        throw e;
+    }
+}
+
+/**
  * Background Loop: Sync printers & poll cloud jobs
  */
 async function startCloudSyncLoop() {
@@ -524,9 +582,13 @@ async function startCloudSyncLoop() {
             const data = await res.json();
             const jobs = data?.jobs || [];
             for (const job of jobs) {
-                addLog('PRINT', `Processing Cloud Print Job ${job.id} -> Printer: "${job.printer_name}"`);
+                addLog('PRINT', `[PRINT_DEBUG] Fetched Cloud Relay Print Job ${job.id} for printer "${job.printer_name}" (ImageMode: ${Boolean(job.is_image)})`);
                 const rawBytes = job.base64 ? Buffer.from(job.payload, 'base64') : Buffer.from(job.payload);
-                printToOSSpooler(job.printer_name, rawBytes);
+                if (job.is_image) {
+                    printImageToOSSpooler(job.printer_name, rawBytes);
+                } else {
+                    printToOSSpooler(job.printer_name, rawBytes);
+                }
             }
         } catch (e) {
             // Ignore polling error

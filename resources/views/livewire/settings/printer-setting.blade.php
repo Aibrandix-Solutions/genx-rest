@@ -472,14 +472,13 @@
                                 <x-label for="printChoice" :value="__('modules.printerSetting.printChoice')" />
                                 <select id="printChoice" wire:model.live="printChoice" class="mt-1 block w-full border-gray-300 dark:bg-gray-800 dark:border-gray-600 dark:text-white rounded-md shadow-sm">
                                     <option value="browserPopupPrint">@lang('modules.printerSetting.browserPopupPrint')</option>
-                                    <option value="directPrint">@lang('modules.printerSetting.directPrint')</option>
+                                    <option value="directPrint">Direct ESC/POS Thermal Print (Native Bytecode)</option>
+                                    <option value="directImagePrint">Direct Image Raster Print (100% Windows Spooler Parity)</option>
                                 </select>
                                 <x-input-error for="printChoice" class="mt-2" />
                             </div>
 
-
-
-                            @if ($printChoice == 'directPrint')
+                            @if (in_array($printChoice, ['directPrint', 'directImagePrint']))
                                 <!-- GenX Companion Agent Status & Physical Printer Picker -->
                                 <div class="p-3 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 rounded-lg space-y-3">
                                     <div class="flex items-center justify-between text-xs font-semibold text-blue-800 dark:text-blue-200">
