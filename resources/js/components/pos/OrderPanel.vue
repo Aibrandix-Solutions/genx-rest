@@ -840,7 +840,7 @@
                                 <div class="inline-flex items-center relative group" v-cloak>
                                     <template v-if="group.item.note && !group.item._showNoteInput && !group.item._showNotePreview">
                                         <div class="flex items-center gap-2 cursor-pointer text-skin-base text-xs hover:text-skin-base/80"
-                                            @click="group.item._showNotePreview = true" title="Special Instructions">
+                                            @click.stop="group.item._showNotePreview = true" title="Special Instructions">
                                             <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" stroke="currentColor" fill="none">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                     d="M7 8h10M7 12h4m1 8-4-4H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-3z" />
@@ -858,6 +858,41 @@
                                             Add Note
                                         </button>
                                     </template>
+                                    <div v-if="group.item._showNotePreview" class="fixed inset-0 z-40"
+                                        @click="group.item._showNotePreview = false"></div>
+                                    <div v-if="group.item._showNotePreview" class="absolute top-0 left-0 z-50" @click.stop>
+                                        <div class="bg-white dark:bg-gray-700 rounded-md shadow-md border border-gray-300 dark:border-gray-600 p-3 w-64 md:w-96">
+                                            <div class="text-sm dark:text-white mb-2 break-all">
+                                                {{ group.item.note }}
+                                            </div>
+                                            <div class="flex justify-end gap-2 dark:text-white">
+                                                <button @click="() => { group.item._showNotePreview = false; group.item._showNoteInput = true; group.item._activeNote = group.item.note || ''; }"
+                                                    class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 rounded transition-colors duration-200">
+                                                    <span class="flex items-center gap-x-1">
+                                                        <svg class="w-3 h-3" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                                        </svg>
+                                                        Update
+                                                    </span>
+                                                </button>
+                                                <button @click="() => { $emit('add-note', notePayloadFor(group.item, '')); group.item._showNotePreview = false; }"
+                                                    class="text-xs px-2 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-700 dark:hover:bg-red-600 text-red-500 dark:text-red-300 rounded transition-colors duration-200"
+                                                    title="Delete">
+                                                    <span class="flex items-center gap-x-1">
+                                                        <svg class="w-3 h-3" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                                        </svg>
+                                                        Delete
+                                                    </span>
+                                                </button>
+                                                <button @click="group.item._showNotePreview = false"
+                                                    class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 rounded transition-colors duration-200">
+                                                    Close
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                     <!-- Note Input inline -->
                                     <div v-if="group.item._showNoteInput" class="fixed inset-0 z-40" @click="group.item._showNoteInput = false"></div>
                                     <div v-if="group.item._showNoteInput" class="absolute top-0 left-full ml-2 z-50 min-w-[280px]" @click.stop>
