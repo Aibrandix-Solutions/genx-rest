@@ -101,7 +101,7 @@ class SendOrderBill extends BaseNotification
                 'taxesWithAmount' => $taxesWithAmount,
                 'chargesWithAmount' => $chargesWithAmount,
                 'totalPrice' => $this->order->total,
-                'items' => $this->order->items,
+                'items' => \App\Services\Pos\ReceiptLineAggregator::mergeIdenticalItems($this->order->items),
                 'settings' => $this->settings,
                 'taxMode' => $taxMode,
                 'totalTaxAmount' => $totalTaxAmount,

@@ -347,8 +347,9 @@
                 @php
                     $comboGroups = [];
                     $renderRows = [];
+                    $receiptItems = \App\Services\Pos\ReceiptLineAggregator::mergeIdenticalItems($order->items);
 
-                    foreach ($order->items as $lineItem) {
+                    foreach ($receiptItems as $lineItem) {
                         $isComboLine = (bool) ($lineItem->is_combo_item ?? false) && !empty($lineItem->combo_pack_id);
                         if (!$isComboLine) {
                             $renderRows[] = ['type' => 'item', 'item' => $lineItem];

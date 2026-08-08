@@ -341,8 +341,9 @@
                     $comboInstanceItems = [];
                     $comboInstanceToStructure = [];
                     $comboStructureMeta = [];
+                    $receiptItems = \App\Services\Pos\ReceiptLineAggregator::mergeIdenticalItems($order->items);
 
-                    foreach ($order->items as $comboCandidate) {
+                    foreach ($receiptItems as $comboCandidate) {
                         $candidateIsCombo = (bool) ($comboCandidate->is_combo_item ?? false) && !is_null($comboCandidate->combo_pack_id);
                         if (!$candidateIsCombo) {
                             continue;
@@ -390,7 +391,7 @@
                     }
                 @endphp
 
-                @foreach ($order->items as $item)
+                @foreach ($receiptItems as $item)
                     @php
                         $isComboItem = (bool) ($item->is_combo_item ?? false) && !is_null($item->combo_pack_id);
                         $instanceKey = null;
