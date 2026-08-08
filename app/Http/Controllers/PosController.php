@@ -409,6 +409,7 @@ class PosController extends Controller
                 'items.modifierOptions',
                 'items.menuItem',
                 'items.menuItemVariation',
+                'extras',
                 'table:id,table_code',
                 'hotelReservation.room.roomType',
                 'hotelReservation.guest',
@@ -496,6 +497,17 @@ class PosController extends Controller
                 'table_code' => $order->table?->table_code ? (string) $order->table->table_code : null,
                 'hotel_reservation_id' => $order->hotel_reservation_id ? (int) $order->hotel_reservation_id : null,
                 'hotel_reservation' => PosHotelSupport::formatReservation($order->hotelReservation),
+                'allow_custom_order_extras' => (bool) (restaurant()->allow_custom_order_extras ?? false),
+                'custom_extras' => (restaurant()->allow_custom_order_extras ?? false)
+                    ? $order->extras
+                        ->sortBy('id')
+                        ->values()
+                        ->map(fn ($extra) => [
+                            'id' => (int) $extra->id,
+                            'note' => (string) ($extra->note ?? ''),
+                            'amount' => (float) ($extra->amount ?? 0),
+                        ])->all()
+                    : [],
                 'lines' => $lines,
             ],
             'initial_order_id' => (int) $order->id,

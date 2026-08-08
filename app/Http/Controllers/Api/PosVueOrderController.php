@@ -29,8 +29,10 @@ use App\Models\Table;
 use App\Models\TableSession;
 use App\Models\Tax;
 use App\Models\User;
+use App\Scopes\BranchScope;
 use App\Services\Pos\BillSecondaryActionResolver;
 use App\Services\Pos\PosHotelSupport;
+use App\Services\ReportBranchScope;
 use App\Services\RewardPointsService;
 use Modules\Hotel\Entities\Reservation as HotelReservation;
 use Modules\Hotel\Services\OrderFolioSettlement;
@@ -42,38 +44,61 @@ use Illuminate\Validation\Rule;
 
 class PosVueOrderController extends Controller
 {
-    public function show(int $id)
+    public function show(Request $request, int $id)
     {
-        $canAccess = user_can('View Order') || user_can('Create Order') || user_can('Update Order');
+        $fromReport = $request->boolean('from_report');
+        $canAccess = $fromReport
+            ? user_can('Show Reports')
+            : (user_can('View Order') || user_can('Create Order') || user_can('Update Order'));
         abort_if(! in_array('Order', restaurant_modules()) || ! $canAccess, 403);
 
         $branch = branch();
         abort_if(! $branch, 422, 'Branch context is required');
 
-        $order = Order::query()
-            ->with([
-                'customer:id,name,email,phone,phone_code,delivery_address',
-                'items.modifierOptions',
-                'items.menuItem',
-                'items.menuItemVariation',
-                'kot.items.modifierOptions',
-                'kot.items.menuItem',
-                'kot.items.menuItemVariation',
-                'table:id,table_code',
-                'waiter:id,name',
-                'hotelReservation.room.roomType',
-                'hotelReservation.guest',
-                'splitOrders.items',
-                'payments',
-            ])
-            ->where('id', $id)
-            ->where('branch_id', $branch->id)
-            ->firstOrFail();
+        $readOnlyCrossBranch = false;
+        $orderRelations = [
+            'customer:id,name,email,phone,phone_code,delivery_address',
+            'items.modifierOptions',
+            'items.menuItem',
+            'items.menuItemVariation',
+            'kot.items.modifierOptions',
+            'kot.items.menuItem',
+            'kot.items.menuItemVariation',
+            'table:id,table_code',
+            'waiter:id,name',
+            'orderType:id,order_type_name,slug',
+            'hotelReservation.room.roomType',
+            'hotelReservation.guest',
+            'splitOrders.items',
+            'payments',
+            'taxes.tax',
+            'charges.charge',
+            'cancelReason',
+            'deliveryPlatform',
+            'extras',
+            'branch:id,lat,lng,restaurant_id',
+        ];
+
+        if ($fromReport) {
+            $found = ReportBranchScope::findOrderForReport($id);
+            abort_if(! $found, 404, __('messages.orderNotFound') ?: 'Order not found');
+            $readOnlyCrossBranch = (int) $found->branch_id !== (int) $branch->id;
+            $order = Order::withoutGlobalScope(BranchScope::class)
+                ->with($orderRelations)
+                ->where('id', $found->id)
+                ->firstOrFail();
+        } else {
+            $order = Order::query()
+                ->with($orderRelations)
+                ->where('id', $id)
+                ->where('branch_id', $branch->id)
+                ->firstOrFail();
+        }
 
         // Backfill safety net: older Vue KOT orders could keep an order-lock on
         // table_sessions.order_id while orders.table_id stayed null. Recover the
         // missing link so table badge + orders list are consistent before billing.
-        if (empty($order->table_id) && in_array((string) $order->status, ['kot', 'billed'], true)) {
+        if (! $readOnlyCrossBranch && empty($order->table_id) && in_array((string) $order->status, ['kot', 'billed'], true)) {
             $lockedTableId = TableSession::query()
                 ->where('order_id', $order->id)
                 ->where('locked_by_order', true)
@@ -318,11 +343,99 @@ class PosVueOrderController extends Controller
         }
 
         $restaurantId = $order->branch?->restaurant_id ?? restaurant()?->id;
-        $waiters = \App\Models\User::role('Waiter_' . $restaurantId)->get(['id', 'name']);
-        $deliveryExecutives = \App\Models\DeliveryExecutive::where('status', 'available')
-            ->orWhere('id', $order->delivery_executive_id)
-            ->get(['id', 'name']);
+        $waiters = $readOnlyCrossBranch
+            ? collect()
+            : \App\Models\User::role('Waiter_' . $restaurantId)->get(['id', 'name']);
+        $deliveryExecutives = $readOnlyCrossBranch
+            ? collect()
+            : \App\Models\DeliveryExecutive::query()
+                ->where(function ($query) use ($order) {
+                    $query->where('status', 'available')
+                        ->orWhere('id', $order->delivery_executive_id);
+                })
+                ->get(['id', 'name']);
         $cancelReasons = \App\Models\KotCancelReason::where('cancel_order', true)->get(['id', 'reason']);
+
+        $folioLocked = class_exists(OrderFolioSettlement::class)
+            && OrderFolioSettlement::isLockedForEditing($order);
+        $folioBadge = class_exists(OrderFolioSettlement::class)
+            ? OrderFolioSettlement::settlementBadge($order)
+            : null;
+
+        $extrasTotal = (float) $order->extras->sum(fn ($extra) => (float) ($extra->amount ?? 0));
+        $chargeTaxBase = (float) ($order->sub_total ?? 0) + $extrasTotal - (float) ($order->discount_amount ?? 0);
+        $taxMode = (string) ($order->tax_mode ?? restaurant()?->tax_mode ?? 'order');
+        $taxesPayload = [];
+        if ($taxMode === 'order') {
+            foreach ($order->taxes as $orderTax) {
+                $percent = (float) ($orderTax->tax?->tax_percent ?? 0);
+                $taxesPayload[] = [
+                    'name' => (string) ($orderTax->tax?->tax_name ?? 'Tax'),
+                    'percent' => $percent,
+                    'amount' => round(($percent / 100) * $chargeTaxBase, 2),
+                ];
+            }
+        } elseif ((float) ($order->total_tax_amount ?? 0) > 0) {
+            $taxTotals = [];
+            foreach ($orderItemsSorted as $item) {
+                $qty = max(1, (int) ($item->quantity ?? 1));
+                $taxBreakdown = is_array($item->tax_breakup ?? null)
+                    ? $item->tax_breakup
+                    : (json_decode((string) ($item->tax_breakup ?? ''), true) ?: []);
+                foreach ($taxBreakdown as $taxName => $taxInfo) {
+                    $name = (string) $taxName;
+                    if (! isset($taxTotals[$name])) {
+                        $taxTotals[$name] = [
+                            'name' => $name,
+                            'percent' => (float) ($taxInfo['percent'] ?? 0),
+                            'amount' => 0.0,
+                        ];
+                    }
+                    $taxTotals[$name]['amount'] += ((float) ($taxInfo['amount'] ?? 0)) * $qty;
+                }
+            }
+            if ($taxTotals !== []) {
+                foreach ($taxTotals as $taxRow) {
+                    $taxesPayload[] = [
+                        'name' => $taxRow['name'],
+                        'percent' => $taxRow['percent'] > 0 ? $taxRow['percent'] : null,
+                        'amount' => round($taxRow['amount'], 2),
+                    ];
+                }
+            } else {
+                $taxesPayload[] = [
+                    'name' => 'Tax',
+                    'percent' => null,
+                    'amount' => (float) $order->total_tax_amount,
+                ];
+            }
+        }
+
+        $chargesPayload = $order->charges->map(function ($orderCharge) use ($chargeTaxBase) {
+            $charge = $orderCharge->charge;
+
+            return [
+                'id' => (int) $orderCharge->id,
+                'name' => (string) ($charge?->charge_name ?? 'Charge'),
+                'charge_type' => (string) ($charge?->charge_type ?? 'fixed'),
+                'charge_value' => (float) ($charge?->charge_value ?? 0),
+                'amount' => $charge ? (float) $charge->getAmount($chargeTaxBase) : 0.0,
+            ];
+        })->values()->all();
+
+        $tokenNumber = $order->token_number
+            ?? $order->kot->first(fn ($kot) => $kot->token_number !== null && $kot->token_number !== '')?->token_number;
+        $statusValue = (string) $order->status;
+        $canMutate = ! $readOnlyCrossBranch && ! $folioLocked;
+        $canManageItems = $canMutate
+            && $statusValue !== 'canceled'
+            && user_can('Delete KOT Item')
+            && (
+                ! in_array($statusValue, ['billed', 'paid', 'payment_due'], true)
+                || user_can('Edit Billed Order')
+            );
+        $isWaiter = (bool) auth()->user()?->hasRole('Waiter_'.(int) (restaurant()?->id ?? 0));
+        $branchModel = $readOnlyCrossBranch ? $order->branch : $branch;
 
         return response()->json([
             'success' => true,
@@ -334,7 +447,7 @@ class PosVueOrderController extends Controller
                     'id' => (int) $order->id,
                     'order_number' => (string) ($order->order_number ?? ''),
                     'formatted_order_number' => (string) ($order->show_formatted_order_number ?? ''),
-                    'status' => (string) $order->status,
+                    'status' => $statusValue,
                     'split_type' => (string) $order->split_type,
                     'paid_item_quantities' => (object) $paidQuantities,
                     'split_orders' => $paidSplitOrders->map(fn($so) => [
@@ -349,8 +462,29 @@ class PosVueOrderController extends Controller
                     ]),
                     'order_status' => $order->order_status?->value ?? (string) ($order->order_status ?? ''),
                     'order_type' => (string) ($order->order_type ?? 'dine_in'),
+                    'order_type_name' => (string) ($order->orderType?->order_type_name ?? $order->custom_order_type_name ?? $order->order_type ?? 'dine_in'),
                     'order_type_id' => $order->order_type_id ? (int) $order->order_type_id : null,
+                    'placed_via' => (string) ($order->placed_via ?: 'pos'),
+                    'pickup_date' => $order->pickup_date ? (string) $order->pickup_date : null,
+                    'token_number' => $tokenNumber !== null ? (string) $tokenNumber : null,
                     'delivery_app_id' => $order->delivery_app_id ? (int) $order->delivery_app_id : null,
+                    'delivery_platform' => $order->deliveryPlatform ? [
+                        'id' => (int) $order->deliveryPlatform->id,
+                        'name' => (string) ($order->deliveryPlatform->name ?? ''),
+                        'logo_url' => $order->deliveryPlatform->logo_url ?? null,
+                    ] : null,
+                    'cancel_reason' => $order->cancelReason?->reason ? (string) $order->cancelReason->reason : null,
+                    'cancel_reason_text' => $order->cancel_reason_text ? (string) $order->cancel_reason_text : null,
+                    'folio_locked' => (bool) $folioLocked,
+                    'folio_badge' => $folioBadge,
+                    'branch_lat' => $branchModel?->lat !== null ? (float) $branchModel->lat : null,
+                    'branch_lng' => $branchModel?->lng !== null ? (float) $branchModel->lng : null,
+                    'direct_print_after_payment' => (bool) (restaurant()?->receiptSetting?->direct_print_after_payment ?? false),
+                    'tax_mode' => $taxMode,
+                    'taxes' => $taxesPayload,
+                    'charges' => $chargesPayload,
+                    'total_tax_amount' => (float) ($order->total_tax_amount ?? 0),
+                    'balance_returned' => (float) $order->payments->sum(fn ($p) => max(0, (float) ($p->balance ?? 0))),
                     'delivery_executive_id' => $order->delivery_executive_id ? (int) $order->delivery_executive_id : null,
                     'delivery_fee' => (float) ($order->delivery_fee ?? 0),
                     'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
@@ -391,23 +525,32 @@ class PosVueOrderController extends Controller
                     'allow_custom_order_extras' => (bool) (restaurant()->allow_custom_order_extras ?? false),
                     'show_kot_print' => (bool) (restaurant()->receiptSetting?->show_kot_print ?? true),
                     'custom_extras' => (restaurant()->allow_custom_order_extras ?? false)
-                        ? $order->extras()->orderBy('id')->get(['note', 'amount'])
+                        ? $order->extras
+                            ->sortBy('id')
+                            ->values()
                             ->map(fn ($extra) => [
-                                'note' => $extra->note,
-                                'amount' => (float) $extra->amount,
-                            ])->values()
+                                'id' => (int) $extra->id,
+                                'note' => (string) ($extra->note ?? ''),
+                                'amount' => (float) ($extra->amount ?? 0),
+                            ])->all()
                         : [],
                     'permissions' => [
-                        'can_update_order' => (bool) user_can('Update Order'),
-                        'can_delete_order' => (bool) user_can('Delete Order'),
-                        'can_edit_billed_order' => (bool) user_can('Edit Billed Order'),
-                        'can_delete_kot_item' => (bool) user_can('Delete KOT Item'),
+                        'can_update_order' => $canMutate && user_can('Update Order'),
+                        'can_delete_order' => $canMutate && user_can('Delete Order'),
+                        'can_edit_billed_order' => $canMutate && user_can('Edit Billed Order'),
+                        'can_delete_kot_item' => $canMutate && user_can('Delete KOT Item'),
+                        'can_manage_items' => $canManageItems,
+                        'can_assign_waiter' => $canMutate && user_can('Update Order') && ! $isWaiter,
+                        'can_view_hotel_folio' => (bool) user_can('view_hotel_billing'),
                         'can_redeem_reward_points' => (bool) user_can('Redeem Reward Points'),
+                        'read_only_cross_branch' => $readOnlyCrossBranch,
                     ],
                     'lines' => $lines,
                     'kots' => $kots,
                     'show_room_charge' => (bool) PosHotelSupport::showRoomChargePayment(),
-                    'in_house_reservations' => PosHotelSupport::showRoomChargePayment() ? PosHotelSupport::checkedInReservationsForPos()->values()->all() : [],
+                    'in_house_reservations' => (! $readOnlyCrossBranch && PosHotelSupport::showRoomChargePayment())
+                        ? PosHotelSupport::checkedInReservationsForPos()->values()->all()
+                        : [],
                     'can_add_tip' => (bool) (restaurant()->enable_tip_pos && $order->status !== 'paid'),
                     'tip_amount' => (float) ($order->tip_amount ?? 0),
                     'tip_note' => (string) ($order->tip_note ?? ''),
@@ -418,6 +561,7 @@ class PosVueOrderController extends Controller
                         'id' => (int) $p->id,
                         'payment_method' => (string) $p->payment_method,
                         'amount' => (float) $p->amount,
+                        'balance' => (float) ($p->balance ?? 0),
                         'created_at' => $p->created_at ? $p->created_at->toIso8601String() : null,
                         'formatted_date' => $p->created_at ? $p->created_at->timezone(timezone())->translatedFormat('d M, Y h:i A') : '',
                     ])->values()->all(),
@@ -980,11 +1124,11 @@ class PosVueOrderController extends Controller
                 }
             }
 
-            // Legacy parity (Pos.php::syncOrderExtras): persist custom extras when the
-            // setting is enabled. On bill/kot with a full cart we delete + recreate;
-            // on append-only New KOT we keep existing rows untouched.
+            // Legacy parity (Pos.php::syncOrderExtras): always replace extras from the
+            // current cart rows when the setting is on — including New KOT append
+            // saves. Legacy syncs extras on every saveOrder, not only full rewrites.
             $allowExtras = (bool) ($restaurant->allow_custom_order_extras ?? false);
-            if ($allowExtras && ! $appendKot) {
+            if ($allowExtras && array_key_exists('custom_extras', $validated)) {
                 $order->extras()->delete();
 
                 foreach (($validated['custom_extras'] ?? []) as $extraRow) {

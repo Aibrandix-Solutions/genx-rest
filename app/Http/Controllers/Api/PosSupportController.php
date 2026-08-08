@@ -16,6 +16,7 @@ use App\Models\Kot;
 use App\Models\KotCancelReason;
 use App\Models\KotItem;
 use App\Models\Order;
+use App\Models\OrderCharge;
 use App\Models\OrderItem;
 use App\Models\OrderType;
 use App\Models\Reservation;
@@ -26,6 +27,7 @@ use App\Scopes\BranchScope;
 use App\Services\OrderPaymentBalanceSync;
 use App\Services\Pos\OrderItemLinePricing;
 use App\Services\Pos\PosHotelSupport;
+use Modules\Hotel\Services\OrderFolioSettlement;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -1080,6 +1082,14 @@ class PosSupportController extends Controller
             ->where('branch_id', $branch->id)
             ->firstOrFail();
 
+        if (in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true)) {
+            abort_if(! user_can('Edit Billed Order'), 403, __('messages.editBilledOrderPermissionDenied') ?: 'Permission denied.');
+        }
+
+        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isLockedForEditing($order)) {
+            abort(422, __('modules.order.folioSettledLocked') ?: 'This order is locked after folio settlement.');
+        }
+
         DB::transaction(function () use ($order, $validated) {
             $itemsSubTotalForDiscount = (float) $order->items()->sum('amount');
             $discountType = (string) $validated['discount_type'];
@@ -1141,6 +1151,14 @@ class PosSupportController extends Controller
             ->where('id', $id)
             ->where('branch_id', $branch->id)
             ->firstOrFail();
+
+        if (in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true)) {
+            abort_if(! user_can('Edit Billed Order'), 403, __('messages.editBilledOrderPermissionDenied') ?: 'Permission denied.');
+        }
+
+        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isLockedForEditing($order)) {
+            abort(422, __('modules.order.folioSettledLocked') ?: 'This order is locked after folio settlement.');
+        }
 
         DB::transaction(function () use ($order) {
             $order->update([
@@ -1787,6 +1805,209 @@ class PosSupportController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment method updated',
+        ]);
+    }
+
+    public function updateOrderExtras(Request $request, int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('Update Order'), 403);
+        abort_if(! (restaurant()->allow_custom_order_extras ?? false), 422, 'Custom extras are not enabled.');
+
+        $validated = $request->validate([
+            'custom_extras' => ['nullable', 'array'],
+            'custom_extras.*.amount' => ['nullable', 'numeric', 'min:0'],
+            'custom_extras.*.note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        if (in_array((string) $order->status, ['billed', 'paid', 'payment_due'], true)) {
+            abort_if(! user_can('Edit Billed Order'), 403, __('messages.editBilledOrderPermissionDenied') ?: 'Permission denied.');
+        }
+
+        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isLockedForEditing($order)) {
+            abort(422, __('modules.order.folioSettledLocked') ?: 'This order is locked after folio settlement.');
+        }
+
+        DB::transaction(function () use ($order, $validated) {
+            $order->extras()->delete();
+
+            foreach (($validated['custom_extras'] ?? []) as $extraRow) {
+                if (! is_array($extraRow)) {
+                    continue;
+                }
+
+                $extraNote = trim((string) ($extraRow['note'] ?? ''));
+                $extraAmount = max(0, round((float) ($extraRow['amount'] ?? 0), 2));
+
+                if ($extraNote === '' && $extraAmount <= 0) {
+                    continue;
+                }
+
+                $order->extras()->create([
+                    'note' => $extraNote !== '' ? $extraNote : null,
+                    'amount' => $extraAmount,
+                ]);
+            }
+
+            $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+        });
+
+        $order->refresh()->load('extras');
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.updateSuccess') ?: 'Extras updated',
+            'data' => [
+                'order_id' => (int) $order->id,
+                'sub_total' => (float) ($order->sub_total ?? 0),
+                'total' => (float) ($order->total ?? 0),
+                'custom_extras' => $order->extras
+                    ->sortBy('id')
+                    ->values()
+                    ->map(fn ($extra) => [
+                        'id' => (int) $extra->id,
+                        'note' => (string) ($extra->note ?? ''),
+                        'amount' => (float) ($extra->amount ?? 0),
+                    ])->all(),
+            ],
+        ]);
+    }
+
+    public function billKotOrder(int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('Update Order'), 403);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->with(['kot.items.menuItem', 'kot.items.menuItemVariation', 'items'])
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        abort_if((string) $order->status !== 'kot', 422, 'Only KOT orders can be billed from this action.');
+
+        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isLockedForEditing($order)) {
+            abort(422, __('modules.order.folioSettledLocked') ?: 'This order is locked after folio settlement.');
+        }
+
+        DB::transaction(function () use ($order) {
+            if ($order->items()->count() === 0) {
+                foreach ($order->kot as $kot) {
+                    foreach ($kot->items as $item) {
+                        $price = $item->menu_item_variation_id
+                            ? (float) ($item->menuItemVariation->price ?? 0)
+                            : (float) ($item->menuItem->price ?? 0);
+                        $qty = (int) ($item->quantity ?? 1);
+                        OrderItem::create([
+                            'order_id' => $order->id,
+                            'menu_item_id' => $item->menu_item_id,
+                            'menu_item_variation_id' => $item->menu_item_variation_id,
+                            'quantity' => $qty,
+                            'price' => $price,
+                            'amount' => round($price * $qty, 2),
+                        ]);
+                    }
+                }
+                $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+            }
+
+            $order->update(['status' => 'billed']);
+
+            if ($order->table_id) {
+                Table::query()->where('id', $order->table_id)->update(['available_status' => 'available']);
+            }
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.billedSuccess') ?: 'Billed successfully',
+            'data' => ['order_id' => (int) $order->id, 'status' => 'billed'],
+        ]);
+    }
+
+    public function verifyPendingPayment(Request $request, int $id)
+    {
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('Update Order'), 403);
+
+        $validated = $request->validate([
+            'result' => ['required', 'string', Rule::in(['received', 'not_received'])],
+        ]);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->with('payments')
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        abort_if((string) $order->status !== 'pending_verification', 422, 'Order is not pending verification.');
+
+        if ($validated['result'] === 'received') {
+            $amountPaid = (float) $order->payments->sum('amount');
+            $order->update([
+                'status' => 'paid',
+                'amount_paid' => $amountPaid,
+            ]);
+        } else {
+            $latestPayment = $order->payments->sortByDesc('id')->first();
+            $latestPayment?->delete();
+            $order->update(['status' => 'payment_due']);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.statusUpdated') ?: 'Status updated',
+            'data' => ['order_id' => (int) $order->id, 'status' => (string) $order->fresh()->status],
+        ]);
+    }
+
+    public function removeOrderCharge(int $id, int $chargeId)
+    {
+        abort_if(! in_array('Order', restaurant_modules()) || ! user_can('Update Order'), 403);
+
+        $branch = branch();
+        abort_if(! $branch, 422, 'Branch context is required');
+
+        $order = Order::query()
+            ->where('id', $id)
+            ->where('branch_id', $branch->id)
+            ->firstOrFail();
+
+        if (in_array((string) $order->status, ['paid', 'payment_due'], true) && ! user_can('Edit Billed Order')) {
+            abort(403, __('messages.editBilledOrderPermissionDenied') ?: 'Permission denied.');
+        }
+
+        if (class_exists(OrderFolioSettlement::class) && OrderFolioSettlement::isLockedForEditing($order)) {
+            abort(422, __('modules.order.folioSettledLocked') ?: 'This order is locked after folio settlement.');
+        }
+
+        $charge = OrderCharge::query()
+            ->where('order_id', $order->id)
+            ->where('id', $chargeId)
+            ->firstOrFail();
+        $charge->delete();
+
+        $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
+
+        if (in_array((string) $order->status, ['paid', 'payment_due'], true)) {
+            OrderPaymentBalanceSync::reconcileAfterTotalChange($order->fresh(['payments']));
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => __('messages.updateSuccess') ?: 'Charge removed',
+            'data' => ['order_id' => (int) $order->id],
         ]);
     }
 }

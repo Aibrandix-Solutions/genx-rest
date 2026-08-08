@@ -79,12 +79,20 @@ class PosHotelSupport
             ? (string) $reservation->room->roomType->name
             : null;
 
+        $reservationNumber = (string) ($reservation->reservation_number ?? '');
+        $folioUrl = null;
+        if ($reservationNumber !== '' && \Illuminate\Support\Facades\Route::has('hotel.folio')) {
+            $folioUrl = route('hotel.folio', $reservationNumber);
+        }
+
         return [
             'id' => (int) $reservation->id,
             'label' => 'Room '.$roomNumber.' — '.$guestName,
             'room_number' => $roomNumber,
             'guest_name' => $guestName,
             'room_type_name' => $roomTypeName,
+            'reservation_number' => $reservationNumber !== '' ? $reservationNumber : null,
+            'folio_url' => $folioUrl,
         ];
     }
 

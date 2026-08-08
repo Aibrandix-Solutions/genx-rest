@@ -61,6 +61,7 @@ class Restaurant extends BaseModel
         'enable_customer_reservation' => 'boolean',
         'enable_table_lock_on_order' => 'boolean',
         'disable_table_lock_timeout' => 'boolean',
+        'allow_custom_order_extras' => 'boolean',
     ];
 
     public function logoUrl(): Attribute

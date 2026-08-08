@@ -3479,15 +3479,71 @@ const handleDeleteOrder = async () => {
 
 // Legacy parity (Pos.php::addOrderExtraRow / removeOrderExtraRow / normalizeOrderExtras):
 // add an empty row, remove by index, and keep numeric amounts coerced on blur.
+// When an order already exists (linked / after first KOT), persist immediately so
+// the side drawer and totals stay in sync without waiting for the next KOT/Bill.
+let customExtrasPersistTimer = null;
+const persistCustomExtras = async ({ immediate = false } = {}) => {
+    const activeOrderId = orderId.value ? Number(orderId.value) : null;
+    if (!activeOrderId || !allowCustomOrderExtras.value) {
+        return;
+    }
+
+    const run = async () => {
+        try {
+            const response = await axios.post(`/api/pos/orders/${activeOrderId}/extras`, {
+                custom_extras: customExtras.value.map((row) => ({
+                    amount: Number(row?.amount || 0),
+                    note: String(row?.note || ""),
+                })),
+            });
+            const persisted = response.data?.data?.custom_extras;
+            if (Array.isArray(persisted)) {
+                customExtras.value = persisted.map((row) => ({
+                    amount: Number(row?.amount || 0),
+                    note: String(row?.note || ""),
+                }));
+            }
+            const nextTotal = response.data?.data?.total;
+            if (nextTotal !== undefined && nextTotal !== null) {
+                orderPayableTotal.value = Number(nextTotal);
+            }
+        } catch (error) {
+            console.error("Failed to persist custom extras:", error);
+            showPosAlert(
+                "error",
+                error?.response?.data?.message || "Failed to save custom extras"
+            );
+        }
+    };
+
+    if (immediate) {
+        if (customExtrasPersistTimer) {
+            clearTimeout(customExtrasPersistTimer);
+            customExtrasPersistTimer = null;
+        }
+        await run();
+        return;
+    }
+
+    if (customExtrasPersistTimer) {
+        clearTimeout(customExtrasPersistTimer);
+    }
+    customExtrasPersistTimer = setTimeout(() => {
+        customExtrasPersistTimer = null;
+        void run();
+    }, 400);
+};
+
 const handleAddCustomExtra = () => {
-    customExtras.value.push({ amount: "", note: "" });
+    customExtras.value = [...customExtras.value, { amount: "", note: "" }];
 };
 
 const handleRemoveCustomExtra = (index) => {
     if (index < 0 || index >= customExtras.value.length) {
         return;
     }
-    customExtras.value.splice(index, 1);
+    customExtras.value = customExtras.value.filter((_, i) => i !== index);
+    void persistCustomExtras({ immediate: true });
 };
 
 const handleUpdateCustomExtra = ({ index, field, value }) => {
@@ -3496,17 +3552,20 @@ const handleUpdateCustomExtra = ({ index, field, value }) => {
         return;
     }
 
+    const next = { ...row };
     if (field === "amount") {
         // Keep the raw string while the user is typing so partial decimal entries
         // (e.g. "2." before a trailing digit) aren't stomped. Coercion to a
         // non-negative number happens at save/compute time.
-        row.amount = value;
+        next.amount = value;
+    } else if (field === "note") {
+        next.note = String(value ?? "");
+    } else {
         return;
     }
 
-    if (field === "note") {
-        row.note = String(value ?? "");
-    }
+    customExtras.value = customExtras.value.map((item, i) => (i === index ? next : item));
+    void persistCustomExtras();
 };
 
 const handleRemoveExtraCharge = async (chargeId) => {
@@ -3875,12 +3934,14 @@ const applyOrderPayload = (payload, activeOrderId) => {
     if (payload.show_kot_print !== undefined) {
         showKotPrint.value = !!payload.show_kot_print;
     }
-    customExtras.value = Array.isArray(payload.custom_extras)
-        ? payload.custom_extras.map((row) => ({
-            amount: Number(row?.amount || 0),
-            note: String(row?.note || ""),
-        }))
-        : [];
+    if (Object.prototype.hasOwnProperty.call(payload, "custom_extras")) {
+        customExtras.value = Array.isArray(payload.custom_extras)
+            ? payload.custom_extras.map((row) => ({
+                amount: Number(row?.amount || 0),
+                note: String(row?.note || ""),
+            }))
+            : [];
+    }
 
     const selectedType =
         (bootstrapData.value?.order_types || []).find(

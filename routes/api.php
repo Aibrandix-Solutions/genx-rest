@@ -110,11 +110,15 @@ Route::middleware(['auth', 'web'])->group(function () {
     Route::post('/pos/orders/{id}/delivery-executive', [PosSupportController::class, 'updateOrderDeliveryExecutive']);
     Route::post('/pos/orders/{id}/delivery-fee', [PosSupportController::class, 'updateOrderDeliveryFee']);
     Route::post('/pos/orders/{id}/discount', [PosSupportController::class, 'updateOrderDiscount']);
+    Route::post('/pos/orders/{id}/extras', [PosSupportController::class, 'updateOrderExtras']);
     Route::post('/pos/orders/{id}/payments/{paymentId}/method', [PosSupportController::class, 'updatePaymentMethod']);
     Route::post('/pos/orders/{id}/status', [PosSupportController::class, 'updateOrderStatus']);
     Route::post('/pos/orders/{id}/note', [PosSupportController::class, 'updateOrderNote']);
+    Route::post('/pos/orders/{id}/bill', [PosSupportController::class, 'billKotOrder']);
+    Route::post('/pos/orders/{id}/payment-verification', [PosSupportController::class, 'verifyPendingPayment']);
     Route::get('/pos/orders/{id}/kot-print', [PosVueOrderController::class, 'getKotPrintData']);
     Route::delete('/pos/orders/{id}/discount', [PosSupportController::class, 'removeOrderDiscount']);
+    Route::delete('/pos/orders/{id}/charges/{chargeId}', [PosSupportController::class, 'removeOrderCharge']);
     Route::delete('/pos/orders/{id}', [PosSupportController::class, 'deleteOrder']);
     Route::delete('/pos/orders/{orderId}/kot-items/{kotItemId}', [PosSupportController::class, 'removeKotItem']);
     Route::patch('/pos/orders/{orderId}/kot-items/{kotItemId}/quantity', [PosSupportController::class, 'reduceKotItem']);

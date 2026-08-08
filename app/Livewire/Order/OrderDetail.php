@@ -212,6 +212,7 @@ class OrderDetail extends Component
                 'payments',
                 'taxes.tax',
                 'charges.charge',
+                'extras',
                 'cancelReason',
                 'hotelReservation.room',
                 'hotelReservation.guest'
