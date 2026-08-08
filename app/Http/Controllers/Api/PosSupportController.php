@@ -647,7 +647,8 @@ class PosSupportController extends Controller
         abort_if(! in_array('Order', restaurant_modules()), 403);
 
         $validated = $request->validate([
-            'order_item_id' => ['required', 'integer'],
+            'order_item_id' => ['nullable', 'integer', 'required_without:kot_item_id'],
+            'kot_item_id' => ['nullable', 'integer', 'required_without:order_item_id'],
             'unit_price' => ['required', 'numeric', 'min:0'],
             'discount_type' => ['nullable', 'string', Rule::in(['fixed', 'percent'])],
             'discount_value' => ['nullable', 'numeric', 'min:0'],
@@ -665,12 +666,28 @@ class PosSupportController extends Controller
         abort_if($isBilledOrPaid && ! user_can('Edit Billed Order'), 403);
         abort_if(! $isBilledOrPaid && ! user_can('Update Order'), 403);
 
-        $orderItem = OrderItem::query()
-            ->with(['menuItem.taxes'])
-            ->where('id', (int) $validated['order_item_id'])
-            ->where('order_id', $order->id)
-            ->firstOrFail();
+        $kotItem = null;
+        if (! empty($validated['kot_item_id'])) {
+            $kotItem = KotItem::query()
+                ->where('id', (int) $validated['kot_item_id'])
+                ->whereHas('kot', fn ($query) => $query->where('order_id', $order->id))
+                ->firstOrFail();
+        }
 
+        $orderItem = null;
+        if (! empty($validated['order_item_id'])) {
+            $orderItem = OrderItem::query()
+                ->with(['menuItem.taxes'])
+                ->where('id', (int) $validated['order_item_id'])
+                ->where('order_id', $order->id)
+                ->firstOrFail();
+        } elseif ($kotItem) {
+            $orderItem = $this->findOrderItemMatchingKotItem($order, $kotItem);
+            abort_if(! $orderItem, 422, 'Matching order item not found for this KOT line.');
+            $orderItem->loadMissing(['menuItem.taxes']);
+        }
+
+        abort_if(! $orderItem, 422, 'Order item is required.');
         abort_if($orderItem->is_combo_item || ! empty($orderItem->combo_pack_id), 422, 'Combo items cannot be repriced.');
 
         $qty = max(1, (int) ($orderItem->quantity ?? 1));
@@ -702,6 +719,13 @@ class PosSupportController extends Controller
             'tax_percentage' => $taxFields['tax_percentage'],
             'tax_breakup' => $taxFields['tax_breakup'],
         ]);
+
+        if ($kotItem && Schema::hasColumn('kot_items', 'price')) {
+            $kotItem->update([
+                'price' => $pricing['price'],
+                'amount' => $pricing['amount'],
+            ]);
+        }
 
         $this->recomputeOrderFinancialsFromPersistedItems($order->fresh());
 

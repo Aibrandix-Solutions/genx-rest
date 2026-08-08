@@ -89,25 +89,7 @@ class PosVueOrderController extends Controller
         }
 
         $resolveUnitPrice = static function ($item): float {
-            $unitPrice = (float) ($item->price ?? 0);
-            $qty = (int) ($item->quantity ?? 0);
-            $amount = (float) ($item->amount ?? 0);
-
-            // Legacy-created rows may store base price in `price` while `amount`
-            // includes modifier add-ons. Prefer amount/qty when modifiers exist.
-            if (($item->modifierOptions?->count() ?? 0) > 0 && $qty > 0 && $amount > 0) {
-                $unitPrice = round($amount / $qty, 2);
-            }
-
-            if ($unitPrice <= 0 && $qty > 0 && $amount > 0) {
-                $unitPrice = round($amount / $qty, 2);
-            }
-
-            if ($unitPrice <= 0) {
-                $unitPrice = (float) ($item->menuItemVariation?->price ?? 0);
-            }
-
-            return $unitPrice > 0 ? $unitPrice : 0.0;
+            return OrderItemLinePricing::resolveDisplayUnitPrice($item);
         };
 
         $orderItemsSorted = $order->items->sortBy('id')->values();
@@ -237,6 +219,13 @@ class PosVueOrderController extends Controller
                         'name' => (string) $o->name,
                         'price' => (float) $o->price,
                     ])->all(),
+                    ...($matchedOrderItem
+                        ? OrderItemLinePricing::linePayloadFromModel($matchedOrderItem)
+                        : [
+                            'discount_type' => null,
+                            'discount_value' => null,
+                            'item_discount_amount' => null,
+                        ]),
                 ];
             })->values();
 

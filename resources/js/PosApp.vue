@@ -651,10 +651,8 @@ const handleAddToCart = async (
     );
     if (existingItem) {
         existingItem.quantity++;
-        // Keep base/unit pricing consistent when nudging qty up.
-        existingItem.base_unit_price = unitPrice;
-        existingItem.price = unitPrice;
         existingItem.modifier_option_quantities = modifierMap;
+        // Keep any unit price / item discount already set via Item Pricing modal.
     } else {
         const newCartItem = {
             id: normalizedItemId,
@@ -1130,42 +1128,78 @@ const handleAddNote = async (noteData) => {
 };
 
 const handleUpdateItemPricing = async (pricingData, done) => {
-    const activeOrderId = resolveActiveOrderId();
-    if (activeOrderId && pricingData?.order_item_id) {
-        try {
+    const callDone = (err) => {
+        if (typeof done === "function") {
+            done(err);
+        }
+    };
+
+    const applyLocalPricing = () => {
+        const targetKey = String(pricingData?.line_key || "");
+        const targetId = pricingData?.id;
+
+        const cartItem = cartItems.value.find((item) => {
+            if (
+                pricingData?.order_item_id &&
+                Number(item.order_item_id) === Number(pricingData.order_item_id)
+            ) {
+                return true;
+            }
+            if (
+                pricingData?.kot_item_id &&
+                Number(item.kot_item_id) === Number(pricingData.kot_item_id)
+            ) {
+                return true;
+            }
+
+            const itemKey = String(getCartLineKey(item) || item.line_key || "");
+            if (targetKey && itemKey && itemKey === targetKey) {
+                return true;
+            }
+
+            return targetId != null && String(item.id) === String(targetId)
+                && String(item.variant_id || 0) === String(pricingData.variant_id || item.variant_id || 0);
+        });
+
+        if (!cartItem) {
+            saveCartToStorage(cartItems.value);
+            return false;
+        }
+
+        cartItem.price = Number(pricingData.unit_price || 0);
+        cartItem.base_unit_price = cartItem.price;
+        cartItem.discount_type = pricingData.discount_type || null;
+        cartItem.discount_value = pricingData.discount_value ?? null;
+        normalizeItemDiscountFields(cartItem);
+        saveCartToStorage(cartItems.value);
+        return true;
+    };
+
+    try {
+        const activeOrderId = resolveActiveOrderId();
+        if (activeOrderId && (pricingData?.order_item_id || pricingData?.kot_item_id)) {
             await axios.post(`/api/pos/orders/${activeOrderId}/items/pricing`, {
-                order_item_id: pricingData.order_item_id,
+                order_item_id: pricingData.order_item_id || null,
+                kot_item_id: pricingData.kot_item_id || null,
                 unit_price: Number(pricingData.unit_price || 0),
                 discount_type: pricingData.discount_type || null,
                 discount_value: pricingData.discount_value ?? null,
             });
+            applyLocalPricing();
             await loadOrderData(activeOrderId);
-            done?.();
-        } catch (error) {
-            const message = error?.response?.data?.message || "Failed to update item pricing.";
-            console.error("Error updating linked order item pricing:", error);
-            showPosAlert("error", message);
-            done?.(error);
+            callDone();
+            return;
         }
-        return;
+
+        applyLocalPricing();
+        saveCartToStorage(cartItems.value);
+        callDone();
+    } catch (error) {
+        const message = error?.response?.data?.message || error?.message || "Failed to update item pricing.";
+        console.error("Error updating item pricing:", error);
+        showPosAlert("error", message);
+        callDone(error);
     }
-
-    const cartItem = cartItems.value.find(
-        (item) => (item.line_key || item.id) === (pricingData.line_key || pricingData.id)
-    );
-
-    if (!cartItem) {
-        done?.(new Error("Cart item not found"));
-        return;
-    }
-
-    cartItem.price = Number(pricingData.unit_price || 0);
-    cartItem.base_unit_price = cartItem.price;
-    cartItem.discount_type = pricingData.discount_type || null;
-    cartItem.discount_value = pricingData.discount_value ?? null;
-    normalizeItemDiscountFields(cartItem);
-    saveCartToStorage(cartItems.value);
-    done?.();
 };
 
 const loadCancelReasons = async () => {
@@ -3116,7 +3150,6 @@ const handleConfirmTableChange = async () => {
 const resolveActiveOrderId = () => {
     const rawId = vuePaymentOrderId.value
         || orderId.value
-        || routeLinkedOrderId.value
         || params.orderId
         || (typeof order.value === 'object' ? order.value?.id : order.value)
         || null;

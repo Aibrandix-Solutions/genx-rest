@@ -113,10 +113,22 @@ watch(
         }
 
         const item = props.item || {};
+        const rawDiscountValue = item.discount_value;
+        const hasDiscountValue =
+            rawDiscountValue !== null &&
+            rawDiscountValue !== undefined &&
+            rawDiscountValue !== "";
+        const fallbackFixedDiscount =
+            !hasDiscountValue &&
+            Number(item.item_discount_amount || 0) > 0 &&
+            (!item.discount_type || item.discount_type === "fixed")
+                ? Number(item.item_discount_amount)
+                : null;
+
         form.value = {
             unitPrice: Number(item.price || 0),
             discountType: item.discount_type || "fixed",
-            discountValue: item.discount_value ? Number(item.discount_value) : null,
+            discountValue: hasDiscountValue ? Number(rawDiscountValue) : fallbackFixedDiscount,
         };
     }
 );

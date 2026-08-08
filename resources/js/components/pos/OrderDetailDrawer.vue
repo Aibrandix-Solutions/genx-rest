@@ -219,6 +219,10 @@
                   <div class="flex-1 min-w-0 pr-2">
                     <div class="font-semibold text-gray-800 dark:text-white leading-snug truncate" :title="line.item_name">{{ line.item_name }}</div>
                     <div v-if="line.variation_name" class="text-[9px] text-gray-400 mt-0.5">Var: {{ line.variation_name }}</div>
+                    <div v-if="Number(line.item_discount_amount || 0) > 0" class="text-[10px] text-green-600 dark:text-green-400 mt-0.5">
+                      Discount: -{{ formatCurrency(line.item_discount_amount) }}
+                      <span v-if="line.discount_type === 'percent'">({{ Number(line.discount_value || 0) }}%)</span>
+                    </div>
                     <div v-if="line.modifier_option_details?.length" class="mt-1 space-y-1">
                       <div
                         v-for="mod in line.modifier_option_details"

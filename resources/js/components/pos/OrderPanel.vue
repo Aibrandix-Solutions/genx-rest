@@ -1466,6 +1466,7 @@ import {
     computeItemDiscountAmount,
     hasItemDiscount,
     lineTotalAmount,
+    normalizeItemDiscountFields,
 } from "../../utils/posItemPricing.js";
 
 const linkedOrderNewKotMessage = LINKED_ORDER_NEW_KOT_MESSAGE;
@@ -2261,7 +2262,7 @@ const stableSerializeForSignature = (value) => {
 const buildLineSignature = (line = {}) => {
     return [
         Number(line.menu_item_id || 0),
-        Number(line.menu_item_variation_id || 0),
+        Number(line.menu_item_variation_id || line.variant_id || 0),
         Number(line.combo_pack_id || 0),
         String(line.combo_instance_key || ""),
         JSON.stringify(stableSerializeForSignature(line.modifier_option_quantities || {})),
@@ -2317,8 +2318,14 @@ const linkedKotGroups = computed(() => {
             const matchedPrice = Number(matchedItem?.price ?? NaN);
             const lineUnitPrice = Number(line.unit_price ?? NaN);
             const lineAmount = Number(line.amount ?? NaN);
+            const discountType = matchedItem?.discount_type || line.discount_type || null;
+            const discountValue = matchedItem?.discount_value ?? line.discount_value ?? null;
+            const itemDiscountAmount = matchedItem?.item_discount_amount ?? line.item_discount_amount ?? null;
+            const hasItemLineDiscount =
+                Number(itemDiscountAmount || 0) > 0 ||
+                (discountType && Number(discountValue || 0) > 0);
             const fallbackUnitPrice = Number.isFinite(lineAmount) && lineAmount > 0 && quantity > 0
-                ? lineAmount / quantity
+                ? (lineAmount + (hasItemLineDiscount ? Number(itemDiscountAmount || 0) : 0)) / quantity
                 : 0;
             const resolvedPrice = Number.isFinite(matchedPrice) && matchedPrice > 0
                 ? matchedPrice
@@ -2358,6 +2365,11 @@ const linkedKotGroups = computed(() => {
                 combo_original_unit_price: line.combo_original_unit_price !== undefined && line.combo_original_unit_price !== null
                     ? Number(line.combo_original_unit_price)
                     : null,
+                order_item_id: matchedItem?.order_item_id || line.order_item_id || null,
+                kot_item_id: line.kot_item_id || matchedItem?.kot_item_id || null,
+                discount_type: discountType,
+                discount_value: discountValue,
+                item_discount_amount: itemDiscountAmount,
                 _linkedKey: resolvedKey,
                 _isCombo: !!packId,
                 _comboGroupKey: comboGroupKey,
@@ -2700,6 +2712,7 @@ const closeItemPricingModal = () => {
 const pricingPayloadFor = (item, pricingData) => ({
     id: item?.id,
     line_key: item?.line_key || item?.id,
+    variant_id: item?.variant_id || 0,
     kot_item_id: item?.kot_item_id || null,
     order_item_id: item?.order_item_id || null,
     unit_price: Number(pricingData?.unit_price || 0),
@@ -2708,12 +2721,26 @@ const pricingPayloadFor = (item, pricingData) => ({
 });
 
 const handleSaveItemPricing = (pricingData, done) => {
-    if (!activePricingItem.value) {
+    const item = activePricingItem.value;
+    if (!item) {
         done?.(new Error("No item selected"));
         return;
     }
 
-    emit("update-item-pricing", pricingPayloadFor(activePricingItem.value, pricingData), done);
+    // New-order / New KOT rows ARE the live cart objects. Apply in place so
+    // the line total updates immediately and KOT/Bill persist the custom price
+    // even if the parent lookup misses. Linked KOT rows are display copies and
+    // must persist through the order-item pricing API instead.
+    const isPersistedLine = !!(item.order_item_id || item.kot_item_id);
+    if (!isPersistedLine) {
+        item.price = Number(pricingData.unit_price || 0);
+        item.base_unit_price = item.price;
+        item.discount_type = pricingData.discount_type || null;
+        item.discount_value = pricingData.discount_value ?? null;
+        normalizeItemDiscountFields(item);
+    }
+
+    emit("update-item-pricing", pricingPayloadFor(item, pricingData), done);
 };
 
 /** Pre-discount unit for combo lines (from API / preview); fallback matches legacy price + combo_discount. */

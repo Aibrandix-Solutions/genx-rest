@@ -86,4 +86,40 @@ class OrderItemLinePricing
             'item_discount_amount' => $discountAmount > 0 ? $discountAmount : null,
         ];
     }
+
+    /**
+     * Unit price shown in POS. Never derive from net amount when an item
+     * discount exists — that would bake the discount into the unit price.
+     */
+    public static function resolveDisplayUnitPrice(object $item): float
+    {
+        $unitPrice = (float) ($item->price ?? 0);
+        $qty = (int) ($item->quantity ?? $item->qty ?? 0);
+        $amount = (float) ($item->amount ?? 0);
+        $itemDiscount = (float) ($item->item_discount_amount ?? 0);
+        $modifierCount = 0;
+
+        if (isset($item->modifierOptions)) {
+            $modifierCount = (int) $item->modifierOptions->count();
+        }
+
+        // Legacy rows may store base price without modifier add-ons while
+        // amount is (base + modifiers) * qty, optionally minus item discount.
+        if ($modifierCount > 0 && $qty > 0 && $amount > 0) {
+            $impliedUnit = round(($amount + max(0, $itemDiscount)) / $qty, 2);
+            if ($unitPrice <= 0 || $impliedUnit > $unitPrice + 0.01) {
+                $unitPrice = $impliedUnit;
+            }
+        }
+
+        if ($unitPrice <= 0 && $qty > 0 && $amount > 0) {
+            $unitPrice = round(($amount + max(0, $itemDiscount)) / $qty, 2);
+        }
+
+        if ($unitPrice <= 0) {
+            $unitPrice = (float) ($item->menuItemVariation?->price ?? 0);
+        }
+
+        return $unitPrice > 0 ? $unitPrice : 0.0;
+    }
 }
