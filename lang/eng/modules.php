@@ -335,6 +335,7 @@ return [
         'payableAmount' => 'Payable Amount',
         'dueAmount' => 'Due Amount',
         'customerRequiredForDuePayment' => 'Due or partial payment needs a registered customer. Select an existing customer or add a new one.',
+        'walkInPaidKotRequiresPayment' => 'New items are not paid. Collect payment now, or attach a customer to leave a due.',
         'paymentMethod' => 'Payment Method',
         'method' => 'Method',
         'taxes' => 'Taxes',

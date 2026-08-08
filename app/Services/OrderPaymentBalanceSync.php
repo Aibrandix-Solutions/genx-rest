@@ -110,6 +110,8 @@ class OrderPaymentBalanceSync
         if ($shortfall > 0) {
             if (! $order->canRecordDueBalance()) {
                 if ($allowImmediatePaymentWithoutCustomer) {
+                    // Walk-in cannot hold a due ledger row. Revert to billed so
+                    // New KOT can proceed; cashier collects or attaches a customer.
                     $order->update([
                         'amount_paid' => round($amountPaid, 2),
                         'status' => 'billed',

@@ -1985,9 +1985,14 @@ const syncVuePaymentAfterSave = (payload = {}) => {
             payload.formatted_order_number || payload.order_number || vuePaymentOrderNumber.value;
     }
     if (payload.total !== undefined && payload.total !== null) {
-        const total = Number(payload.total);
-        vuePaymentDueAmount.value = total;
-        orderPayableTotal.value = total;
+        orderPayableTotal.value = Number(payload.total);
+    }
+    const due =
+        payload.outstanding_amount !== undefined && payload.outstanding_amount !== null
+            ? Number(payload.outstanding_amount)
+            : Number(payload.total ?? vuePaymentDueAmount.value);
+    if (!Number.isNaN(due)) {
+        vuePaymentDueAmount.value = due;
     }
     vuePaymentSaving.value = false;
 };
@@ -2859,6 +2864,11 @@ const runSaveOrder = async (...actions) => {
             const shouldShowOrderDetail = Boolean(
                 nextAction.show_order_detail ?? (actionList.includes("bill") && !shouldOpenPayment && !shouldPrintReceipt)
             );
+            const walkInPaymentRequired = Boolean(resultPayload.walk_in_payment_required);
+            const outstandingAmount =
+                resultPayload.outstanding_amount !== undefined && resultPayload.outstanding_amount !== null
+                    ? Number(resultPayload.outstanding_amount)
+                    : null;
 
             if (shouldPrintKot) {
                 triggerKotPrint(resultPayload, printPlaceholder);
@@ -2916,7 +2926,11 @@ const runSaveOrder = async (...actions) => {
                             resultPayload.formatted_order_number ||
                             resultPayload.order_number ||
                             orderNumber.value,
-                        total: Number(resultPayload.total ?? estimatePayableTotal.value),
+                        total: Number(
+                            resultPayload.outstanding_amount ??
+                                resultPayload.total ??
+                                estimatePayableTotal.value
+                        ),
                         saving: false,
                     });
                     if (!openedPayment) {
@@ -2957,6 +2971,55 @@ const runSaveOrder = async (...actions) => {
             }
 
             if (isExistingOrder && resolvedOrderId) {
+                // Walk-in paid + extra KOT: kitchen ticket is saved and order is billed
+                // (no anonymous due). Offer collect-now; Pay Later keeps the billed order.
+                if (walkInPaymentRequired && !shouldOpenPayment) {
+                    printPlaceholder?.close();
+                    printPlaceholder = null;
+                    orderId.value = String(resolvedOrderId);
+                    orderLifecycleStatus.value = resultPayload?.status
+                        ? String(resultPayload.status).toLowerCase()
+                        : "billed";
+                    if (resultPayload.total !== undefined && resultPayload.total !== null) {
+                        orderPayableTotal.value = Number(resultPayload.total);
+                    }
+                    const collectNow = await showPosConfirm(
+                        "New items aren't paid. Collect payment now, or attach a customer to leave a due.",
+                        {
+                            icon: "warning",
+                            confirmButtonText: "Pay Now",
+                            cancelButtonText: "Pay Later",
+                        }
+                    );
+                    if (collectNow) {
+                        showOrderDetailMode.value = true;
+                        mode.value = "kot";
+                        const openedPayment = openVuePaymentModal({
+                            orderId: resolvedOrderId,
+                            orderNumber:
+                                resultPayload.formatted_order_number ||
+                                resultPayload.order_number ||
+                                orderNumber.value,
+                            total:
+                                outstandingAmount ??
+                                Number(resultPayload.total ?? estimatePayableTotal.value),
+                            saving: false,
+                        });
+                        if (!openedPayment) {
+                            navigateToPayment(resolvedOrderId);
+                        } else {
+                            scheduleLinkedOrderRefresh(resolvedOrderId);
+                        }
+                        return;
+                    }
+                    if (isNewKotMode.value && action === "kot") {
+                        navigateToLinkedOrderDetail(resolvedOrderId);
+                        return;
+                    }
+                    scheduleLinkedOrderRefresh(resolvedOrderId);
+                    return;
+                }
+
                 // Legacy parity (Pos.php line 3395): after a successful KOT save on an
                 // existing order (New KOT flow from /pos/kot/{id}), legacy navigates to
                 // the linked order detail view. Mirror that so the user lands on the

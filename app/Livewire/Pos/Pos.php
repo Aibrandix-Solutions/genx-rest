@@ -3181,6 +3181,9 @@ class Pos extends Component
             $orderTypeName = $orderType->order_type_name ?? $orderTypeName;
         }
 
+        $statusBeforeSave = null;
+        $appendOnlyKotSave = false;
+
         if ((! $this->tableOrderID && ! $this->orderID) || ($this->tableOrderID && ! $this->tableOrder->activeOrder)) {
 
             $orderNumberData = Order::generateOrderNumber(branch());
@@ -3255,7 +3258,8 @@ class Pos extends Component
             }
 
             $order = ($this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail);
-            $order->update([
+            $statusBeforeSave = (string) $order->status;
+            $updatePayload = [
                 'date_time' => now(),
                 'order_type' => $this->orderType,
                 'order_type_id' => $this->orderTypeId,
@@ -3270,10 +3274,15 @@ class Pos extends Component
                 'total' => $this->total,
                 'delivery_fee' => ($this->orderType == 'delivery' ? $this->deliveryFee : 0),
                 'delivery_app_id' => ($this->orderType == 'delivery' ? $this->normalizeDeliveryAppId() : null),
-                'status' => $status,
                 'order_status' => $this->orderStatus ?? 'confirmed',
                 'hotel_reservation_id' => ($this->orderType === 'room_service' ? $this->selectedRoomReservationId : null),
-            ]);
+            ];
+            // New KOT on billed/paid/payment_due: do not demote status back to kot
+            // (Vue append_kot parity). Payment sync below may move paid → billed.
+            if (! ($action === 'kot' && in_array($statusBeforeSave, ['billed', 'paid', 'payment_due'], true))) {
+                $updatePayload['status'] = $status;
+            }
+            $order->update($updatePayload);
         }
 
         $this->syncOrderExtras($order);
@@ -3757,6 +3766,29 @@ class Pos extends Component
             $this->setCustomerDisplayStatus('billed');
         }
 
+        $order->refresh();
+        if (in_array((string) $order->status, ['paid', 'payment_due'], true)) {
+            try {
+                OrderPaymentBalanceSync::reconcileAfterTotalChangeForUi(
+                    $order->fresh(['payments']),
+                    $appendOnlyKotSave || $status === 'kot' || ($secondAction === 'bill' && $thirdAction === 'payment')
+                );
+            } catch (\RuntimeException $e) {
+                $this->alert('warning', $e->getMessage(), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+            }
+            $order->refresh();
+        }
+
+        $walkInPaymentRequired = in_array((string) $statusBeforeSave, ['paid', 'payment_due'], true)
+            && ! $order->canRecordDueBalance()
+            && (string) $order->status === 'billed'
+            && $order->outstandingAmount() > 0.0001;
+
         Table::where('id', $this->tableId)->update([
             'available_status' => $tableStatus,
         ]);
@@ -3774,6 +3806,16 @@ class Pos extends Component
             if ($secondAction == 'print') {
                 // Check if the 'kitchen' package is enabled
                 $this->printKot($order, $kot, $kotIds);
+            }
+
+            if ($walkInPaymentRequired) {
+                $this->alert('warning', __('modules.order.walkInPaidKotRequiresPayment'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'timer' => 6000,
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
             }
 
             if ($this->orderID) {

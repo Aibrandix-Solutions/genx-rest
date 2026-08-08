@@ -841,7 +841,7 @@ class PosVueOrderController extends Controller
 
                 $order->update($updatePayload);
             } else {
-                $statusBeforeSave = null;
+                $statusBeforeSave = null; // new order — never a paid walk-in add-on
                 $numberData = Order::generateOrderNumber($branch);
 
                 $order = Order::create([
@@ -1293,10 +1293,12 @@ class PosVueOrderController extends Controller
             }
 
             if (in_array($statusBeforeSave, ['paid', 'payment_due'], true)) {
+                // New KOT (append) on a paid walk-in: keep the kitchen ticket, revert to
+                // billed (no anonymous due). KOT+Bill+Payment already opts into this path.
                 OrderPaymentBalanceSync::syncPostPaymentBalance(
                     $order->fresh('payments'),
                     $total,
-                    $opensImmediatePayment
+                    $opensImmediatePayment || $appendKot
                 );
             }
 
@@ -1385,16 +1387,14 @@ class PosVueOrderController extends Controller
                 }
             }
 
-            // Sync the fields written by the final update() back onto the in-memory
-            // model so the return value is accurate without a separate SELECT.
-            $order->sub_total = round($subtotal, 2);
-            $order->total = $total;
-            $order->total_tax_amount = round($totalTax, 2);
-            $order->discount_type = $discountType;
-            $order->discount_value = $discountType ? round($discountValue, 2) : null;
-            $order->discount_amount = $discountAmount > 0 ? $discountAmount : null;
-            // $status is already 'billed' for action=bill or billAfterKot, 'kot' otherwise.
-            $order->status = $status;
+            // Refresh so response status matches DB (walk-in paid add-on → billed).
+            $order->refresh();
+
+            $outstanding = round((float) $order->outstandingAmount(), 2);
+            $walkInPaymentRequired = in_array($statusBeforeSave, ['paid', 'payment_due'], true)
+                && ! $order->canRecordDueBalance()
+                && (string) $order->status === 'billed'
+                && $outstanding > 0.0001;
 
             return [
                 'order' => $order,
@@ -1402,6 +1402,9 @@ class PosVueOrderController extends Controller
                 'kot_ids' => $kotIds,
                 'kot_print_targets' => $kotPrintTargets,
                 'is_update' => $isUpdate,
+                'walk_in_payment_required' => $walkInPaymentRequired,
+                'outstanding_amount' => $outstanding,
+                'amount_paid' => (float) ($order->amount_paid ?? 0),
             ];
         });
 
@@ -1449,6 +1452,9 @@ class PosVueOrderController extends Controller
                 'status' => $result['order']->status,
                 'sub_total' => (float) $result['order']->sub_total,
                 'total' => (float) $result['order']->total,
+                'amount_paid' => (float) ($result['amount_paid'] ?? $result['order']->amount_paid ?? 0),
+                'outstanding_amount' => (float) ($result['outstanding_amount'] ?? 0),
+                'walk_in_payment_required' => (bool) ($result['walk_in_payment_required'] ?? false),
                 'should_open_payment_modal' => $billFollowUp['open_payment'] || ($action === 'bill' && $openPayment),
                 'next' => [
                     'secondary_action' => $billFollowUp['secondary_action'],
