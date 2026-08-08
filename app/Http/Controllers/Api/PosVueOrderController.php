@@ -484,7 +484,7 @@ class PosVueOrderController extends Controller
                     'taxes' => $taxesPayload,
                     'charges' => $chargesPayload,
                     'total_tax_amount' => (float) ($order->total_tax_amount ?? 0),
-                    'balance_returned' => (float) $order->payments->sum(fn ($p) => max(0, (float) ($p->balance ?? 0))),
+                    'balance_returned' => self::displayBalanceReturned($order),
                     'delivery_executive_id' => $order->delivery_executive_id ? (int) $order->delivery_executive_id : null,
                     'delivery_fee' => (float) ($order->delivery_fee ?? 0),
                     'waiter_id' => $order->waiter_id ? (int) $order->waiter_id : null,
@@ -1657,6 +1657,21 @@ class PosVueOrderController extends Controller
                     $isDueMethod = $paymentMethod === 'due';
                     $isRoomCharge = $paymentMethod === 'room_charge';
                     $rawAmount = max(0, (float) ($validated['amount'] ?? 0));
+                    $alreadyPaid = (float) $order->nonDuePaymentsSum();
+                    $orderTotal = round((float) $order->total, 2);
+                    // POS sometimes seeds the amount field with the order total after
+                    // a paid + New KOT shortfall. Treat that as "pay remaining due",
+                    // not a giant cash-back (which showed up as Balance Returned).
+                    if (
+                        ! $isDueMethod
+                        && ! $isRoomCharge
+                        && $alreadyPaid > $epsilon
+                        && $outstanding > $epsilon
+                        && abs($rawAmount - $orderTotal) <= $epsilon
+                        && $rawAmount > $outstanding + $epsilon
+                    ) {
+                        $rawAmount = $outstanding;
+                    }
                     $netPay = ($isDueMethod || $isRoomCharge) ? 0.0 : min($rawAmount, $outstanding);
                     $returnAmount = ($isDueMethod || $isRoomCharge) ? 0.0 : max(0, round($rawAmount - $outstanding, 2));
 
@@ -2090,5 +2105,32 @@ class PosVueOrderController extends Controller
                 'kot_print_targets' => $kotPrintTargets,
             ]
         ]);
+    }
+
+    /**
+     * Cash change for the drawer/receipt. Drops "balance" rows created when the
+     * client tendered the full order total against a remaining shortfall.
+     */
+    private static function displayBalanceReturned(Order $order): float
+    {
+        $payments = $order->payments
+            ->filter(fn ($payment) => (string) $payment->payment_method !== 'due')
+            ->sortBy('id')
+            ->values();
+
+        $runningPaid = 0.0;
+        $change = 0.0;
+
+        foreach ($payments as $payment) {
+            $amount = round((float) $payment->amount, 2);
+            $balance = max(0, round((float) ($payment->balance ?? 0), 2));
+            if ($balance > 0 && $runningPaid > 0.0001 && abs($balance - $runningPaid) <= 0.05) {
+                $balance = 0.0;
+            }
+            $change += $balance;
+            $runningPaid = round($runningPaid + $amount, 2);
+        }
+
+        return round($change, 2);
     }
 }

@@ -138,6 +138,7 @@
             :saving="vuePaymentSaving"
             :submitting="vuePaymentSubmitting"
             :show-room-charge="roomServiceEnabled"
+            :preloaded-order="vuePaymentPreloadedOrder"
             @close="closeVuePaymentModal"
             @submit="handleVuePaymentSubmit"
             @open-advanced="openAdvancedPaymentFromVue"
@@ -330,7 +331,25 @@ const vuePaymentOrderNumber = ref("");
 const vuePaymentDueAmount = ref(0);
 const vuePaymentSaving = ref(false);
 const vuePaymentSubmitting = ref(false);
+const vuePaymentPreloadedOrder = computed(() => {
+    if (!vuePaymentOrderId.value) {
+        return null;
+    }
+    return {
+        id: Number(vuePaymentOrderId.value),
+        total: Number(orderPayableTotal.value || 0),
+        amount_paid: Number(orderAmountPaid.value || 0),
+        due_amount: Number(
+            orderDueAmount.value !== null && orderDueAmount.value !== undefined
+                ? orderDueAmount.value
+                : vuePaymentDueAmount.value || 0
+        ),
+        show_room_charge: !!roomServiceEnabled.value,
+    };
+});
 const orderPayableTotal = ref(0);
+const orderAmountPaid = ref(0);
+const orderDueAmount = ref(null);
 const pendingPaymentPayload = ref(null);
 
 // Order data
@@ -1611,7 +1630,10 @@ watch(
 );
 
 watch(orderPayableTotal, (newVal) => {
-    if (showVuePaymentModal.value) {
+    // Only seed due from the full total when nothing has been collected yet.
+    // After a paid order + New KOT, due is the shortfall — never overwrite it
+    // with order.total (that made Add Payment ask for the whole bill again).
+    if (showVuePaymentModal.value && Number(orderAmountPaid.value || 0) <= 0.0001) {
         vuePaymentDueAmount.value = Number(newVal || 0);
     }
 });
@@ -1953,12 +1975,28 @@ const resetVuePaymentState = () => {
     vuePaymentSubmitting.value = false;
 };
 
+const resolvePaymentDueAmount = (fallbackTotal = null) => {
+    const paid = Number(orderAmountPaid.value || 0);
+    if (paid > 0.0001) {
+        if (orderDueAmount.value !== null && orderDueAmount.value !== undefined) {
+            return Math.max(0, Number(orderDueAmount.value));
+        }
+        return Math.max(0, Number(orderPayableTotal.value || 0) - paid);
+    }
+    if (orderDueAmount.value !== null && orderDueAmount.value !== undefined && orderId.value) {
+        return Math.max(0, Number(orderDueAmount.value));
+    }
+    return Number(
+        fallbackTotal ?? orderPayableTotal.value ?? estimatePayableTotal.value ?? 0
+    );
+};
+
 const openVuePaymentModal = (opts = {}) => {
     vuePaymentOrderId.value = opts.orderId ? Number(opts.orderId) : null;
     vuePaymentOrderNumber.value =
         opts.orderNumber || orderNumber.value || (opts.orderId ? `Order #${opts.orderId}` : "New order");
     vuePaymentDueAmount.value = Number(
-        opts.total ?? orderPayableTotal.value ?? estimatePayableTotal.value ?? 0
+        opts.dueAmount ?? opts.total ?? resolvePaymentDueAmount()
     );
     vuePaymentSaving.value = !!opts.saving;
     vuePaymentSubmitting.value = false;
@@ -1987,10 +2025,20 @@ const syncVuePaymentAfterSave = (payload = {}) => {
     if (payload.total !== undefined && payload.total !== null) {
         orderPayableTotal.value = Number(payload.total);
     }
+    if (payload.amount_paid !== undefined && payload.amount_paid !== null) {
+        orderAmountPaid.value = Number(payload.amount_paid);
+    }
+    if (payload.outstanding_amount !== undefined && payload.outstanding_amount !== null) {
+        orderDueAmount.value = Number(payload.outstanding_amount);
+    } else if (payload.due_amount !== undefined && payload.due_amount !== null) {
+        orderDueAmount.value = Number(payload.due_amount);
+    }
     const due =
         payload.outstanding_amount !== undefined && payload.outstanding_amount !== null
             ? Number(payload.outstanding_amount)
-            : Number(payload.total ?? vuePaymentDueAmount.value);
+            : payload.due_amount !== undefined && payload.due_amount !== null
+                ? Number(payload.due_amount)
+                : resolvePaymentDueAmount(payload.total ?? vuePaymentDueAmount.value);
     if (!Number.isNaN(due)) {
         vuePaymentDueAmount.value = due;
     }
@@ -2002,10 +2050,9 @@ const openPaymentInPlace = (id) => {
         return false;
     }
 
-    // Instant Vue modal — no Livewire network round-trip
     return openVuePaymentModal({
         orderId: id,
-        total: orderPayableTotal.value || estimatePayableTotal.value,
+        dueAmount: resolvePaymentDueAmount(),
         saving: false,
     });
 };
@@ -2570,6 +2617,8 @@ const clearCartAfterSave = () => {
     hotelReservationId.value = null;
     hotelReservation.value = null;
     orderPayableTotal.value = 0;
+    orderAmountPaid.value = 0;
+    orderDueAmount.value = null;
     calculateTaxes();
     resetRewardState();
 };
@@ -2926,8 +2975,9 @@ const runSaveOrder = async (...actions) => {
                             resultPayload.formatted_order_number ||
                             resultPayload.order_number ||
                             orderNumber.value,
-                        total: Number(
+                        dueAmount: Number(
                             resultPayload.outstanding_amount ??
+                                resultPayload.due_amount ??
                                 resultPayload.total ??
                                 estimatePayableTotal.value
                         ),
@@ -2983,6 +3033,12 @@ const runSaveOrder = async (...actions) => {
                     if (resultPayload.total !== undefined && resultPayload.total !== null) {
                         orderPayableTotal.value = Number(resultPayload.total);
                     }
+                    if (resultPayload.amount_paid !== undefined && resultPayload.amount_paid !== null) {
+                        orderAmountPaid.value = Number(resultPayload.amount_paid);
+                    }
+                    if (outstandingAmount !== null && !Number.isNaN(outstandingAmount)) {
+                        orderDueAmount.value = outstandingAmount;
+                    }
                     const collectNow = await showPosConfirm(
                         "New items aren't paid. Collect payment now, or attach a customer to leave a due.",
                         {
@@ -3000,9 +3056,9 @@ const runSaveOrder = async (...actions) => {
                                 resultPayload.formatted_order_number ||
                                 resultPayload.order_number ||
                                 orderNumber.value,
-                            total:
+                            dueAmount:
                                 outstandingAmount ??
-                                Number(resultPayload.total ?? estimatePayableTotal.value),
+                                resolvePaymentDueAmount(resultPayload.total),
                             saving: false,
                         });
                         if (!openedPayment) {
@@ -3988,6 +4044,16 @@ const applyOrderPayload = (payload, activeOrderId) => {
     extraCharges.value = Array.isArray(payload.extra_charges) ? payload.extra_charges : [];
     pickupDateTime.value = payload.pickup_datetime || "";
     orderPayableTotal.value = Number(payload.total || 0);
+    if (payload.amount_paid !== undefined && payload.amount_paid !== null) {
+        orderAmountPaid.value = Number(payload.amount_paid);
+    }
+    if (payload.due_amount !== undefined && payload.due_amount !== null) {
+        orderDueAmount.value = Number(payload.due_amount);
+    } else if (payload.outstanding_amount !== undefined && payload.outstanding_amount !== null) {
+        orderDueAmount.value = Number(payload.outstanding_amount);
+    } else if (orderAmountPaid.value > 0.0001) {
+        orderDueAmount.value = Math.max(0, orderPayableTotal.value - orderAmountPaid.value);
+    }
 
     // Legacy parity (Pos.php mount): hydrate per-order custom extras when the
     // server includes them (only sent if allow_custom_order_extras is on).

@@ -398,9 +398,9 @@
                 <span>Due Amount</span>
                 <span>{{ formatCurrency(displayOrder.due_amount) }}</span>
               </div>
-              <div class="flex justify-between text-gray-400 text-xs">
+              <div v-if="(displayOrder.balance_returned || 0) > 0.0001" class="flex justify-between text-gray-400 text-xs">
                 <span>Balance Returned</span>
-                <span>{{ formatCurrency(displayOrder.balance_returned || 0) }}</span>
+                <span>{{ formatCurrency(displayOrder.balance_returned) }}</span>
               </div>
               <div v-if="displayOrder.reward_points_earned > 0" class="flex justify-between text-amber-500 pt-1 border-t border-dashed border-gray-200 dark:border-gray-600">
                 <span>Points awarded</span>

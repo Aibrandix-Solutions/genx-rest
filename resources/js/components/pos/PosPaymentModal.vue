@@ -26,7 +26,7 @@
                     </div>
                 </div>
                 <div class="text-right shrink-0">
-                    <div class="text-xl font-bold text-skin-base">{{ currencySymbol }}{{ formatMoney(dueAmount) }}</div>
+                    <div class="text-xl font-bold text-skin-base">{{ currencySymbol }}{{ formatMoney(effectiveDueAmount) }}</div>
                     <div v-if="saving || loadingOrder" class="text-xs text-amber-600 dark:text-amber-400">
                         {{ loadingOrder ? 'Loading order items…' : 'Saving order…' }}
                     </div>
@@ -133,7 +133,7 @@
                             </div>
                             <div class="flex justify-between font-semibold">
                                 <span>{{ (orderDetails?.amount_paid || preloadedOrder?.amount_paid) > 0 ? 'Balance Due' : 'Total' }}</span>
-                                <span>{{ currencySymbol }}{{ formatMoney(dueAmount) }}</span>
+                                <span>{{ currencySymbol }}{{ formatMoney(effectiveDueAmount) }}</span>
                             </div>
                             <div class="flex justify-between text-blue-600 dark:text-blue-400 font-medium">
                                 <span>Paying Now</span><span>{{ currencySymbol }}{{ formatMoney(payableAmount) }}</span>
@@ -734,8 +734,23 @@ const splitMethods = [
     { id: "due", label: "Due" },
 ];
 
+const effectiveDueAmount = computed(() => {
+    const details = orderDetails.value || props.preloadedOrder;
+    if (details) {
+        if (details.due_amount !== undefined && details.due_amount !== null) {
+            return Math.max(0, Number(details.due_amount));
+        }
+        const total = Number(details.total || 0);
+        const paid = Number(details.amount_paid || 0);
+        if (paid > 0.0001) {
+            return Math.max(0, Math.round((total - paid) * 100) / 100);
+        }
+    }
+    return Math.max(0, Number(props.dueAmount || 0));
+});
+
 const quickAmounts = computed(() => {
-    const base = Math.max(0, Number(props.dueAmount || 0));
+    const base = Math.max(0, Number(effectiveDueAmount.value || 0));
     const presets = [500, 1000, 2000, 5000];
     if (base > 0 && !presets.includes(Math.round(base))) {
         return [base, ...presets];
@@ -753,7 +768,7 @@ const payableAmount = computed(() => {
     return typed;
 });
 
-const remainingDue = computed(() => Math.max(0, Number(props.dueAmount || 0) - payableAmount.value));
+const remainingDue = computed(() => Math.max(0, Number(effectiveDueAmount.value || 0) - payableAmount.value));
 
 // Eager computation helper for extra charges of an order
 const calculateTotalExtraCharges = (orderVal) => {
@@ -883,13 +898,13 @@ const itemsSplitTotal = computed(() => {
 });
 
 const itemsRemainingAmount = computed(() => {
-    const outstanding = Number(props.dueAmount || 0);
+    const outstanding = Number(effectiveDueAmount.value || 0);
     return Math.max(0, outstanding - itemsSplitTotal.value);
 });
 
 // Equal Splits Computed Helpers
 const equalSplitAmount = computed(() => {
-    const outstanding = Number(props.dueAmount || 0);
+    const outstanding = Number(effectiveDueAmount.value || 0);
     if (numberOfSplits.value <= 0) return 0;
     return outstanding / numberOfSplits.value;
 });
@@ -900,12 +915,12 @@ const customSplitTotal = computed(() => {
 });
 
 const customRemainingDue = computed(() => {
-    const outstanding = Number(props.dueAmount || 0);
+    const outstanding = Number(effectiveDueAmount.value || 0);
     return Math.max(0, outstanding - customSplitTotal.value);
 });
 
 const customReturnAmount = computed(() => {
-    const outstanding = Number(props.dueAmount || 0);
+    const outstanding = Number(effectiveDueAmount.value || 0);
     return Math.max(0, customSplitTotal.value - outstanding);
 });
 
@@ -1099,7 +1114,7 @@ const canSubmit = computed(() => {
         return numberOfSplits.value >= 2;
     }
     if (splitType.value === "custom") {
-        const diff = Math.abs(customSplitTotal.value - Number(props.dueAmount || 0));
+        const diff = Math.abs(customSplitTotal.value - Number(effectiveDueAmount.value || 0));
         return customSplits.value.length >= 2 && diff < 0.05;
     }
     if (splitType.value === "items") {
@@ -1118,8 +1133,6 @@ const formatMoney = (value) => {
 const resetLocal = () => {
     paymentMethod.value = "cash";
     amountTouched.value = false;
-    amountInput.value = Number(props.dueAmount || 0) > 0 ? String(Number(props.dueAmount || 0)) : "";
-
     isSplit.value = false;
     splitType.value = null;
     numberOfSplits.value = 2;
@@ -1138,6 +1151,9 @@ const resetLocal = () => {
     // Pre-populate from the preloaded order prop (shallow copy to avoid prop mutation)
     // If not provided, clear so the lazy fetch path can fill it when needed.
     orderDetails.value = props.preloadedOrder ? { ...props.preloadedOrder } : null;
+    amountInput.value = Number(effectiveDueAmount.value || 0) > 0
+        ? String(Number(effectiveDueAmount.value || 0))
+        : "";
 };
 
 const setAmount = (value) => {
@@ -1242,10 +1258,11 @@ watch(paymentMethod, (newMethod) => {
 });
 
 watch(
-    () => props.dueAmount,
-    (next) => {
+    [() => props.dueAmount, effectiveDueAmount],
+    () => {
         if (props.show && !amountTouched.value) {
-            amountInput.value = Number(next || 0) > 0 ? String(Number(next || 0)) : "";
+            const next = Number(effectiveDueAmount.value || 0);
+            amountInput.value = next > 0 ? String(next) : "";
         }
     },
     { immediate: true }
