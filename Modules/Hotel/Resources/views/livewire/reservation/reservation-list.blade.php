@@ -27,7 +27,10 @@
 
                 <div class="lg:inline-flex items-center gap-4">
                     @if(user_can('create_reservation'))
-                    <x-button type='button' wire:click="$set('showCreateReservation', true)">New Reservation</x-button>
+                    <x-button type='button' wire:click="createNewReservation" wire:loading.attr="disabled" wire:target="createNewReservation">
+                        <span wire:loading.remove wire:target="createNewReservation">New Reservation</span>
+                        <span wire:loading wire:target="createNewReservation">Opening...</span>
+                    </x-button>
                     @endif
                 </div>
             </div>
@@ -140,9 +143,9 @@
                                             $canNoShow       = $reservation->status === 'confirmed' && user_can('edit_reservation');
                                             $canUndoCheckout = $reservation->status === 'checked_out' && user_can('check_out_guest');
                                             // Update, Cancel, Delete — permission-only (always visible regardless of status)
-                                            $canUpdate = user_can('edit_reservation');
-                                            $canCancel = user_can('edit_reservation');
-                                            $canDelete = user_can('delete_reservation');
+                                            $canUpdate = user_can('edit_reservation') && $reservation->status !== 'cancelled';
+                                            $canCancel = user_can('edit_reservation') && in_array($reservation->status, ['confirmed', 'checked_in']);
+                                            $canDelete = user_can('delete_reservation') && $reservation->status === 'cancelled';
                                             $hasActions = $canCheckIn || $canCheckout || $canAddCharge || $canFolio || $canNoShow || $canUndoCheckout || $canUpdate || $canCancel || $canDelete;
                                         @endphp
 
@@ -266,7 +269,7 @@
                                                     @if($canUpdate)
                                                         <button
                                                             @click="open = false"
-                                                            wire:click="confirmUpdateReservation({{ $reservation->id }})"
+                                                            wire:click="openUpdateReservation({{ $reservation->id }})"
                                                             class="w-full flex items-center gap-2 px-3 py-2 text-xs text-indigo-700 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition"
                                                         >
                                                             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
@@ -335,14 +338,57 @@
                     {{-- Guest Selection --}}
                     <div>
                         <x-label for="create_guest_id" value="Select Guest" />
-                        <select id="create_guest_id" wire:model="create_guest_id" class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm" required>
+                        <select
+                            id="create_guest_id"
+                            wire:model.live="create_guest_id"
+                            wire:key="guest-select-{{ $create_guest_id }}"
+                            class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"
+                            required
+                        >
                             <option value="">Select a Guest</option>
                             @foreach($guests as $guest)
-                                <option value="{{ $guest->id }}">{{ $guest->full_name }}</option>
+                                <option value="{{ $guest->id }}" @selected((string) $create_guest_id === (string) $guest->id)>{{ $guest->full_name }}</option>
                             @endforeach
                         </select>
                         <x-input-error for="create_guest_id" class="mt-2" />
-                        <p class="text-xs text-blue-600 mt-1 cursor-pointer hover:underline" wire:click="$set('showCreateGuest', true)">+ Create New Guest</p>
+                        @if(user_can('create_guest'))
+                            <button type="button" class="text-xs text-blue-600 mt-1 hover:underline" wire:click="toggleCreateGuest">
+                                {{ $showCreateGuest ? 'Cancel new guest' : '+ Create New Guest' }}
+                            </button>
+                        @endif
+
+                        @if($showCreateGuest)
+                            <div class="mt-3 space-y-3 rounded-lg border border-blue-200 bg-blue-50/60 p-3 dark:border-blue-800 dark:bg-blue-900/20" @keydown.enter.prevent>
+                                <p class="text-xs font-medium text-blue-800 dark:text-blue-200">The new guest will be selected automatically.</p>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <x-label for="new_guest_first_name" value="First Name" />
+                                        <x-input id="new_guest_first_name" type="text" class="block w-full mt-1" wire:model="new_guest_first_name" />
+                                        <x-input-error for="new_guest_first_name" class="mt-1" />
+                                    </div>
+                                    <div>
+                                        <x-label for="new_guest_last_name" value="Last Name" />
+                                        <x-input id="new_guest_last_name" type="text" class="block w-full mt-1" wire:model="new_guest_last_name" />
+                                        <x-input-error for="new_guest_last_name" class="mt-1" />
+                                    </div>
+                                </div>
+                                <div>
+                                    <x-label for="new_guest_email" value="Email" />
+                                    <x-input id="new_guest_email" type="email" class="block w-full mt-1" wire:model="new_guest_email" />
+                                    <x-input-error for="new_guest_email" class="mt-1" />
+                                </div>
+                                <div>
+                                    <x-label for="new_guest_phone" value="Phone" />
+                                    <x-input id="new_guest_phone" type="text" class="block w-full mt-1" wire:model="new_guest_phone" />
+                                    <x-input-error for="new_guest_phone" class="mt-1" />
+                                </div>
+                                <div class="flex justify-end">
+                                    <x-button type="button" wire:click="saveGuest" wire:loading.attr="disabled" wire:target="saveGuest">
+                                        Save Guest
+                                    </x-button>
+                                </div>
+                            </div>
+                        @endif
                     </div>
 
                     {{-- Dates & times --}}
@@ -686,13 +732,29 @@
                     >
                         <div class="flex items-center justify-between gap-3">
                             <h4 class="font-semibold text-gray-900 dark:text-white">Payment (Optional)</h4>
-                            @if($this->createEstimatedTotal > 0)
+                            @php $estimate = $this->createEstimatedBreakdown; @endphp
+                            @if($estimate['total'] > 0)
                                 <span class="text-sm text-gray-600 dark:text-gray-300">
-                                    Est. total:
-                                    <strong>{{ currency_format($this->createEstimatedTotal, restaurant()->currency_id) }}</strong>
+                                    Est. folio total:
+                                    <strong>{{ currency_format($estimate['total'], restaurant()->currency_id) }}</strong>
                                 </span>
                             @endif
                         </div>
+                        @if($estimate['total'] > 0)
+                            <div class="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-900/40 p-3 text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                                <div class="flex justify-between"><span>Room ({{ $estimate['nights'] }} {{ Str::plural('night', $estimate['nights']) }})</span><span>{{ currency_format($estimate['room'], restaurant()->currency_id) }}</span></div>
+                                @if($estimate['extra_occupancy'] > 0)
+                                    <div class="flex justify-between"><span>Extra occupancy</span><span>{{ currency_format($estimate['extra_occupancy'], restaurant()->currency_id) }}</span></div>
+                                @endif
+                                @if($estimate['tax'] > 0)
+                                    <div class="flex justify-between"><span>Tax</span><span>{{ currency_format($estimate['tax'], restaurant()->currency_id) }}</span></div>
+                                @endif
+                                @if($estimate['service'] > 0)
+                                    <div class="flex justify-between"><span>Service charge</span><span>{{ currency_format($estimate['service'], restaurant()->currency_id) }}</span></div>
+                                @endif
+                                <div class="flex justify-between font-semibold text-gray-800 dark:text-gray-100 pt-1 border-t border-gray-200 dark:border-gray-600"><span>Total at check-in</span><span>{{ currency_format($estimate['total'], restaurant()->currency_id) }}</span></div>
+                            </div>
+                        @endif
                         <p class="text-xs text-gray-500 dark:text-gray-400">
                             Collect full or partial payment now. Leave amount empty or 0 to skip. Payment will appear on the guest folio.
                         </p>
@@ -1122,49 +1184,6 @@
         </x-slot>
     </x-right-modal>
 
-    <x-right-modal wire:model.live="showCreateGuest">
-        <x-slot name="title">Add New Guest</x-slot>
-        <x-slot name="content">
-            <form wire:submit.prevent="saveGuest">
-                <div class="space-y-4">
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <x-label for="new_guest_first_name" value="First Name" />
-                            <x-input id="new_guest_first_name" type="text" class="block w-full mt-1" wire:model="new_guest_first_name" required />
-                            <x-input-error for="new_guest_first_name" class="mt-2" />
-                        </div>
-                        <div>
-                            <x-label for="new_guest_last_name" value="Last Name" />
-                            <x-input id="new_guest_last_name" type="text" class="block w-full mt-1" wire:model="new_guest_last_name" required />
-                            <x-input-error for="new_guest_last_name" class="mt-2" />
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <x-label for="new_guest_email" value="Email" />
-                        <x-input id="new_guest_email" type="email" class="block w-full mt-1" wire:model="new_guest_email" />
-                        <x-input-error for="new_guest_email" class="mt-2" />
-                    </div>
-
-                    <div>
-                        <x-label for="new_guest_phone" value="Phone" />
-                        <x-input id="new_guest_phone" type="text" class="block w-full mt-1" wire:model="new_guest_phone" />
-                        <x-input-error for="new_guest_phone" class="mt-2" />
-                    </div>
-                </div>
-
-                <div class="mt-6 flex justify-end gap-3">
-                    <x-button type="button" wire:click="$set('showCreateGuest', false)" class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
-                        Cancel
-                    </x-button>
-                    <x-button type="submit" wire:loading.attr="disabled">
-                        Save Guest
-                    </x-button>
-                </div>
-            </form>
-        </x-slot>
-    </x-right-modal>
-
     {{-- Check-In Modal --}}
     <x-right-modal wire:model.live="showCheckInModal">
         <x-slot name="title">Guest Check-In</x-slot>
@@ -1198,9 +1217,12 @@
                     </div>
 
                     {{-- Stay Total --}}
-                    <div class="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg flex justify-between items-center">
-                        <span class="font-semibold text-blue-800 dark:text-blue-200">Estimated Stay Total</span>
-                        <span class="font-bold text-blue-800 dark:text-blue-200 text-lg">{{ currency_format($checkInTotalAmount, restaurant()->currency_id) }}</span>
+                    <div class="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg">
+                        <div class="flex justify-between items-center">
+                            <span class="font-semibold text-blue-800 dark:text-blue-200">Estimated Folio Total</span>
+                            <span class="font-bold text-blue-800 dark:text-blue-200 text-lg">{{ currency_format($checkInTotalAmount, restaurant()->currency_id) }}</span>
+                        </div>
+                        <p class="text-xs text-blue-700 dark:text-blue-300 mt-1">Includes room nights, tax, and service charge per hotel settings.</p>
                     </div>
 
                     {{-- Advance Payment --}}

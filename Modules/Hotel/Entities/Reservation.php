@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
 
 class Reservation extends Model
 {
@@ -442,10 +443,192 @@ class Reservation extends Model
     }
 
     /**
-     * Get number of nights
+     * Each calendar night billed for this stay (same-day / day-use = 1 night).
+     *
+     * @return array<int, Carbon>
      */
-    public function getNumberOfNights()
+    public function getStayNightDates(): array
     {
-        return $this->check_in_date->diffInDays($this->checkout_date);
+        $checkIn = $this->check_in_date->copy()->startOfDay();
+        $checkOut = $this->checkout_date->copy()->startOfDay();
+
+        if ($checkIn->equalTo($checkOut)) {
+            return [$checkIn->copy()];
+        }
+
+        $nights = [];
+        $current = $checkIn->copy();
+
+        while ($current->lt($checkOut)) {
+            $nights[] = $current->copy();
+            $current->addDay();
+        }
+
+        return $nights;
+    }
+
+    /**
+     * Get number of billed nights (same-day stays count as 1).
+     */
+    public function getNumberOfNights(): int
+    {
+        return count($this->getStayNightDates());
+    }
+
+    /**
+     * Count how many stay nights fall within an inclusive date period.
+     */
+    public function countStayNightsInPeriod(Carbon $startDate, Carbon $endDate): int
+    {
+        $periodStart = $startDate->copy()->startOfDay();
+        $periodEnd = $endDate->copy()->startOfDay();
+
+        return collect($this->getStayNightDates())->filter(
+            fn (Carbon $night) => $night->gte($periodStart) && $night->lte($periodEnd)
+        )->count();
+    }
+
+    /**
+     * Estimated folio total before charges are posted (room + extra occupancy + tax + service).
+     *
+     * @return array{room: float, extra_occupancy: float, tax: float, service: float, total: float, nights: int}
+     */
+    public function estimateStayFolioTotal(?HotelSetting $settings = null): array
+    {
+        $this->loadMissing(['room.roomType']);
+        $settings = $settings ?? HotelSetting::where('branch_id', $this->branch_id)->first();
+
+        $roomTotal = $this->calculateRoomChargesTotal();
+        $nights = $this->getNumberOfNights();
+        $extraTotal = 0.0;
+
+        if ($this->room?->roomType && $nights > 0) {
+            $extraPerNight = $this->room->roomType->calculateExtraOccupancyCharges(
+                (int) $this->adults,
+                (int) $this->children,
+                0
+            );
+            $extraTotal = round($extraPerNight * $nights, 2);
+        }
+
+        $taxableBase = $roomTotal + $extraTotal;
+        $taxRate = $this->getEffectiveTaxRate();
+        $taxAmount = round($taxableBase * ($taxRate / 100), 2);
+
+        $serviceAmount = 0.0;
+        if ($settings && (float) $settings->service_charge_rate > 0) {
+            $serviceAmount = round(
+                ($taxableBase + $taxAmount) * ((float) $settings->service_charge_rate / 100),
+                2
+            );
+        }
+
+        return [
+            'room' => round($roomTotal, 2),
+            'extra_occupancy' => $extraTotal,
+            'tax' => $taxAmount,
+            'service' => $serviceAmount,
+            'total' => round($taxableBase + $taxAmount + $serviceAmount, 2),
+            'nights' => $nights,
+        ];
+    }
+
+    /**
+     * Post room-night, extra occupancy, tax, and service charges (skips if room nights already exist).
+     */
+    public function postRoomNightCharges(?HotelSetting $settings = null): bool
+    {
+        return DB::transaction(function () use ($settings) {
+            $reservation = static::query()->whereKey($this->id)->lockForUpdate()->first();
+
+            if (! $reservation) {
+                return false;
+            }
+
+            if ($reservation->charges()->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->exists()) {
+                return false;
+            }
+
+            $reservation->loadMissing(['room.roomType']);
+            $room = $reservation->room;
+            $roomType = $room?->roomType;
+
+            if (! $room || ! $roomType) {
+                return false;
+            }
+
+            $settings = $settings ?? HotelSetting::where('branch_id', $reservation->branch_id)->first();
+            $checkIn = $reservation->check_in_date->copy();
+            $roomChargesBase = 0.0;
+
+            foreach ($reservation->getStayNightDates() as $nightDate) {
+                $nightlyRate = $reservation->getNightlyRateForDate($nightDate);
+
+                RoomCharge::create([
+                    'branch_id' => $reservation->branch_id,
+                    'reservation_id' => $reservation->id,
+                    'charge_type' => RoomCharge::TYPE_ROOM_NIGHT,
+                    'description' => 'Room ' . $room->room_number . ' - ' . $nightDate->format('d M Y'),
+                    'amount' => $nightlyRate,
+                    'charge_date' => $nightDate->toDateString(),
+                ]);
+
+                $roomChargesBase += (float) $nightlyRate;
+            }
+
+            $nights = $reservation->getNumberOfNights();
+            $extraPerNight = $roomType->calculateExtraOccupancyCharges(
+                (int) $reservation->adults,
+                (int) $reservation->children,
+                0
+            );
+
+            if ($extraPerNight > 0 && $nights > 0) {
+                $extraTotal = round($extraPerNight * $nights, 2);
+
+                RoomCharge::create([
+                    'branch_id' => $reservation->branch_id,
+                    'reservation_id' => $reservation->id,
+                    'charge_type' => RoomCharge::TYPE_OTHER,
+                    'description' => 'Extra occupancy charges (' . $nights . ' night' . ($nights === 1 ? '' : 's') . ')',
+                    'amount' => $extraTotal,
+                    'charge_date' => $checkIn->toDateString(),
+                ]);
+
+                $roomChargesBase += $extraTotal;
+            }
+
+            $taxRate = $reservation->getEffectiveTaxRate();
+            $taxAmount = round($roomChargesBase * ($taxRate / 100), 2);
+
+            if ($taxAmount > 0) {
+                RoomCharge::create([
+                    'branch_id' => $reservation->branch_id,
+                    'reservation_id' => $reservation->id,
+                    'charge_type' => RoomCharge::TYPE_TAX,
+                    'description' => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
+                    'amount' => $taxAmount,
+                    'charge_date' => $checkIn->toDateString(),
+                ]);
+            }
+
+            if ($settings && (float) $settings->service_charge_rate > 0) {
+                $serviceBase = $roomChargesBase + $taxAmount;
+                $serviceAmount = round($serviceBase * ((float) $settings->service_charge_rate / 100), 2);
+
+                if ($serviceAmount > 0) {
+                    RoomCharge::create([
+                        'branch_id' => $reservation->branch_id,
+                        'reservation_id' => $reservation->id,
+                        'charge_type' => RoomCharge::TYPE_SERVICE,
+                        'description' => 'Service charge (' . number_format((float) $settings->service_charge_rate, 2, '.', '') . '%)',
+                        'amount' => $serviceAmount,
+                        'charge_date' => $checkIn->toDateString(),
+                    ]);
+                }
+            }
+
+            return true;
+        });
     }
 }

@@ -70,6 +70,7 @@ class HotelPaymentRecorder
 
             if ($surcharge > 0) {
                 RoomCharge::create([
+                    'branch_id' => $reservation->branch_id,
                     'reservation_id' => $reservation->id,
                     'charge_type' => RoomCharge::TYPE_SERVICE,
                     'description' => self::surchargeDescription($paymentMethod, $surchargeRate),

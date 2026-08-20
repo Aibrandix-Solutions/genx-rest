@@ -164,6 +164,8 @@ return [
         'addCharge' => 'Add Charge',
         'addPayment' => 'Add Payment',
         'printInvoice' => 'Print Invoice',
+        'printInvoiceThermal' => 'Print (Thermal)',
+        'printInvoiceA4' => 'Print (A4)',
         'recordPayment' => 'Record Payment',
         'currentBalance' => 'Current Balance',
         'paymentType' => 'Payment Type',

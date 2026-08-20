@@ -125,6 +125,9 @@ class UpdateMenuItem extends Component
             ->with(['translations', 'variations', 'prices', 'taxes', 'kotPlaces'])
             ->findOrFail($this->menuItemId);
 
+        $this->menuItem = app(MenuBranchProvisioningService::class)
+            ->peekCatalogFromSiblingIfEmpty($this->menuItem);
+
         $this->initializeMenuBranchSelection();
         $this->initializeCollections();
         $this->initializeLanguages();
@@ -141,7 +144,10 @@ class UpdateMenuItem extends Component
         $this->categoryList = ItemCategory::all();
         $this->menus = Menu::all();
         $this->taxes = Tax::where('restaurant_id', restaurant()->id)->get();
-        $this->orderTypes = OrderType::where('is_active', 1)->get();
+        $branchId = (int) ($this->menuItem->branch_id ?? branch()?->id ?? 0);
+        $this->orderTypes = $branchId > 0
+            ? app(MenuBranchProvisioningService::class)->activeOrderTypesForBranch($branchId)
+            : OrderType::where('is_active', 1)->get();
         $this->deliveryApps = DeliveryPlatform::where('is_active', 1)->get();
     }
 
@@ -239,19 +245,34 @@ class UpdateMenuItem extends Component
             ->whereNull('menu_item_variation_id')
             ->get();
 
+        if ($existingPrices->isEmpty()) {
+            $this->menuItem = app(MenuBranchProvisioningService::class)
+                ->backfillMenuItemFromSiblingIfEmpty($this->menuItem);
+
+            $existingPrices = MenuItemPrices::where('menu_item_id', $this->menuItem->id)
+                ->whereNull('menu_item_variation_id')
+                ->get();
+        }
+
         foreach ($existingPrices as $price) {
             if ($price->delivery_app_id) {
                 // Delivery platform price
                 $this->deliveryPrices[$price->delivery_app_id] = number_format((float)$price->final_price, 2);
                 $this->platformAvailability[$price->delivery_app_id] = (bool)$price->status;
             } else {
-                // Order type price
-                $this->orderTypePrices[$price->order_type_id] = (string)$price->final_price;
+                // Order type price — map stored id to this branch's order type id
+                $localOrderTypeId = $this->localOrderTypeIdForStoredPrice((int) $price->order_type_id);
+
+                if (! $localOrderTypeId) {
+                    continue;
+                }
+
+                $this->orderTypePrices[$localOrderTypeId] = (string) $price->final_price;
 
                 // Check if this is delivery order type to set base delivery price
-                $orderType = $this->orderTypes->firstWhere('id', $price->order_type_id);
+                $orderType = $this->orderTypes->firstWhere('id', $localOrderTypeId);
                 if ($orderType && strtolower($orderType->slug ?? $orderType->name) === 'delivery') {
-                    $this->baseDeliveryPrice = (string)$price->calculated_price;
+                    $this->baseDeliveryPrice = (string) $price->calculated_price;
                 }
             }
         }
@@ -271,10 +292,16 @@ class UpdateMenuItem extends Component
             // Sync itemPrice with the first non-delivery order type price from menu_item_prices
             // This ensures itemPrice reflects the actual stored price, not the outdated menu_items.price
             $firstNonDeliveryPrice = $existingPrices->first(function ($price) {
-                $orderType = $this->orderTypes->firstWhere('id', $price->order_type_id);
-                return !$price->delivery_app_id && 
-                       $orderType && 
-                       strtolower($orderType->slug ?? $orderType->name) !== 'delivery';
+                if ($price->delivery_app_id) {
+                    return false;
+                }
+
+                $localOrderTypeId = $this->localOrderTypeIdForStoredPrice((int) $price->order_type_id);
+                $orderType = $localOrderTypeId
+                    ? $this->orderTypes->firstWhere('id', $localOrderTypeId)
+                    : null;
+
+                return $orderType && strtolower($orderType->slug ?? $orderType->name) !== 'delivery';
             });
 
             if ($firstNonDeliveryPrice) {
@@ -325,13 +352,18 @@ class UpdateMenuItem extends Component
                 $this->variationDeliveryPrices[$index][$price->delivery_app_id] = number_format((float)$price->final_price, 2);
                 $this->variationPlatformAvailability[$index][$price->delivery_app_id] = (bool)$price->status;
             } else {
-                // Order type price
-                $this->variationOrderTypePrices[$index][$price->order_type_id] = (string)$price->final_price;
+                $localOrderTypeId = $this->localOrderTypeIdForStoredPrice((int) $price->order_type_id);
+
+                if (! $localOrderTypeId) {
+                    continue;
+                }
+
+                $this->variationOrderTypePrices[$index][$localOrderTypeId] = (string) $price->final_price;
 
                 // Check if this is delivery order type to set base delivery price
-                $orderType = $this->orderTypes->firstWhere('id', $price->order_type_id);
+                $orderType = $this->orderTypes->firstWhere('id', $localOrderTypeId);
                 if ($orderType && strtolower($orderType->slug ?? $orderType->name) === 'delivery') {
-                    $this->variationBaseDeliveryPrice[$index] = (string)$price->calculated_price;
+                    $this->variationBaseDeliveryPrice[$index] = (string) $price->calculated_price;
                 }
             }
         }
@@ -788,7 +820,8 @@ class UpdateMenuItem extends Component
             $this->updateVariations($menuItem);
         } else {
             // If variations are now disabled, delete all old variations
-            MenuItemVariation::where('menu_item_id', $menuItem->id)->delete();
+            $variationIds = $menuItem->variations()->pluck('id')->all();
+            app(MenuBranchProvisioningService::class)->deleteVariationsIfUnreferenced($variationIds);
             $this->updateItemPricing($menuItem);
         }
     }
@@ -836,7 +869,7 @@ class UpdateMenuItem extends Component
         // Delete variations that were removed (not in submitted list)
         $variationsToDelete = array_diff($existingVariationIds, $submittedVariationIds);
         if (!empty($variationsToDelete)) {
-            MenuItemVariation::whereIn('id', $variationsToDelete)->delete();
+            app(MenuBranchProvisioningService::class)->deleteVariationsIfUnreferenced($variationsToDelete);
         }
     }
 
@@ -873,6 +906,14 @@ class UpdateMenuItem extends Component
             'showCancelButton' => false,
             'cancelButtonText' => __('app.close')
         ]);
+    }
+
+    private function localOrderTypeIdForStoredPrice(int $storedOrderTypeId): ?int
+    {
+        return app(MenuBranchProvisioningService::class)->resolveOrderTypeIdForBranch(
+            (int) $this->menuItem->branch_id,
+            $storedOrderTypeId
+        );
     }
 
     private function clearTranslationCache(): void

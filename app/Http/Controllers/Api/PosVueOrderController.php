@@ -668,24 +668,75 @@ class PosVueOrderController extends Controller
                 ->map(fn ($id) => (int) $id)
                 ->unique();
 
-            foreach ($comboPackIdsInRequest as $comboPackId) {
-                $cp = ComboPack::with(['comboPackItems.menuItem.recipes.inventoryItem'])->find($comboPackId);
-                abort_if(! $cp || (int) $cp->branch_id !== (int) $branch->id, 422, 'Invalid combo pack.');
-                abort_if(! $cp->isAvailable(), 422, __('modules.combo.comboNotAvailable'));
-                $stockResult = $cp->validateStock();
-                abort_if(! $stockResult['valid'], 422, (string) ($stockResult['message'] ?? 'Combo stock validation failed.'));
+            $comboPacksById = collect();
+            if ($comboPackIdsInRequest->isNotEmpty()) {
+                $comboPacksById = ComboPack::query()
+                    ->with([
+                        'comboPackItems.menuItem.recipes.inventoryItem',
+                        'comboPackItems.menuItemVariation',
+                    ])
+                    ->whereIn('id', $comboPackIdsInRequest->all())
+                    ->get()
+                    ->keyBy('id');
+
+                foreach ($comboPackIdsInRequest as $comboPackId) {
+                    $cp = $comboPacksById->get($comboPackId);
+                    abort_if(! $cp || (int) $cp->branch_id !== (int) $branch->id, 422, 'Invalid combo pack.');
+                    abort_if(! $cp->isAvailable(), 422, __('modules.combo.comboNotAvailable'));
+                    $stockResult = $cp->validateStock();
+                    abort_if(! $stockResult['valid'], 422, (string) ($stockResult['message'] ?? 'Combo stock validation failed.'));
+                }
             }
 
+            $menuItemIds = collect($validated['lines'] ?? [])
+                ->pluck('menu_item_id')
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            $menuItemsById = $menuItemIds === []
+                ? collect()
+                : MenuItem::query()->with('taxes')->whereIn('id', $menuItemIds)->get()->keyBy('id');
+
+            $variationIds = collect($validated['lines'] ?? [])
+                ->pluck('menu_item_variation_id')
+                ->filter()
+                ->map(fn ($id) => (int) $id)
+                ->unique()
+                ->values()
+                ->all();
+
+            $variationsById = $variationIds === []
+                ? collect()
+                : MenuItemVariation::query()->whereIn('id', $variationIds)->get()->keyBy('id');
+
+            $allModifierOptionIds = collect($validated['lines'] ?? [])
+                ->flatMap(fn ($line) => array_keys($line['modifier_option_quantities'] ?? []))
+                ->map(fn ($id) => (int) $id)
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            $modifierOptionsById = $allModifierOptionIds === []
+                ? collect()
+                : ModifierOption::query()->whereIn('id', $allModifierOptionIds)->get()->keyBy('id');
+
             foreach ($validated['lines'] as $line) {
-                $menuItem = MenuItem::query()->with('taxes')->findOrFail((int) $line['menu_item_id']);
+                $menuItem = $menuItemsById->get((int) $line['menu_item_id']);
+                abort_if(! $menuItem, 422, 'Invalid menu item.');
                 $variation = null;
                 $variationId = isset($line['menu_item_variation_id']) ? (int) $line['menu_item_variation_id'] : null;
 
                 if ($variationId) {
-                    $variation = MenuItemVariation::query()
-                        ->where('id', $variationId)
-                        ->where('menu_item_id', $menuItem->id)
-                        ->first();
+                    $variation = $variationsById->get($variationId);
+                    abort_if(
+                        ! $variation || (int) $variation->menu_item_id !== (int) $menuItem->id,
+                        422,
+                        'Invalid menu item variation.'
+                    );
                 }
 
                 $qty = (int) $line['qty'];
@@ -708,7 +759,7 @@ class PosVueOrderController extends Controller
                     ->all();
 
                 $modifierOptions = ! empty($modifierQtyMap)
-                    ? ModifierOption::query()->whereIn('id', array_keys($modifierQtyMap))->get()->keyBy('id')
+                    ? $modifierOptionsById->only(array_keys($modifierQtyMap))
                     : collect();
 
                 $basePrice = $variation
@@ -719,7 +770,7 @@ class PosVueOrderController extends Controller
                 $comboDiscountPerUnit = 0.0;
 
                 if ($isComboItem) {
-                    $combo = ComboPack::query()
+                    $combo = $comboPacksById->get($comboPackId) ?? ComboPack::query()
                         ->with(['comboPackItems.menuItem', 'comboPackItems.menuItemVariation'])
                         ->findOrFail($comboPackId);
 

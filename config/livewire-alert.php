@@ -12,8 +12,7 @@ return [
         'text' => null,
         'showCancelButton' => false,
         'showConfirmButton' => false,
-        // Avoid potential reflow on some mobile browsers and speed up rendering
-        'heightAuto' => false
+        // Do not set heightAuto with toast:true — SweetAlert2 warns it is incompatible
     ],
     'confirm' => [
         'icon' => 'warning',
@@ -25,7 +24,6 @@ return [
         'cancelButtonText' => 'No',
         'confirmButtonColor' => '#3085d6',
         'cancelButtonColor' => '#d33',
-        // Avoid potential reflow on some mobile browsers and speed up rendering
-        'heightAuto' => false
+        'heightAuto' => false,
     ]
 ];

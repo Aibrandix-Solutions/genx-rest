@@ -173,7 +173,7 @@ class PosController extends Controller
                         : null,
                     'type' => (string) ($item->type ?? 'veg'),
                     'price' => (float) ($item->price ?? 0),
-                    'item_photo_url' => (string) ($item->item_photo_url ?? ''),
+                    'item_photo_url' => $this->resolvePosItemPhotoUrl($item),
                     'in_stock' => (bool) ($item->in_stock ?? true),
                     'variations_count' => (int) ($item->variations_count ?? 0),
                     'modifier_groups_count' => (int) ($item->modifier_groups_count ?? 0),
@@ -512,6 +512,34 @@ class PosController extends Controller
     {
         abort_if((!in_array('Customer Display', restaurant_modules())), 403);
         return view('pos.customer-order-board');
+    }
+
+    /**
+     * POS image URL that prefers empty string when the upload file is missing,
+     * so the browser does not spam 404s for broken menu photos.
+     */
+    private function resolvePosItemPhotoUrl(MenuItem $item): string
+    {
+        $image = $item->image ?? null;
+
+        if (! $image) {
+            return '';
+        }
+
+        if (in_array($image, MenuItem::FILENAME_TO_EXCLUDE, true)) {
+            return (string) ($item->item_photo_url ?? '');
+        }
+
+        // Local disk only: skip missing uploads (S3 URLs are left as-is).
+        $defaultDisk = (string) config('filesystems.default');
+        if (! in_array($defaultDisk, \App\Models\StorageSetting::S3_COMPATIBLE_STORAGE, true)) {
+            $relative = \App\Helper\Files::UPLOAD_FOLDER . '/item/' . $image;
+            if (! is_file(public_path($relative))) {
+                return '';
+            }
+        }
+
+        return (string) ($item->item_photo_url ?? '');
     }
 
 }

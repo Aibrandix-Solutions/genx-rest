@@ -2,10 +2,10 @@ name: Deploy digierp.cloud VPS
 
 on:
   push:
-    branches: [genxrest]
+    branches: [sharaf]
   workflow_dispatch:
 
-# Only one deploy at a time; cancel older runs so the latest genxrest code wins.
+# Only one deploy at a time; cancel older runs so the latest sharaf code wins.
 concurrency:
   group: deploy-digierp-cloud
   cancel-in-progress: true
@@ -16,11 +16,11 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      # Always deploy the genxrest branch, no matter how the workflow was triggered.
-      - name: Checkout genxrest branch
+      # Always deploy the sharaf branch, no matter how the workflow was triggered.
+      - name: Checkout sharaf branch
         uses: actions/checkout@v4
         with:
-          ref: genxrest
+          ref: sharaf
 
       - name: Confirm branch
         run: |
@@ -52,9 +52,8 @@ jobs:
             --exclude="node_modules" \
             --exclude="storage" \
             --exclude="bootstrap/cache" \
-            --exclude="public/user-uploads" \
             -e "ssh -i /tmp/vps_key -p ${{ secrets.VPS_SSH_PORT }} -o StrictHostKeyChecking=no -o IdentitiesOnly=yes" \
-            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/genxrest.digierp.cloud/public_html/
+            ./ ${{ secrets.VPS_SSH_USER }}@${{ secrets.VPS_SSH_HOST }}:/home/admin/domains/digierp.cloud/public_html/
 
       - name: SSH - Laravel Deploy Commands
         uses: appleboy/ssh-action@v1.0.3
@@ -66,7 +65,7 @@ jobs:
           script: |
             set -e
 
-            cd /home/admin/domains/genxrest.digierp.cloud/public_html
+            cd /home/admin/domains/digierp.cloud/public_html
 
             if [ ! -f .env ]; then
               echo "Missing .env file"
@@ -74,13 +73,11 @@ jobs:
             fi
 
             mkdir -p storage/app
-            mkdir -p storage/framework/cache/data
+            mkdir -p storage/framework/cache
             mkdir -p storage/framework/sessions
             mkdir -p storage/framework/views
             mkdir -p storage/logs
             mkdir -p bootstrap/cache
-            mkdir -p public/user-uploads/item
-            mkdir -p public/user-uploads/temp
 
             composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
 
@@ -91,7 +88,7 @@ jobs:
             php artisan route:cache
             php artisan view:cache
 
-            chmod -R 775 storage bootstrap/cache public/user-uploads
-            chown -R admin:admin /home/admin/domains/genxrest.digierp.cloud/public_html || true
+            chmod -R 775 storage bootstrap/cache
+            chown -R admin:admin /home/admin/domains/digierp.cloud/public_html || true
 
             echo "Deployment completed successfully"

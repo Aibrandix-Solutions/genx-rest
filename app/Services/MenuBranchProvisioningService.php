@@ -10,6 +10,7 @@ use App\Models\MenuItem;
 use App\Models\MenuItemPrices;
 use App\Models\MenuItemTranslation;
 use App\Models\MenuItemVariation;
+use App\Models\OrderType;
 use App\Scopes\BranchScope;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -186,7 +187,12 @@ class MenuBranchProvisioningService
         $groupUuid = $catalogGroupUuid ?? $this->ensureCatalogGroupUuid($sourceItem);
 
         if ($existing = $this->findMenuItemByCatalogGroup($groupUuid, $targetBranchId)) {
-            return $existing;
+            $this->syncMenuItemPricingFromSource(
+                $sourceItem->fresh(['prices', 'variations']),
+                $existing->fresh(['variations'])
+            );
+
+            return $existing->fresh();
         }
 
         $sourceMenu = Menu::withoutGlobalScope(BranchScope::class)->find($sourceItem->menu_id);
@@ -210,6 +216,8 @@ class MenuBranchProvisioningService
         $categoryId = $sourceCategory
             ? $this->resolveCategoryIdForBranch($sourceCategory, $targetBranchId)
             : null;
+
+        $this->ensureDefaultOrderTypesForBranch($targetBranchId);
 
         $kitchenIds = $this->validateKitchenIdsForBranch(
             $targetBranchId,
@@ -241,7 +249,12 @@ class MenuBranchProvisioningService
                     } catch (QueryException $e) {
                         if ($this->isDuplicateCatalogGroupBranchException($e)) {
                             if ($existing = $this->findMenuItemByCatalogGroup($groupUuid, $targetBranchId)) {
-                                return $existing;
+                                $this->syncMenuItemPricingFromSource(
+                                    $sourceItem->fresh(['prices', 'variations']),
+                                    $existing->fresh(['variations'])
+                                );
+
+                                return $existing->fresh();
                             }
                         }
 
@@ -268,18 +281,7 @@ class MenuBranchProvisioningService
                     }
 
                     foreach ($sourceItem->prices as $price) {
-                        MenuItemPrices::create([
-                            'menu_item_id' => $clone->id,
-                            'order_type_id' => $price->order_type_id,
-                            'delivery_app_id' => $price->delivery_app_id,
-                            'menu_item_variation_id' => $price->menu_item_variation_id
-                                ? ($variationMap[$price->menu_item_variation_id] ?? null)
-                                : null,
-                            'calculated_price' => $price->calculated_price,
-                            'final_price' => $price->final_price,
-                            'status' => $price->status,
-                            'override_price' => $price->override_price,
-                        ]);
+                        $this->copyMenuItemPriceRow($clone, $price, $targetBranchId, $variationMap);
                     }
 
                     if ($sourceItem->taxes->isNotEmpty()) {
@@ -332,6 +334,334 @@ class MenuBranchProvisioningService
     }
 
     /**
+     * Ensure standard restaurant order types exist for a branch (per-branch IDs differ).
+     */
+    public function ensureDefaultOrderTypesForBranch(int $branchId): void
+    {
+        $defaults = [
+            ['order_type_name' => 'Dine In', 'slug' => 'dine_in', 'type' => 'dine_in', 'is_default' => true],
+            ['order_type_name' => 'Delivery', 'slug' => 'delivery', 'type' => 'delivery', 'is_default' => true],
+            ['order_type_name' => 'Pickup', 'slug' => 'pickup', 'type' => 'pickup', 'is_default' => true],
+        ];
+
+        foreach ($defaults as $attributes) {
+            OrderType::withoutGlobalScopes()->firstOrCreate(
+                ['branch_id' => $branchId, 'slug' => $attributes['slug']],
+                array_merge($attributes, ['is_active' => true])
+            );
+        }
+    }
+
+    /**
+     * @return Collection<int, OrderType>
+     */
+    public function activeOrderTypesForBranch(int $branchId): Collection
+    {
+        $this->ensureDefaultOrderTypesForBranch($branchId);
+
+        return OrderType::withoutGlobalScopes()
+            ->where('branch_id', $branchId)
+            ->where('is_active', true)
+            ->orderBy('id')
+            ->get();
+    }
+
+    public function resolveOrderTypeIdForBranch(int $targetBranchId, int $sourceOrderTypeId): ?int
+    {
+        $source = OrderType::withoutGlobalScopes()->find($sourceOrderTypeId);
+
+        if (! $source) {
+            return null;
+        }
+
+        $slug = strtolower((string) ($source->slug ?: $source->type ?: ''));
+
+        if ($slug === '') {
+            return null;
+        }
+
+        $this->ensureDefaultOrderTypesForBranch($targetBranchId);
+
+        return OrderType::withoutGlobalScopes()
+            ->where('branch_id', $targetBranchId)
+            ->where('is_active', true)
+            ->where(function ($query) use ($slug) {
+                $query->whereRaw('LOWER(slug) = ?', [$slug])
+                    ->orWhereRaw('LOWER(type) = ?', [$slug]);
+            })
+            ->value('id');
+    }
+
+    /**
+     * @return array<int, int> source variation id => target variation id
+     */
+    public function syncMenuItemVariationsFromSource(MenuItem $sourceItem, MenuItem $targetItem): array
+    {
+        $sourceItem->loadMissing('variations');
+        $targetItem->loadMissing('variations');
+
+        $normalize = static fn ($name): string => mb_strtolower(trim((string) $name));
+        $sourceNames = $sourceItem->variations
+            ->map(fn ($variation) => $normalize($variation->variation))
+            ->filter()
+            ->values()
+            ->all();
+
+        $variationMap = [];
+
+        if ($sourceItem->variations->isEmpty()) {
+            foreach ($targetItem->variations as $targetVariation) {
+                $this->removeTargetVariationSafely($targetItem, $targetVariation);
+            }
+
+            $targetItem->update(['price' => $sourceItem->price]);
+
+            return $variationMap;
+        }
+
+        foreach ($sourceItem->variations as $sourceVariation) {
+            $sourceName = $normalize($sourceVariation->variation);
+
+            if ($sourceName === '') {
+                continue;
+            }
+
+            $targetVariation = $targetItem->variations->first(
+                fn ($variation) => $normalize($variation->variation) === $sourceName
+            );
+
+            if ($targetVariation) {
+                if ((string) $targetVariation->price !== (string) $sourceVariation->price) {
+                    $targetVariation->update(['price' => $sourceVariation->price]);
+                }
+
+                $variationMap[$sourceVariation->id] = $targetVariation->id;
+
+                continue;
+            }
+
+            $newVariation = MenuItemVariation::create([
+                'menu_item_id' => $targetItem->id,
+                'variation' => $sourceName,
+                'price' => $sourceVariation->price,
+            ]);
+
+            $variationMap[$sourceVariation->id] = $newVariation->id;
+        }
+
+        foreach ($targetItem->variations as $targetVariation) {
+            $targetName = $normalize($targetVariation->variation);
+
+            if (! in_array($targetName, $sourceNames, true)) {
+                $this->removeTargetVariationSafely($targetItem, $targetVariation);
+            }
+        }
+
+        $targetItem->update(['price' => 0]);
+
+        return $variationMap;
+    }
+
+    public function syncMenuItemPricingFromSource(MenuItem $sourceItem, MenuItem $targetItem): void
+    {
+        $sourceItem->loadMissing(['prices', 'variations']);
+        $targetItem->loadMissing(['variations']);
+
+        $targetBranchId = (int) $targetItem->branch_id;
+        $this->ensureDefaultOrderTypesForBranch($targetBranchId);
+
+        $variationMap = $this->syncMenuItemVariationsFromSource($sourceItem, $targetItem);
+        $targetItem->load('variations');
+
+        // Do not wipe sibling contextual prices when the source has none (e.g. quick
+        // edit modal only saved variation names/base prices).
+        if ($sourceItem->prices->isEmpty()) {
+            return;
+        }
+
+        MenuItemPrices::where('menu_item_id', $targetItem->id)->delete();
+
+        foreach ($sourceItem->prices as $price) {
+            $this->copyMenuItemPriceRow($targetItem, $price, $targetBranchId, $variationMap);
+        }
+    }
+
+    /**
+     * In-memory catalog preview for forms. Never writes to the database.
+     */
+    public function peekCatalogFromSiblingIfEmpty(MenuItem $menuItem): MenuItem
+    {
+        $menuItem->loadMissing(['variations', 'prices']);
+
+        if (! $menuItem->catalog_group_uuid) {
+            return $menuItem;
+        }
+
+        if ($menuItem->variations->isNotEmpty() || $menuItem->prices->isNotEmpty()) {
+            return $menuItem;
+        }
+
+        foreach ($this->siblingsInRestaurant($menuItem) as $sibling) {
+            if ((int) $sibling->id === (int) $menuItem->id) {
+                continue;
+            }
+
+            $sibling->loadMissing(['variations', 'prices']);
+
+            if ($sibling->variations->isEmpty() && $sibling->prices->isEmpty()) {
+                continue;
+            }
+
+            if ($menuItem->variations->isEmpty() && $sibling->variations->isNotEmpty()) {
+                $previewVariations = $sibling->variations->map(fn ($variation) => new MenuItemVariation([
+                    'menu_item_id' => $menuItem->id,
+                    'variation' => $variation->variation,
+                    'price' => $variation->price,
+                ]));
+
+                $menuItem->setRelation('variations', $previewVariations);
+            }
+
+            if ($menuItem->prices->isEmpty() && $sibling->prices->isNotEmpty()) {
+                $previewPrices = $sibling->prices->map(fn ($price) => new MenuItemPrices([
+                    'menu_item_id' => $menuItem->id,
+                    'order_type_id' => $price->order_type_id,
+                    'delivery_app_id' => $price->delivery_app_id,
+                    'menu_item_variation_id' => null,
+                    'calculated_price' => $price->calculated_price,
+                    'final_price' => $price->final_price,
+                    'status' => $price->status,
+                    'override_price' => $price->override_price,
+                ]));
+
+                $menuItem->setRelation('prices', $previewPrices);
+            }
+
+            return $menuItem;
+        }
+
+        return $menuItem;
+    }
+
+    public function backfillMenuItemFromSiblingIfEmpty(MenuItem $menuItem): MenuItem
+    {
+        $menuItem->loadMissing(['variations', 'prices']);
+
+        if (! $menuItem->catalog_group_uuid) {
+            return $menuItem;
+        }
+
+        foreach ($this->siblingsInRestaurant($menuItem) as $sibling) {
+            if ((int) $sibling->id === (int) $menuItem->id) {
+                continue;
+            }
+
+            $sibling->loadMissing(['variations', 'prices']);
+
+            if (! $this->menuItemNeedsCatalogBackfill($menuItem, $sibling)) {
+                continue;
+            }
+
+            $this->syncMenuItemPricingFromSource($sibling, $menuItem);
+
+            return $menuItem->fresh(['variations', 'prices', 'translations', 'taxes', 'kotPlaces']);
+        }
+
+        return $menuItem;
+    }
+
+    protected function menuItemNeedsCatalogBackfill(MenuItem $target, MenuItem $source): bool
+    {
+        if ($source->variations->isEmpty() && $source->prices->isEmpty()) {
+            return false;
+        }
+
+        // Only backfill when the target branch copy is completely empty — never
+        // overwrite a branch that already has its own catalog rows.
+        return $target->variations->isEmpty() && $target->prices->isEmpty();
+    }
+
+    /**
+     * Delete variations only when they are not referenced by orders, KOT, cart, etc.
+     *
+     * @param  array<int>  $variationIds
+     */
+    public function deleteVariationsIfUnreferenced(array $variationIds): void
+    {
+        foreach ($variationIds as $variationId) {
+            $variationId = (int) $variationId;
+
+            if ($variationId <= 0 || $this->variationIsReferenced($variationId)) {
+                continue;
+            }
+
+            MenuItemPrices::where('menu_item_variation_id', $variationId)->delete();
+            MenuItemVariation::where('id', $variationId)->delete();
+        }
+    }
+
+    protected function removeTargetVariationSafely(MenuItem $targetItem, MenuItemVariation $targetVariation): void
+    {
+        if ($this->variationIsReferenced((int) $targetVariation->id)) {
+            return;
+        }
+
+        MenuItemPrices::where('menu_item_id', $targetItem->id)
+            ->where('menu_item_variation_id', $targetVariation->id)
+            ->delete();
+
+        $targetVariation->delete();
+    }
+
+    protected function variationIsReferenced(int $variationId): bool
+    {
+        return DB::table('order_items')->where('menu_item_variation_id', $variationId)->exists()
+            || DB::table('kot_items')->where('menu_item_variation_id', $variationId)->exists()
+            || DB::table('cart_items')->where('menu_item_variation_id', $variationId)->exists()
+            || DB::table('combo_pack_items')->where('menu_item_variation_id', $variationId)->exists()
+            || DB::table('item_modifiers')->where('menu_item_variation_id', $variationId)->exists();
+    }
+
+    /**
+     * @param  array<int, int>  $variationMap
+     */
+    protected function copyMenuItemPriceRow(
+        MenuItem $targetItem,
+        MenuItemPrices $price,
+        int $targetBranchId,
+        array $variationMap
+    ): void {
+        $orderTypeId = null;
+
+        if ($price->order_type_id && ! $price->delivery_app_id) {
+            $orderTypeId = $this->resolveOrderTypeIdForBranch($targetBranchId, (int) $price->order_type_id);
+
+            if (! $orderTypeId) {
+                return;
+            }
+        }
+
+        $variationId = $price->menu_item_variation_id
+            ? ($variationMap[$price->menu_item_variation_id] ?? null)
+            : null;
+
+        if ($price->menu_item_variation_id && ! $variationId) {
+            return;
+        }
+
+        MenuItemPrices::create([
+            'menu_item_id' => $targetItem->id,
+            'order_type_id' => $orderTypeId ?? $price->order_type_id,
+            'delivery_app_id' => $price->delivery_app_id,
+            'menu_item_variation_id' => $variationId,
+            'calculated_price' => $price->calculated_price,
+            'final_price' => $price->final_price,
+            'status' => $price->status,
+            'override_price' => $price->override_price,
+        ]);
+    }
+
+    /**
      * @param  array<int|string>  $selectedBranchIds
      * @param  array<int, array<int|string>>  $kitchensByBranch
      * @param  array<int>  $existingBranchIds
@@ -358,6 +688,13 @@ class MenuBranchProvisioningService
                     $rawKitchens = $kitchensByBranch[$branchId] ?? $kitchensByBranch[(string) $branchId] ?? [];
                     $kitchenIds = $this->validateKitchenIdsForBranch($branchId, array_map('intval', (array) $rawKitchens));
                     $this->syncKitchensForMenuItem($sibling, $kitchenIds);
+
+                    if ($branchId !== (int) $sourceItem->branch_id) {
+                        $this->syncMenuItemPricingFromSource(
+                            $sourceItem->fresh(['prices', 'variations']),
+                            $sibling->fresh(['variations'])
+                        );
+                    }
                 }
 
                 continue;

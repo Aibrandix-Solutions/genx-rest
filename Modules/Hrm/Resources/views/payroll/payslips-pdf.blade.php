@@ -271,7 +271,21 @@
         </div>
 
         @if(!empty($row['payment_date']))
-        <div class="payment-date">Payment Date: <strong>{{ $row['payment_date'] }}</strong></div>
+        <div class="payment-date">
+            Payment Status: <strong>Paid</strong>
+            &nbsp;|&nbsp;
+            Payment Date: <strong>{{ $row['payment_date'] }}</strong>
+        </div>
+        @else
+        <div class="payment-date">Payment Status: <strong>Unpaid</strong></div>
+        @endif
+
+        @if((float)($row['etf'] ?? 0) > 0)
+        <div class="payment-date" style="margin-top:4px;">
+            ETF (Employer contribution{{ isset($row['etf_rate']) ? ' — ' . rtrim(rtrim(number_format((float)$row['etf_rate'], 2, '.', ''), '0'), '.') . '%' : '' }}):
+            <strong>{{ number_format((float)$row['etf'], 2) }}</strong>
+            <span style="color:#888;">(not deducted from net payable)</span>
+        </div>
         @endif
 
         {{-- ── Signatures ── --}}

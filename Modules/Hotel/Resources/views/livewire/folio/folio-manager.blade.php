@@ -69,8 +69,11 @@
                             @lang('hotel::modules.folio.issueRefund')
                         </button>
                         @endif
-                        <a href="{{ route('hotel.invoice', $reservation->id) }}?viewMode={{ $viewMode }}" target="_blank" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-stone-700 bg-white border border-stone-200 rounded-xl hover:bg-stone-50 transition dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700">
-                            @lang('hotel::modules.folio.printInvoice')
+                        <a href="{{ route('hotel.invoice', $reservation->id) }}?viewMode={{ $viewMode }}&format=thermal&width=80&thermal=1" target="_blank" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-stone-700 bg-white border border-stone-200 rounded-xl hover:bg-stone-50 transition dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700">
+                            @lang('hotel::modules.folio.printInvoiceThermal')
+                        </a>
+                        <a href="{{ route('hotel.invoice', $reservation->id) }}?viewMode={{ $viewMode }}&format=a4" target="_blank" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-stone-700 bg-white border border-stone-200 rounded-xl hover:bg-stone-50 transition dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700">
+                            @lang('hotel::modules.folio.printInvoiceA4')
                         </a>
                     </div>
                 </div>
