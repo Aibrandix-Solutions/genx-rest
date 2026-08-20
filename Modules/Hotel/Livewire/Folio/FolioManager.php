@@ -201,79 +201,10 @@ class FolioManager extends Component
         }
 
         DB::transaction(function () {
-            $roomType = $this->reservation->room->roomType;
-            $checkIn = Carbon::parse($this->reservation->check_in_date);
-            $checkOut = Carbon::parse($this->reservation->checkout_date);
             $settings = HotelSetting::first();
 
-            $roomChargesTotal = 0;
-            $currentDate = $checkIn->copy();
-            while ($currentDate->lt($checkOut)) {
-                $nightlyRate = $this->reservation->getNightlyRateForDate($currentDate);
-
-                RoomCharge::create([
-                    'branch_id'      => $this->reservation->branch_id,
-                    'reservation_id' => $this->reservation->id,
-                    'charge_type' => RoomCharge::TYPE_ROOM_NIGHT,
-                    'description' => 'Room ' . $this->reservation->room->room_number . ' - ' . $currentDate->format('d M Y'),
-                    'amount' => $nightlyRate,
-                    'charge_date' => $currentDate->toDateString(),
-                ]);
-
-                $roomChargesTotal += $nightlyRate;
-                $currentDate->addDay();
-            }
-
-            // Apply extra occupancy charges per night
-            $nights = $this->reservation->getNumberOfNights();
-            $extraOccupancyPerNight = $roomType->calculateExtraOccupancyCharges(
-                $this->reservation->adults,
-                $this->reservation->children,
-                0 // assuming no extra beds by default
-            );
-
-            if ($extraOccupancyPerNight > 0 && $nights > 0) {
-                RoomCharge::create([
-                    'branch_id'      => $this->reservation->branch_id,
-                    'reservation_id' => $this->reservation->id,
-                    'charge_type' => RoomCharge::TYPE_OTHER,
-                    'description' => 'Extra occupancy charges (' . $nights . ' nights)',
-                    'amount' => $extraOccupancyPerNight * $nights,
-                    'charge_date' => $checkIn->toDateString(),
-                ]);
-                $roomChargesTotal += $extraOccupancyPerNight * $nights;
-            }
-
-            // Apply tax on room charges
-            $taxRate = $this->reservation->getEffectiveTaxRate();
-            if ($taxRate > 0) {
-                $taxAmount = round($roomChargesTotal * ($taxRate / 100), 2);
-                if ($taxAmount > 0) {
-                    RoomCharge::create([
-                        'branch_id'      => $this->reservation->branch_id,
-                        'reservation_id' => $this->reservation->id,
-                        'charge_type' => RoomCharge::TYPE_TAX,
-                        'description' => 'Tax (' . number_format($taxRate, 2, '.', '') . '%)',
-                        'amount' => $taxAmount,
-                        'charge_date' => $checkIn->toDateString(),
-                    ]);
-                    $roomChargesTotal += $taxAmount;
-                }
-            }
-
-            // Apply service charge on room charges
-            if ($settings && $settings->service_charge_rate > 0) {
-                $serviceAmount = $settings->calculateServiceCharge($roomChargesTotal);
-                if ($serviceAmount > 0) {
-                    RoomCharge::create([
-                        'branch_id'      => $this->reservation->branch_id,
-                        'reservation_id' => $this->reservation->id,
-                        'charge_type' => RoomCharge::TYPE_SERVICE,
-                        'description' => 'Service charge (' . $settings->service_charge_rate . '%)',
-                        'amount' => $serviceAmount,
-                        'charge_date' => $checkIn->toDateString(),
-                    ]);
-                }
+            if (! $this->reservation->postRoomNightCharges($settings)) {
+                throw new \RuntimeException('Room night charges could not be generated.');
             }
 
             $this->reservation->calculateTotal();
