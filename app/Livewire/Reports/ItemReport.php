@@ -4,14 +4,16 @@ namespace App\Livewire\Reports;
 
 use Carbon\Carbon;
 use Livewire\Component;
-use App\Models\MenuItem;
 use Livewire\Attributes\On;
 use App\Exports\ItemReportExport;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\SalesReportData;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
-use App\Scopes\AvailableMenuItemScope;
 
 class ItemReport extends Component
 {
+    use HasReportBranchFilter;
 
     public $dateRangeType;
     public $startDate;
@@ -25,10 +27,9 @@ class ItemReport extends Component
         abort_if(!in_array('Report', restaurant_modules()), 403);
         abort_if((!user_can('Show Reports')), 403);
 
-        // Load date range type from cookie
         $this->dateRangeType = request()->cookie('item_report_date_range_type', 'currentWeek');
-        $this->startDate = now()->startOfWeek()->format('m/d/Y');
-        $this->endDate = now()->endOfWeek()->format('m/d/Y');
+        $this->setDateRange();
+        $this->mountReportBranchFilter();
     }
 
     public function updatedDateRangeType($value)
@@ -107,7 +108,7 @@ class ItemReport extends Component
             $data = $this->prepareDateTimeData();
 
             return Excel::download(
-                new ItemReportExport($data['startDateTime'], $data['endDateTime'], $data['startTime'], $data['endTime'], $data['timezone'], $this->searchTerm),
+                new ItemReportExport($data['startDateTime'], $data['endDateTime'], $data['startTime'], $data['endTime'], $data['timezone'], $this->searchTerm, $this->branchFilter),
                 'item-report-' . now()->toDateTimeString() . '.xlsx'
             );
         }
@@ -155,41 +156,85 @@ class ItemReport extends Component
         }
     }
 
+    /**
+     * Convert a translatable JSON value into the active locale text.
+     */
+    private function getTranslatedText($value): string
+    {
+        if (is_array($value)) {
+            $translations = $value;
+        } else {
+            $decoded = json_decode((string) $value, true);
+            $translations = is_array($decoded) ? $decoded : null;
+        }
+
+        if (!$translations) {
+            return (string) ($value ?? '');
+        }
+
+        $locale = app()->getLocale();
+
+        return (string) (
+            $translations[$locale]
+            ?? $translations['en']
+            ?? $translations['eng']
+            ?? reset($translations)
+            ?? ''
+        );
+    }
+
     public function render()
     {
         $dateTimeData = $this->prepareDateTimeData();
 
-        $query = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)
-            ->with(['orders' => function ($q) use ($dateTimeData) {
-                return $q->join('orders', 'orders.id', '=', 'order_items.order_id')
-                    ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-                    ->where('orders.status', 'paid')
-                    ->where(function ($q) use ($dateTimeData) {
-                        if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                            $q->whereRaw("TIME(orders.date_time) BETWEEN ? AND ?", [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                        } else {
-                            $q->where(function ($sub) use ($dateTimeData) {
-                                $sub->whereRaw("TIME(orders.date_time) >= ?", [$dateTimeData['startTime']])
-                                    ->orWhereRaw("TIME(orders.date_time) <= ?", [$dateTimeData['endTime']]);
-                            });
-                        }
-                    });
-            }, 'category', 'variations']);
+        $query = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
+            ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
+            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id');
 
+        SalesReportData::applyItemReportOrderFilters($query, $dateTimeData, $this->branchFilter);
+        SalesReportData::applyItemReportSearchFilter($query, $this->searchTerm);
 
-        if ($this->searchTerm) {
-            $query->where(function ($q) {
-                $q->where('item_name', 'like', '%' . $this->searchTerm . '%')
-                    ->orWhereHas('category', function ($q) {
-                        $q->where('category_name', 'like', '%' . $this->searchTerm . '%');
-                    });
-            });
-        }
+        $reportRows = $query
+            ->select(
+                'order_items.menu_item_id',
+                'order_items.menu_item_variation_id',
+                'menu_items.item_name',
+                'item_categories.category_name',
+                'menu_item_variations.variation',
+                'order_items.price as sold_unit_price',
+                DB::raw('SUM(order_items.quantity) as quantity_sold'),
+                DB::raw('SUM(order_items.amount) as total_revenue')
+            )
+            ->groupBy(
+                'order_items.menu_item_id',
+                'order_items.menu_item_variation_id',
+                'menu_items.item_name',
+                'item_categories.category_name',
+                'menu_item_variations.variation',
+                'order_items.price'
+            )
+            ->orderBy('menu_items.item_name')
+            ->orderBy('menu_item_variations.variation')
+            ->orderBy('order_items.price')
+            ->get();
 
-        $menuItems = $query->get();
+        $reportRows = $reportRows->map(function ($row) {
+            $row->category_name = $this->getTranslatedText($row->category_name);
+            return $row;
+        });
+
+        $totals = SalesReportData::fetchItemRevenueTotal($dateTimeData, $this->branchFilter, $this->searchTerm);
+        $totalRevenue = $totals->total_revenue ?? 0;
+        $totalQuantitySold = $totals->total_qty ?? 0;
 
         return view('livewire.reports.item-report', [
-            'menuItems' => $menuItems
+            'reportRows' => $reportRows,
+            'totalRevenue' => $totalRevenue,
+            'totalQuantitySold' => $totalQuantitySold,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 

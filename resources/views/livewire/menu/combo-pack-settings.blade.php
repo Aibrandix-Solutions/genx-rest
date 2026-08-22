@@ -30,8 +30,13 @@
                     <div>
                         <x-label for="imageTemp" :value="__('modules.combo.image')" />
                         <x-input id="imageTemp" type="file" accept="image/*" class="block mt-1 w-full" wire:model="imageTemp" />
-                        @if ($image)
-                            <img src="{{ asset_url_local_s3('combo_packs/' . $image) }}" alt="Combo Image" class="mt-2 h-20 w-20 object-cover rounded">
+                        @if ($image && !$imageTemp)
+                            <div class="mt-2 flex items-center gap-3">
+                                <img src="{{ asset_url_local_s3('combo_packs/' . $image) }}" alt="Combo Image" class="h-20 w-20 object-cover rounded">
+                                <span class="text-xs text-gray-500 dark:text-gray-400">Current image</span>
+                            </div>
+                        @elseif ($imageTemp)
+                            <p class="mt-1 text-xs text-blue-600 dark:text-blue-400">New image selected &mdash; will replace the current one on save.</p>
                         @endif
                         <x-input-error for="imageTemp" class="mt-2" />
                     </div>
@@ -55,43 +60,65 @@
                             @foreach ($availableMenuItems as $menuItem)
                                 @php
                                     $hasVariations = $menuItem->variations->count() > 0;
+                                    $itemOutOfStock = !($menuItem->in_stock ?? true);
+                                    $itemUnavailable = isset($menuItem->is_available) && !$menuItem->is_available;
                                 @endphp
                                 @if ($hasVariations)
                                     @foreach ($menuItem->variations as $variation)
                                         @php
                                             $key = $menuItem->id . '_' . $variation->id;
                                             $isSelected = in_array($key, $selectedItems);
+                                            $isDisabled = $isSelected || $itemOutOfStock || $itemUnavailable;
                                         @endphp
-                                        <button
-                                            type="button"
-                                            wire:click="addItem('{{ $menuItem->id }}_{{ $variation->id }}')"
-                                            @class([
-                                                'p-2 text-sm border rounded hover:bg-skin-base hover:text-white transition',
-                                                'bg-skin-base text-white border-skin-base' => $isSelected,
-                                                'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600' => !$isSelected
-                                            ])
-                                            @if ($isSelected) disabled @endif
-                                        >
-                                            {{ $menuItem->item_name }} - {{ $variation->variation }}
-                                        </button>
+                                        <div class="relative flex flex-col">
+                                            <button
+                                                type="button"
+                                                wire:click="addItem('{{ $menuItem->id }}_{{ $variation->id }}')"
+                                                @class([
+                                                    'p-2 text-sm border rounded transition',
+                                                    'hover:bg-skin-base hover:text-white' => !$isDisabled,
+                                                    'bg-skin-base text-white border-skin-base' => $isSelected,
+                                                    'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600' => !$isSelected && !$isDisabled,
+                                                    'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-700 border-gray-200' => $isDisabled && !$isSelected,
+                                                ])
+                                                @disabled($isDisabled)
+                                            >
+                                                {{ $menuItem->item_name }} - {{ $variation->variation }}
+                                                <span class="block text-xs font-semibold text-blue-600 dark:text-blue-400">{{ currency_format($variation->price, restaurant()->currency_id) }}</span>
+                                                @if ($itemOutOfStock)
+                                                    <span class="block text-xs text-red-500 font-semibold">Out of stock</span>
+                                                @elseif ($itemUnavailable)
+                                                    <span class="block text-xs text-orange-500 font-semibold">Unavailable</span>
+                                                @endif
+                                            </button>
+                                        </div>
                                     @endforeach
                                 @else
                                     @php
                                         $key = $menuItem->id . '_0';
                                         $isSelected = in_array($key, $selectedItems);
+                                        $isDisabled = $isSelected || $itemOutOfStock || $itemUnavailable;
                                     @endphp
-                                    <button
-                                        type="button"
-                                        wire:click="addItem('{{ $menuItem->id }}')"
-                                        @class([
-                                            'p-2 text-sm border rounded hover:bg-skin-base hover:text-white transition',
-                                            'bg-skin-base text-white border-skin-base' => $isSelected,
-                                            'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600' => !$isSelected
-                                        ])
-                                        @if ($isSelected) disabled @endif
-                                    >
-                                        {{ $menuItem->item_name }}
-                                    </button>
+                                    <div class="relative flex flex-col">
+                                        <button
+                                            type="button"
+                                            wire:click="addItem('{{ $menuItem->id }}')"
+                                            @class([
+                                                'p-2 text-sm border rounded transition',
+                                                'hover:bg-skin-base hover:text-white' => !$isDisabled,
+                                                'bg-skin-base text-white border-skin-base' => $isSelected,
+                                                'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600' => !$isSelected && !$isDisabled,
+                                                'opacity-50 cursor-not-allowed bg-gray-100 dark:bg-gray-700 border-gray-200' => $isDisabled && !$isSelected,
+                                            ])
+                                            @disabled($isDisabled)
+                                        >
+                                            {{ $menuItem->item_name }}                                            <span class="block text-xs font-semibold text-blue-600 dark:text-blue-400">{{ currency_format($menuItem->price, restaurant()->currency_id) }}</span>                                            @if ($itemOutOfStock)
+                                                <span class="block text-xs text-red-500 font-semibold">Out of stock</span>
+                                            @elseif ($itemUnavailable)
+                                                <span class="block text-xs text-orange-500 font-semibold">Unavailable</span>
+                                            @endif
+                                        </button>
+                                    </div>
                                 @endif
                             @endforeach
                         </div>
@@ -101,6 +128,14 @@
                     <div>
                         <x-label value="Selected Items" class="mb-2" />
                         @if (count($selectedItems) > 0)
+                            {{-- Header row --}}
+                            <div class="hidden md:flex items-center gap-3 px-3 py-1 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                                <div class="flex-1">Item</div>
+                                <div class="w-24 text-right">Unit Price</div>
+                                <div class="w-20">Qty</div>
+                                <div class="w-24 text-right">Subtotal</div>
+                                <div class="w-8"></div>
+                            </div>
                             <div class="space-y-2">
                                 @foreach ($selectedItems as $key)
                                     @php
@@ -108,32 +143,42 @@
                                         $menuItem = $availableMenuItems->find($menuItemId);
                                         $variationId = $variationId !== '0' ? (int)$variationId : null;
                                         $variation = $variationId ? $menuItem->variations->find($variationId) : null;
+                                        $unitPrice = $variation ? (float)$variation->price : (float)($menuItem->price ?? 0);
+                                        $qty = (int)($itemQuantities[$key] ?? 1);
+                                        $lineSubtotal = $unitPrice * $qty;
                                     @endphp
                                     @if ($menuItem)
-                                        <div class="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded">
-                                            <div class="flex-1">
-                                                <span class="font-medium">{{ $menuItem->item_name }}</span>
+                                        <div class="flex flex-wrap md:flex-nowrap items-center gap-3 p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded">
+                                            <div class="flex-1 min-w-0">
+                                                <span class="font-medium text-gray-900 dark:text-white">{{ $menuItem->item_name }}</span>
                                                 @if ($variation)
-                                                    <span class="text-sm text-gray-500"> - {{ $variation->variation }}</span>
+                                                    <span class="text-sm text-gray-500"> &mdash; {{ $variation->variation }}</span>
                                                 @endif
-                                                <div class="mt-1">
-                                                    <x-label :value="__('modules.combo.quantity')" class="text-xs" />
-                                                    <x-input 
-                                                        type="number" 
-                                                        min="1" 
-                                                        class="w-20 h-8 text-sm"
-                                                        wire:model.live="itemQuantities.{{ $key }}"
-                                                    />
-                                                </div>
                                             </div>
-                                            <x-danger-button-table 
-                                                type="button"
-                                                wire:click="removeItem('{{ $key }}')"
-                                            >
-                                                <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
-                                                </svg>
-                                            </x-danger-button-table>
+                                            <div class="w-24 text-right text-sm text-gray-500 dark:text-gray-400">
+                                                {{ currency_format($unitPrice, restaurant()->currency_id) }}
+                                            </div>
+                                            <div class="w-20">
+                                                <x-input
+                                                    type="number"
+                                                    min="1"
+                                                    class="w-full h-8 text-sm text-center"
+                                                    wire:model.live="itemQuantities.{{ $key }}"
+                                                />
+                                            </div>
+                                            <div class="w-24 text-right text-sm font-semibold text-gray-800 dark:text-gray-200">
+                                                {{ currency_format($lineSubtotal, restaurant()->currency_id) }}
+                                            </div>
+                                            <div class="w-8">
+                                                <x-danger-button-table
+                                                    type="button"
+                                                    wire:click="removeItem('{{ $key }}')"
+                                                >
+                                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"></path>
+                                                    </svg>
+                                                </x-danger-button-table>
+                                            </div>
                                         </div>
                                     @endif
                                 @endforeach
@@ -199,6 +244,7 @@
                         <div>
                             <x-label for="sortOrder" :value="__('modules.combo.sortOrder')" />
                             <x-input id="sortOrder" type="number" class="block mt-1 w-full" wire:model="sortOrder" />
+                            <x-help-text class="mt-1">Lower numbers appear first. Leave blank to sort by creation date.</x-help-text>
                         </div>
                     </div>
                 </div>
@@ -253,8 +299,16 @@
                                         </div>
                                     </td>
                                     <td class="px-6 py-4">
-                                        <div class="text-sm text-gray-900 dark:text-white">
-                                            {{ $combo->comboPackItems->count() }} item(s)
+                                        <div class="space-y-1">
+                                            @foreach ($combo->comboPackItems as $cItem)
+                                                <div class="text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                                                    <span class="font-medium">{{ $cItem->quantity }}&times;</span>
+                                                    {{ $cItem->menuItem?->item_name ?? '&mdash;' }}
+                                                    @if ($cItem->menuItemVariation)
+                                                        <span class="text-xs text-gray-500">({{ $cItem->menuItemVariation->variation }})</span>
+                                                    @endif
+                                                </div>
+                                            @endforeach
                                         </div>
                                     </td>
                                     <td class="px-6 py-4 whitespace-nowrap">

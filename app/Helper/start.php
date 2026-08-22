@@ -152,14 +152,23 @@ function timezone()
         return session('timezone');
     }
 
+    if (shop()) {
+        $shopTz = shop()->timezone ?? null;
+        if (!empty($shopTz)) {
+            session(['timezone' => $shopTz]);
+
+            return session('timezone');
+        }
+    }
+
     // For superadmin, use global setting timezone
     if (user() && is_null(user()->restaurant_id)) {
-        $globalTimezone = global_setting()->timezone ?? 'UTC';
+        $globalTimezone = global_setting()->timezone ?? config('app.timezone', 'Asia/Colombo');
         session(['timezone' => $globalTimezone]);
         return session('timezone');
     }
 
-    return 'UTC';
+    return config('app.timezone', 'Asia/Colombo');
 }
 
 function paymentGateway()
@@ -230,6 +239,10 @@ if (!function_exists('user_can')) {
 
     function user_can($permission)
     {
+        if (user() && method_exists(user(), 'can')) {
+            return user()->can($permission);
+        }
+
         if (is_null(role_permissions())) {
             $rolePermissions = [];
         } else {
@@ -772,6 +785,43 @@ if (!function_exists('custom_module_plugins')) {
         }
 
         return cache('custom_module_plugins');
+    }
+}
+
+if (!function_exists('forget_hotel_business_mode_cache')) {
+
+    /**
+     * Clear cached business mode for a branch (call after hotel settings change).
+     */
+    function forget_hotel_business_mode_cache(?int $branchId = null): void
+    {
+        $branchId = $branchId ?? (branch() ? branch()->id : 0);
+        cache()->forget('hotel_business_mode_branch_' . $branchId);
+    }
+}
+
+if (!function_exists('hotel_business_mode')) {
+
+    /**
+     * Get the business mode for the current branch's hotel settings.
+     * Returns 'hotel_primary', 'restaurant_primary', or 'equal'.
+     */
+    function hotel_business_mode(): string
+    {
+        $branchId = branch() ? branch()->id : 0;
+        $cacheKey = 'hotel_business_mode_branch_' . $branchId;
+
+        return cache()->remember($cacheKey, 60, function () use ($branchId) {
+            if (!in_array('hotel', array_map('strtolower', custom_module_plugins()))) {
+                return 'restaurant_primary';
+            }
+
+            $settings = \Modules\Hotel\Entities\HotelSetting::withoutGlobalScopes()->where(
+                'branch_id', $branchId
+            )->first();
+
+            return $settings?->business_mode ?? 'restaurant_primary';
+        });
     }
 }
 

@@ -1,37 +1,112 @@
 <div
-    class="lg:w-6/12 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen h-auto pr-4 px-2 py-4 dark:bg-gray-800">
+    class="lg:w-1/3 min-w-0 flex flex-col bg-white border-l dark:border-gray-700 min-h-screen max-md:min-h-0 h-auto pr-4 px-2 py-4 dark:bg-gray-800">
 
-    {{-- Order Type Indicator --}}
-    @if($orderTypeId)
-    <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <span class="text-xs text-gray-500 dark:text-gray-400">@lang('modules.settings.orderType'):</span>
-            <span class="text-sm font-semibold text-gray-900 dark:text-white">
-                {{ \App\Models\OrderType::find($orderTypeId)?->order_type_name ?? ucfirst($orderType) }}
-            </span>
-            
-            @if($orderTypeSlug === 'delivery' && $selectedDeliveryApp)
-                <span class="text-xs text-gray-500 dark:text-gray-400 mx-2">•</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">Platform:</span>
-                <span class="text-sm font-medium text-gray-900 dark:text-white">
-                    @if($selectedDeliveryApp === 'default')
-                        Default
-                    @else
-                        {{ \App\Models\DeliveryPlatform::find($selectedDeliveryApp)?->name ?? 'Unknown' }}
-                    @endif
+    {{-- Order Type Indicator + Dropdown Selector (replaces modal UX) --}}
+    <div class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 pb-2">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <span class="text-xs text-gray-500 dark:text-gray-400">@lang('modules.settings.orderType'):</span>
+                <span class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ $orderTypeName ?? ($orderType ? ucfirst($orderType) : null) ?? __('modules.order.selectOrderType') }}
                 </span>
+
+                @if($setAsDefaultOrderType)
+                    <span class="text-xs text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full">
+                        @lang('modules.order.default')
+                    </span>
+                @endif
+
+                @if(($orderTypeSlug ?? null) === 'delivery' && $selectedDeliveryApp)
+                    <span class="text-xs text-gray-500 dark:text-gray-400 mx-2">•</span>
+                    <span class="text-xs text-gray-500 dark:text-gray-400">@lang('modules.order.platform'):</span>
+                    <span class="text-sm font-medium text-gray-900 dark:text-white">
+                        {{ $selectedDeliveryPlatformName ?? ($selectedDeliveryApp === 'default' ? __('modules.order.default') : '—') }}
+                    </span>
+                @endif
+            </div>
+
+            <button type="button" wire:click="toggleOrderTypeDropdown" class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
+                {{ $showOrderTypeDropdown ? __('app.close') : __('app.change') }}
+            </button>
+
+            @if(($orderTypeSlug ?? null) === 'room_service')
+                @if($selectedRoomReservationId && !empty($roomServiceReservations))
+                    @php
+                        $selectedRes = collect($roomServiceReservations)->firstWhere('id', $selectedRoomReservationId);
+                    @endphp
+                    @if($selectedRes)
+                        <div class="flex items-center ml-2 bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-full border border-gray-300 dark:border-gray-600 gap-2">
+                             <div class="flex flex-col leading-none">
+                                 <span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Room {{ $selectedRes->room->room_number ?? '' }}</span>
+                                 <span class="text-[10px] text-gray-500 max-w-[80px] truncate" title="{{ $selectedRes->guest->full_name ?? '' }}">{{ $selectedRes->guest->first_name ?? '' }}</span>
+                             </div>
+                             <button type="button" wire:click="changeRoom" class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300">
+                                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-pencil-square" viewBox="0 0 16 16">
+                                     <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+                                     <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+                                 </svg>
+                             </button>
+                        </div>
+                    @else
+                        <button type="button" wire:click="changeRoom" class="text-xs bg-blue-100 dark:bg-blue-700 hover:bg-blue-200 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 px-3 py-2 rounded-full transition-all ml-2">
+                            @lang('modules.order.selectRoom')
+                        </button>
+                    @endif
+                @else
+                    <button type="button" wire:click="changeRoom" class="text-xs bg-blue-100 dark:bg-blue-700 hover:bg-blue-200 dark:hover:bg-blue-600 text-blue-700 dark:text-blue-200 px-3 py-2 rounded-full transition-all ml-2">
+                        @lang('modules.order.selectRoom')
+                    </button>
+                @endif
             @endif
         </div>
-        
-        <button type="button" wire:click="changeOrderType" class="text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 px-3 py-2 rounded-full transition-all">
-            Change
-        </button>
+
+        @if($showOrderTypeDropdown)
+            <div class="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-2">
+                <div class="lg:col-span-2">
+                    <x-label class="text-xs" value="{{ __('modules.order.selectOrderType') }}" />
+                    <x-select class="text-sm w-full" wire:model.live="orderTypeId">
+                        @foreach($availableOrderTypes as $type)
+                            <option value="{{ $type['id'] }}">{{ $type['order_type_name'] }}</option>
+                        @endforeach
+                    </x-select>
+                </div>
+
+                <label class="flex items-center justify-center gap-2 cursor-pointer select-none w-full">
+                    <input type="checkbox" wire:model.live="setAsDefaultOrderType"
+                        class="w-4 h-4 text-skin-base bg-gray-100 border-gray-300 rounded focus:ring-skin-base focus:ring-2 dark:bg-gray-700 dark:border-gray-600 dark:focus:ring-skin-base">
+                    <span class="text-xs text-gray-700 dark:text-gray-300">@lang('modules.order.setAsDefault')</span>
+                </label>
+
+                @if(($orderTypeSlug ?? null) === 'delivery' && $orderTypeId)
+                    <div class="lg:col-span-2">
+                        <x-label class="text-xs" value="{{ __('modules.order.platform') }}" />
+                        <x-select class="text-sm w-full" wire:model.live="selectedDeliveryApp">
+                            <option value="default">@lang('modules.order.default')</option>
+                            @foreach($availableDeliveryPlatforms as $platform)
+                                <option value="{{ $platform['id'] }}">{{ $platform['name'] }}</option>
+                            @endforeach
+                        </x-select>
+                    </div>
+                @endif
+            </div>
+        @endif
     </div>
-    @endif
 
     <div>
         <div class="mt-2">
-            @if($customerId)
+            @if(($orderTypeSlug ?? null) === 'room_service' && $selectedRoomReservationId && !empty($roomServiceReservations))
+                @php
+                    $selectedRes = collect($roomServiceReservations)->firstWhere('id', $selectedRoomReservationId);
+                @endphp
+                @if($selectedRes)
+                    <div class="flex items-center gap-2">
+                         <div class="font-semibold text-gray-700 dark:text-gray-300">
+                             @lang('hotel::modules.reservation.room') {{ $selectedRes->room->room_number ?? '' }} 
+                             <span class="text-sm font-normal text-gray-500">({{ $selectedRes->guest->full_name ?? '' }})</span>
+                         </div>
+                    </div>
+                @endif
+            @elseif($customerId)
                 <div class="flex items-center gap-2">
                     <div class="font-semibold text-gray-700 dark:text-gray-300">{{ $customer->name }}</div>
                     @if(user_can('Update Order'))
@@ -201,7 +276,8 @@
         </div>
 
         <div class="flex flex-col rounded">
-            <table class=" flex-1  min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+            <table class="pos-cart-table flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <x-pos.cart-table-cols />
                 <thead class="bg-gray-100 dark:bg-gray-700">
                     <tr>
                         <th scope="col"
@@ -228,11 +304,70 @@
                 </thead>
                 <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700"
                     wire:key='menu-item-list-pos'>
+                    @php
+                        $renderedComboGroups = [];
+                        $rawOrderStatus = is_object($orderDetail) ? ($orderDetail->status ?? null) : null;
+                        $orderStatusValue = $rawOrderStatus instanceof \BackedEnum
+                            ? $rawOrderStatus->value
+                            : (string) ($rawOrderStatus ?? '');
+                        $canManageItems = in_array($orderStatusValue, ['billed', 'paid', 'payment_due'], true)
+                            ? user_can('Edit Billed Order')
+                            : (user_can('Delete Order') || user_can('Update Order'));
+                    @endphp
 
                     @forelse ($orderItemList as $key => $item)
+                        @php
+                            $comboId = $orderItemComboPack[$key] ?? null;
+                            $showGroupHeader = $comboId && !in_array($comboId, $renderedComboGroups);
+                            if ($showGroupHeader) {
+                                $renderedComboGroups[] = $comboId;
+                                // Calculate total savings for this combo group
+                                $groupSavings = 0;
+                                foreach ($orderItemList as $k => $v) {
+                                    if (($orderItemComboPack[$k] ?? null) == $comboId) {
+                                        $groupSavings += $orderItemComboDiscount[$k] ?? 0;
+                                    }
+                                }
+                            }
+                        @endphp
+
+                        @if ($showGroupHeader)
+                            <tr class="bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-400">
+                                <td colspan="5" class="px-2 py-1.5">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-xs font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-1">
+                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+                                            </svg>
+                                            {{ $orderItemComboName[$comboId] ?? 'Combo Pack' }}
+                                        </span>
+                                        <div class="flex items-center gap-2">
+                                            @if ($groupSavings > 0)
+                                                <span class="text-xs font-medium text-green-600 dark:text-green-400">
+                                                    Save {{ currency_format($groupSavings, restaurant()->currency_id) }}
+                                                </span>
+                                            @endif
+                                            @if ($canManageItems)
+                                                <button
+                                                    wire:click="removeComboGroup('{{ $comboId }}')"
+                                                    wire:loading.attr="disabled"
+                                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-300 dark:border-red-700"
+                                                    title="Remove whole combo">
+                                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fill-rule="evenodd" d="M9 2a1 1 0 0 0-.894.553L7.382 4H4a1 1 0 0 0 0 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V6a1 1 0 1 0 0-2h-3.382l-.724-1.447A1 1 0 0 0 11 2zM7 8a1 1 0 0 1 2 0v6a1 1 0 1 1-2 0zm5-1a1 1 0 0 0-1 1v6a1 1 0 1 0 2 0V8a1 1 0 0 0-1-1" clip-rule="evenodd"/>
+                                                    </svg>
+                                                    Remove
+                                                </button>
+                                            @endif
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
+
                         <tr class="hover:bg-gray-100 dark:hover:bg-gray-700"
-                            wire:key='menu-item-{{ $key . microtime() }}' wire:loading.class='opacity-50'>
-                            <td class="flex flex-col p-2 mr-12 lg:min-w-20">
+                            wire:key='menu-item-{{ $key }}' wire:loading.class='opacity-50'>
+                            <td class="flex flex-col p-2 mr-12 lg:min-w-20 @if($comboId) pl-4 border-l-2 border-blue-200 dark:border-blue-800 @endif">
                                 <div class="inline-flex items-center gap-2">
                                     <div
                                         class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
@@ -275,58 +410,39 @@
 
                                 <x-pos.item-note :id="$key" :note="$itemNotes[$key] ?? ''" />
                             </td>
-                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
+                            <td class="p-1 text-center align-middle overflow-hidden">
 
-                                <div class="relative flex items-center max-w-[8rem] mx-auto"
+                                <div class="relative flex items-center w-full max-w-full mx-auto"
                                     wire:key='orderItemQty-{{ $key }}-counter'>
-                                    <button type="button" wire:click="subQty('{{ $key }}')"
-                                        wire:loading.attr="disabled" wire:loading.class="opacity-50"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;"
+                                        @disabled($comboId)
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
-                                        {{-- Loading spinner for subQty --}}
-                                        <div wire:loading.flex wire:target="subQty('{{ $key }}')"
-                                            class="absolute inset-0 items-center justify-center">
-                                            <svg class="animate-spin h-3 w-3 text-skin-base"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                        </div>
                                     </button>
 
-                                    <input type="text" wire:model.lazy="orderItemQty.{{ $key }}" wire:change="updateQty('{{ $key }}')"
-                                        class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
-                                        min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
+                                    <input type="text" data-pos-qty-key="{{ $key }}" value="{{ $orderItemQty[$key] ?? 1 }}"
+                                        onchange="
+                                            const val = parseInt(this.value, 10);
+                                            const normalized = isNaN(val) || val < 1 ? 1 : val;
+                                            this.value = normalized;
+                                            window.posClient?.queueQtySet(@js((string) $key), normalized, this);
+                                            return false;
+                                        "
+                                        class="min-w-0 w-full h-7 bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                        min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
-                                    <button type="button" wire:click="addQty('{{ $key }}')"
-                                        wire:loading.attr="disabled" wire:loading.class="opacity-50"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                    <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;"
+                                        @disabled($comboId)
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round"
                                                 stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
-                                        {{-- Loading spinner for addQty --}}
-                                        <div wire:loading.flex wire:target="addQty('{{ $key }}')"
-                                            class="absolute inset-0 items-center justify-center">
-                                            <svg class="animate-spin h-3 w-3 text-skin-base"
-                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                viewBox="0 0 24 24">
-                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                <path class="opacity-75" fill="currentColor"
-                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                </path>
-                                            </svg>
-                                        </div>
                                     </button>
                                 </div>
 
@@ -341,13 +457,14 @@
                                 {{ currency_format($displayPrice, restaurant()->currency_id) }}
                             </td>
                             <td
-                                class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
-                            <td class="p-2 whitespace-nowrap text-right">
+                            <td class="p-1 whitespace-nowrap text-right">
+                                @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
-                                    wire:click="deleteCartItems('{{ $key }}')" wire:loading.attr="disabled"
+                                    onclick="window.posClient?.queueDeleteItem(@js((string) $key), this); return false;" wire:loading.attr="disabled"
                                     wire:loading.class="opacity-50">
                                     <svg class="w-4 h-4 text-gray-700 dark:text-gray-200" fill="currentColor" viewBox="0 0 20 20"
                                         xmlns="http://www.w3.org/2000/svg">
@@ -368,6 +485,7 @@
                                         </svg>
                                     </div>
                                 </button>
+                                @endif
                             </td>
                         </tr>
                     @empty
@@ -396,7 +514,7 @@
 
     <div class="lg:min-w-20">
         <div class="h-auto p-4 mt-3 select-none text-center bg-gray-50 rounded space-y-4 dark:bg-gray-700">
-            @if (count($orderItemList) > 0)
+            @if (count($orderItemList) > 0 && user_can('Update Order'))
                 <div class="text-left">
                     <x-secondary-button wire:click="showAddDiscount">
                         <svg class="h-5 w-5 text-current me-1" width="24" height="24" viewBox="0 0 16 16"
@@ -426,6 +544,19 @@
                     {{ currency_format($subTotal, restaurant()->currency_id) }}
                 </div>
             </div>
+
+            @php $totalComboSavings = array_sum($orderItemComboDiscount ?? []); @endphp
+            @if ($totalComboSavings > 0)
+                <div class="flex justify-between text-sm font-medium text-green-600 dark:text-green-400">
+                    <div class="inline-flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+                        </svg>
+                        Combo Savings
+                    </div>
+                    <div>-{{ currency_format($totalComboSavings, restaurant()->currency_id) }}</div>
+                </div>
+            @endif
 
             @if ($discountAmount)
                 <div wire:key="discountAmount"
@@ -562,107 +693,40 @@
             </div>
         </div>
 
-        <div class="h-auto pb-4 pt-3 select-none text-center w-full mb-16 md:mb-0">
+        <div class="h-auto pb-4 pt-3 select-none text-center w-full">
             @if (in_array('KOT', restaurant_modules()))
                 <div class="flex gap-3">
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative" wire:click="saveOrder('kot')"
-                        wire:loading.attr="disabled" wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('kot')">@lang('modules.order.kot')</span>
-                        <span wire:loading wire:target="saveOrder('kot')">
-                            <svg class="animate-spin -ml-1 mr-1 h-4 w-4 inline-flex text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.kot')
-                        </span>
+                        wire:loading.attr="disabled" wire:target="saveOrder('kot')">
+                        @lang('modules.order.kot')
                     </button>
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative"
                         wire:click="saveOrder('kot', 'print')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('kot', 'print')">@lang('modules.order.kotAndPrint')</span>
-                        <span wire:loading wire:target="saveOrder('kot', 'print')" class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.kotAndPrint')
-                        </span>
+                        wire:target="saveOrder('kot', 'print')">
+                        @lang('modules.order.kotAndPrint')
                     </button>
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative"
                         wire:click="saveOrder('kot','bill','payment', 'print')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove
-                            wire:target="saveOrder('kot','bill','payment', 'print')">@lang('modules.order.kotBillAndPayment')</span>
-                        <span wire:loading wire:target="saveOrder('kot','bill','payment', 'print')" >
-                            <svg class="animate-spin inline-flex -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.kotBillAndPayment')
-                        </span>
+                        wire:target="saveOrder('kot','bill','payment', 'print')">
+                        @lang('modules.order.kotBillAndPayment')
                     </button>
                 </div>
             @endif
             @if (!$orderID)
                 <div class="flex gap-3 mt-3">
                     <button class="rounded bg-skin-base text-white w-full p-2 relative" wire:click="saveOrder('bill')"
-                        wire:loading.attr="disabled" wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('bill')">@lang('modules.order.bill')</span>
-                        <span wire:loading wire:target="saveOrder('bill')">
-                            <svg class="animate-spin inline-flex items-center -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.bill')
-                        </span>
+                        wire:loading.attr="disabled" wire:target="saveOrder('bill')">
+                        @lang('modules.order.bill')
                     </button>
                     <button class="rounded bg-green-500 text-white w-full p-2 relative"
                         wire:click="saveOrder('bill', 'payment')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('bill', 'payment')">@lang('modules.order.billAndPayment')</span>
-                        <span wire:loading wire:target="saveOrder('bill', 'payment')">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-flex items-center" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.billAndPayment')
-                        </span>
+                        wire:target="saveOrder('bill', 'payment')">
+                        @lang('modules.order.billAndPayment')
                     </button>
                     <button class="rounded bg-blue-500 text-white w-full p-2 relative"
                         wire:click="saveOrder('bill', 'print')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('bill', 'print')">@lang('modules.order.createBillAndPrintReceipt')</span>
-                        <span wire:loading wire:target="saveOrder('bill', 'print')" class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.createBillAndPrintReceipt')
-                        </span>
+                        wire:target="saveOrder('bill', 'print')">
+                        @lang('modules.order.createBillAndPrintReceipt')
                     </button>
                 </div>
             @endif

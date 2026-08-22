@@ -44,6 +44,8 @@ use App\Http\Middleware\SuperAdmin;
 use App\Models\NotificationSetting;
 use App\Models\TableSession;
 use App\Observers\TableSessionObserver;
+use App\View\Composers\HotelSidebarComposer;
+use Illuminate\Support\Facades\View;
 use App\Observers\CurrencyObserver;
 use App\Observers\CustomerObserver;
 use App\Observers\ExpensesObserver;
@@ -78,6 +80,10 @@ use App\Observers\OrderTypeObserver;
 use App\Models\OrderType;
 use App\Observers\KotItemObserver;
 use App\Models\KotItem;
+use App\Listeners\LogAuthenticationActivity;
+use Illuminate\Auth\Events\Login;
+use Illuminate\Auth\Events\Logout;
+use Illuminate\Support\Facades\Event;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -134,6 +140,11 @@ class AppServiceProvider extends ServiceProvider
         OrderType::observe(OrderTypeObserver::class);
         DeliveryPlatform::observe(DeliveryPlatformObserver::class);
         TableSession::observe(TableSessionObserver::class);
+
+        Event::listen(Login::class, [LogAuthenticationActivity::class, 'handleLogin']);
+        Event::listen(Logout::class, [LogAuthenticationActivity::class, 'handleLogout']);
+
+        View::composer('hotel::sections.sidebar-primary', HotelSidebarComposer::class);
 
         // Implicitly grant "Admin" role all permissions
         // This works in the app by using gate-related functions like auth()->user->can() and @can()

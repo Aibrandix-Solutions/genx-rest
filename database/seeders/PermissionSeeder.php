@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Module;
+use App\Models\Role as AppRole;
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -32,15 +33,14 @@ class PermissionSeeder extends Seeder
         $deliveryExecutiveModule = Module::where('name', 'Delivery Executive')->first();
         $waiterRequestModule = Module::where('name', 'Waiter Request')->first();
         $expenseModule = Module::where('name', 'Expense')->first();
-        $vendorModule = Module::where('name', 'Vendor')->first();
-        $expenseCategoryModule = Module::where('name', 'Expense Category')->first();
         $inventoryModule = Module::where('name', 'Inventory')->first();
+        $hrmModule = Module::where('name', 'HRM')->first();
 
         // Check if modules exist before accessing their IDs
         if (!$menuModule || !$menuItemModule || !$itemCategoryModule || !$areaModule || !$tableModule || 
             !$reservationModule || !$kotModule || !$orderModule || !$customerModule || !$staffModule || 
             !$paymentModule || !$reportModule || !$settingsModule || !$deliveryExecutiveModule || 
-            !$waiterRequestModule || !$expenseModule || !$vendorModule || !$expenseCategoryModule || !$inventoryModule) {
+            !$waiterRequestModule || !$expenseModule || !$inventoryModule || !$hrmModule) {
             
             // Log error or handle missing modules gracefully
             // For now, we will skip seeding permissions for missing modules or you might want to run ModuleSeeder
@@ -104,6 +104,7 @@ class PermissionSeeder extends Seeder
             $permissions[] = ['guard_name' => 'web', 'name' => 'Update Order', 'module_id' => $orderModule->id];
             $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Order', 'module_id' => $orderModule->id];
             $permissions[] = ['guard_name' => 'web', 'name' => 'Edit Billed Order', 'module_id' => $orderModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Redeem Reward Points', 'module_id' => $orderModule->id];
         }
 
         if ($customerModule) {
@@ -133,6 +134,7 @@ class PermissionSeeder extends Seeder
 
         if ($reportModule) {
             $permissions[] = ['guard_name' => 'web', 'name' => 'Show Reports', 'module_id' => $reportModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'View Activity Log', 'module_id' => $reportModule->id];
         }
 
         if ($settingsModule) {
@@ -161,6 +163,36 @@ class PermissionSeeder extends Seeder
             $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Inventory Item', 'module_id' => $inventoryModule->id];
         }
 
+        if ($hrmModule) {
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Department', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Department', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Department', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Department', 'module_id' => $hrmModule->id];
+
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Designation', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Designation', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Designation', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Designation', 'module_id' => $hrmModule->id];
+
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Employee', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Employee', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Employee', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Employee', 'module_id' => $hrmModule->id];
+
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Create Shift', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Show Shift', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Update Shift', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Delete Shift', 'module_id' => $hrmModule->id];
+
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Attendance', 'module_id' => $hrmModule->id];
+
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Shift Assignments', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Leave Types', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Leave Requests', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Holidays', 'module_id' => $hrmModule->id];
+            $permissions[] = ['guard_name' => 'web', 'name' => 'Manage Payroll', 'module_id' => $hrmModule->id];
+        }
+
         if (!empty($permissions)) {
             // Insert permissions into the database
             foreach ($permissions as $permission) {
@@ -168,6 +200,21 @@ class PermissionSeeder extends Seeder
                     ['name' => $permission['name'], 'guard_name' => $permission['guard_name']],
                     ['module_id' => $permission['module_id']]
                 );
+            }
+        }
+
+        // Ensure restaurant Admin roles get HRM permissions by default (non-destructive).
+        if ($hrmModule) {
+            $hrmPermissions = Permission::where('module_id', $hrmModule->id)->pluck('name')->toArray();
+
+            if (!empty($hrmPermissions)) {
+                $adminRoles = AppRole::withoutGlobalScopes()
+                    ->where('display_name', 'Admin')
+                    ->get();
+
+                foreach ($adminRoles as $adminRole) {
+                    $adminRole->givePermissionTo($hrmPermissions);
+                }
             }
         }
     }

@@ -8,7 +8,10 @@ use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class PurchaseOrderPayment extends Component
@@ -17,7 +20,8 @@ class PurchaseOrderPayment extends Component
 
     public $showModal = false;
     public $purchaseOrder;
-    
+    public $isSaving = false;
+
     // Payment form fields
     public $paymentAmount;
     public $paymentDate;
@@ -74,16 +78,28 @@ class PurchaseOrderPayment extends Component
         $this->resetForm();
         
         // Pre-fill with due amount
-        $this->paymentAmount = max(0, $this->purchaseOrder->total_amount - $this->purchaseOrder->paid_amount);
+        $this->paymentAmount = max(0, (float) $this->purchaseOrder->due_amount);
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->showModal = true;
     }
 
     public function resetForm()
     {
-        $this->reset(['paymentAmount', 'paymentMethod', 'paymentAccount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->reset(['paymentAmount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->paymentMethod = 'cash';
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->resetValidation();
+    }
+
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
     }
 
     public function updatedPaymentAmount()
@@ -92,7 +108,7 @@ class PurchaseOrderPayment extends Component
             return;
         }
         
-        $maxAmount = max(0, $this->purchaseOrder->total_amount - $this->purchaseOrder->paid_amount);
+        $maxAmount = max(0, (float) $this->purchaseOrder->due_amount);
         if ($this->paymentAmount > $maxAmount) {
             $this->paymentAmount = $maxAmount;
             $this->alert('warning', "Payment amount cannot exceed the due amount of " . number_format($maxAmount, 2));
@@ -101,6 +117,18 @@ class PurchaseOrderPayment extends Component
 
     public function savePayment()
     {
+        if ($this->isSaving) {
+            return;
+        }
+
+        $lock = Cache::lock('po-payment:' . ($this->purchaseOrder?->id) . ':' . auth()->id(), 30);
+        if (! $lock->get()) {
+            return;
+        }
+
+        $this->isSaving = true;
+
+        try {
         $this->validate();
 
         if (!$this->purchaseOrder) {
@@ -112,7 +140,7 @@ class PurchaseOrderPayment extends Component
         $this->purchaseOrder->load('payments');
         
         // Check if payment amount exceeds due amount
-        $dueAmount = max(0, $this->purchaseOrder->total_amount - $this->purchaseOrder->paid_amount);
+        $dueAmount = max(0, (float) $this->purchaseOrder->due_amount);
         if ($this->paymentAmount > $dueAmount) {
             $this->alert('error', 'Payment amount cannot exceed the due amount.');
             return;
@@ -123,10 +151,14 @@ class PurchaseOrderPayment extends Component
             $path = $this->paymentDocument->store('supplier-payments', 'public');
         }
 
+        $paymentAccount = $this->paymentAccount
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
         $payment = SupplierPayment::create([
             'supplier_id' => $this->purchaseOrder->supplier_id,
+            'payment_batch_id' => (string) Str::uuid(),
             'purchase_order_id' => $this->purchaseOrder->id,
-            'payment_account_id' => $this->paymentAccount,
+            'payment_account_id' => $paymentAccount,
             'amount' => $this->paymentAmount,
             'paid_on' => $this->paymentDate,
             'payment_method' => $this->paymentMethod,
@@ -137,8 +169,8 @@ class PurchaseOrderPayment extends Component
         ]);
 
         // Update Payment Account Balance if selected and log transaction
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
+        if ($paymentAccount) {
+            $account = PaymentAccount::find($paymentAccount);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 
@@ -158,7 +190,17 @@ class PurchaseOrderPayment extends Component
         $this->alert('success', 'Payment recorded successfully');
         $this->showModal = false;
         $this->dispatch('purchaseOrderPaymentSaved');
+        $this->dispatch('paymentRecorded');
+        $this->dispatch('refreshPurchaseList');
         $this->resetForm();
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->alert('error', 'Failed to record payment: ' . $e->getMessage());
+        } finally {
+            $this->isSaving = false;
+            $lock->release();
+        }
     }
 
     public function render()

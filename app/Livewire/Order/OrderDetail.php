@@ -20,12 +20,49 @@ use App\Models\KotItem;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Support\KotAdjustmentLogger;
+use App\Support\ActivityLogger;
+use App\Enums\ActivityEvent;
+use App\Services\OrderPaymentBalanceSync;
+use App\Services\ReportBranchScope;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use App\Livewire\Customer\AddCustomer;
+use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Services\OrderFolioSettlement;
 
 class OrderDetail extends Component
 {
 
     use LivewireAlert, PrinterSetting;
+
+    private function abortIfFolioSettled(): bool
+    {
+        if ($this->order && OrderFolioSettlement::isLockedForEditing($this->order)) {
+            $this->alert('error', __('modules.order.folioSettledLocked'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function abortIfReadOnlyCrossBranch(): bool
+    {
+        if (! $this->readOnlyCrossBranch) {
+            return false;
+        }
+
+        $this->alert('error', 'This order belongs to another branch and cannot be edited from this view.', [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close'),
+        ]);
+
+        return true;
+    }
 
     public $order;
     public $taxes;
@@ -44,6 +81,7 @@ class OrderDetail extends Component
     public $deliveryExecutive;
     public $orderProgressStatus;
     public $fromPos = null;
+    public bool $readOnlyCrossBranch = false;
     public $confirmDeleteModal = false;
     public $cancelReasons;
     public $cancelReason;
@@ -56,6 +94,14 @@ class OrderDetail extends Component
     public $showRemovalReasonModal = false;
     public $removalReason = '';
     public $pendingOrderItemId = null;
+    public $pendingComboPackId = null;
+    public $pendingComboGroupKey = null;
+    /** @var 'delete'|'decrement' */
+    public $pendingRemovalAction = 'delete';
+    public $showDiscountModal = false;
+    public $discountValue = null;
+    public $discountType = 'fixed';
+    public $requestedOrderId = null;
 
     public function mount()
     {
@@ -68,14 +114,7 @@ class OrderDetail extends Component
         }
         $this->cancelReasons = KotCancelReason::where('cancel_order', true)->get();
 
-        $this->users = User::withoutGlobalScope(BranchScope::class)
-            ->where(function ($q) {
-                return $q->where('branch_id', branch()->id)
-                    ->orWhereNull('branch_id');
-            })
-            ->role('waiter_' . restaurant()->id)
-            ->where('restaurant_id', restaurant()->id)
-            ->get();
+        $this->users = User::assignableWaitersQuery((int) restaurant()->id, (int) branch()->id)->get();
     }
 
     public function printOrder($orderId)
@@ -122,9 +161,80 @@ class OrderDetail extends Component
     }
 
     #[On('showOrderDetail')]
-    public function showOrder($id, $fromPos = null)
+    public function showOrder($id, $fromPos = null, $fromReport = null)
     {
-        $this->order = Order::with('items', 'items.menuItem', 'items.menuItemVariation', 'payments', 'cancelReason')->find($id);
+        if (is_array($id)) {
+            $fromReport = $fromReport ?? ($id['fromReport'] ?? null);
+            $fromPos = $fromPos ?? ($id['fromPos'] ?? null);
+            $id = $id['id'] ?? null;
+        }
+
+        if ($fromReport) {
+            abort_unless(user_can('Show Reports'), 403);
+
+            $order = ReportBranchScope::findOrderForReport($id);
+
+            if (! $order) {
+                $this->resetOrderDetailState();
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+
+                return;
+            }
+
+            $this->requestedOrderId = (int) $order->id;
+            $this->order = null;
+            $this->readOnlyCrossBranch = (int) $order->branch_id !== (int) (branch()?->id ?? 0);
+        } else {
+            $resolvedOrderId = Order::findIdByIdentifier($id);
+
+            if (! $resolvedOrderId) {
+                $this->resetOrderDetailState();
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+
+                return;
+            }
+
+            $this->requestedOrderId = (int) $resolvedOrderId;
+            $this->order = null;
+            $this->readOnlyCrossBranch = false;
+
+            $order = Order::with(
+                'items',
+                'items.menuItem',
+                'items.menuItemVariation',
+                'items.comboPack',
+                'payments',
+                'taxes.tax',
+                'charges.charge',
+                'cancelReason',
+                'hotelReservation.room',
+                'hotelReservation.guest'
+            )->find($this->requestedOrderId);
+
+            if (! $order) {
+                $this->resetOrderDetailState();
+                $this->alert('error', __('messages.orderNotFound'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                ]);
+
+                return;
+            }
+        }
+
+        // If another request arrived while this one was resolving, ignore stale load.
+        if ((int) $this->requestedOrderId !== (int) $order->id) {
+            return;
+        }
+
+        $this->order = $order;
+
         $this->orderStatus = $this->order->status;
         $this->fromPos = $fromPos;
         $this->orderProgressStatus = $this->order->order_status->value;
@@ -140,9 +250,50 @@ class OrderDetail extends Component
         $this->showOrderDetail = true;
     }
 
+    public function updatedShowOrderDetail($value): void
+    {
+        if (!$value) {
+            $this->resetOrderDetailState();
+        }
+    }
+
+    private function resetOrderDetailState(): void
+    {
+        $this->order = null;
+        $this->requestedOrderId = null;
+        $this->orderStatus = null;
+        $this->orderProgressStatus = null;
+        $this->readOnlyCrossBranch = false;
+        $this->showTableModal = false;
+        $this->cancelOrderModal = false;
+        $this->deleteOrderModal = false;
+        $this->confirmDeleteModal = false;
+        $this->showRemovalReasonModal = false;
+        $this->showDiscountModal = false;
+    }
+
+    /**
+     * Triggered from AddPayment when "direct print after payment" is enabled,
+     * reuses the same print path as the order detail Print button.
+     */
+    #[On('receiptPrintFromPayment')]
+    public function onReceiptPrintFromPayment(mixed $id = null): void
+    {
+        if (is_array($id)) {
+            $id = $id['id'] ?? $id['orderId'] ?? null;
+        }
+        if ($id) {
+            $this->printOrder((int) $id);
+        }
+    }
+
     #[On('setTable')]
     public function setTable(Table $table)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->tableNo = $table->table_code;
         $this->tableId = $table->id;
 
@@ -174,6 +325,10 @@ class OrderDetail extends Component
 
     public function saveOrderStatus()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->order) {
             Order::where('id', $this->order->id)->update(['status' => $this->orderStatus]);
 
@@ -185,6 +340,10 @@ class OrderDetail extends Component
 
     public function showAddCustomer($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->order = Order::find($id);
         $this->showAddCustomerModal = true;
     }
@@ -196,6 +355,10 @@ class OrderDetail extends Component
 
     public function promptOrderItemRemoval($id): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!user_can('Delete KOT Item')) {
             $this->alert('error', __('messages.kotDeletePermissionDenied'), [
                 'toast' => true,
@@ -206,7 +369,7 @@ class OrderDetail extends Component
             return;
         }
 
-        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+        if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -217,6 +380,64 @@ class OrderDetail extends Component
         }
 
         $this->pendingOrderItemId = $id;
+        $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = null;
+        $this->pendingRemovalAction = 'delete';
+        $this->removalReason = '';
+        $this->showRemovalReasonModal = true;
+    }
+
+    public function promptOrderItemQuantityDecrease(int $id): void
+    {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
+        if (!user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close'),
+            ]);
+
+            return;
+        }
+
+        if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close'),
+            ]);
+
+            return;
+        }
+
+        $orderItem = OrderItem::query()
+            ->where('order_id', $this->order?->id)
+            ->where('id', $id)
+            ->first();
+
+        if (!$orderItem || !empty($orderItem->combo_pack_id)) {
+            return;
+        }
+
+        if ((int) $orderItem->quantity <= 1) {
+            $this->promptOrderItemRemoval($id);
+
+            return;
+        }
+
+        $this->pendingOrderItemId = $id;
+        $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = null;
+        $this->pendingRemovalAction = 'decrement';
         $this->removalReason = '';
         $this->showRemovalReasonModal = true;
     }
@@ -226,25 +447,49 @@ class OrderDetail extends Component
         $this->showRemovalReasonModal = false;
         $this->removalReason = '';
         $this->pendingOrderItemId = null;
+        $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = null;
+        $this->pendingRemovalAction = 'delete';
     }
 
     public function confirmOrderItemRemoval(): void
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->validate([
             'removalReason' => 'required|string|min:3',
         ]);
 
-        if (!$this->pendingOrderItemId) {
+        if (!$this->pendingOrderItemId && !$this->pendingComboPackId && !$this->pendingComboGroupKey) {
             return;
         }
 
-        $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
+        if ($this->pendingComboGroupKey) {
+            $this->executeComboGroupRemoval($this->pendingComboGroupKey, $this->removalReason);
+        } elseif ($this->pendingComboPackId) {
+            // Backward compatibility for old state shape.
+            $this->executeComboGroupRemoval('pack:' . (int) $this->pendingComboPackId, $this->removalReason);
+        } elseif ($this->pendingRemovalAction === 'decrement' && $this->pendingOrderItemId) {
+            $this->performOrderItemQuantityDecrease($this->pendingOrderItemId, $this->removalReason);
+        } else {
+            $this->performOrderItemDeletion($this->pendingOrderItemId, $this->removalReason);
+        }
         $this->cancelOrderItemRemoval();
     }
 
     public function deleteOrderItems($id)
     {
-        if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
+        if ($this->order && in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -257,7 +502,108 @@ class OrderDetail extends Component
         $this->performOrderItemDeletion($id);
     }
 
-    protected function performOrderItemDeletion($id, ?string $note = null): void
+    public function removeComboGroup(string $comboGroupKey): void
+    {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if (!$this->order) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
+        if ($this->order->status === 'canceled') {
+            return;
+        }
+
+        if (!user_can('Delete KOT Item')) {
+            $this->alert('error', __('messages.kotDeletePermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
+        if (in_array($this->order->status, ['billed', 'paid', 'payment_due'], true) && !user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+            return;
+        }
+
+        $comboItemIds = $this->getComboOrderItemIdsByGroupKey($comboGroupKey);
+
+        if (empty($comboItemIds)) {
+            return;
+        }
+
+        $this->pendingOrderItemId = null;
+        $this->pendingComboPackId = null;
+        $this->pendingComboGroupKey = $this->normalizeComboGroupKey($comboGroupKey);
+        $this->removalReason = '';
+        $this->showRemovalReasonModal = true;
+    }
+
+    public function removeComboGroupByOrderItem(int $orderItemId): void
+    {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if (!$this->order) {
+            return;
+        }
+
+        $orderItem = $this->order->items()
+            ->whereNotNull('combo_pack_id')
+            ->find($orderItemId);
+
+        if (!$orderItem) {
+            return;
+        }
+
+        $instanceKey = $this->extractComboInstanceKey($orderItem->note);
+        $comboGroupKey = $instanceKey
+            ? 'instance:' . $instanceKey
+            : 'pack:' . (int) $orderItem->combo_pack_id;
+
+        $this->removeComboGroup($comboGroupKey);
+    }
+
+    protected function executeComboGroupRemoval(string $comboGroupKey, string $note): void
+    {
+        if (!$this->order) {
+            return;
+        }
+
+        $comboItemIds = $this->getComboOrderItemIdsByGroupKey($comboGroupKey);
+
+        if (empty($comboItemIds)) {
+            return;
+        }
+
+        foreach ($comboItemIds as $orderItemId) {
+            $this->performOrderItemDeletion((int) $orderItemId, $note, false);
+        }
+
+        $this->alert('success', __('messages.orderItemDeleted'), [
+            'toast' => true,
+            'position' => 'top-end',
+            'showCancelButton' => false,
+            'cancelButtonText' => __('app.close')
+        ]);
+    }
+
+    protected function performOrderItemDeletion($id, ?string $note = null, bool $notify = true): void
     {
         $orderItem = OrderItem::find($id);
 
@@ -312,23 +658,209 @@ class OrderDetail extends Component
             $this->recalculateOrderTotals();
 
             // Keep payment records in sync with the revised total
-            if (in_array($this->order->status, ['paid', 'payment_due'])) {
-                $this->scalePaymentsToNewTotal($this->total);
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
             }
         }
 
-        $this->alert('success', __('messages.orderItemDeleted'), [
+        if ($notify) {
+            $this->alert('success', __('messages.orderItemDeleted'), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close')
+            ]);
+        }
+
+        $this->dispatch('refreshPos');
+    }
+
+    protected function performOrderItemQuantityDecrease(int $id, string $note): void
+    {
+        $orderItem = OrderItem::find($id);
+
+        if (!$orderItem || (int) $orderItem->quantity <= 1) {
+            return;
+        }
+
+        $quantityBefore = (int) $orderItem->quantity;
+        $newQuantity = $quantityBefore - 1;
+
+        $unitAmount = $quantityBefore > 0
+            ? round((float) $orderItem->amount / $quantityBefore, 4)
+            : (float) ($orderItem->price ?? 0);
+        $unitTax = $quantityBefore > 0
+            ? round((float) ($orderItem->tax_amount ?? 0) / $quantityBefore, 4)
+            : 0.0;
+
+        $kotItem = $this->findKotItemForOrderItem($orderItem);
+
+        if ($kotItem) {
+            $kotQtyBefore = (int) $kotItem->quantity;
+            $newKotQty = $kotQtyBefore - 1;
+
+            if ($newKotQty <= 0) {
+                KotAdjustmentLogger::log($kotItem, 'deleted', $note, $kotQtyBefore, 0);
+                $kot = $kotItem->kot;
+                $kotItem->delete();
+                $kot?->refresh();
+                if ($kot && $kot->items()->count() === 0) {
+                    $kot->delete();
+                }
+            } else {
+                KotAdjustmentLogger::log($kotItem, 'quantity_updated', $note, $kotQtyBefore, $newKotQty);
+                $kotItem->update(['quantity' => $newKotQty]);
+            }
+        } else {
+            KotAdjustmentLogger::logOrderItem(
+                $orderItem,
+                'quantity_updated',
+                $note,
+                $quantityBefore,
+                $newQuantity
+            );
+        }
+
+        $orderItem->update([
+            'quantity' => $newQuantity,
+            'amount' => round($unitAmount * $newQuantity, 2),
+            'tax_amount' => round($unitTax * $newQuantity, 2),
+        ]);
+
+        if ($this->order) {
+            $this->order->refresh();
+            $this->recalculateOrderTotals();
+
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
+            }
+        }
+
+        $this->alert('success', __('messages.updateSuccess'), [
             'toast' => true,
             'position' => 'top-end',
             'showCancelButton' => false,
-            'cancelButtonText' => __('app.close')
+            'cancelButtonText' => __('app.close'),
         ]);
 
         $this->dispatch('refreshPos');
     }
 
+    protected function findKotItemForOrderItem(OrderItem $orderItem): ?KotItem
+    {
+        $query = KotItem::query()
+            ->whereHas('kot', fn ($q) => $q->where('order_id', $orderItem->order_id))
+            ->where('menu_item_id', $orderItem->menu_item_id)
+            ->where('quantity', '>', 0);
+
+        if ($orderItem->menu_item_variation_id) {
+            $query->where('menu_item_variation_id', $orderItem->menu_item_variation_id);
+        } else {
+            $query->whereNull('menu_item_variation_id');
+        }
+
+        if ($orderItem->combo_pack_id) {
+            $query->where('combo_pack_id', $orderItem->combo_pack_id);
+        } else {
+            $query->where(function ($q) {
+                $q->whereNull('combo_pack_id')->orWhere('combo_pack_id', 0);
+            });
+        }
+
+        $candidates = $query->get();
+
+        $exactQtyMatch = $candidates->firstWhere('quantity', $orderItem->quantity);
+
+        return $exactQtyMatch ?? $candidates->sortByDesc('quantity')->first();
+    }
+
+    protected function extractComboInstanceKey(?string $note): ?string
+    {
+        if (!$note) {
+            return null;
+        }
+
+        if (preg_match('/\[COMBO_INSTANCE:([^\]]+)\]/', $note, $matches) && !empty($matches[1])) {
+            return trim((string) $matches[1]);
+        }
+
+        return null;
+    }
+
+    protected function normalizeComboGroupKey(?string $comboGroupKey): ?string
+    {
+        if ($comboGroupKey === null) {
+            return null;
+        }
+
+        $comboGroupKey = trim((string) $comboGroupKey);
+        if ($comboGroupKey === '') {
+            return null;
+        }
+
+        if (is_numeric($comboGroupKey)) {
+            return 'pack:' . (int) $comboGroupKey;
+        }
+
+        if (str_starts_with($comboGroupKey, 'instance:') || str_starts_with($comboGroupKey, 'pack:')) {
+            return $comboGroupKey;
+        }
+
+        return $comboGroupKey;
+    }
+
+    protected function getComboOrderItemIdsByGroupKey(?string $comboGroupKey): array
+    {
+        if (!$this->order) {
+            return [];
+        }
+
+        $normalizedKey = $this->normalizeComboGroupKey($comboGroupKey);
+        if (!$normalizedKey) {
+            return [];
+        }
+
+        $comboItems = $this->order->items()
+            ->whereNotNull('combo_pack_id')
+            ->get(['id', 'combo_pack_id', 'note']);
+
+        if (str_starts_with($normalizedKey, 'instance:')) {
+            $instanceKey = substr($normalizedKey, strlen('instance:'));
+            if ($instanceKey === '') {
+                return [];
+            }
+
+            return $comboItems
+                ->filter(fn ($item) => $this->extractComboInstanceKey($item->note) === $instanceKey)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
+
+        if (str_starts_with($normalizedKey, 'pack:')) {
+            $comboPackId = (int) substr($normalizedKey, strlen('pack:'));
+            if ($comboPackId <= 0) {
+                return [];
+            }
+
+            return $comboItems
+                ->where('combo_pack_id', $comboPackId)
+                ->pluck('id')
+                ->map(fn ($id) => (int) $id)
+                ->values()
+                ->all();
+        }
+
+        return [];
+    }
+
     public function updatedOrderProgressStatus($value)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (empty($this->order) || is_null($value)) {
             return;
         }
@@ -410,6 +942,9 @@ class OrderDetail extends Component
 
     public function saveOrder($action)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
 
         switch ($action) {
         case 'bill':
@@ -420,7 +955,7 @@ class OrderDetail extends Component
                 break;
 
         case 'kot':
-                return $this->redirect(route('pos.show', $this->order->table_id), navigate: true);
+            return $this->redirect(route('pos.kot', $this->order->id), navigate: true);
         }
 
         $taxes = Tax::all();
@@ -553,11 +1088,19 @@ class OrderDetail extends Component
 
     public function showPayment($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->dispatch('showPaymentModal', id: $id);
     }
 
     public function cancelOrderStatus($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         // Validate that a cancel reason is provided
         if (!$this->cancelReason && !$this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
@@ -617,6 +1160,10 @@ class OrderDetail extends Component
 
     public function cancelOrder($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         // Validate that a cancel reason is provided
         if (!$this->cancelReason && !$this->cancelReasonText) {
             $this->alert('error', __('modules.settings.cancelReasonRequired'), [
@@ -638,6 +1185,19 @@ class OrderDetail extends Component
                 'cancel_reason_text' => $this->cancelReasonText,
 
             ]);
+
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::OrderCancelled,
+                description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' cancelled',
+                subject: $order,
+                properties: [
+                    'order_id' => $order->id,
+                    'cancel_reason_id' => $this->cancelReason,
+                    'cancel_reason_text' => $this->cancelReasonText,
+                ],
+                branchId: $order->branch_id ? (int) $order->branch_id : null,
+            );
+
             $order->kot()->delete();
             $order->payments()->delete();
 
@@ -671,6 +1231,10 @@ class OrderDetail extends Component
 
     public function paymentReceived($orderId, $status)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $order = Order::with('payments')->find($orderId);
 
         if (!$order) {
@@ -711,6 +1275,10 @@ class OrderDetail extends Component
 
     public function deleteOrder($id)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $order = Order::find($id);
 
         if (!$order) {
@@ -741,6 +1309,14 @@ class OrderDetail extends Component
                 'total_tax_amount' => 0,
             ]);
 
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::OrderCancelled,
+                description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' cancelled (audit preserved)',
+                subject: $order,
+                properties: ['order_id' => $order->id, 'has_kot_adjustments' => true],
+                branchId: $order->branch_id ? (int) $order->branch_id : null,
+            );
+
             $this->alert('success', __('messages.orderCanceled'), [
                 'toast' => true,
                 'position' => 'top-end',
@@ -748,6 +1324,14 @@ class OrderDetail extends Component
                 'cancelButtonText' => __('app.close')
             ]);
         } else {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::OrderDeleted,
+                description: 'Order #' . ($order->formatted_order_number ?? $order->order_number ?? $order->id) . ' deleted',
+                subject: $order,
+                properties: ['order_id' => $order->id],
+                branchId: $order->branch_id ? (int) $order->branch_id : null,
+            );
+
             $order->delete();
 
         $this->alert('success', __('messages.orderDeleted'), [
@@ -778,6 +1362,10 @@ class OrderDetail extends Component
 
     public function saveDeliveryExecutive()
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         $this->order->update(['delivery_executive_id' => $this->deliveryExecutive]);
         $this->order->fresh();
         $this->alert('success', __('messages.deliveryExecutiveAssigned'), [
@@ -790,6 +1378,10 @@ class OrderDetail extends Component
 
     public function removeCharge($chargeId)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->order && in_array($this->order->status, ['paid', 'payment_due']) && !user_can('Edit Billed Order')) {
             $this->alert('error', __('messages.editBilledOrderPermissionDenied'), [
                 'toast' => true,
@@ -808,11 +1400,19 @@ class OrderDetail extends Component
 
             // Recalculate order totals properly
             $this->recalculateOrderTotals();
+
+            if (in_array($this->order->status, ['paid', 'payment_due'], true)) {
+                OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
+            }
         }
     }
 
     public function updatePaymentMethod($id, $paymentMethod)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if (!$id || !$paymentMethod || !$this->order) {
             return;
         }
@@ -821,6 +1421,28 @@ class OrderDetail extends Component
 
         if (!$payment) {
             return;
+        }
+
+        if ($paymentMethod === 'due') {
+            $this->order->refresh();
+            if (!$this->order->canRecordDueBalance()) {
+                $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: (bool) $this->fromPos,
+                    forDuePayment: true,
+                    preferDueAfterAttach: false
+                )->to(AddCustomer::class);
+
+                return;
+            }
         }
 
         $payment->payment_method = $paymentMethod;
@@ -848,6 +1470,10 @@ class OrderDetail extends Component
 
     public function updatedSelectWaiter($value)
     {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
         if ($this->order) {
             $this->order->update(['waiter_id' => $value ?: null]);
 
@@ -863,43 +1489,6 @@ class OrderDetail extends Component
     /**
      * Recalculate order totals including all components
      */
-    /**
-     * Reduce overpaid payment amounts so their sum equals the new order total.
-     * Works from the most-recent payment backwards, never letting any amount go below zero.
-     */
-    private function scalePaymentsToNewTotal(float $newTotal): void
-    {
-        $payments = $this->order->payments()
-            ->where('payment_method', '!=', 'due')
-            ->orderBy('id')
-            ->get();
-
-        $excess = round($payments->sum('amount') - $newTotal, 2);
-
-        if ($excess <= 0) {
-            return;
-        }
-
-        // Reduce from the most recent payment first
-        foreach ($payments->sortByDesc('id') as $payment) {
-            if ($excess <= 0) {
-                break;
-            }
-            $canReduce = min((float) $payment->amount, $excess);
-            $payment->update(['amount' => round($payment->amount - $canReduce, 2)]);
-            $excess = round($excess - $canReduce, 2);
-        }
-
-        $this->order->update([
-            'amount_paid' => $this->order->payments()
-                ->where('payment_method', '!=', 'due')
-                ->sum('amount'),
-        ]);
-
-        $this->order->refresh();
-        $this->order->load('payments');
-    }
-
     public function recalculateOrderTotals()
     {
         if (!$this->order) {
@@ -1036,6 +1625,170 @@ class OrderDetail extends Component
         }
 
         return 0;
+    }
+
+    public function showAddDiscount()
+    {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if (!user_can('Edit Billed Order')) {
+            $this->alert('error', __('messages.noPermission'), [
+                'toast' => true, 'position' => 'top-end',
+                'showCancelButton' => false, 'cancelButtonText' => __('app.close'),
+            ]);
+            return;
+        }
+        $this->discountType  = $this->order->discount_type  ?? 'fixed';
+        $this->discountValue = $this->order->discount_value ?? null;
+        $this->showDiscountModal = true;
+    }
+
+    public function applyDiscount()
+    {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
+        if (!user_can('Edit Billed Order')) {
+            return;
+        }
+
+        $this->validate(['discountValue' => 'required|numeric|min:0']);
+
+        $subTotal = (float) $this->order->sub_total;
+
+        if ($this->discountType === 'percent') {
+            if ($this->discountValue > 100) {
+                $this->addError('discountValue', __('messages.discountCannotExceedTotal'));
+                return;
+            }
+            $discountAmount = round(($subTotal * $this->discountValue) / 100, 2);
+        } else {
+            if ($this->discountValue > $subTotal) {
+                $this->addError('discountValue', __('messages.discountCannotExceedTotal'));
+                return;
+            }
+            $discountAmount = (float) $this->discountValue;
+        }
+
+        // Re-calculate total: add back any existing discount then subtract the new one
+        $oldDiscount = (float) ($this->order->discount_amount ?? 0);
+        $newTotal    = max(0, ($this->order->total + $oldDiscount) - $discountAmount);
+        $statusBefore = $this->order->status;
+
+        try {
+            DB::transaction(function () use ($discountAmount, $newTotal, $statusBefore) {
+                $this->order->update([
+                    'discount_type'   => $this->discountType,
+                    'discount_value'  => $this->discountValue,
+                    'discount_amount' => $discountAmount,
+                    'total'           => $newTotal,
+                ]);
+
+                $this->order->refresh();
+                $this->order->load('payments');
+
+                if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+                    OrderPaymentBalanceSync::reconcileAfterTotalChangeForUi($this->order);
+                }
+            });
+        } catch (\RuntimeException $e) {
+            // Ensure component state matches rolled-back database values.
+            if ($this->order) {
+                $this->order->refresh();
+                $this->order->load('payments');
+            }
+            $this->alert('warning', $e->getMessage(), [
+                'toast' => true,
+                'position' => 'top-end',
+                'showCancelButton' => false,
+                'cancelButtonText' => __('app.close'),
+            ]);
+
+            return;
+        }
+
+        $this->order->refresh();
+        $this->showDiscountModal = false;
+
+        $this->alert('success', __('modules.order.discountApplied'), [
+            'toast' => true, 'position' => 'top-end',
+            'showCancelButton' => false, 'cancelButtonText' => __('app.close'),
+        ]);
+
+        $this->dispatch('refreshPos');
+        $this->dispatch('refreshOrders');
+    }
+
+    public function removeDiscount()
+    {
+        if ($this->abortIfReadOnlyCrossBranch()) {
+            return;
+        }
+
+        if ($this->abortIfFolioSettled()) {
+            return;
+        }
+
+        if (!user_can('Edit Billed Order')) {
+            return;
+        }
+
+        $oldDiscount = (float) ($this->order->discount_amount ?? 0);
+        $newTotal    = $this->order->total + $oldDiscount;
+        $statusBefore = $this->order->status;
+
+        if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+            $amountPaid = $this->order->payments()
+                ->where('payment_method', '!=', 'due')
+                ->sum('amount');
+
+            if ($amountPaid < $newTotal - 0.0001 && !$this->order->canRecordDueBalance()) {
+                $this->alert('warning', __('modules.order.customerRequiredForDuePayment'), [
+                    'toast' => true,
+                    'position' => 'top-end',
+                    'showCancelButton' => false,
+                    'cancelButtonText' => __('app.close'),
+                ]);
+                $this->dispatch(
+                    'showAddCustomerModal',
+                    id: $this->order->id,
+                    customerId: null,
+                    fromPos: (bool) $this->fromPos,
+                    forDuePayment: true,
+                    preferDueAfterAttach: false
+                )->to(AddCustomer::class);
+
+                return;
+            }
+        }
+
+        $this->order->update([
+            'discount_type'   => null,
+            'discount_value'  => null,
+            'discount_amount' => null,
+            'total'           => $newTotal,
+        ]);
+
+        if (in_array($statusBefore, ['paid', 'payment_due'], true)) {
+            OrderPaymentBalanceSync::reconcileAfterTotalChange($this->order->fresh(['payments']));
+        }
+
+        $this->order->refresh();
+
+        $this->alert('success', __('modules.order.discountRemoved'), [
+            'toast' => true, 'position' => 'top-end',
+            'showCancelButton' => false, 'cancelButtonText' => __('app.close'),
+        ]);
+
+        $this->dispatch('refreshPos');
+        $this->dispatch('refreshOrders');
     }
 
     public function render()

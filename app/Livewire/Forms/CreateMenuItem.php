@@ -3,6 +3,8 @@
 
 namespace App\Livewire\Forms;
 
+use App\Livewire\Concerns\ManagesMenuBranchSelection;
+use App\Livewire\Concerns\ManagesPerBranchKitchenSelection;
 use App\Models\Tax;
 use App\Models\Menu;
 use App\Helper\Files;
@@ -15,17 +17,22 @@ use Livewire\WithFileUploads;
 use App\Models\MenuItemPrices;
 use App\Models\DeliveryPlatform;
 use App\Models\MenuItemVariation;
+use App\Scopes\BranchScope;
+use App\Services\MenuBranchProvisioningService;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Validate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class CreateMenuItem extends Component
 {
     use WithFileUploads, LivewireAlert;
+    use ManagesMenuBranchSelection, ManagesPerBranchKitchenSelection;
 
     protected $listeners = ['refreshCategories'];
 
@@ -33,7 +40,7 @@ class CreateMenuItem extends Component
     #[Validate('required')]
     public string $itemName = '';
 
-    #[Validate('nullable|string|max:50|unique:menu_items,item_code')]
+    #[Validate('nullable|string|max:50')]
     public string $itemCode = '';
 
     #[Validate('required')]
@@ -45,7 +52,7 @@ class CreateMenuItem extends Component
     #[Validate('nullable|string')]
     public string $itemDescription = '';
 
-    #[Validate('required|in:veg,non-veg,other,spicy,mild,sweet')]
+    #[Validate('required|in:veg,non-veg,egg,drink,halal,other')]
     public string $itemType = 'veg';
 
     #[Validate('required|numeric|min:0')]
@@ -60,7 +67,7 @@ class CreateMenuItem extends Component
     #[Validate('nullable|array')]
     public array $selectedKitchenTypes = [];
 
-    #[Validate('nullable|image|mimes:jpeg,png,jpg,gif,svg|max:2048')]
+    #[Validate('nullable|image|mimes:jpeg,png,jpg,gif,svg')]
     public $itemImageTemp;
 
     public ?string $itemImage = null;
@@ -102,17 +109,18 @@ class CreateMenuItem extends Component
     // Collections (computed properties to avoid N+1 queries)
     public $categoryList;
     public $menus;
-    public $kitchenTypes;
     public $taxes;
     public $orderTypes;
     public $deliveryApps;
 
     public function mount(): void
     {
+        $this->initializeMenuBranchSelection();
         $this->initializeCollections();
         $this->initializeLanguages();
         $this->initializePricing();
         $this->initializeTaxSettings();
+        $this->refreshKitchensByBranch();
     }
 
     /**
@@ -122,9 +130,11 @@ class CreateMenuItem extends Component
     {
         $this->categoryList = ItemCategory::all();
         $this->menus = Menu::all();
-        $this->kitchenTypes = KotPlace::where('is_active', true)->get();
         $this->taxes = Tax::all();
-        $this->orderTypes = OrderType::where('is_active', 1)->get();
+        $branchId = (int) (branch()?->id ?? 0);
+        $this->orderTypes = $branchId > 0
+            ? app(MenuBranchProvisioningService::class)->activeOrderTypesForBranch($branchId)
+            : OrderType::where('is_active', 1)->get();
         $this->deliveryApps = DeliveryPlatform::where('is_active', 1)->get();
     }
 
@@ -263,9 +273,10 @@ class CreateMenuItem extends Component
                            : (float)($this->variationPrice[$index] ?? 0);
 
         foreach ($this->deliveryApps as $app) {
-            // Calculate final price with commission
             $commission = (float)($app->commission_value ?? 0);
-            $finalPrice = $baseDeliveryPrice + ($baseDeliveryPrice * $commission / 100);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $baseDeliveryPrice + ($baseDeliveryPrice * $commission / 100)
+                : $baseDeliveryPrice + $commission;
 
             $this->variationDeliveryPrices[$index][$app->id] = number_format($finalPrice, 2);
         }
@@ -273,9 +284,31 @@ class CreateMenuItem extends Component
 
     public function updatedVariationPrice($value, $key): void
     {
-        // When variation price is updated, recalculate delivery prices
         $this->calculateVariationDeliveryPrices((int)$key);
         $this->updateVariationBreakdowns();
+    }
+
+    /**
+     * Copy the variation's standard price into all non-delivery order type fields
+     * AND into the base delivery price field, then recalculate platform prices.
+     * Always overwrites so the user gets a full sync when they click the button.
+     */
+    public function syncVariationPriceToAll(int $index): void
+    {
+        $price = $this->variationPrice[$index] ?? '';
+        if ($price === '' || $price === null) {
+            return;
+        }
+
+        foreach ($this->orderTypes as $orderType) {
+            if (strtolower($orderType->slug ?? $orderType->name) === 'delivery') {
+                continue;
+            }
+            $this->variationOrderTypePrices[$index][$orderType->id] = $price;
+        }
+
+        $this->variationBaseDeliveryPrice[$index] = $price;
+        $this->calculateVariationDeliveryPrices($index);
     }
 
     public function updatedVariationBaseDeliveryPrice($value, $key): void
@@ -406,13 +439,41 @@ class CreateMenuItem extends Component
                 'trace_id' => $traceId,
                 'errors' => $this->getErrorBag()->toArray(),
             ]);
+
+            $firstError = collect($this->getErrorBag()->all())->flatten()->first();
+            $this->alert('error', $firstError ?: __('messages.menuItemCreationFailed'), [
+                'toast' => true,
+                'position' => 'top-end',
+            ]);
+
             return;
         }
 
         try {
             DB::beginTransaction();
 
-            $menuItem = $this->createMenuItem();
+            $branchIds = app(MenuBranchProvisioningService::class)->validateBranchIds($this->selectedBranchIds);
+            $catalogGroupUuid = (string) Str::uuid();
+            $primaryBranchId = in_array((int) (branch()?->id), $branchIds, true)
+                ? (int) branch()->id
+                : $branchIds[0];
+
+            $provisioning = app(MenuBranchProvisioningService::class);
+            $sourceMenu = Menu::withoutGlobalScope(BranchScope::class)->findOrFail($this->menu);
+            $sourceCategory = ItemCategory::withoutGlobalScope(BranchScope::class)->findOrFail($this->itemCategory);
+
+            foreach ($branchIds as $branchId) {
+                $provisioning->resolveMenuIdForBranch($sourceMenu, (int) $branchId);
+                $provisioning->resolveCategoryIdForBranch($sourceCategory, (int) $branchId);
+            }
+
+            $sourceMenu->refresh();
+            $sourceCategory->refresh();
+
+            $resolvedMenuId = $provisioning->resolveMenuIdForBranch($sourceMenu, $primaryBranchId);
+            $resolvedCategoryId = $provisioning->resolveCategoryIdForBranch($sourceCategory, $primaryBranchId);
+
+            $menuItem = $this->createMenuItem($catalogGroupUuid, $primaryBranchId, $resolvedMenuId, $resolvedCategoryId);
 
             Log::info('menu_item.create.created', [
                 'trace_id' => $traceId,
@@ -423,14 +484,15 @@ class CreateMenuItem extends Component
             $this->handleImageUpload($menuItem);
             $this->handleVariationsOrPricing($menuItem);
             $this->handleTaxes($menuItem);
+            $this->syncKitchensToMenuItem($menuItem, $primaryBranchId);
 
-            // Sync multi-kitchen pivot table
-            if (!empty($this->selectedKitchenTypes)) {
-                $pivotData = [];
-                foreach ($this->selectedKitchenTypes as $index => $kitchenId) {
-                    $pivotData[$kitchenId] = ['is_primary' => $index === 0];
-                }
-                $menuItem->kotPlaces()->sync($pivotData);
+            foreach (array_diff($branchIds, [$primaryBranchId]) as $branchId) {
+                app(MenuBranchProvisioningService::class)->replicateMenuItemToBranch(
+                    $menuItem,
+                    (int) $branchId,
+                    $this->selectedKitchensByBranch,
+                    $catalogGroupUuid
+                );
             }
 
             DB::commit();
@@ -442,6 +504,10 @@ class CreateMenuItem extends Component
                 'menu_item_id' => $menuItem->id,
             ]);
 
+        } catch (ValidationException $e) {
+            DB::rollBack();
+
+            throw $e;
         } catch (\Throwable $e) {
             DB::rollBack();
 
@@ -471,11 +537,6 @@ class CreateMenuItem extends Component
             $this->itemCode = '';
         }
 
-        // If item code is empty, pre-generate so we can validate uniqueness reliably.
-        if (empty($this->itemCode)) {
-            $this->itemCode = $this->generateItemCode();
-        }
-
         $this->cleanupEmptyVariations();
 
         if ($this->hasVariations && empty($this->variationName)) {
@@ -488,21 +549,36 @@ class CreateMenuItem extends Component
             $this->itemPrice = reset($this->variationPrice) ?: '0';
         }
 
-        $rules = [
+        $branch = branch();
+        $branchIds = app(MenuBranchProvisioningService::class)->validateBranchIds($this->selectedBranchIds);
+        $primaryBranchId = $branch && in_array((int) $branch->id, $branchIds, true)
+            ? (int) $branch->id
+            : $branchIds[0];
+
+        // Pre-generate against the primary selected branch, not necessarily the session branch.
+        if (empty($this->itemCode)) {
+            $this->itemCode = MenuItem::generateNextItemCodeForBranch($primaryBranchId);
+        }
+
+        $itemCodeRule = Rule::unique('menu_items', 'item_code')
+            ->where('branch_id', $primaryBranchId);
+
+        $rules = array_merge([
             'translationNames.' . $this->globalLocale => 'required',
             'baseDeliveryPrice' => 'nullable|numeric|min:0',
             'itemCategory' => 'required',
             'menu' => 'required',
-            'itemCode' => 'nullable|string|max:50|unique:menu_items,item_code',
+            'itemCode' => ['nullable', 'string', 'max:50', $itemCodeRule],
             'isAvailable' => 'required|boolean',
             'orderTypePrices.*' => 'nullable|numeric|min:0',
             'platformAvailability.*' => 'nullable|boolean',
-        ];
+        ], $this->menuBranchSelectionRules());
 
-        // If Kitchen module is enabled, at least one kitchen type is mandatory.
+        // When Kitchen module is enabled, require a kitchen only for branches that have kitchens configured.
         if (in_array('Kitchen', restaurant_modules(), true)) {
-            $rules['selectedKitchenTypes'] = ['required', 'array', 'min:1'];
-            $rules['selectedKitchenTypes.*'] = ['exists:kot_places,id'];
+            if (! $this->validateKitchenSelectionsForBranches($branchIds)) {
+                return;
+            }
         }
 
         // Add validation rules for variations if they exist
@@ -534,55 +610,74 @@ class CreateMenuItem extends Component
             'selectedKitchenTypes.required' => __('validation.kitchenTypeRequired'),
             'selectedKitchenTypes.min' => __('validation.kitchenTypeRequired'),
             'selectedKitchenTypes.*.exists' => __('validation.kitchenTypeInvalid'),
+            'selectedKitchensByBranch.*.required' => __('validation.kitchenRequiredForBranch'),
+            'selectedKitchensByBranch.*.min' => __('validation.kitchenRequiredForBranch'),
+            'selectedKitchensByBranch.*.*.exists' => __('validation.kitchenTypeInvalid'),
         ];
     }
 
-    private function createMenuItem(): MenuItem
+    private function createMenuItem(string $catalogGroupUuid, int $branchId, int $menuId, int $categoryId): MenuItem
     {
-        // Auto-generate item code if empty
-        if (empty($this->itemCode)) {
-            $this->itemCode = $this->generateItemCode();
+        $userSuppliedCode = trim((string) $this->itemCode) !== '';
+
+        if (! $userSuppliedCode) {
+            $this->itemCode = MenuItem::generateNextItemCodeForBranch($branchId);
         }
 
-        return MenuItem::create([
-            'item_name' => $this->translationNames[$this->globalLocale],
-            'item_code' => $this->itemCode,
-            'price' => $this->hasVariations ? 0 : (float)$this->itemPrice,
-            'item_category_id' => $this->itemCategory,
-            'description' => $this->translationDescriptions[$this->globalLocale],
-            'is_available' => $this->isAvailable,
-            'type' => $this->itemType,
-            'menu_id' => $this->menu,
-            'preparation_time' => $this->preparationTime,
-            'kot_place_id' => $this->selectedKitchenTypes[0] ?? null,
-            'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : false,
-        ]);
+        $primaryKitchens = $this->kitchenIdsForBranch($branchId);
+
+        $maxAttempts = 15;
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            try {
+                return MenuItem::withoutEvents(function () use ($catalogGroupUuid, $branchId, $menuId, $categoryId, $primaryKitchens) {
+                    return MenuItem::withoutGlobalScopes()->create([
+                        'branch_id' => $branchId,
+                        'catalog_group_uuid' => $catalogGroupUuid,
+                        'item_name' => $this->translationNames[$this->globalLocale],
+                        'item_code' => $this->itemCode,
+                        'price' => $this->hasVariations ? 0 : (float) $this->itemPrice,
+                        'item_category_id' => $categoryId,
+                        'description' => $this->translationDescriptions[$this->globalLocale],
+                        'is_available' => $this->isAvailable,
+                        'type' => $this->itemType,
+                        'menu_id' => $menuId,
+                        'preparation_time' => $this->preparationTime,
+                        'kot_place_id' => $primaryKitchens[0] ?? null,
+                        'tax_inclusive' => $this->isTaxModeItem ? $this->taxInclusive : false,
+                    ]);
+                });
+            } catch (QueryException $e) {
+                if ($userSuppliedCode || ! MenuItem::isDuplicateBranchItemCodeException($e)) {
+                    throw $e;
+                }
+                if ($attempt === $maxAttempts) {
+                    throw $e;
+                }
+                $this->itemCode = MenuItem::generateNextItemCodeForBranch($branchId);
+            }
+        }
+
+        throw new \RuntimeException('Unable to allocate a unique item code.');
     }
 
     /**
-     * Generate unique item code
+     * Generate unique item code scoped to the current branch.
+     *
+     * Bypasses only AvailableMenuItemScope so unavailable items are still
+     * counted, while BranchScope remains active to keep codes branch-scoped.
+     * DB unique index on (branch_id, item_code) plus retry on insert in
+     * {@see createMenuItem()} handles concurrent allocation.
      */
     private function generateItemCode(): string
     {
-        $prefix = 'IT';
-        $lastItem = MenuItem::where('item_code', 'like', $prefix . '%')
-            ->orderBy('item_code', 'desc')
-            ->first();
-
-        if ($lastItem && preg_match('/' . $prefix . '(\d+)/', $lastItem->item_code, $matches)) {
-            $number = intval($matches[1]) + 1;
-        } else {
-            $number = 1;
+        $branch = branch();
+        if (! $branch) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'itemCode' => 'Branch context is required to generate an item code.',
+            ]);
         }
 
-        // Guarantee uniqueness even if existing item_code values are irregular.
-        do {
-            $candidate = $prefix . str_pad($number, 4, '0', STR_PAD_LEFT);
-            $exists = MenuItem::where('item_code', $candidate)->exists();
-            $number++;
-        } while ($exists);
-
-        return $candidate;
+        return MenuItem::generateNextItemCodeForBranch((int) $branch->id);
     }
 
     private function handleTranslations(MenuItem $menuItem): void
@@ -643,7 +738,9 @@ class CreateMenuItem extends Component
         }
 
         if ($validVariations === 0) {
-            throw new \Exception(__('validation.atLeastOneVariationRequired'));
+            throw ValidationException::withMessages([
+                'variationName.0' => __('validation.atLeastOneVariationRequired'),
+            ]);
         }
     }
 
@@ -698,6 +795,10 @@ class CreateMenuItem extends Component
         $this->showItemPrice = true;
         $this->hasVariations = false;
         $this->selectedTaxes = [];
+
+        $this->selectedKitchensByBranch = [];
+        $this->initializeMenuBranchSelection();
+        $this->refreshKitchensByBranch();
 
         // Reset pricing properties
         $this->baseDeliveryPrice = '';
@@ -760,7 +861,16 @@ class CreateMenuItem extends Component
     public function updatedItemImageTemp()
     {
         $this->itemImage = null;
-        $this->validateImage();
+
+        try {
+            $this->validateImage();
+        } catch (\League\Flysystem\UnableToRetrieveMetadata $e) {
+            $this->itemImageTemp = null;
+            $this->addError('itemImageTemp', 'The image could not be processed. Please rename the file (avoid very long filenames) and try again.');
+        } catch (\Throwable $e) {
+            $this->itemImageTemp = null;
+            $this->addError('itemImageTemp', 'The image could not be uploaded. Please try again with a different file.');
+        }
     }
 
     public function removeSelectedImage()
@@ -773,12 +883,44 @@ class CreateMenuItem extends Component
     {
         if (!$this->itemImageTemp) return;
 
-        $this->validate([
-            'itemImageTemp' => 'image|mimes:jpeg,png,jpg,gif,svg|max:2048',
-        ]);
+        try {
+            $this->validate([
+                'itemImageTemp' => 'image|mimes:jpeg,png,jpg,gif,svg',
+            ]);
+        } catch (\League\Flysystem\UnableToRetrieveMetadata $e) {
+            $this->itemImageTemp = null;
+            $this->addError('itemImageTemp', 'The image could not be processed. Please rename the file (avoid very long filenames) and try again.');
+            return;
+        }
+
+        // Use native filesize() via getRealPath() to avoid Livewire's livewire-tmp disk lookup,
+        // which can fail on some hosting environments (UnableToRetrieveMetadata).
+        $realPath = $this->itemImageTemp->getRealPath();
+        $sizeInBytes = null;
+        if ($realPath && file_exists($realPath)) {
+            $sizeInBytes = filesize($realPath);
+        } else {
+            $fallbackSize = $this->itemImageTemp->getSize();
+            if (is_numeric($fallbackSize) && (int) $fallbackSize > 0) {
+                $sizeInBytes = (int) $fallbackSize;
+            }
+        }
+
+        if ($sizeInBytes === null) {
+            $this->addError('itemImageTemp', 'Unable to validate image size');
+            $this->itemImageTemp = null;
+            return;
+        }
+
+        $sizeInKb = $sizeInBytes / 1024;
+        if ($sizeInKb > 2048) {
+            $this->addError('itemImageTemp', 'The image must not be greater than 2MB.');
+            $this->itemImageTemp = null;
+            return;
+        }
 
         // Check image dimensions
-        $imageInfo = getimagesize($this->itemImageTemp->getRealPath());
+        $imageInfo = $realPath ? @getimagesize($realPath) : false;
         if ($imageInfo) {
             $width = $imageInfo[0];
             $height = $imageInfo[1];
@@ -873,8 +1015,10 @@ class CreateMenuItem extends Component
             : (!empty($this->itemPrice) ? (float)$this->itemPrice : 0);
 
         foreach ($this->deliveryApps as $app) {
-            $commission = $app->commission_value ?? 0;
-            $finalPrice = $basePrice + ($basePrice * $commission / 100);
+            $commission = (float)($app->commission_value ?? 0);
+            $finalPrice = ($app->commission_type === 'percent')
+                ? $basePrice + ($basePrice * $commission / 100)
+                : $basePrice + $commission;
             $this->deliveryPrices[$app->id] = number_format($finalPrice, 2);
         }
     }
@@ -981,9 +1125,10 @@ class CreateMenuItem extends Component
                 }
             }
 
-            // Calculate final price with commission
             $commission = (float)($app->commission_value ?? 0);
-            $calculatedPrice = $deliveryBase + ($deliveryBase * $commission / 100);
+            $calculatedPrice = ($app->commission_type === 'percent')
+                ? $deliveryBase + ($deliveryBase * $commission / 100)
+                : $deliveryBase + $commission;
 
             MenuItemPrices::create([
                 'menu_item_id' => $menuItemId,
@@ -992,7 +1137,7 @@ class CreateMenuItem extends Component
                 'menu_item_variation_id' => $variationId,
                 'calculated_price' => $deliveryBase,
                 'final_price' => $calculatedPrice,
-                'status' => $isAvailable, // Save the toggle state
+                'status' => $isAvailable,
             ]);
         }
     }

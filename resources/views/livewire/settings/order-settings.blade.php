@@ -208,6 +208,16 @@
                                     <p class="text-sm text-gray-500 dark:text-gray-400">@lang('modules.order.hideMenuItemImageOnCustomerSiteDescription')</p>
                                 </div>
                             </div>
+
+                            <!-- Custom Order Extras -->
+                            <div class="flex gap-x-3 items-center p-4 bg-gray-100 rounded-lg shadow-sm dark:bg-gray-700">
+                                <x-checkbox name="allowCustomOrderExtras" id="allowCustomOrderExtras" wire:model.live='allowCustomOrderExtras'
+                                    class="mr-4" />
+                                <div class="flex-1">
+                                    <x-label for="allowCustomOrderExtras" value="Allow Custom Order Extras" class="!mb-1" />
+                                    <p class="text-sm text-gray-500 dark:text-gray-400">Adds note + amount lines to orders (not menu items).</p>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Save Button -->

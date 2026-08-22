@@ -17,15 +17,32 @@ class ViewPurchaseOrder extends Component
         'purchaseOrderPaymentSaved' => '$refresh',
     ];
 
-    public function show(PurchaseOrder $purchaseOrder)
+    public function show($purchaseOrder)
     {
+        // Accept either an int/string ID (from event payload) or an
+        // already-resolved model. Resolve manually so cross-branch records
+        // (when surfaced from places like the Stock-by-Location popup)
+        // still load. Restaurant guard prevents leaking across tenants.
+        if (!$purchaseOrder instanceof PurchaseOrder) {
+            $purchaseOrder = PurchaseOrder::withoutGlobalScopes()
+                ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+                ->find($purchaseOrder);
+        }
+
+        if (!$purchaseOrder) {
+            return;
+        }
+
         $this->purchaseOrder = $purchaseOrder->load([
             'supplier',
-            'branch',
+            'location.branch',
+            'items.unit',
             'items.inventoryItem.unit',
+            'items.inventoryItem.category',
             'payments.account',
             'payments.addedBy',
             'attachments',
+            'creator',
         ]);
         $this->activeTab = 'details';
         $this->showModal = true;
@@ -44,16 +61,25 @@ class ViewPurchaseOrder extends Component
 
     public function downloadPdf()
     {
-        // Reload with withoutGlobalScopes just in case
+        // Reload with all relationships needed by the PDF view
         $this->purchaseOrder->load([
             'supplier',
-            'branch',
+            'location.branch',
+            'items.unit',
             'items.inventoryItem.unit',
+            'items.inventoryItem.category',
+            'creator',
+            'payments.account',
+            'attachments',
         ]);
 
         $pdf = PDF::loadView('inventory::pdfs.purchase-order', [
             'purchaseOrder' => $this->purchaseOrder
         ]);
+
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
 
         return response()->streamDownload(function() use ($pdf) {
             echo $pdf->output();

@@ -6,6 +6,8 @@ use App\Models\Module;
 use App\Models\Role;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Livewire\Component;
 use Illuminate\Support\Str;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
@@ -47,20 +49,58 @@ class RoleSettings extends Component
 
     private function enabledModules(array $relations = [])
     {
-        return Module::with($relations)->get()
-            ->filter(fn ($m) => $m->name !== 'Sms' || (module_enabled('Sms') && in_array('Sms', restaurant_modules())));
+        return Module::with($relations)->excludeDeprecated()->get()
+            ->filter(function ($m) {
+                if ($m->name === 'Sms') {
+                    return module_enabled('Sms') && in_array('Sms', restaurant_modules());
+                }
+
+                if ($m->name === 'Hotel') {
+                    return module_enabled('Hotel') && in_array('Hotel', restaurant_modules());
+                }
+
+                return true;
+            });
     }
 
     public function setPermission($roleID, $permissionID)
     {
         $role = Role::find($roleID);
         $role->givePermissionTo($permissionID);
+
+        $permission = \Spatie\Permission\Models\Permission::find($permissionID);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::RolePermissionGranted,
+            description: "Permission granted to role {$role->display_name}: " . ($permission?->name ?? $permissionID),
+            properties: [
+                'role_id' => $role->id,
+                'role_name' => $role->display_name,
+                'permission_id' => $permissionID,
+                'permission_name' => $permission?->name,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
     }
 
     public function removePermission($roleID, $permissionID)
     {
         $role = Role::find($roleID);
         $role->revokePermissionTo($permissionID);
+
+        $permission = \Spatie\Permission\Models\Permission::find($permissionID);
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::RolePermissionRevoked,
+            description: "Permission revoked from role {$role->display_name}: " . ($permission?->name ?? $permissionID),
+            properties: [
+                'role_id' => $role->id,
+                'role_name' => $role->display_name,
+                'permission_id' => $permissionID,
+                'permission_name' => $permission?->name,
+            ],
+            restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+        );
     }
 
     public function showAddRole()
@@ -162,6 +202,16 @@ class RoleSettings extends Component
                 'display_name' => $this->inlineEditingRoleName,
             ]);
 
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::RoleUpdated,
+                description: "Role renamed to {$this->inlineEditingRoleName}",
+                properties: [
+                    'role_id' => $role->id,
+                    'display_name' => $this->inlineEditingRoleName,
+                ],
+                restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+            );
+
             // Refresh the roles list
             $this->roles = Role::where('display_name', '<>', 'Admin')
                               ->where('display_name', '<>', 'Super Admin')
@@ -240,6 +290,17 @@ class RoleSettings extends Component
             if ($sourcePermissions) {
                 $role->syncPermissions($sourcePermissions);
             }
+
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::RoleCreated,
+                description: "Role created: {$this->newRoleDisplayName}",
+                properties: [
+                    'role_id' => $role->id,
+                    'display_name' => $this->newRoleDisplayName,
+                    'copied_from_role_id' => $this->copyFromRole ?: null,
+                ],
+                restaurantId: (int) $currentRestaurant->id,
+            );
 
             // Refresh the roles list for current restaurant
             $this->roles = Role::where('display_name', '<>', 'Admin')
@@ -321,6 +382,18 @@ class RoleSettings extends Component
 
             // Delete the role
             $deletingRole->delete();
+
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::RoleDeleted,
+                description: "Role deleted: {$deletingRole->display_name}",
+                properties: [
+                    'role_id' => $deletingRole->id,
+                    'display_name' => $deletingRole->display_name,
+                    'reassigned_to_role_id' => $reassignRole->id,
+                    'users_reassigned' => count($this->usersWithDeletingRole),
+                ],
+                restaurantId: restaurant()?->id ? (int) restaurant()->id : null,
+            );
 
             // Refresh the roles list
             $this->roles = Role::where('display_name', '<>', 'Admin')

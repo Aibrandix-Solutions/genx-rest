@@ -83,6 +83,8 @@
                     @lang('app.export')
                 </a>
 
+                @include('livewire.reports.partials.branch-filter')
+
                  <div class="relative w-full sm:w-48 md:w-64">
                     <div class="absolute inset-y-0 start-0 flex items-center ps-3 pointer-events-none">
                         <svg class="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 20">
@@ -111,7 +113,11 @@
     </div>
 
     <!-- Sales Table -->
-    <div class="overflow-x-auto bg-white dark:bg-gray-800 p-4">
+    @php
+        $detailSalesLeadingCols = 5 + (($showBranchColumn ?? false) ? 1 : 0);
+        $detailSalesColspan = 12 + count($charges) + (($showBranchColumn ?? false) ? 1 : 0);
+    @endphp
+    <div class="overflow-x-auto w-full -mx-4 px-4 sm:mx-0 sm:px-4 bg-white dark:bg-gray-800 p-4">
         <table class="min-w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <thead class="bg-gray-100 dark:bg-gray-700">
             <tr>
@@ -121,6 +127,11 @@
                 <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
                 @lang('app.date')
                 </th>
+                @if($showBranchColumn ?? false)
+                <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
+                @lang('app.branch')
+                </th>
+                @endif
                 <th class="p-4 text-xs font-medium tracking-wider text-left text-gray-600 uppercase dark:text-gray-300">
                 @lang('modules.customer.customerName')
                 </th>
@@ -159,13 +170,14 @@
                  <th class="p-4 text-xs font-medium tracking-wider text-center text-gray-600 uppercase dark:text-gray-300">
                 @lang('modules.order.paymentMethod')
                 </th>
+                <th class="p-4 text-xs font-medium tracking-wider text-center text-gray-600 uppercase dark:text-gray-300">
+                @lang('app.action')
+                </th>
             </tr>
             <tr>
+                @for ($i = 0; $i < $detailSalesLeadingCols; $i++)
                 <th></th>
-                <th></th>
-                <th></th>
-                <th></th>
-                <th></th>
+                @endfor
 
                 <!-- Charges Subheaders -->
                 @foreach ($charges as $charge)
@@ -177,6 +189,7 @@
                 <!-- Tax Subheader -->
                  <th class="bg-red-50 dark:bg-red-900/20"></th>
 
+                <th></th>
                 <th></th>
                 <th></th>
                 <th></th>
@@ -210,13 +223,16 @@
             @endphp
             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
                 <td class="p-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">
-                <a href="javascript:;" wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }} })" class="text-blue-600 hover:underline">
                     {{ $order->order_number }}
-                </a>
                 </td>
                 <td class="p-4 text-sm font-medium text-gray-900 dark:text-white whitespace-nowrap">
                 {{ $order->date_time->format('M d, Y h:i A') }}
                 </td>
+                @if($showBranchColumn ?? false)
+                <td class="p-4 text-sm text-gray-900 dark:text-white whitespace-nowrap">
+                {{ $order->branch->name ?? '--' }}
+                </td>
+                @endif
                 <td class="p-4 text-sm text-gray-900 dark:text-white whitespace-nowrap">
                 {{ $order->customer->name ?? '--' }}
                 </td>
@@ -257,10 +273,24 @@
                         <span class="text-red-500">@lang('modules.order.due')</span>
                     @endif
                 </td>
+                <td class="p-4 text-center">
+                    <button
+                        type="button"
+                        wire:click="$dispatch('showOrderDetail', { id: {{ $order->id }}, fromReport: true })"
+                        title="{{ __('app.view') }}"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-300 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 rounded-lg transition"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+                        </svg>
+                        @lang('app.view')
+                    </button>
+                </td>
             </tr>
             @empty
             <tr>
-                <td colspan="{{ 10 + count($charges) }}" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
+                <td colspan="{{ $detailSalesColspan }}" class="p-4 text-sm text-center text-gray-500 dark:text-gray-400">
                 @lang('messages.noItemAdded')
                 </td>
             </tr>

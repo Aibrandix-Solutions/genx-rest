@@ -122,6 +122,7 @@
 
         <div id="main-content"
             class="relative w-full h-full overflow-y-auto bg-gray-50 ltr:lg:ml-64 rtl:lg:mr-64 dark:bg-gray-900">
+
             <main>
                 @yield('content')
                 {{ $slot ?? '' }}
@@ -151,13 +152,25 @@
 
     @if (user()->restaurant_id)
 
-        @livewire('order.OrderDetail')
+        @if (request()->routeIs('pos.*'))
+            {{-- Vue POS routes use the existing order detail and payment side drawers. --}}
+            {{-- customer.addCustomer must stay mounted on pos.* so the legacy
+                 due-payment guard (AddPayment::setPaymentMethod('due') →
+                 $dispatch('showAddCustomerModal', … forDuePayment: true)) can
+                 surface the "register customer first" flow inside the Vue POS. --}}
+            @livewire('order.OrderDetail')
+            @livewire('order.addPayment')
+            @livewire('customer.addCustomer')
+        @else
+            @livewire('order.OrderDetail')
 
-        @livewire('customer.addCustomer')
+            @livewire('settings.upgradeLicense')
 
-        @livewire('settings.upgradeLicense')
+            {{-- Payment modal below customer modal in DOM; customer uses higher z-index so it stacks on top for due/customer flow --}}
+            @livewire('order.addPayment')
 
-        @livewire('order.addPayment')
+            @livewire('customer.addCustomer')
+        @endif
 
         @include('sections.payment-gateway-include')
 
@@ -234,5 +247,8 @@
     <!-- Print Image Handler -->
     <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.11/dist/html-to-image.min.js" data-navigate-track></script>
     <script src="{{ asset('js/print-image-handler.js') }}" data-navigate-track></script>
+    @if (user()->restaurant_id)
+        <script src="{{ asset('js/pos-print-tab.js') }}" data-navigate-track></script>
+    @endif
 </body>
 </html>

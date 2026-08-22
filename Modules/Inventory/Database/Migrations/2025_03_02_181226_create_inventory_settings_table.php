@@ -4,8 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-use Illuminate\Support\Facades\Artisan;
-
 return new class extends Migration
 {
     /**
@@ -24,8 +22,6 @@ return new class extends Migration
             $table->foreignId('preferred_supplier_id')->nullable()->constrained('suppliers')->cascadeOnDelete();
             $table->decimal('reorder_quantity', 16, 2)->default(0);
         });
-
-        Artisan::call('inventory:activate');
     }
 
     /**

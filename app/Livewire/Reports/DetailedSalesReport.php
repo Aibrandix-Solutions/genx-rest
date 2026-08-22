@@ -4,7 +4,7 @@ namespace App\Livewire\Reports;
 
 use Carbon\Carbon;
 use App\Models\Tax;
-use App\Models\Order;
+use App\Scopes\BranchScope;
 use Livewire\Component;
 use Livewire\Attributes\On;
 use Livewire\WithPagination;
@@ -15,9 +15,13 @@ use App\Models\PaymentGatewayCredential;
 use App\Models\Payment;
 use App\Models\User;
 use App\Exports\DetailedSalesReportExport;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
 
 class DetailedSalesReport extends Component
 {
+    use HasReportBranchFilter;
     use WithPagination;
 
     public $dateRangeType = 'currentWeek';
@@ -45,20 +49,33 @@ class DetailedSalesReport extends Component
         // Load date range type from cookie
         $this->dateRangeType = request()->cookie('detailed_sales_report_date_range_type', 'currentWeek');
         $this->setDateRange();
-        // Populate waiters
-        $this->waiters = User::whereHas('roles', function($query) {
-            $query->where('name', 'Waiter_'.restaurant()->id);
-        })->get();
+        $this->mountReportBranchFilter();
+        $this->loadReportWaiters();
 
         $this->selectedWaiter = '';
 
-        // Load distinct payment methods
-        $this->paymentMethods = Payment::select('payment_method')
+        // Load distinct payment methods across restaurant branches
+        $restaurantId = (int) restaurant()->id;
+        $branchIds = ReportBranchScope::restaurantBranchIds($restaurantId);
+        $this->paymentMethods = Payment::withoutGlobalScope(BranchScope::class)
+            ->select('payment_method')
             ->distinct()
+            ->whereIn('branch_id', $branchIds)
             ->whereNotNull('payment_method')
             ->where('payment_method', '!=', 'due')
             ->pluck('payment_method')
             ->toArray();
+    }
+
+    protected function loadReportWaiters(): void
+    {
+        $restaurantId = (int) restaurant()->id;
+        $this->waiters = User::assignableWaitersForBranchFilter($restaurantId, $this->branchFilter)->get();
+
+        if ($this->selectedWaiter && ! $this->waiters->contains('id', (int) $this->selectedWaiter)) {
+            $this->selectedWaiter = '';
+            $this->filterByWaiter = '';
+        }
     }
 
     public function setDateRange()
@@ -96,7 +113,6 @@ class DetailedSalesReport extends Component
     private function prepareDateTimeData()
     {
         $timezone = timezone();
-        $offset = Carbon::now($timezone)->format('P');
 
         $startDateTime = Carbon::createFromFormat('m/d/Y H:i', $this->startDate . ' ' . $this->startTime, $timezone)
             ->toDateTimeString();
@@ -107,7 +123,7 @@ class DetailedSalesReport extends Component
         $startTime = Carbon::parse($this->startTime, $timezone)->format('H:i');
         $endTime = Carbon::parse($this->endTime, $timezone)->format('H:i');
 
-        return compact('timezone', 'offset', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
+        return compact('timezone', 'startDateTime', 'endDateTime', 'startTime', 'endTime');
     }
 
     public function updatedDateRangeType($value)
@@ -143,9 +159,9 @@ class DetailedSalesReport extends Component
                 $dateTimeData['startTime'],
                 $dateTimeData['endTime'],
                 $dateTimeData['timezone'],
-                $dateTimeData['offset'],
                 $this->filterByWaiter,
-                $this->filterPaymentMethod
+                $this->filterPaymentMethod,
+                $this->branchFilter,
             ),
             'detailed-sales-report-' . now()->format('Y-m-d_His') . '.xlsx'
         );
@@ -162,9 +178,10 @@ class DetailedSalesReport extends Component
         $taxMode = $restaurant->tax_mode ?? 'order';
 
         // Get detailed sales report
-        $query = Order::with(['payments', 'items', 'items.menuItem', 'waiter', 'customer'])
+        $query = SalesReportData::ordersBaseQuery($this->branchFilter)
+            ->with(ReportBranchScope::eagerLoadsForOrderReport())
             ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-            ->whereIn('orders.status', ['paid', 'payment_due'])
+            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
             ->where(function ($q) use ($dateTimeData) {
                 if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
                     $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$dateTimeData['startTime'], $dateTimeData['endTime']]);
@@ -185,14 +202,7 @@ class DetailedSalesReport extends Component
 
         // Filter by payment method if selected
         if ($this->filterPaymentMethod !== '') {
-            if ($this->filterPaymentMethod === 'due') {
-                $query->where('orders.status', 'payment_due')
-                    ->whereDoesntHave('payments');
-            } else {
-                $query->whereHas('payments', function($q) {
-                    $q->where('payment_method', $this->filterPaymentMethod);
-                });
-            }
+            ReportBranchScope::applyOrderPaymentMethodFilter($query, $this->filterPaymentMethod);
         }
 
         if ($this->search) {
@@ -218,6 +228,9 @@ class DetailedSalesReport extends Component
             'waiters' => $this->waiters,
             'filterByWaiter' => $this->filterByWaiter,
             'paymentMethods' => $this->paymentMethods,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
+            'showBranchColumn' => $this->showBranchColumn(),
         ]);
     }
 }

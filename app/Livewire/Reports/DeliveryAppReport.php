@@ -4,19 +4,22 @@ namespace App\Livewire\Reports;
 
 use Carbon\Carbon;
 use Livewire\Component;
-use App\Models\Order;
 use App\Models\DeliveryPlatform;
 use Livewire\Attributes\On;
 use Illuminate\Support\Facades\DB;
 use App\Models\OrderType;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\SalesReportData;
 
 class DeliveryAppReport extends Component
 {
+    use HasReportBranchFilter;
+
     public $dateRangeType;
     public $startDate;
     public $endDate;
-    public $startTime = '00:00'; // Default start time
-    public $endTime = '23:59';  // Default end time
+    public $startTime = '00:00';
+    public $endTime = '23:59';
     public $searchTerm;
     public $selectedDeliveryApp = 'all';
 
@@ -25,15 +28,14 @@ class DeliveryAppReport extends Component
         abort_if(!in_array('Report', restaurant_modules()), 403);
         abort_if((!user_can('Show Reports')), 403);
 
-        // Load date range type from cookie
         $this->dateRangeType = request()->cookie('delivery_app_report_date_range_type', 'currentWeek');
-        $this->startDate = now()->startOfWeek()->format('m/d/Y');
-        $this->endDate = now()->endOfWeek()->format('m/d/Y');
+        $this->setDateRange();
+        $this->mountReportBranchFilter();
     }
 
     public function updatedDateRangeType($value)
     {
-        cookie()->queue(cookie('delivery_app_report_date_range_type', $value, 60 * 24 * 30)); // 30 days
+        cookie()->queue(cookie('delivery_app_report_date_range_type', $value, 60 * 24 * 30));
     }
 
     public function setDateRange()
@@ -110,42 +112,35 @@ class DeliveryAppReport extends Component
             ->endOfDay()
             ->toDateTimeString();
 
-        // Get all delivery platforms
         $deliveryApps = DeliveryPlatform::all();
-
         $deliveryOrderTypes = OrderType::where('slug', 'delivery')->first();
 
-        // Get aggregated data grouped by delivery app (including null for direct delivery)
-        $deliveryAppStats = Order::select(
+        $deliveryAppStats = SalesReportData::ordersBaseQuery($this->branchFilter)
+            ->select(
                 'delivery_app_id',
                 DB::raw('COUNT(*) as total_orders'),
                 DB::raw('SUM(sub_total) as total_revenue'),
                 DB::raw('SUM(delivery_fee) as total_delivery_fees'),
                 DB::raw('AVG(sub_total) as avg_order_value')
             )
-            ->where('date_time', '>=', $start)
-            ->where('date_time', '<=', $end)
-            ->where('status', 'paid')
-            ->where('order_type_id', $deliveryOrderTypes->id);
+            ->where('orders.date_time', '>=', $start)
+            ->where('orders.date_time', '<=', $end)
+            ->where('orders.status', 'paid')
+            ->where('orders.order_type_id', $deliveryOrderTypes->id);
 
-        // Filter by selected delivery app for stats
         if ($this->selectedDeliveryApp !== 'all') {
             if ($this->selectedDeliveryApp === 'direct') {
-                // Direct delivery (no delivery app)
-                $deliveryAppStats->whereNull('delivery_app_id');
+                $deliveryAppStats->whereNull('orders.delivery_app_id');
             } else {
-                // Specific delivery app
-                $deliveryAppStats->where('delivery_app_id', $this->selectedDeliveryApp);
+                $deliveryAppStats->where('orders.delivery_app_id', $this->selectedDeliveryApp);
             }
         }
 
         $deliveryAppStats = $deliveryAppStats->groupBy('delivery_app_id')->get();
 
-        // Calculate commission for each delivery app
         $reportData = $deliveryAppStats->map(function ($stat) use ($deliveryApps) {
             $deliveryApp = $deliveryApps->firstWhere('id', $stat->delivery_app_id);
-            
-            // Handle direct delivery (no delivery app)
+
             if (!$deliveryApp && $stat->delivery_app_id === null) {
                 return [
                     'delivery_app' => (object) [
@@ -165,7 +160,6 @@ class DeliveryAppReport extends Component
                 ];
             }
 
-            // Skip if delivery app not found and not direct delivery
             if (!$deliveryApp) {
                 return null;
             }
@@ -189,7 +183,6 @@ class DeliveryAppReport extends Component
             ];
         })->filter()->values();
 
-        // Calculate overall totals
         $totalOrders = $reportData->sum('total_orders');
         $totalRevenue = $reportData->sum('total_revenue');
         $totalCommission = $reportData->sum('commission');
@@ -204,6 +197,8 @@ class DeliveryAppReport extends Component
             'totalCommission' => $totalCommission,
             'totalDeliveryFees' => $totalDeliveryFees,
             'netRevenue' => $netRevenue,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 }

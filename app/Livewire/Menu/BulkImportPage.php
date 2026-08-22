@@ -8,8 +8,12 @@ use App\Models\MenuItem;
 use App\Models\ItemCategory;
 use Livewire\WithFileUploads;
 use App\Imports\MenuItemImport;
+use App\Imports\MenuItemVariationImport;
+use App\Exports\MenuItemsWithVariationsTemplateExport;
 use Maatwebsite\Excel\Facades\Excel;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class BulkImportPage extends Component
@@ -42,7 +46,7 @@ class BulkImportPage extends Component
     public $availableCategories = [];
     public $availableMenus = [];
     public $availableKitchens;
-    public $selectedKitchenId = null;
+    public array $selectedKitchenTypes = [];
 
     // CSV Preview properties
     public $csvData = [];
@@ -50,6 +54,12 @@ class BulkImportPage extends Component
     public $columnMapping = [];
     public $previewRows = [];
     public $totalRows = 0;
+    
+    // Import mode properties
+    public $importMode = 'merge'; // 'merge' or 'replace' - controls variation handling
+    public $variationsSheetHeaders = [];
+    public $variationsPreviewRows = [];
+    public $variationsTotalRows = 0;
 
     public function mount()
     {
@@ -78,15 +88,41 @@ class BulkImportPage extends Component
             $this->availableMenus = Menu::where('branch_id', $branch->id)->get()->pluck('menu_name')->toArray();
             $this->availableKitchens = \App\Models\KotPlace::where('branch_id', $branch->id)->where('is_active', true)->get();
 
-            // Auto-select kitchen if only one exists
             if ($this->availableKitchens->count() === 1) {
-                $this->selectedKitchenId = $this->availableKitchens->first()->id;
+                $this->selectedKitchenTypes = [(string) $this->availableKitchens->first()->id];
             }
         } catch (\Exception $e) {
             $this->availableCategories = [];
             $this->availableMenus = [];
             $this->availableKitchens = collect();
         }
+    }
+
+    public function isKitchenSelectionRequired(): bool
+    {
+        return in_array('Kitchen', restaurant_modules(), true)
+            && $this->availableKitchens->count() > 0;
+    }
+
+    public function isKitchenSelectionValid(): bool
+    {
+        if (! $this->isKitchenSelectionRequired()) {
+            return true;
+        }
+
+        return count($this->selectedKitchenTypes) > 0;
+    }
+
+    public function getSelectedKitchenNamesProperty(): string
+    {
+        if ($this->selectedKitchenTypes === []) {
+            return '';
+        }
+
+        return $this->availableKitchens
+            ->whereIn('id', array_map('intval', $this->selectedKitchenTypes))
+            ->pluck('name')
+            ->implode(', ');
     }
 
     public function resetUploadState()
@@ -107,7 +143,7 @@ class BulkImportPage extends Component
         ];
         $this->currentStage = '';
         $this->stageProgress = 0;
-        $this->selectedKitchenId = null;
+        $this->selectedKitchenTypes = [];
 
         // Reset CSV preview data
         $this->csvData = [];
@@ -115,30 +151,106 @@ class BulkImportPage extends Component
         $this->columnMapping = [];
         $this->previewRows = [];
         $this->totalRows = 0;
+        $this->variationsSheetHeaders = [];
+        $this->variationsPreviewRows = [];
+        $this->variationsTotalRows = 0;
+        $this->importMode = 'merge';
 
         $this->loadAvailableData();
     }
 
     public function goToPreview()
     {
-        if (!$this->uploadFile || ($this->availableKitchens->count() > 1 && !$this->selectedKitchenId)) {
+        if (! $this->uploadFile || ! $this->isKitchenSelectionValid()) {
             $this->alert('error', __('app.pleaseCompleteAllSteps'));
             return;
         }
 
         try {
             $this->uploadStage = 'preview';
-            $this->parseCsvFile();
+            $this->detectFileTypeAndParse();
         } catch (\Exception $e) {
             $this->alert('error', __('app.errorParsingFile') . ': ' . $e->getMessage());
             $this->uploadStage = 'idle';
         }
     }
 
-    private function parseCsvFile()
+    /**
+     * Detect whether file is CSV or Excel and parse accordingly
+     */
+    private function detectFileTypeAndParse()
     {
         $filePath = $this->uploadFile->getRealPath();
+        $extension = strtolower($this->uploadFile->getClientOriginalExtension());
 
+        if (in_array($extension, ['xlsx', 'xls'])) {
+            $this->parseExcelFile($filePath);
+        } else {
+            $this->parseCsvFile($filePath);
+        }
+    }
+
+    /**
+     * Parse Excel file with up to 2 sheets.
+     * Sheet 0 is treated as the item sheet and sheet 1, if present, as variations.
+     */
+    private function parseExcelFile($filePath)
+    {
+        try {
+            $spreadsheet = \PhpOffice\PhpSpreadsheet\IOFactory::load($filePath);
+
+            // Always use the first sheet for items so descriptive sheet titles still work.
+            $itemsSheet = $spreadsheet->getSheetCount() > 0 ? $spreadsheet->getSheet(0) : null;
+            if ($itemsSheet) {
+                $this->parseExcelSheet($itemsSheet, true);
+            }
+            
+            // The second sheet is optional and treated as variations.
+            if ($spreadsheet->getSheetCount() > 1) {
+                $variationsSheet = $spreadsheet->getSheet(1);
+                if ($variationsSheet) {
+                    $this->parseExcelSheet($variationsSheet, false);
+                }
+            }
+        } catch (\Exception $e) {
+            throw new \Exception('Failed to parse Excel file: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Parse a single Excel sheet
+     */
+    private function parseExcelSheet($sheet, $isItemsSheet)
+    {
+        $rows = $sheet->toArray();
+        
+        if (empty($rows)) {
+            throw new \Exception('Empty sheet detected');
+        }
+
+        // First row is headers
+        $headers = array_map(function ($header) {
+            return trim($header ?? '', "\xEF\xBB\xBF");
+        }, $rows[0]);
+
+        // Data rows start from index 1
+        $dataRows = array_slice($rows, 1);
+
+        if ($isItemsSheet) {
+            $this->csvHeaders = $headers;
+            $this->previewRows = $dataRows;
+            $this->totalRows = count($rows);
+            $this->initializeColumnMapping();
+        } else {
+            $this->variationsSheetHeaders = $headers;
+            $this->variationsPreviewRows = $dataRows;
+            $this->variationsTotalRows = count($rows);
+            $this->initializeVariationsColumnMapping();
+        }
+    }
+
+    private function parseCsvFile($filePath)
+    {
         // Try to detect the file encoding
         $content = file_get_contents($filePath);
         $encoding = mb_detect_encoding($content, ['UTF-8', 'ISO-8859-1', 'Windows-1252'], true);
@@ -184,6 +296,7 @@ class BulkImportPage extends Component
     {
         $defaultMapping = [
             'item_name' => 'item_name',
+            'item_code' => 'item_code',
             'category_name' => 'category_name',
             'menu_name' => 'menu_name',
             'price' => 'price',
@@ -197,6 +310,24 @@ class BulkImportPage extends Component
             $header = trim($header);
             $this->columnMapping[$header] = $defaultMapping[$header] ?? '';
         }
+    }
+
+    private function initializeVariationsColumnMapping()
+    {
+        $defaultMapping = [
+            'item_code' => 'item_code',
+            'variation_name' => 'variation_name',
+            'variation_price' => 'variation_price',
+        ];
+
+        $variationsMapping = [];
+        foreach ($this->variationsSheetHeaders as $header) {
+            $header = trim($header);
+            $variationsMapping[$header] = $defaultMapping[$header] ?? '';
+        }
+        
+        // Store for later use - we'll pass this when creating the importer
+        $this->columnMapping = array_merge($this->columnMapping, ['variations' => $variationsMapping]);
     }
 
     public function updatedUploadFile()
@@ -561,23 +692,78 @@ class BulkImportPage extends Component
             $this->currentStage = __('modules.menu.processingData');
             $this->uploadProgress = 35;
 
-            // Create import instance and process
-            $import = new MenuItemImport($restaurantId, $branchId, $this->selectedKitchenId, $this->columnMapping);
+            // Extract column mappings
+            $itemsColumnMapping = [];
+            $variationsColumnMapping = [];
+            
+            foreach ($this->columnMapping as $key => $value) {
+                if ($key !== 'variations' && is_string($value) && !empty($value)) {
+                    $itemsColumnMapping[$key] = $value;
+                } elseif ($key === 'variations' && is_array($value)) {
+                    $variationsColumnMapping = $value;
+                }
+            }
 
-            // Update progress before import
+            // Create import instance and process items sheet
+            $import = new MenuItemImport(
+                $restaurantId,
+                $branchId,
+                array_map('intval', $this->selectedKitchenTypes),
+                $itemsColumnMapping
+            );
             $this->currentStage = __('modules.menu.importingData') . '...';
             $this->uploadProgress = 40;
 
             // Process the import
             Excel::import($import, $filePath);
 
-            // Update progress after import
+            // Get results from items import
+            $itemsResults = $import->getResults();
+            $itemsErrors = $import->getErrors();
+
+            // Process variations sheet if it exists and has column mappings
+            $variationsResults = [
+                'total' => 0,
+                'success' => 0,
+                'failed' => 0,
+                'skipped' => 0,
+                'deleted' => 0,
+            ];
+            $variationsErrors = [];
+
+            if (!empty($variationsColumnMapping)) {
+                $this->uploadProgress = 65;
+                $this->currentStage = __('modules.menu.importingVariations') . '...';
+
+                $variationsImport = new MenuItemVariationImport(
+                    $branchId,
+                    $variationsColumnMapping,
+                    $this->importMode === 'merge', // true for merge, false for replace
+                    [] // itemsToReplace will be set if replace mode
+                );
+
+                Excel::import($variationsImport, $filePath);
+                $variationsImport->performCleanup();
+                $variationsResults = $variationsImport->getResults();
+                $variationsErrors = $variationsImport->getErrors();
+            }
+
+            // Combine results
             $this->uploadProgress = 90;
             $this->currentStage = __('modules.menu.finalizingImport') . '...';
 
-            // Get results
-            $this->uploadResults = $import->getResults();
-            $this->uploadErrors = $import->getErrors();
+            $this->uploadResults = [
+                'items_total' => $itemsResults['total'],
+                'items_success' => $itemsResults['success'],
+                'items_failed' => $itemsResults['failed'],
+                'items_skipped' => $itemsResults['skipped'],
+                'variations_total' => $variationsResults['total'],
+                'variations_success' => $variationsResults['success'],
+                'variations_failed' => $variationsResults['failed'],
+                'variations_skipped' => $variationsResults['skipped'],
+                'variations_deleted' => $variationsResults['deleted'] ?? 0,
+            ];
+            $this->uploadErrors = array_merge($itemsErrors, $variationsErrors ?? []);
 
             $this->uploadProgress = 100;
             $this->importProgress = 100;
@@ -585,20 +771,19 @@ class BulkImportPage extends Component
             $this->uploadSuccess = true;
             $this->isImporting = false;
 
-            // Clean up temporary file (Livewire handles this automatically)
-            // No need to manually delete as Livewire manages temporary files
-
             // Update rate limiting cache
             cache()->put($cacheKey, time(), 300); // 5 minutes
 
-            $this->alert('success', __('modules.menu.importCompleted') . '! ' . $this->uploadResults['success'] . ' ' . __('modules.menu.allMenuItems') . ' ' . __('app.added') . '.');
+            $successMessage = sprintf(
+                '%s items, %s variations',
+                $this->uploadResults['items_success'],
+                $this->uploadResults['variations_success']
+            );
+            $this->alert('success', __('modules.menu.importCompleted') . '! ' . $successMessage . ' ' . __('app.added') . '.');
         } catch (\Exception $e) {
             $this->uploadStage = 'failed';
             $this->uploadErrors = [$e->getMessage()];
             $this->uploadSuccess = false;
-
-            // Clean up temporary file (Livewire handles this automatically)
-            // No need to manually delete as Livewire manages temporary files
 
             $this->alert('error', __('modules.menu.importFailed') . ': ' . $e->getMessage());
         }
@@ -608,45 +793,13 @@ class BulkImportPage extends Component
     public function downloadSampleFile()
     {
         try {
-            $branch = branch();
-            if (!$branch || !$branch->id) {
-                $categories = [];
-                $menus = [];
-            } else {
-                $categories = ItemCategory::where('branch_id', $branch->id)->get()->pluck('category_name')->toArray();
-                $menus = Menu::where('branch_id', $branch->id)->get()->pluck('menu_name')->toArray();
-            }
-
-            // Use existing categories and menus if available, otherwise use defaults
-            $sampleCategory = !empty($categories) ? $categories[0] : 'Starters';
-            $sampleMenu = !empty($menus) ? $menus[0] : 'Main Menu';
+            return Excel::download(
+                new MenuItemsWithVariationsTemplateExport(),
+                'menu_items_with_variations_template.xlsx'
+            );
         } catch (\Exception $e) {
-            $sampleCategory = 'Starters';
-            $sampleMenu = 'Main Menu';
+            $this->alert('error', 'Failed to download template: ' . $e->getMessage());
         }
-
-        $sampleData = [
-            ['item_name', 'description', 'price', 'category_name', 'menu_name', 'type', 'show_on_customer_site'],
-            ['Sample Item 1', 'Delicious sample item', '15.99', $sampleCategory, $sampleMenu, 'veg', 'yes'],
-            ['Sample Item 2', 'Another tasty item', '12.50', $sampleCategory, $sampleMenu, 'non-veg', 'yes'],
-            ['Sample Item 3', 'Great vegetarian option', '18.00', $sampleCategory, $sampleMenu, 'veg', 'no'],
-        ];
-
-        $filename = 'menu_items_sample.csv';
-        $filepath = public_path('sample-files/' . $filename);
-
-        // Ensure directory exists
-        if (!file_exists(dirname($filepath))) {
-            mkdir(dirname($filepath), 0755, true);
-        }
-
-        $file = fopen($filepath, 'w');
-        foreach ($sampleData as $row) {
-            fputcsv($file, $row);
-        }
-        fclose($file);
-
-        return response()->download($filepath)->deleteFileAfterSend(true);
     }
 
     private function cleanupOldTempFiles()

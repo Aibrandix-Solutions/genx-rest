@@ -3,7 +3,7 @@
 return array (
   'menuNamePlaceholder' => 'e.g. Breakfast',
   'searchMenus' => 'Search your menu here',
-  'searchMenuItems' => 'Search your menu item here',
+  'searchMenuItems' => 'Search by name or item code',
   'menuItemNamePlaceholder' => 'e.g., Margherita Pizza',
   'itemVariationPlaceholder' => 'e.g., Small, Medium, Large',
   'itemDescriptionPlaceholder' => 'e.g., A classic Italian pizza with fresh tomatoes and basil.',
@@ -18,6 +18,7 @@ return array (
   'restaurantNamePlaceHolder' => 'e.g., The Midtown Cafe',
   'searchPayments' => 'Search payments by amount, method, TX ID',
   'searchDuePayments' => 'Search payments by amount or order #',
+  'searchOrdersById' => 'Search by order ID',
   'methodExamples' => 'e.g., Cash, Cheque, Bank Transfer, etc.',
   'methodDescription' => 'e.g., via USD dollar, etc.',
   'facebookPlaceHolder' => 'Enter your Facebook URL',

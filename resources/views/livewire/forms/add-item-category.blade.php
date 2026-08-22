@@ -42,6 +42,8 @@
             </div>
         </div>
         @endif
+
+        <x-menu.branch-multi-select :branches="$restaurantBranches" :selected-ids="$selectedBranchIds" class="mb-4" />
     </div>
 
     <div class="flex justify-end w-full space-x-4 mt-6">

@@ -3,6 +3,7 @@
 namespace Modules\Inventory\Livewire\Supplier;
 
 use Livewire\Component;
+use Livewire\Attributes\On;
 use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 use Maatwebsite\Excel\Facades\Excel;
@@ -14,8 +15,19 @@ use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Modules\Inventory\Entities\PurchaseLocation;
+use Modules\Inventory\Entities\PurchaseReturn;
+use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
+use App\Scopes\BranchScope;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Modules\Inventory\Services\PurchaseOrderService;
+use Modules\Inventory\Services\SupplierPaymentGrouper;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class SupplierDetails extends Component
 {
@@ -33,6 +45,11 @@ class SupplierDetails extends Component
 
     // Payment Modal Properties
     public $showPaymentModal = false;
+    public $isSavingPayment = false;
+    public $showPaymentViewModal = false;
+    public $paymentViewDetails = null;
+    public $pendingDeletePaymentId = null;
+    public $isDeletingPayment = false;
     public $paymentAmount;
     public $paymentDate;
     public $paymentMethod = 'cash';
@@ -56,6 +73,20 @@ class SupplierDetails extends Component
     // Purchase Actions
     public $confirmingDeletion = false;
     public $purchaseOrderToDelete;
+
+    protected $listeners = [
+        'paymentRecorded' => 'onSupplierPaymentRecorded',
+        'refreshPurchaseList' => 'onSupplierPaymentRecorded',
+        'purchaseOrderPaymentSaved' => 'onSupplierPaymentRecorded',
+    ];
+
+    public function onSupplierPaymentRecorded()
+    {
+        $this->supplier->refresh();
+        if ($this->activeTab === 'ledger') {
+            $this->loadLedger();
+        }
+    }
 
     protected $rules = [
         'paymentAmount' => 'required|numeric|min:0.01',
@@ -107,80 +138,99 @@ class SupplierDetails extends Component
 
     public function loadLedger()
     {
-        // 1. Get all received Purchases (Debits)
-        $purchasesQuery = $this->supplier->orders()
-            ->where('status', 'received'); // Only count received goods as debt
-        
+        // 1. Received Purchases → Debits (what we owe the supplier)
+        $purchasesQuery = $this->supplier->restaurantOrders()->where('status', 'received');
+
         if ($this->locationId) {
             $purchasesQuery->where('location_id', $this->locationId);
         }
 
-        $purchases = $purchasesQuery->get()
-            ->map(function ($po) {
-                return [
-                    'date' => $po->order_date,
-                    'type' => 'purchase',
-                    'description' => 'Purchase #' . $po->po_number,
-                    'debit' => $po->total_amount,
-                    'credit' => 0,
-                    'reference_id' => $po->id
-                ];
-            });
-        
-        // 2. Get all Payments (Credits)
-        $paymentsQuery = $this->supplier->payments();
+        $purchases = $purchasesQuery->get(['id', 'po_number', 'order_date', 'total_amount'])
+            ->map(fn ($po) => [
+                'date'         => $po->order_date,
+                'type'         => 'purchase',
+                'description'  => 'Purchase #' . $po->po_number,
+                'debit'        => (float) $po->total_amount,
+                'credit'       => 0.0,
+                'reference_id' => $po->id,
+            ]);
+
+        // 2. Supplier Payments → Credits (cash paid to supplier)
+        //    With a location filter: include payments linked to that location's POs
+        //    AND unallocated/advance payments (purchase_order_id = null) because they
+        //    reduce the supplier balance regardless of location.
+        $paymentsQuery = $this->supplier->payments()->whereNull('purchase_return_id');
 
         if ($this->locationId) {
-            // When location filter is active, only include payments tied to purchases in that location
-            $paymentsQuery->whereHas('purchaseOrder', function ($q) {
-                $q->where('location_id', $this->locationId);
+            $paymentsQuery->where(function ($q) {
+                $q->whereHas('purchaseOrder', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class)->where('location_id', $this->locationId))
+                  ->orWhereNull('purchase_order_id');
             });
         }
 
         $payments = $paymentsQuery->get()
-            ->map(function ($payment) {
-                return [
-                    'date' => $payment->paid_on,
-                    'type' => 'payment',
-                    'description' => 'Payment via ' . ucfirst($payment->payment_method),
-                    'debit' => 0,
-                    'credit' => $payment->amount,
-                    'reference_id' => $payment->id
-                ];
-            });
+            ->map(fn ($payment) => [
+                'date'         => $payment->paid_on,
+                'type'         => 'payment',
+                'description'  => 'Payment via ' . ucfirst(str_replace('_', ' ', (string) $payment->payment_method)),
+                'debit'        => 0.0,
+                'credit'       => (float) $payment->amount,
+                'reference_id' => $payment->id,
+            ]);
 
-        // 3. Merge and Sort
-        $entries = $purchases->concat($payments)->sortBy('date');
+        // 3. Purchase Returns → Credits (goods returned, reducing what we owe)
+        $returnsQuery = $this->supplier->restaurantReturns();
 
-        // 4. Calculate Running Balance
-        $runningBalance = 0;
-        $allEntries = $entries->map(function ($entry) use (&$runningBalance) {
+        if ($this->locationId) {
+            $returnsQuery->whereHas('purchaseOrder', fn ($q) => $q->withoutGlobalScope(BranchScope::class)->where('location_id', $this->locationId));
+        }
+
+        $returns = $returnsQuery->get(['id', 'reference_no', 'return_date', 'total_amount'])
+            ->map(fn ($ret) => [
+                'date'         => $ret->return_date,
+                'type'         => 'return',
+                'description'  => 'Purchase Return #' . $ret->reference_no,
+                'debit'        => 0.0,
+                'credit'       => (float) $ret->total_amount,
+                'reference_id' => $ret->id,
+            ]);
+
+        // 4. Merge all entries and always sort by date asc to compute a correct running balance
+        $chronological = $purchases->concat($payments)->concat($returns)->sortBy('date')->values();
+
+        $runningBalance = 0.0;
+        $rowOrder = 0;
+        $chronological = $chronological->map(function ($entry) use (&$runningBalance, &$rowOrder) {
             $runningBalance += $entry['debit'] - $entry['credit'];
-            $entry['balance'] = $runningBalance;
+            $entry['balance']   = round($runningBalance, 2);
+            $entry['row_order'] = $rowOrder++;
             return $entry;
         });
 
-        // 5. Apply Filters
-        $this->ledgerEntries = $allEntries->filter(function ($entry) {
-            // Date Filter
+        // 5. Apply date / search filters (after balance is stamped)
+        $filtered = $chronological->filter(function ($entry) {
             if ($this->startDate && $this->endDate) {
-                 if ($entry['date'] < $this->startDate . ' 00:00:00' || $entry['date'] > $this->endDate . ' 23:59:59') {
-                     return false;
-                 }
-            }
-            
-            // Search Filter
-            if ($this->search) {
-                if (stripos($entry['description'], $this->search) === false && 
-                    stripos((string)$entry['debit'], $this->search) === false && 
-                    stripos((string)$entry['credit'], $this->search) === false) {
+                $entryDate = is_string($entry['date']) ? $entry['date'] : optional($entry['date'])->toDateString();
+                if ($entryDate < $this->startDate || $entryDate > $this->endDate) {
                     return false;
                 }
             }
-            
+
+            if ($this->search) {
+                $needle = $this->search;
+                if (stripos($entry['description'], $needle) === false
+                    && stripos((string) $entry['debit'], $needle) === false
+                    && stripos((string) $entry['credit'], $needle) === false) {
+                    return false;
+                }
+            }
+
             return true;
         })->values()->all();
 
+        $this->ledgerEntries = $filtered;
+
+        // 6. Apply display sort (balance column stays as the chronological running balance)
         $this->applyLedgerSorting();
     }
 
@@ -233,9 +283,12 @@ class SupplierDetails extends Component
 
             case 'date':
             default:
+                // Use row_order (the chronological computation order) so that DESC is
+                // the exact reverse of ASC. Sorting by 'date' alone is unstable for
+                // same-date entries and causes the top balance to mismatch the overview.
                 $entries = $direction === 'asc'
-                    ? $entries->sortBy('date')
-                    : $entries->sortByDesc('date');
+                    ? $entries->sortBy('row_order')
+                    : $entries->sortByDesc('row_order');
                 break;
         }
 
@@ -246,7 +299,7 @@ class SupplierDetails extends Component
     {
         // Fetch items purchased from this supplier
         // We'll look at received purchases
-        $query = $this->supplier->orders()
+        $query = $this->supplier->restaurantOrders()
             ->where('status', 'received')
             ->with(['items.inventoryItem.unit']);
 
@@ -287,58 +340,290 @@ class SupplierDetails extends Component
     public function openPaymentModal()
     {
         $this->resetValidation();
-        $this->paymentAmount = '';
+        $this->supplier->refresh();
+        $this->paymentAmount = number_format(max(0, (float) $this->supplier->balance), 2, '.', '');
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->paymentMethod = 'cash';
-        $this->paymentAccount = null;
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentNote = '';
         $this->paymentDocument = null;
+        $this->isSavingPayment = false;
         $this->showPaymentModal = true;
+    }
+
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
     }
 
     public function savePayment()
     {
-        $this->validate();
+        abort_unless(user_can('Create Purchase Order'), 403);
 
-        $path = null;
-        if ($this->paymentDocument) {
-            $path = $this->paymentDocument->store('supplier-payments', 'public');
+        if ($this->isSavingPayment) {
+            return;
         }
 
-        $payment = SupplierPayment::create([
-            'supplier_id' => $this->supplier->id,
-            'payment_account_id' => $this->paymentAccount,
-            'amount' => $this->paymentAmount,
-            'paid_on' => $this->paymentDate,
-            'payment_method' => $this->paymentMethod,
-            'note' => $this->paymentNote,
-            'document_path' => $path,
-            'added_by' => Auth::id(),
-        ]);
+        $lock = Cache::lock(
+            'supplier-payment:' . $this->supplier->id . ':' . auth()->id(),
+            30,
+        );
 
-        // Update Payment Account Balance if selected and log transaction
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
-            if ($account) {
-                $account->decrement('current_balance', $this->paymentAmount);
+        if (! $lock->get()) {
+            return;
+        }
 
-                // Log Transaction
-                \Modules\Inventory\Entities\AccountTransaction::create([
-                    'payment_account_id' => $account->id,
-                    'amount' => $this->paymentAmount,
-                    'type' => 'credit', // Money Out
-                    'reference_type' => get_class($payment),
-                    'reference_id' => $payment->id,
-                    'description' => 'Payment to Supplier: ' . $this->supplier->name . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
-                    'transaction_date' => $this->paymentDate,
-                ]);
+        $this->isSavingPayment = true;
+
+        try {
+            $this->validate();
+
+            $paymentAccount = $this->paymentAccount
+                ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
+            $path = null;
+            if ($this->paymentDocument) {
+                $path = $this->paymentDocument->store('supplier-payments', 'public');
+            }
+
+            $remaining = (float) $this->paymentAmount;
+            $paymentBatchId = (string) Str::uuid();
+
+            // FIFO: oldest received & still-due purchases first
+            $duePurchases = $this->supplier->restaurantOrders()
+                ->where('status', 'received')
+                ->with('payments')
+                ->orderBy('order_date', 'asc')
+                ->orderBy('id', 'asc')
+                ->get()
+                ->filter(fn ($po) => $po->due_amount > 0);
+
+            $createdPayments = DB::transaction(function () use (&$remaining, $duePurchases, $path, $paymentAccount, $paymentBatchId) {
+                $payments = [];
+
+                foreach ($duePurchases as $po) {
+                    if ($remaining <= 0) {
+                        break;
+                    }
+
+                    $allocate = min($remaining, (float) $po->due_amount);
+                    if ($allocate <= 0) {
+                        continue;
+                    }
+
+                    $payments[] = SupplierPayment::create([
+                        'supplier_id' => $this->supplier->id,
+                        'payment_batch_id' => $paymentBatchId,
+                        'purchase_order_id' => $po->id,
+                        'payment_account_id' => $paymentAccount,
+                        'amount' => $allocate,
+                        'paid_on' => $this->paymentDate,
+                        'payment_method' => $this->paymentMethod,
+                        'note' => $this->paymentNote,
+                        'document_path' => $path,
+                        'added_by' => Auth::id(),
+                    ]);
+
+                    $remaining = round($remaining - $allocate, 2);
+                }
+
+                // If anything is left over (overpayment or no due PO), store as advance/credit
+                if ($remaining > 0) {
+                    $payments[] = SupplierPayment::create([
+                        'supplier_id' => $this->supplier->id,
+                        'payment_batch_id' => $paymentBatchId,
+                        'purchase_order_id' => null,
+                        'payment_account_id' => $paymentAccount,
+                        'amount' => $remaining,
+                        'paid_on' => $this->paymentDate,
+                        'payment_method' => $this->paymentMethod,
+                        'note' => trim(($this->paymentNote ? $this->paymentNote . ' | ' : '') . 'Advance / unallocated credit'),
+                        'document_path' => $path,
+                        'added_by' => Auth::id(),
+                    ]);
+                    $remaining = 0;
+                }
+
+                return $payments;
+            });
+
+            // Update Payment Account Balance once for the full amount and log a single transaction
+            if ($paymentAccount) {
+                $account = PaymentAccount::find($paymentAccount);
+                if ($account) {
+                    $account->decrement('current_balance', $this->paymentAmount);
+
+                    AccountTransaction::create([
+                        'payment_account_id' => $account->id,
+                        'amount' => $this->paymentAmount,
+                        'type' => 'credit', // Money Out
+                        'reference_type' => SupplierPayment::class,
+                        'reference_id' => optional($createdPayments[0] ?? null)->id,
+                        'description' => 'Payment to Supplier: ' . $this->supplier->name . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
+                        'transaction_date' => $this->paymentDate,
+                    ]);
+                }
+            }
+
+            $this->showPaymentModal = false;
+            $this->alert('success', 'Payment recorded successfully');
+            $this->loadLedger();
+            $this->supplier->refresh();
+
+            $this->dispatch('paymentRecorded');
+            $this->dispatch('refreshPurchaseList');
+            $this->dispatch('purchaseOrderPaymentSaved');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->alert('error', 'Failed to record payment: ' . $e->getMessage());
+        } finally {
+            $this->isSavingPayment = false;
+            $lock->release();
+        }
+    }
+
+    public function viewPayment(int $paymentId): void
+    {
+        abort_unless(user_can('Show Supplier'), 403);
+
+        $batchPayments = $this->paymentsForBatch($paymentId);
+
+        if ($batchPayments->isEmpty()) {
+            return;
+        }
+
+        $first = $batchPayments->first();
+        $allocations = [];
+
+        foreach ($batchPayments as $payment) {
+            if ($payment->purchase_order_id && $payment->purchaseOrder) {
+                $purchaseOrder = $payment->purchaseOrder;
+                $purchaseTotal = (float) $purchaseOrder->effective_total;
+                $appliedAmount = (float) $payment->amount;
+
+                $allocations[] = [
+                    'type' => 'purchase',
+                    'po_number' => $purchaseOrder->po_number,
+                    'invoice_no' => $purchaseOrder->invoice_no,
+                    'order_date' => $purchaseOrder->order_date?->format('M d, Y'),
+                    'purchase_total' => $purchaseTotal,
+                    'applied_amount' => $appliedAmount,
+                    'paid_on_purchase' => (float) $purchaseOrder->paid_amount,
+                    'due_on_purchase' => (float) $purchaseOrder->due_amount,
+                    'payment_status' => $purchaseOrder->payment_status,
+                    'is_partial_payment' => $appliedAmount < $purchaseTotal,
+                ];
+            } else {
+                $allocations[] = [
+                    'type' => 'unallocated',
+                    'applied_amount' => (float) $payment->amount,
+                    'note' => $payment->note,
+                ];
             }
         }
 
-        $this->alert('success', 'Payment recorded successfully');
-        $this->showPaymentModal = false;
-        $this->loadLedger();
-        $this->supplier->refresh(); // Update overview stats
+        $this->paymentViewDetails = [
+            'id' => $first->id,
+            'paid_on' => $first->paid_on?->format('M d, Y H:i'),
+            'payment_method' => ucfirst(str_replace('_', ' ', (string) $first->payment_method)),
+            'account_name' => $first->account?->name,
+            'amount' => round((float) $batchPayments->sum('amount'), 2),
+            'note' => $batchPayments
+                ->pluck('note')
+                ->filter(fn (?string $value) => $value && ! str_contains($value, 'Advance / unallocated credit'))
+                ->unique()
+                ->implode(' | ') ?: $first->note,
+            'added_by' => $first->addedBy?->name,
+            'allocations' => $allocations,
+            'payment_ids' => $batchPayments->pluck('id')->all(),
+        ];
+
+        $this->showPaymentViewModal = true;
+    }
+
+    public function closePaymentViewModal(): void
+    {
+        $this->showPaymentViewModal = false;
+        $this->paymentViewDetails = null;
+    }
+
+    public function confirmDeletePayment(int $paymentId): void
+    {
+        abort_unless(user_can('Delete Purchase Order'), 403);
+
+        $payment = SupplierPayment::query()
+            ->where('supplier_id', $this->supplier->id)
+            ->find($paymentId);
+
+        if (! $payment) {
+            return;
+        }
+
+        $batchPayments = $this->paymentsForBatch($paymentId);
+        $batchTotal = round((float) $batchPayments->sum('amount'), 2);
+
+        $this->pendingDeletePaymentId = $paymentId;
+
+        $this->alert('warning', __('inventory::modules.supplier.confirmDeletePayment', [
+            'amount' => number_format($batchTotal, 2),
+        ]), [
+            'showConfirmButton' => true,
+            'showCancelButton' => true,
+            'confirmButtonText' => __('app.delete'),
+            'cancelButtonText' => __('app.cancel'),
+            'onConfirmed' => 'deletePaymentConfirmed',
+        ]);
+    }
+
+    #[On('deletePaymentConfirmed')]
+    public function deletePayment(?int $paymentId = null): void
+    {
+        abort_unless(user_can('Delete Purchase Order'), 403);
+
+        if ($this->isDeletingPayment) {
+            return;
+        }
+
+        $paymentId = $paymentId ?? $this->pendingDeletePaymentId;
+
+        $payment = SupplierPayment::query()
+            ->where('supplier_id', $this->supplier->id)
+            ->find($paymentId);
+
+        if (! $payment) {
+            $this->pendingDeletePaymentId = null;
+
+            return;
+        }
+
+        $batchPayments = $this->paymentsForBatch($paymentId);
+
+        $this->isDeletingPayment = true;
+
+        try {
+            app(PurchaseOrderService::class)->reverseSupplierPaymentBatch($batchPayments);
+
+            $this->supplier->refresh();
+            $this->loadLedger();
+            $this->resetPage('paymentsPage');
+
+            $this->dispatch('paymentRecorded');
+            $this->dispatch('refreshPurchaseList');
+            $this->dispatch('purchaseOrderPaymentSaved');
+
+            $this->alert('success', __('inventory::modules.supplier.paymentDeleted'));
+        } catch (\Throwable $e) {
+            $this->alert('error', $e->getMessage());
+        } finally {
+            $this->isDeletingPayment = false;
+            $this->pendingDeletePaymentId = null;
+        }
     }
 
     public function uploadDocument()
@@ -369,21 +654,63 @@ class SupplierDetails extends Component
         $this->alert('success', 'Supplier status updated');
     }
 
+    public function downloadPdf(int $purchaseOrderId)
+    {
+        abort_if(!user_can('Show Purchase Order'), 403);
+
+        $purchaseOrder = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->where('id', $purchaseOrderId)
+            ->where('supplier_id', $this->supplier->id)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->firstOrFail();
+
+        $purchaseOrder->load([
+            'supplier',
+            'location.branch',
+            'items.inventoryItem.unit',
+            'items.inventoryItem.category',
+            'creator',
+            'payments.account',
+            'attachments',
+        ]);
+
+        $pdf = Pdf::loadView('inventory::pdfs.purchase-order', [
+            'purchaseOrder' => $purchaseOrder,
+        ])->setPaper('a4');
+
+        $pdf->getDomPDF()->set_option('defaultFont', 'Arial');
+        $pdf->getDomPDF()->set_option('isRemoteEnabled', true);
+        $pdf->getDomPDF()->set_option('isPhpEnabled', true);
+
+        return response()->streamDownload(function () use ($pdf) {
+            echo $pdf->output();
+        }, "PO-{$purchaseOrder->po_number}.pdf");
+    }
+
     public function confirmDeletePurchase($purchaseOrderId)
     {
-        $purchaseOrder = PurchaseOrder::find($purchaseOrderId);
-        if ($purchaseOrder && !in_array($purchaseOrder->status, ['received', 'cancelled'], true)) {
+        $purchaseOrder = PurchaseOrder::withoutGlobalScope(BranchScope::class)->find($purchaseOrderId);
+        if ($purchaseOrder && !in_array($purchaseOrder->status, ['cancelled'], true)) {
             $this->purchaseOrderToDelete = $purchaseOrder;
             $this->confirmingDeletion = true;
         }
     }
 
-    public function deletePurchase()
+    public function deletePurchase(PurchaseOrderService $purchaseOrderService)
     {
+        abort_if(!user_can('Delete Purchase Order'), 403);
+
         if ($this->purchaseOrderToDelete) {
-            $this->purchaseOrderToDelete->delete();
-            $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
-            $this->supplier->refresh();
+            try {
+                $purchaseOrderService->deletePurchaseOrder($this->purchaseOrderToDelete);
+                $this->alert('success', trans('inventory::modules.purchaseOrder.deleted_successfully'));
+                $this->supplier->refresh();
+                if ($this->activeTab === 'ledger') {
+                    $this->loadLedger();
+                }
+            } catch (\Throwable $e) {
+                $this->alert('error', $e->getMessage());
+            }
         }
         $this->confirmingDeletion = false;
         $this->purchaseOrderToDelete = null;
@@ -434,24 +761,86 @@ class SupplierDetails extends Component
     public function render()
     {
         return view('inventory::livewire.supplier.supplier-details', [
-            'paymentAccounts' => PaymentAccount::query()->get(),
+            'paymentAccounts' => PaymentAccount::where('branch_id', branch()->id)->get(),
             'locations' => PurchaseLocation::getForRestaurant(restaurant()->id),
             'statuses' => [
-                'ordered' => trans('inventory::modules.purchaseOrder.status.ordered'),
-                'pending' => trans('inventory::modules.purchaseOrder.status.pending'),
-                'received' => trans('inventory::modules.purchaseOrder.status.received'),
-                'cancelled' => trans('inventory::modules.purchaseOrder.status.cancelled'),
+                'ordered'             => trans('inventory::modules.purchaseOrder.status.ordered'),
+                'pending'             => trans('inventory::modules.purchaseOrder.status.pending'),
+                'sent'                => trans('inventory::modules.purchaseOrder.status.sent'),
+                'partially_received'  => trans('inventory::modules.purchaseOrder.status.partially_received'),
+                'received'            => trans('inventory::modules.purchaseOrder.status.received'),
+                'cancelled'           => trans('inventory::modules.purchaseOrder.status.cancelled'),
             ],
             'purchases' => $this->purchases,
-            'payments' => $this->payments,
+            'paymentGroups' => $this->paymentGroups,
         ]);
+    }
+
+    protected function paymentsForBatch(int $paymentId)
+    {
+        $allPayments = $this->supplier->payments()
+            ->with(['purchaseOrder', 'account', 'addedBy'])
+            ->orderByDesc('paid_on')
+            ->orderByDesc('id')
+            ->get();
+
+        return SupplierPaymentGrouper::batchPaymentsFor($allPayments, $paymentId);
+    }
+
+    public function getPaymentGroupsProperty()
+    {
+        $payments = $this->supplier->payments()
+            ->with(['account', 'purchaseOrder'])
+            ->when($this->startDate && $this->endDate, function ($query) {
+                $query->whereBetween('paid_on', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
+            })
+            ->orderByDesc('paid_on')
+            ->orderByDesc('id')
+            ->get();
+
+        $groups = SupplierPaymentGrouper::group($payments);
+
+        if ($this->search) {
+            $needle = mb_strtolower($this->search);
+            $groups = $groups->filter(function (array $group) use ($needle) {
+                return str_contains(mb_strtolower((string) $group['payment_method']), $needle)
+                    || str_contains(mb_strtolower((string) ($group['note'] ?? '')), $needle)
+                    || str_contains((string) $group['amount'], $needle)
+                    || str_contains(mb_strtolower((string) ($group['account']?->name ?? '')), $needle);
+            })->values();
+        }
+
+        if ($this->locationId) {
+            $groups = $groups->filter(function (array $group) {
+                return $group['payments']->contains(function (SupplierPayment $payment) {
+                    return $payment->purchaseOrder
+                        && (int) $payment->purchaseOrder->location_id === (int) $this->locationId;
+                });
+            })->values();
+        }
+
+        $page = max(1, (int) $this->getPage('paymentsPage'));
+        $total = $groups->count();
+        $items = $groups->slice(($page - 1) * $this->perPage, $this->perPage)->values();
+
+        return new LengthAwarePaginator(
+            $items,
+            $total,
+            $this->perPage,
+            $page,
+            ['pageName' => 'paymentsPage'],
+        );
     }
 
     public function getPurchasesProperty()
     {
-        return $this->supplier->orders()
+        return $this->supplier->restaurantOrders()
             ->when($this->search, function ($query) {
-                $query->where('po_number', 'like', '%' . $this->search . '%');
+                $query->where(function ($q) {
+                    $q->where('id', 'like', '%' . $this->search . '%')
+                        ->orWhere('po_number', 'like', '%' . $this->search . '%')
+                        ->orWhere('invoice_no', 'like', '%' . $this->search . '%');
+                });
             })
             ->when($this->locationId, function ($query) {
                 $query->where('location_id', $this->locationId);
@@ -461,30 +850,5 @@ class SupplierDetails extends Component
             })
             ->latest('order_date')
             ->paginate($this->perPage, ['*'], 'purchasesPage');
-    }
-
-    public function getPaymentsProperty()
-    {
-        return $this->supplier->payments()
-            ->with('account')
-            ->when($this->search, function ($query) {
-                $query->where(function($q) {
-                    $q->where('payment_method', 'like', '%' . $this->search . '%')
-                      ->orWhere('note', 'like', '%' . $this->search . '%')
-                      ->orWhereHas('account', function($sq) {
-                          $sq->where('name', 'like', '%' . $this->search . '%');
-                      });
-                });
-            })
-            ->when($this->locationId, function ($query) {
-                $query->whereHas('purchaseOrder', function ($q) {
-                    $q->where('location_id', $this->locationId);
-                });
-            })
-            ->when($this->startDate && $this->endDate, function ($query) {
-                $query->whereBetween('paid_on', [$this->startDate . ' 00:00:00', $this->endDate . ' 23:59:59']);
-            })
-            ->latest('paid_on')
-            ->paginate($this->perPage, ['*'], 'paymentsPage');
     }
 }

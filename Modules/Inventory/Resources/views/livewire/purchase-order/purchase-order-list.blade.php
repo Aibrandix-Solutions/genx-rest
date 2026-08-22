@@ -58,31 +58,134 @@
                        class="block w-full dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300"
                        placeholder="{{ trans('inventory::modules.purchaseOrder.search_placeholder') }}" />
             </div>
-            @if($showAdminView)
-            <div class="w-full sm:w-auto">
+            <div class="w-full sm:w-auto min-w-[220px]">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    {{ trans('app.branch') }}
+                    {{ trans('inventory::modules.stock.location') }}
                 </label>
-                <x-select wire:model.live="branchFilter" 
+                <x-select wire:model.live="locationFilter" 
                         class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
                     <option value="">{{ trans('app.all') }}</option>
-                    @foreach($branches as $branch)
-                        <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">
+                            {{ $location->display_name ?? $location->name }}
+                        </option>
                     @endforeach
                 </x-select>
             </div>
-            @endif
-            <div class="w-full sm:w-auto">
+            <div class="w-full sm:w-auto min-w-[220px]">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     {{ trans('inventory::modules.purchaseOrder.supplier') }}
                 </label>
-                <x-select wire:model.live="supplierId" 
-                        class="block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
-                    <option value="">{{ trans('inventory::modules.purchaseOrder.all_suppliers') }}</option>
-                    @foreach($suppliers as $supplier)
-                        <option value="{{ $supplier->id }}">{{ $supplier->name }}</option>
-                    @endforeach
-                </x-select>
+                <div
+                    x-data="{
+                        isOpen: false,
+                        search: '',
+                        suppliers: @js($suppliers->map(fn ($supplier) => ['id' => $supplier->id, 'name' => $supplier->name, 'email' => $supplier->email])->values()),
+                        selectedId: @entangle('supplierId').live,
+                        allSuppliersLabel: @js(trans('inventory::modules.purchaseOrder.all_suppliers')),
+                        searchPlaceholder: @js(trans('inventory::modules.purchaseOrder.search_supplier_placeholder')),
+                        get selectedSupplier() {
+                            if (!this.selectedId) {
+                                return null;
+                            }
+
+                            return this.suppliers.find((supplier) => supplier.id == this.selectedId) ?? null;
+                        },
+                        get displayLabel() {
+                            return this.selectedSupplier?.name ?? this.allSuppliersLabel;
+                        },
+                        get filteredSuppliers() {
+                            const term = this.search.toLowerCase().trim();
+
+                            if (!term) {
+                                return this.suppliers;
+                            }
+
+                            return this.suppliers.filter((supplier) => {
+                                return supplier.name.toLowerCase().includes(term)
+                                    || (supplier.email && supplier.email.toLowerCase().includes(term));
+                            });
+                        },
+                        open() {
+                            this.isOpen = true;
+                            this.$nextTick(() => this.$refs.supplierSearch?.focus());
+                        },
+                        close() {
+                            this.isOpen = false;
+                            this.search = '';
+                        },
+                        selectSupplier(id) {
+                            this.selectedId = id || null;
+                            this.close();
+                        }
+                    }"
+                    @click.away="close()"
+                    class="relative"
+                >
+                    <button
+                        type="button"
+                        @click="isOpen ? close() : open()"
+                        class="flex w-full items-center justify-between rounded-md border border-gray-300 bg-white px-3 py-2 text-left text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 sm:text-sm min-h-[38px]"
+                    >
+                        <span class="truncate" x-text="displayLabel"></span>
+                        <svg class="ml-2 h-4 w-4 shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+
+                    <div
+                        x-show="isOpen"
+                        x-cloak
+                        x-transition
+                        class="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg dark:border-gray-600 dark:bg-gray-800"
+                    >
+                        <div class="border-b border-gray-200 p-2 dark:border-gray-600">
+                            <input
+                                type="text"
+                                x-ref="supplierSearch"
+                                x-model="search"
+                                @click.stop
+                                @keydown.escape.stop="close()"
+                                class="block w-full rounded-md border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                                :placeholder="searchPlaceholder"
+                            >
+                        </div>
+
+                        <ul class="max-h-60 overflow-y-auto py-1 text-sm">
+                            <li
+                                @click="selectSupplier(null)"
+                                class="cursor-pointer px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                :class="{ 'bg-indigo-50 text-indigo-700 dark:bg-gray-700 dark:text-white': !selectedId }"
+                            >
+                                <span x-text="allSuppliersLabel"></span>
+                            </li>
+
+                            <template x-for="supplier in filteredSuppliers" :key="supplier.id">
+                                <li
+                                    @click="selectSupplier(supplier.id)"
+                                    class="cursor-pointer px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                    :class="{ 'bg-indigo-50 text-indigo-700 dark:bg-gray-700 dark:text-white': selectedId == supplier.id }"
+                                >
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span class="truncate" x-text="supplier.name"></span>
+                                        <span
+                                            x-show="supplier.email"
+                                            x-text="supplier.email"
+                                            class="truncate text-xs text-gray-500 dark:text-gray-400"
+                                        ></span>
+                                    </div>
+                                </li>
+                            </template>
+
+                            <li
+                                x-show="filteredSuppliers.length === 0"
+                                class="px-3 py-2 text-gray-500 dark:text-gray-400"
+                            >
+                                @lang('app.noResults')
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
             <div class="w-full sm:w-auto">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -148,7 +251,7 @@
                 </x-dropdown>
             </div>
 
-            @if($search || $startDate || $endDate || $supplierId || $status)
+            @if($search || $startDate || $endDate || $supplierId || $status || $locationFilter)
                 <div>
                     <x-secondary-button wire:click="clearFilters" class="mb-1">
                         {{ trans('inventory::modules.purchaseOrder.clear_filters') }}
@@ -159,18 +262,38 @@
        
     </div>
 
+    @php
+        $printQuery = array_filter([
+            'search' => $search,
+            'supplierId' => $supplierId,
+            'status' => $status,
+            'startDate' => $startDate,
+            'endDate' => $endDate,
+            'locationFilter' => $locationFilter,
+        ], fn ($value) => $value !== null && $value !== '');
+    @endphp
+
     <div class="mb-6 flex justify-end gap-2">
         <x-secondary-button wire:click="export" wire:loading.attr="disabled">
             <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             {{ trans('app.export') }}
         </x-secondary-button>
-    @if(user_can('Create Purchase Order'))
-        <a href="{{ route('purchases.create') }}" wire:navigate
-           class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
-            {{ trans('inventory::modules.purchaseOrder.create_title') }}
+        <a href="{{ route('purchases.report.print', $printQuery) }}"
+           target="_blank"
+           rel="noopener"
+           class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md border border-purple-500 text-purple-600 dark:text-purple-400 dark:border-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition">
+            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4H7v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/>
+            </svg>
+            {{ trans('inventory::modules.purchaseOrder.print_report') }}
         </a>
+        @if(user_can('Create Purchase Order'))
+            <a href="{{ route('purchases.create') }}" wire:navigate
+               class="inline-flex items-center px-4 py-2 bg-skin-base border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-skin-base/90 focus:outline-none focus:border-skin-base focus:ring ring-skin-base/30 disabled:opacity-25 transition ease-in-out duration-150">
+                {{ trans('inventory::modules.purchaseOrder.create_title') }}
+            </a>
+        @endif
     </div>
-    @endif
 
     <!-- Purchase Orders Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
@@ -182,7 +305,13 @@
                             {{ trans('inventory::modules.purchaseOrder.po_number') }}
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.purchaseOrder.invoice_no') }}
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.supplier') }}
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            {{ trans('inventory::modules.stock.location') }}
                         </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             {{ trans('inventory::modules.purchaseOrder.order_date') }}
@@ -211,12 +340,26 @@
                     @forelse($purchaseOrders as $purchaseOrder)
                         <tr>
                             <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                {{ $purchaseOrder->po_number }}
+                                @if(user_can('Show Purchase Order'))
+                                    <button type="button"
+                                            wire:click="$dispatch('viewPurchaseOrder', { purchaseOrder: {{ $purchaseOrder->id }} })"
+                                            class="text-indigo-600 dark:text-indigo-400 hover:underline focus:outline-none font-medium">
+                                        {{ $purchaseOrder->po_number }}
+                                    </button>
+                                @else
+                                    {{ $purchaseOrder->po_number }}
+                                @endif
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $purchaseOrder->invoice_no ?: '-' }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 <a href="{{ route('suppliers.show', $purchaseOrder->supplier->id) }}" class="underline underline-offset-1" wire:navigate>
                                     {{ $purchaseOrder->supplier->name }}
                                 </a>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                                {{ $purchaseOrder->location?->display_name ?? $purchaseOrder->location?->name ?? '-' }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                                 {{ $purchaseOrder->order_date->translatedFormat('M d, Y') }}
@@ -282,7 +425,7 @@
                                                 </button>
                                             @endif
                                             
-                                            @if(!in_array($purchaseOrder->status, ['received', 'cancelled']) && user_can('Update Purchase Order'))
+                                            @if(!in_array($purchaseOrder->status, ['cancelled']) && user_can('Update Purchase Order') && ($purchaseOrder->status !== 'received' || user_can('Edit Received Purchase')))
                                                 <a href="{{ route('purchases.edit', $purchaseOrder->id) }}" @click="open = false" wire:navigate
                                                         class="w-full flex items-center px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/50">
                                                     <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -344,7 +487,7 @@
                                             @endif
 
 
-                                            @if(!in_array($purchaseOrder->status, ['received', 'cancelled']) && user_can('Delete Purchase Order'))
+                                            @if(!in_array($purchaseOrder->status, ['cancelled']) && user_can('Delete Purchase Order'))
                                                 <button wire:click="confirmDelete({{ $purchaseOrder->id }})"
                                                         class="inline-flex items-center px-4 py-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/50 rounded-lg">
                                                     <svg class="w-4 h-4 mr-1.5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -360,7 +503,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
+                            <td colspan="11" class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">
                                 {{ trans('inventory::modules.purchaseOrder.no_records') }}
                             </td>
                         </tr>

@@ -2,6 +2,7 @@
 
 namespace Modules\Inventory\Exports;
 
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\PurchaseOrder;
 use Maatwebsite\Excel\Concerns\Exportable;
 use Maatwebsite\Excel\Concerns\FromCollection;
@@ -22,14 +23,16 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
     protected $endDate;
     protected $supplierId;
     protected $status;
+    protected $locationFilter;
 
-    public function __construct($search = null, $startDate = null, $endDate = null, $supplierId = null, $status = null)
+    public function __construct($search = null, $startDate = null, $endDate = null, $supplierId = null, $status = null, $locationFilter = null)
     {
         $this->search = $search;
         $this->startDate = $startDate;
         $this->endDate = $endDate;
         $this->supplierId = $supplierId;
         $this->status = $status;
+        $this->locationFilter = $locationFilter;
     }
 
     public function headings(): array
@@ -37,6 +40,7 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
         return [
             __('app.date'),
             __('inventory::modules.purchaseOrder.poNumber'),
+            __('inventory::modules.purchaseOrder.invoice_no'),
             __('inventory::modules.purchaseOrder.supplier'),
             __('app.status'),
             __('inventory::modules.purchaseOrder.totalCost'),
@@ -48,6 +52,7 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
         return [
             $order->order_date ? $order->order_date->format('Y-m-d') : '',
             $order->po_number,
+            $order->invoice_no ?? '',
             $order->supplier->name ?? '--',
             $order->status,
             currency_format($order->total_amount, restaurant()->currency_id),
@@ -71,11 +76,19 @@ class PurchaseOrderExport implements WithMapping, FromCollection, WithHeadings, 
 
     public function collection()
     {
-        return PurchaseOrder::with(['supplier'])
-            ->where('branch_id', branch()->id)
+        $query = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->with(['supplier'])
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id));
+
+        if ($this->locationFilter !== '' && $this->locationFilter !== null) {
+            $query->where('location_id', $this->locationFilter);
+        }
+
+        return $query
             ->when($this->search, function ($query) {
                 $query->where(function ($query) {
                     $query->where('po_number', 'like', '%' . $this->search . '%')
+                        ->orWhere('invoice_no', 'like', '%' . $this->search . '%')
                         ->orWhereHas('supplier', function ($query) {
                             $query->where('name', 'like', '%' . $this->search . '%');
                         });

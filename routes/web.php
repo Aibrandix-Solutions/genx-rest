@@ -147,7 +147,13 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
 
     Route::get('pos/order/{id}', [PosController::class, 'order'])->name('pos.order');
     Route::get('pos/kot/{id}', [PosController::class, 'kot'])->name('pos.kot');
+    Route::get('pos/vue', [PosController::class, 'vue'])->name('pos.vue');
     Route::resource('pos', PosController::class);
+
+    Route::prefix('ajax/pos')->group(function () {
+        Route::get('/bootstrap', [PosController::class, 'bootstrap'])->name('ajax.pos.bootstrap');
+        Route::post('/client-ops', [PosController::class, 'clientOps'])->name('ajax.pos.client-ops');
+    });
 
     Route::resource('kots', KotController::class);
     Route::get('kot/print/{id}/{kotPlaceid?}', [KotController::class, 'printkot'])->name('kot.print');
@@ -172,12 +178,16 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', VerifyR
         Route::get('category-report', [ReportController::class, 'categoryReport'])->name('reports.category');
         Route::get('sales-report', [ReportController::class, 'salesReport'])->name('reports.sales');
         Route::get('detailed-sales-report', [ReportController::class, 'detailedSalesReport'])->name('reports.detailedSales');
+        Route::get('room-charge-orders', [ReportController::class, 'roomChargeOrdersReport'])->name('reports.roomChargeOrders');
+        Route::get('room-charge-orders/print', [ReportController::class, 'roomChargeOrdersPrint'])->name('reports.roomChargeOrders.print');
         Route::get('expense-report', [ReportController::class, 'expenseReport'])->name('reports.expenseReports');
         Route::get('outstanding-payment-report', [ReportController::class, 'outstandingPaymentReport'])->name('reports.outstandingPayment');
         Route::get('expense-summary-report', [ReportController::class, 'expenseSummaryReport'])->name('reports.expensesummaryreport');
         Route::get('print-log', [ReportController::class, 'printLog'])->name('reports.printLog');
         Route::get('delivery-report', [ReportController::class, 'deliveryReport'])->name('reports.delivery');
         Route::get('kot-adjustments', [ReportController::class, 'kotAdjustmentReport'])->name('reports.kotAdjustments');
+        Route::get('activity-log', [ReportController::class, 'activityLog'])->name('reports.activityLog');
+        Route::get('menu-item-report', [ReportController::class, 'menuItemReport'])->name('reports.menuItem');
     });
 
     Route::resource('staff', StaffController::class);

@@ -3,7 +3,9 @@
 namespace App\Livewire\Reports;
 
 use App\Exports\CategoryReportExport;
-use App\Models\ItemCategory;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
 use Carbon\Carbon;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -11,6 +13,7 @@ use Maatwebsite\Excel\Facades\Excel;
 
 class CategoryReport extends Component
 {
+    use HasReportBranchFilter;
 
     public $dateRangeType;
     public $startDate;
@@ -23,10 +26,10 @@ class CategoryReport extends Component
         abort_if(!in_array('Report', restaurant_modules()), 403);
         abort_if((!user_can('Show Reports')), 403);
 
-        // Load date range type from cookie
+        // Load date range type from cookie and derive dates from it
         $this->dateRangeType = request()->cookie('category_report_date_range_type', 'currentWeek');
-        $this->startDate = now()->startOfWeek()->format('m/d/Y');
-        $this->endDate = now()->endOfWeek()->format('m/d/Y');
+        $this->setDateRange();
+        $this->mountReportBranchFilter();
     }
 
     public function updatedDateRangeType($value)
@@ -103,7 +106,7 @@ class CategoryReport extends Component
             $this->dispatch('showUpgradeLicense');
         } else {
             $data = $this->prepareDateTimeData();
-            return Excel::download(new CategoryReportExport($data['startDateTime'], $data['endDateTime'], $data['startTime'], $data['endTime'], $data['timezone']), 'category-report-' . now()->toDateTimeString() . '.xlsx');
+            return Excel::download(new CategoryReportExport($data['startDateTime'], $data['endDateTime'], $data['startTime'], $data['endTime'], $data['timezone'], $this->branchFilter), 'category-report-' . now()->toDateTimeString() . '.xlsx');
         }
     }
 
@@ -127,24 +130,12 @@ class CategoryReport extends Component
     {
         $dateTimeData = $this->prepareDateTimeData();
 
-        $query = ItemCategory::with(['orders' => function ($q) use ($dateTimeData) {
-            return $q->join('orders', 'orders.id', '=', 'order_items.order_id')
-                ->where('orders.status', 'paid')
-                ->whereBetween('orders.date_time', [$dateTimeData['startDateTime'], $dateTimeData['endDateTime']])
-                ->where(function ($q) use ($dateTimeData) {
-                    if ($dateTimeData['startTime'] < $dateTimeData['endTime']) {
-                        $q->whereRaw("TIME(orders.date_time) BETWEEN ? AND ?", [$dateTimeData['startTime'], $dateTimeData['endTime']]);
-                    } else {
-                        $q->where(function ($sub) use ($dateTimeData) {
-                            $sub->whereRaw("TIME(orders.date_time) >= ?", [$dateTimeData['startTime']])
-                                ->orWhereRaw("TIME(orders.date_time) <= ?", [$dateTimeData['endTime']]);
-                        });
-                    }
-                });
-        }])->get();
+        $query = SalesReportData::fetchCategoryReportRows($dateTimeData, $this->branchFilter);
 
         return view('livewire.reports.category-report', [
-            'menuItems' => $query
+            'menuItems' => $query,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
         ]);
     }
 

@@ -6,6 +6,8 @@ use Carbon\Carbon;
 use App\Models\Tax;
 use App\Models\Order;
 use App\Models\RestaurantCharge;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
 use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Style\{Fill, Style};
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
@@ -14,23 +16,24 @@ use Maatwebsite\Excel\Concerns\{FromCollection, ShouldAutoSize, WithHeadings, Wi
 class DetailedSalesReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
-    protected string $startTime, $endTime, $timezone, $offset;
+    protected string $startTime, $endTime, $timezone;
     protected array $charges, $taxes;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
     protected $currencyId;
     protected string $filterByWaiter;
     protected string $filterPaymentMethod;
+    protected string $branchFilter;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $offset, string $filterByWaiter = '', string $filterPaymentMethod = '')
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, string $filterByWaiter = '', string $filterPaymentMethod = '', string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
         $this->startTime = $startTime;
         $this->endTime = $endTime;
         $this->timezone = $timezone;
-        $this->offset = $offset;
         $this->filterByWaiter = $filterByWaiter;
         $this->filterPaymentMethod = $filterPaymentMethod;
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
         $this->currencyId = restaurant()->currency_id;
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -52,12 +55,18 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
             ? __('modules.report.salesDataFor') . " {$this->headingDateTime}, " . __('modules.report.timePeriod') . " {$this->headingStartTime} - {$this->headingEndTime}"
             : __('modules.report.salesDataFrom') . " {$this->headingDateTime} " . __('app.to') . " {$this->headingEndDateTime}, " . __('modules.report.timePeriodEachDay') . " {$this->headingStartTime} - {$this->headingEndTime}";
 
-        return [
-            [__('menu.detailedSalesReport') . ' ' . $headingTitle],
-            array_merge(
-            [
+        $headings = [
                 __('modules.order.orderNumber'),
                 __('app.date'),
+        ];
+
+        if ($this->branchFilter === ReportBranchScope::FILTER_ALL) {
+            $headings[] = __('app.branch');
+        }
+
+        $headings = array_merge(
+            $headings,
+            [
                 __('modules.customer.customerName'),
                 __('modules.table.staff'),
                 __('modules.order.subTotal'),
@@ -72,7 +81,11 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
                 __('modules.order.total'),
                 __('modules.order.paymentMethod'),
             ]
-            )
+        );
+
+        return [
+            [ReportBranchScope::appendExportScope(__('menu.detailedSalesReport') . ' ' . $headingTitle, $this->branchFilter)],
+            $headings
         ];
     }
 
@@ -81,10 +94,17 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $mappedItem = [
             $order->order_number,
             $order->date_time->format('M d, Y h:i A'),
+        ];
+
+        if ($this->branchFilter === ReportBranchScope::FILTER_ALL) {
+            $mappedItem[] = $order->branch->name ?? '--';
+        }
+
+        $mappedItem = array_merge($mappedItem, [
             $order->customer->name ?? '--',
             $order->waiter->name ?? '--',
             currency_format($order->sub_total, $this->currencyId),
-        ];
+        ]);
 
         foreach ($this->charges as $chargeName) {
             // We passed charges as array of values in collection()
@@ -122,9 +142,10 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         $charges = RestaurantCharge::all();
         $taxes = Tax::all();
 
-        $orders = Order::with(['payments', 'items', 'items.menuItem', 'waiter', 'customer'])
+        $orders = SalesReportData::ordersBaseQuery($this->branchFilter)
+            ->with(ReportBranchScope::eagerLoadsForOrderReport())
             ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
-            ->whereIn('orders.status', ['paid', 'payment_due'])
+            ->whereIn('orders.status', SalesReportData::reportOrderStatuses())
             ->where(function ($q) {
                 if ($this->startTime < $this->endTime) {
                     $q->whereRaw('TIME(orders.date_time) BETWEEN ? AND ?', [$this->startTime, $this->endTime]);
@@ -145,14 +166,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
 
         // Filter by payment method if selected
         if ($this->filterPaymentMethod !== '') {
-            if ($this->filterPaymentMethod === 'due') {
-                $orders->where('orders.status', 'payment_due')
-                    ->whereDoesntHave('payments');
-            } else {
-                $orders->whereHas('payments', function($q) {
-                    $q->where('payment_method', $this->filterPaymentMethod);
-                });
-            }
+            ReportBranchScope::applyOrderPaymentMethodFilter($orders, $this->filterPaymentMethod);
         }
 
         $orders = $orders->orderBy('orders.date_time', 'desc')
@@ -162,6 +176,8 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
         // or complex logic inside map()
         foreach ($orders as $order) {
             $orderCharges = [];
+            $extrasTotal = (float) DB::table('order_extras')->where('order_id', $order->id)->sum('amount');
+            $chargeTaxBase = max(0, (float) $order->sub_total + $extrasTotal - ((float) ($order->discount_amount ?? 0)));
             foreach ($charges as $charge) {
                  // Ideally this should be eager loaded relation or better query.
                  // Re-using existing logic for consistency
@@ -170,7 +186,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
                         ->where('charge_id', $charge->id)
                         ->join('restaurant_charges', 'order_charges.charge_id', '=', 'restaurant_charges.id')
                         ->value(DB::raw('CASE WHEN restaurant_charges.charge_type = "percent"
-                            THEN (restaurant_charges.charge_value / 100) * '.$order->sub_total.'
+                            THEN (restaurant_charges.charge_value / 100) * '.$chargeTaxBase.'
                             ELSE restaurant_charges.charge_value END'));
                 $orderCharges[$charge->charge_name] = $chargeAmount ?? 0;
             }
@@ -197,7 +213,7 @@ class DetailedSalesReportExport implements WithMapping, FromCollection, WithHead
 
             if ($orderTaxData->isNotEmpty()) {
                 foreach ($orderTaxData as $orderTax) {
-                    $taxAmount = ($orderTax->tax_percent / 100) * ($order->sub_total - ($order->discount_amount ?? 0));
+                    $taxAmount = ($orderTax->tax_percent / 100) * $chargeTaxBase;
                     $orderTaxBreakdown[$orderTax->tax_name] = $taxAmount;
                 }
             } else {

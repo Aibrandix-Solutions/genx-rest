@@ -6,7 +6,10 @@ use Livewire\Component;
 use Livewire\WithFileUploads;
 use Modules\Inventory\Entities\Supplier;
 use Modules\Inventory\Entities\InventoryItem;
+use Modules\Inventory\Entities\InventoryItemCategory;
+use Modules\Inventory\Entities\Unit;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseOrderItem;
 use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\InventoryMovement;
@@ -17,7 +20,11 @@ use App\Models\BranchPaymentAccountSetting;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Inventory\Exports\PurchaseItemsImportTemplateExport;
 use Modules\Inventory\Entities\PurchaseAttachment;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 
 class CreateDirectPurchase extends Component
 {
@@ -25,6 +32,7 @@ class CreateDirectPurchase extends Component
 
     // Main form fields
     public $supplierId;
+    public $invoiceNo;
     public $orderDate;
     public $location_id;
     public $status = 'ordered';
@@ -37,9 +45,22 @@ class CreateDirectPurchase extends Component
     
     // Items
     public $items = [];
+    public $itemImportFile;
     public $searchItem = '';
     public $filteredItems = [];
     public $showSearchResults = false;
+
+    // Prevent double-submit
+    public bool $isSaving = false;
+
+    // Quick-add new inventory item
+    public $showQuickAddModal = false;
+    public $quickAddName = '';
+    public $quickAddCategoryId = '';
+    public $quickAddUnitId = '';
+    public $quickAddPrice = 0;
+    public $quickAddThresholdQuantity = 0;
+    public $quickAddSaving = false;
     
     // Payment fields (optional)
     public $recordPayment = false;
@@ -53,11 +74,14 @@ class CreateDirectPurchase extends Component
     // Readonly data
     public $suppliers = [];
     public $inventoryItems = [];
+    public $itemCategories = [];
+    public $units = [];
     public $locations = [];
     public $paymentMethods = ['cash', 'card', 'bank_transfer', 'cheque', 'other'];
 
     protected $rules = [
         'supplierId' => 'required|exists:suppliers,id',
+        'invoiceNo' => 'nullable|string|max:100',
         'orderDate' => 'required|date',
         'location_id' => 'required|exists:purchase_locations,id',
         'status' => 'required|in:ordered,pending,received,cancelled',
@@ -66,6 +90,7 @@ class CreateDirectPurchase extends Component
         'notes' => 'nullable|string',
         'items' => 'required|array|min:1',
         'items.*.inventory_item_id' => 'required|exists:inventory_items,id',
+        'items.*.unit_id' => 'required|exists:units,id',
         'items.*.quantity' => 'required|numeric|min:0.01',
         'items.*.unit_price' => 'required|numeric|min:0',
         'items.*.discount' => 'nullable|numeric|min:0',
@@ -76,6 +101,7 @@ class CreateDirectPurchase extends Component
         'paymentAccountId' => 'nullable|exists:payment_accounts,id',
         'paymentNote' => 'nullable|string|max:500',
         'attachments.*' => 'nullable|file|mimes:pdf,jpeg,jpg,png,gif,webp|max:5120',
+        'itemImportFile' => 'nullable|file|mimes:xlsx,xls,csv,txt|max:5120',
     ];
 
     protected $messages = [
@@ -95,6 +121,8 @@ class CreateDirectPurchase extends Component
         'items.min' => 'At least one item is required',
         'items.*.inventory_item_id.required' => 'Item is required for each line',
         'items.*.inventory_item_id.exists' => 'Selected item does not exist',
+        'items.*.unit_id.required' => 'Unit is required for each item',
+        'items.*.unit_id.exists' => 'Selected unit does not exist',
         'items.*.quantity.required' => 'Quantity is required for each item',
         'items.*.quantity.numeric' => 'Quantity must be a valid number',
         'items.*.quantity.min' => 'Quantity must be at least 0.01',
@@ -117,6 +145,12 @@ class CreateDirectPurchase extends Component
         $this->loadInventoryItems();
         $this->loadLocations();
         $this->loadPaymentAccounts();
+        $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
+        $this->itemCategories = InventoryItemCategory::orderBy('name')->get();
+        $this->units = Unit::orderBy('name')->get();
         
         // Add first item
         $this->addItem();
@@ -133,6 +167,8 @@ class CreateDirectPurchase extends Component
     public function loadInventoryItems()
     {
         $this->inventoryItems = InventoryItem::with(['unit', 'category'])
+            ->where('restaurant_id', restaurant()->id)
+            ->activeForPurchase()
             ->orderBy('name')
             ->get();
     }
@@ -157,25 +193,196 @@ class CreateDirectPurchase extends Component
 
     public function updatedPaymentMethod($value)
     {
-        // Auto-select default payment account for this payment method
-        if ($value && !$this->paymentAccountId) {
-            $defaultAccount = BranchPaymentAccountSetting::getDefaultAccount(branch()->id, $value);
-            if ($defaultAccount) {
-                $this->paymentAccountId = $defaultAccount->id;
-            }
+        if ($value) {
+            $this->paymentAccountId = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
         }
     }
 
     public function addItem()
     {
-        $this->items[] = [
+        $this->items[] = $this->makePurchaseItemRow();
+    }
+
+    public function downloadItemsImportTemplate()
+    {
+        return Excel::download(new PurchaseItemsImportTemplateExport(), 'purchase-items-template.xlsx');
+    }
+
+    public function importItemsFromFile(): void
+    {
+        $this->validateOnly('itemImportFile');
+
+        if (!$this->itemImportFile) {
+            return;
+        }
+
+        $rows = Excel::toArray([], $this->itemImportFile)[0] ?? [];
+        if (count($rows) < 2) {
+            $this->addError('itemImportFile', 'Template appears empty. Please add at least one row.');
+            return;
+        }
+
+        $headers = array_map(
+            fn ($h) => strtolower(trim((string) $h)),
+            (array) ($rows[0] ?? [])
+        );
+        $requiredHeaders = ['item_name', 'quantity'];
+        foreach ($requiredHeaders as $requiredHeader) {
+            if (!in_array($requiredHeader, $headers, true)) {
+                $this->addError('itemImportFile', "Missing required column: {$requiredHeader}");
+                return;
+            }
+        }
+
+        $indexMap = array_flip($headers);
+        $errors = [];
+        $importedCount = 0;
+        $this->items = array_values(array_filter($this->items, fn ($row) => !empty($row['inventory_item_id'])));
+
+        for ($i = 1; $i < count($rows); $i++) {
+            $row = (array) $rows[$i];
+            if (count(array_filter($row, fn ($v) => trim((string) $v) !== '')) === 0) {
+                continue;
+            }
+
+            $itemName = trim((string) ($row[$indexMap['item_name']] ?? ''));
+            $quantityRaw = $row[$indexMap['quantity']] ?? null;
+            $unitPriceRaw = $row[$indexMap['unit_price']] ?? null;
+            $discountRaw = $row[$indexMap['discount']] ?? 0;
+            $discountTypeRaw = strtolower(trim((string) ($row[$indexMap['discount_type']] ?? 'fixed')));
+            $excelRow = $i + 1;
+
+            if ($itemName === '') {
+                $errors[] = "Row {$excelRow}: item_name is required.";
+                continue;
+            }
+
+            $quantity = is_numeric($quantityRaw) ? (float) $quantityRaw : null;
+            if ($quantity === null || $quantity <= 0) {
+                $errors[] = "Row {$excelRow}: quantity must be greater than 0.";
+                continue;
+            }
+
+            $item = InventoryItem::query()
+                ->where('restaurant_id', restaurant()->id)
+                ->whereRaw('LOWER(name) = ?', [mb_strtolower($itemName)])
+                ->first();
+
+            if (!$item) {
+                $errors[] = "Row {$excelRow}: item '{$itemName}' not found.";
+                continue;
+            }
+
+            if (!$item->is_active) {
+                $errors[] = "Row {$excelRow}: item '{$itemName}' is disabled for purchase.";
+                continue;
+            }
+
+            $unitPrice = is_numeric($unitPriceRaw) ? (float) $unitPriceRaw : (float) ($item->unit_purchase_price ?? 0);
+            $discount = is_numeric($discountRaw) ? (float) $discountRaw : 0;
+            $discountType = in_array($discountTypeRaw, ['fixed', 'percentage'], true) ? $discountTypeRaw : 'fixed';
+
+            $this->items[] = [
+                ...$this->makePurchaseItemRow(),
+                'inventory_item_id' => $item->id,
+                'unit_id' => $item->unit_id,
+                'quantity' => $quantity,
+                'unit_price' => max(0, $unitPrice),
+                'discount' => max(0, $discount),
+                'discount_type' => $discountType,
+                'last_purchase_price' => PurchaseOrderItem::where('inventory_item_id', $item->id)
+                    ->orderBy('created_at', 'desc')
+                    ->value('unit_price'),
+            ];
+            $importedCount++;
+        }
+
+        $this->itemImportFile = null;
+
+        if (!empty($errors)) {
+            $this->addError('itemImportFile', implode(' ', array_slice($errors, 0, 5)));
+        }
+
+        if ($importedCount > 0) {
+            $this->alert('success', "{$importedCount} item rows imported.");
+        } elseif (empty($errors)) {
+            $this->addError('itemImportFile', 'No rows were imported.');
+        }
+    }
+
+    protected function makePurchaseItemRow(): array
+    {
+        return [
             '_key' => (string) Str::uuid(),
             'inventory_item_id' => '',
+            'unit_id' => '',
             'quantity' => 1,
             'unit_price' => 0,
             'discount' => 0,
             'discount_type' => 'fixed',
+            'last_purchase_price' => null,
         ];
+    }
+
+    public function openQuickAddModal()
+    {
+        $this->quickAddName = $this->searchItem;
+        $this->quickAddCategoryId = '';
+        $this->quickAddUnitId = '';
+        $this->quickAddPrice = 0;
+        $this->quickAddThresholdQuantity = 0;
+        $this->showQuickAddModal = true;
+        $this->showSearchResults = false;
+    }
+
+    public function closeQuickAddModal()
+    {
+        $this->showQuickAddModal = false;
+        $this->reset(['quickAddName', 'quickAddCategoryId', 'quickAddUnitId', 'quickAddPrice', 'quickAddThresholdQuantity', 'quickAddSaving']);
+    }
+
+    public function saveQuickAddItem()
+    {
+        if ($this->quickAddSaving) {
+            return;
+        }
+
+        $this->quickAddSaving = true;
+
+        $this->validateOnly('quickAddName', ['quickAddName' => 'required|string|max:255']);
+        $this->validateOnly('quickAddCategoryId', ['quickAddCategoryId' => 'required|exists:inventory_item_categories,id']);
+        $this->validateOnly('quickAddUnitId', ['quickAddUnitId' => 'required|exists:units,id']);
+        $this->validateOnly('quickAddPrice', ['quickAddPrice' => 'required|numeric|min:0']);
+        $this->validateOnly('quickAddThresholdQuantity', ['quickAddThresholdQuantity' => 'required|numeric|min:0']);
+
+        try {
+            $item = InventoryItem::create([
+                'name' => $this->quickAddName,
+                'restaurant_id' => restaurant()->id,
+                'inventory_item_category_id' => $this->quickAddCategoryId,
+                'unit_id' => $this->quickAddUnitId,
+                'threshold_quantity' => $this->quickAddThresholdQuantity,
+                'unit_purchase_price' => $this->quickAddPrice,
+            ]);
+
+            $this->loadInventoryItems();
+            $this->items[] = [
+                ...$this->makePurchaseItemRow(),
+                'inventory_item_id' => $item->id,
+                'unit_id' => $item->unit_id,
+                'unit_price' => $item->unit_purchase_price ?? 0,
+                'last_purchase_price' => null,
+            ];
+
+            $this->searchItem = '';
+            $this->filteredItems = [];
+            $this->showSearchResults = false;
+            $this->showQuickAddModal = false;
+            $this->reset(['quickAddName', 'quickAddCategoryId', 'quickAddUnitId', 'quickAddPrice', 'quickAddThresholdQuantity']);
+            $this->alert('success', 'Item "' . $item->name . '" created and added.');
+        } finally {
+            $this->quickAddSaving = false;
+        }
     }
 
     public function searchItems()
@@ -189,12 +396,22 @@ class CreateDirectPurchase extends Component
         }
 
         $this->filteredItems = InventoryItem::query()
-            ->select(['id', 'name', 'unit_purchase_price'])
+            ->select(['id', 'name', 'item_code', 'unit_purchase_price'])
             ->where('restaurant_id', restaurant()->id)
-            ->where('name', 'like', '%' . $term . '%')
+            ->activeForPurchase()
+            ->where(function ($q) use ($term) {
+                $q->where('name', 'like', '%' . $term . '%')
+                  ->orWhere('item_code', 'like', '%' . $term . '%');
+            })
             ->limit(10)
-            ->get();
-        
+            ->get()
+            ->map(function ($item) {
+                $item->last_purchase_price = PurchaseOrderItem::where('inventory_item_id', $item->id)
+                    ->orderBy('created_at', 'desc')
+                    ->value('unit_price');
+                return $item;
+            });
+
         $this->showSearchResults = true;
     }
 
@@ -206,53 +423,54 @@ class CreateDirectPurchase extends Component
     public function selectItem($itemId)
     {
         $item = InventoryItem::find($itemId);
-        
-        if ($item) {
-            $targetIndex = null;
-            foreach ($this->items as $index => $row) {
-                if (empty($row['inventory_item_id'])) {
-                    $targetIndex = $index;
-                    break;
-                }
-            }
 
-            if ($targetIndex === null) {
-                $targetIndex = count($this->items);
-                $this->items[] = [
-                    '_key' => (string) Str::uuid(),
-                    'inventory_item_id' => '',
-                    'quantity' => 1,
-                    'unit_price' => 0,
-                    'discount' => 0,
-                    'discount_type' => 'fixed',
-                ];
-            }
-
-            if (empty($this->items[$targetIndex]['_key'])) {
-                $this->items[$targetIndex]['_key'] = (string) Str::uuid();
-            }
-
-            $this->items[$targetIndex]['inventory_item_id'] = $itemId;
-            $this->items[$targetIndex]['quantity'] = (float) ($this->items[$targetIndex]['quantity'] ?? 0) > 0
-                ? $this->items[$targetIndex]['quantity']
-                : 1;
-
-            if (!isset($this->items[$targetIndex]['unit_price']) || (float) $this->items[$targetIndex]['unit_price'] <= 0) {
-                $this->items[$targetIndex]['unit_price'] = $item->unit_purchase_price ?? 0;
-            }
-
-            if (!isset($this->items[$targetIndex]['discount'])) {
-                $this->items[$targetIndex]['discount'] = 0;
-            }
-            if (empty($this->items[$targetIndex]['discount_type'])) {
-                $this->items[$targetIndex]['discount_type'] = 'fixed';
-            }
-            
-            // Clear search
-            $this->searchItem = '';
-            $this->filteredItems = [];
-            $this->showSearchResults = false;
+        if (!$item || !$item->is_active) {
+            return;
         }
+
+        $targetIndex = null;
+        foreach ($this->items as $index => $row) {
+            if (empty($row['inventory_item_id'])) {
+                $targetIndex = $index;
+                break;
+            }
+        }
+
+        if ($targetIndex === null) {
+            $targetIndex = count($this->items);
+            $this->items[] = $this->makePurchaseItemRow();
+        }
+
+        if (empty($this->items[$targetIndex]['_key'])) {
+            $this->items[$targetIndex]['_key'] = (string) Str::uuid();
+        }
+
+        $this->items[$targetIndex]['inventory_item_id'] = $itemId;
+        $this->items[$targetIndex]['unit_id'] = $item->unit_id;
+        $this->items[$targetIndex]['quantity'] = (float) ($this->items[$targetIndex]['quantity'] ?? 0) > 0
+            ? $this->items[$targetIndex]['quantity']
+            : 1;
+
+        if (!isset($this->items[$targetIndex]['unit_price']) || (float) $this->items[$targetIndex]['unit_price'] <= 0) {
+            $this->items[$targetIndex]['unit_price'] = $item->unit_purchase_price ?? 0;
+        }
+
+        if (!isset($this->items[$targetIndex]['discount'])) {
+            $this->items[$targetIndex]['discount'] = 0;
+        }
+        if (empty($this->items[$targetIndex]['discount_type'])) {
+            $this->items[$targetIndex]['discount_type'] = 'fixed';
+        }
+
+        // Store the last purchased price for info display
+        $this->items[$targetIndex]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+            ->orderBy('created_at', 'desc')
+            ->value('unit_price');
+
+        // Clear search
+        $this->searchItem = '';
+        $this->filteredItems = [];
+        $this->showSearchResults = false;
     }
 
     public function removeItem($index)
@@ -269,10 +487,19 @@ class CreateDirectPurchase extends Component
     public function updateItemPrice($index)
     {
         if (isset($this->items[$index]['inventory_item_id']) && $this->items[$index]['inventory_item_id']) {
-            $item = InventoryItem::find($this->items[$index]['inventory_item_id']);
-            if ($item && $item->unit_purchase_price !== null) {
+            $itemId = $this->items[$index]['inventory_item_id'];
+            $item = InventoryItem::find($itemId);
+            if (!$item || !$item->is_active) {
+                $this->items[$index]['inventory_item_id'] = '';
+                return;
+            }
+            if ($item->unit_purchase_price !== null) {
                 $this->items[$index]['unit_price'] = $item->unit_purchase_price;
             }
+            $this->items[$index]['unit_id'] = $item->unit_id;
+            $this->items[$index]['last_purchase_price'] = PurchaseOrderItem::where('inventory_item_id', $itemId)
+                ->orderBy('created_at', 'desc')
+                ->value('unit_price');
         }
     }
 
@@ -312,26 +539,37 @@ class CreateDirectPurchase extends Component
 
     public function savePurchase()
     {
+        if ($this->isSaving) {
+            return;
+        }
+
+        $this->isSaving = true;
+
+        try {
         // Validate payment amount doesn't exceed total before standard validation
         if ($this->recordPayment && $this->paymentAmount) {
             $total = $this->finalTotal;
             if ($this->paymentAmount > $total) {
                 $this->addError('paymentAmount', 'Payment amount cannot exceed the total amount (' . currency_format($total, restaurant()->currency_id) . ')');
+                $this->isSaving = false;
                 return;
             }
         }
 
         $this->validate();
 
-        DB::transaction(function () {
+        $purchase = null;
+
+        DB::transaction(function () use (&$purchase) {
             // Create purchase
             $purchase = PurchaseOrder::create([
                 'po_number' => $this->generatePurchaseNumber(),
+                'invoice_no' => $this->invoiceNo ?: null,
                 'branch_id' => branch()->id,
                 'supplier_id' => $this->supplierId,
                 'location_id' => $this->location_id,
                 'order_date' => $this->orderDate,
-                'total_amount' => $this->itemSubtotal,
+                'total_amount' => $this->finalTotal,
                 'discount' => (float) ($this->discount ?? 0),
                 'discount_type' => $this->discount_type,
                 'status' => $this->status,
@@ -343,6 +581,7 @@ class CreateDirectPurchase extends Component
             foreach ($this->items as $item) {
                 $purchase->items()->create([
                     'inventory_item_id' => $item['inventory_item_id'],
+                    'unit_id' => $item['unit_id'],
                     'quantity' => $item['quantity'],
                     'unit_price' => $item['unit_price'],
                     'subtotal' => $item['quantity'] * $item['unit_price'],
@@ -386,8 +625,44 @@ class CreateDirectPurchase extends Component
             }
         });
 
+        if ($purchase) {
+            ActivityLogger::recordEvent(
+                activityEvent: ActivityEvent::PurchaseOrderCreated,
+                description: "Purchase order {$purchase->po_number} created",
+                subject: $purchase,
+                properties: [
+                    'purchase_order_id' => $purchase->id,
+                    'po_number' => $purchase->po_number,
+                    'status' => $purchase->status,
+                    'total_amount' => $purchase->total_amount,
+                ],
+                branchId: $purchase->branch_id ? (int) $purchase->branch_id : null,
+            );
+
+            if ($purchase->status === 'received') {
+                ActivityLogger::recordEvent(
+                    activityEvent: ActivityEvent::PurchaseOrderReceived,
+                    description: "Purchase order {$purchase->po_number} received",
+                    subject: $purchase,
+                    properties: [
+                        'purchase_order_id' => $purchase->id,
+                        'po_number' => $purchase->po_number,
+                        'status' => $purchase->status,
+                    ],
+                    branchId: $purchase->branch_id ? (int) $purchase->branch_id : null,
+                );
+            }
+        }
+
         $this->alert('success', 'Purchase created successfully');
         return redirect()->route('purchases.index');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            $this->isSaving = false;
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->isSaving = false;
+            throw $e;
+        }
     }
 
     private function createInventoryMovements(PurchaseOrder $purchase)
@@ -420,6 +695,7 @@ class CreateDirectPurchase extends Component
             // Create inventory movement record
             InventoryMovement::create([
                 'branch_id' => $targetBranchId,
+                'location_id' => $purchase->location_id,
                 'inventory_item_id' => $item->inventory_item_id,
                 'quantity' => $quantity,
                 'transaction_type' => 'in',
@@ -446,6 +722,9 @@ class CreateDirectPurchase extends Component
     private function recordPaymentForPurchase(PurchaseOrder $purchase)
     {
         $paidOn = $this->paymentDate ?: now();
+        $paymentAccountId = $this->paymentAccountId
+            ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
         $paymentData = [
             'supplier_id' => $purchase->supplier_id,
             'purchase_order_id' => $purchase->id,
@@ -456,15 +735,15 @@ class CreateDirectPurchase extends Component
             'added_by' => user()->id,
         ];
 
-        if ($this->paymentAccountId) {
-            $paymentData['payment_account_id'] = $this->paymentAccountId;
+        if ($paymentAccountId) {
+            $paymentData['payment_account_id'] = $paymentAccountId;
         }
 
         $payment = SupplierPayment::create($paymentData);
 
         // Update Payment Account Balance and log transaction if account selected
-        if ($this->paymentAccountId) {
-            $account = PaymentAccount::find($this->paymentAccountId);
+        if ($paymentAccountId) {
+            $account = PaymentAccount::find($paymentAccountId);
             if ($account) {
                 $account->decrement('current_balance', $this->paymentAmount);
 

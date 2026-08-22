@@ -5,6 +5,7 @@ namespace App\Imports;
 use App\Models\MenuItem;
 use App\Models\ItemCategory;
 use App\Models\Menu;
+use App\Scopes\AvailableMenuItemScope;
 use Maatwebsite\Excel\Concerns\ToModel;
 use Maatwebsite\Excel\Concerns\WithHeadingRow;
 use Maatwebsite\Excel\Concerns\WithChunkReading;
@@ -14,16 +15,16 @@ use Maatwebsite\Excel\Concerns\SkipsOnError;
 use Maatwebsite\Excel\Concerns\SkipsErrors;
 use Maatwebsite\Excel\Concerns\SkipsOnFailure;
 use Maatwebsite\Excel\Concerns\SkipsFailures;
-use Maatwebsite\Excel\Concerns\WithBatchInserts;
 use Illuminate\Support\Facades\Log;
 
-class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithValidation, SkipsOnError, SkipsOnFailure, WithBatchInserts
+class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithValidation, SkipsOnError, SkipsOnFailure
 {
     use Importable, SkipsErrors, SkipsFailures;
 
     protected $restaurantId;
     protected $branchId;
-    protected $kitchenId;
+    /** @var list<int> */
+    protected array $kitchenIds = [];
     protected $columnMapping = [];
     protected $results = [
         'total' => 0,
@@ -35,11 +36,19 @@ class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithV
     ];
     protected $errors = [];
 
-    public function __construct($restaurantId, $branchId, $kitchenId = null, $columnMapping = [])
+    /** @var list<string> */
+    private array $pendingAutoItemCodes = [];
+
+    private ?int $autoCodeSequence = null;
+
+    /**
+     * @param  array<int|string>|int|string|null  $kitchenIds
+     */
+    public function __construct($restaurantId, $branchId, $kitchenIds = [], $columnMapping = [])
     {
         $this->restaurantId = $restaurantId;
         $this->branchId = $branchId;
-        $this->kitchenId = $kitchenId;
+        $this->kitchenIds = $this->normalizeKitchenIds($kitchenIds);
         $this->columnMapping = $columnMapping;
     }
 
@@ -85,34 +94,58 @@ class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithV
                 Log::info("Auto-created menu: {$mappedRow['menu_name']} for branch {$this->branchId}");
             }
 
+            $itemCodeRaw = isset($mappedRow['item_code']) ? trim((string) $mappedRow['item_code']) : '';
+            $itemCode = $itemCodeRaw !== '' ? $itemCodeRaw : null;
+
+            if ($itemCode !== null) {
+                $existingByCode = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)
+                    ->where('branch_id', $this->branchId)
+                    ->where('item_code', $itemCode)
+                    ->first();
+                if ($existingByCode) {
+                    Log::info('Menu item skipped: duplicate item_code in branch', ['item_code' => $itemCode]);
+                    $this->results['skipped']++;
+
+                    return null;
+                }
+            }
+
             // Check for duplicate menu item by name and category
-            $existingMenuItem = MenuItem::where('branch_id', $this->branchId)
+            $existingMenuItem = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)
+                ->where('branch_id', $this->branchId)
                 ->where('item_name', $mappedRow['item_name'] ?? '')
                 ->where('item_category_id', $category->id)
                 ->first();
 
             if ($existingMenuItem) {
-                Log::info("Menu item already exists: " . ($mappedRow['item_name'] ?? ''));
+                Log::info('Menu item already exists: '.($mappedRow['item_name'] ?? ''));
                 $this->results['skipped']++;
                 return null;
             }
 
-            // Prepare the data
-            $data = [
+            if ($itemCode === null) {
+                $itemCode = $this->allocateAutoItemCodeForImport();
+            }
+
+            $menuItem = MenuItem::create([
                 'item_name' => $mappedRow['item_name'] ?? '',
+                'item_code' => $itemCode,
                 'description' => $mappedRow['description'] ?? '',
                 'price' => floatval($mappedRow['price'] ?? 0),
                 'item_category_id' => $category->id,
                 'menu_id' => $menu->id,
                 'type' => $this->mapItemType($mappedRow['type'] ?? 'veg'),
-                'is_available' => 1, // Default to available (1 = yes, 0 = no)
+                'is_available' => 1,
                 'show_on_customer_site' => $this->mapBoolean($mappedRow['show_on_customer_site'] ?? 'yes'),
                 'branch_id' => $this->branchId,
-                'kot_place_id' => $this->kitchenId,
-            ];
+                'kot_place_id' => $this->kitchenIds[0] ?? null,
+            ]);
+
+            $this->syncKitchenPlaces($menuItem);
 
             $this->results['success']++;
-            return new MenuItem($data);
+
+            return null;
         } catch (\Exception $e) {
             Log::error("Error importing menu item: " . $e->getMessage(), ['row' => $row]);
             $this->results['failed']++;
@@ -124,6 +157,7 @@ class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithV
     {
         return [
             'item_name' => 'required|string|max:255',
+            'item_code' => 'nullable|string|max:50',
             'category_name' => 'required|string|max:255',
             'menu_name' => 'required|string|max:255',
             'price' => 'required|numeric|min:0',
@@ -138,9 +172,35 @@ class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithV
         return 100;
     }
 
-    public function batchSize(): int
+    /**
+     * @param  array<int|string>|int|string|null  $kitchenIds
+     * @return list<int>
+     */
+    private function normalizeKitchenIds($kitchenIds): array
     {
-        return 100;
+        if ($kitchenIds === null || $kitchenIds === '') {
+            return [];
+        }
+
+        if (! is_array($kitchenIds)) {
+            $kitchenIds = [$kitchenIds];
+        }
+
+        return array_values(array_unique(array_filter(array_map('intval', $kitchenIds))));
+    }
+
+    private function syncKitchenPlaces(MenuItem $menuItem): void
+    {
+        if ($this->kitchenIds === []) {
+            return;
+        }
+
+        $pivotData = [];
+        foreach ($this->kitchenIds as $index => $kitchenId) {
+            $pivotData[$kitchenId] = ['is_primary' => $index === 0];
+        }
+
+        $menuItem->kotPlaces()->sync($pivotData);
     }
 
     private function mapItemType($type)
@@ -167,6 +227,31 @@ class MenuItemImport implements ToModel, WithHeadingRow, WithChunkReading, WithV
         $value = strtolower(trim($value));
 
         return in_array($value, ['yes', '1', 'true', 'y']) ? 1 : 0;
+    }
+
+    /**
+     * Allocate sequential IT#### codes during import, including across batched inserts
+     * (rows not yet flushed are tracked in memory).
+     */
+    private function allocateAutoItemCodeForImport(): string
+    {
+        if ($this->autoCodeSequence === null) {
+            $this->autoCodeSequence = MenuItem::maxAutoGeneratedItemCodeSuffixForBranch($this->branchId);
+        }
+
+        do {
+            $this->autoCodeSequence++;
+            $candidate = MenuItem::formatAutoItemCode($this->autoCodeSequence);
+            $inDb = MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)
+                ->where('branch_id', $this->branchId)
+                ->where('item_code', $candidate)
+                ->exists();
+            $pending = in_array($candidate, $this->pendingAutoItemCodes, true);
+        } while ($inDb || $pending);
+
+        $this->pendingAutoItemCodes[] = $candidate;
+
+        return $candidate;
     }
 
     public function getResults()

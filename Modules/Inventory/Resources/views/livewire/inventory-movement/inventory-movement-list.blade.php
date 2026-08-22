@@ -105,6 +105,13 @@
                     </x-dropdown>
                 </div>
 
+                <select wire:model.live="locationFilter" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">{{ __('inventory::modules.stock.allLocations') }}</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">{{ $location->display_name ?? $location->name }}</option>
+                    @endforeach
+                </select>
+
                 <select wire:model.live="filterType" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
                     <option value="">{{ __('inventory::modules.movements.filters.all_types') }}</option>
                     @foreach(['in', 'out', 'waste', 'transfer'] as $type)
@@ -126,7 +133,7 @@
                     <option value="quarter">{{ __('inventory::modules.movements.filters.date_ranges.quarter') }}</option>
                 </select>
 
-                @if($search || $filterType || $category || $dateRange !== 'month' || $startDate || $endDate)
+                @if($search || $locationFilter || $filterType || $category || $dateRange !== 'month' || $startDate || $endDate)
                     <button
                         wire:click="clearFilters"
                         class="inline-flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200">
@@ -181,6 +188,9 @@
                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ __('inventory::modules.movements.table.quantity_unit') }}</span>
                         </th>
                         <th class="px-6 py-3 text-left">
+                            <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Location</span>
+                        </th>
+                        <th class="px-6 py-3 text-left">
                             <span class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                                 {{ __('inventory::modules.movements.table.supplier') }}
                             </span>
@@ -203,7 +213,12 @@
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->created_at->timezone(timezone())->translatedFormat('h:i A') }}</div>
                             </td>
                             <td class="px-6 py-4">
-                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $movement->item->name ?? '--' }}</div>
+                                <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                    @if($movement->item && !empty($movement->item->item_code))
+                                        <span class="font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded mr-1">{{ $movement->item->item_code }}</span>
+                                    @endif
+                                    {{ $movement->item->name ?? '--' }}
+                                </div>
                                 <div class="text-xs text-gray-500 dark:text-gray-400">{{ $movement->item->category->name ?? '' }}</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
@@ -225,6 +240,11 @@
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
                                     {{ $movement->quantity }} {{ $movement->item && $movement->item->unit ? $movement->item->unit->symbol : '' }}
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-900 dark:text-gray-100">
+                                    {{ $movement->location?->display_name ?? '-' }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">

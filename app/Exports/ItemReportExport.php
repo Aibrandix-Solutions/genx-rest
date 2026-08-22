@@ -3,8 +3,7 @@
 namespace App\Exports;
 
 use Carbon\Carbon;
-use App\Models\MenuItem;
-use App\Scopes\AvailableMenuItemScope;
+use Illuminate\Support\Facades\DB;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Style;
 use Maatwebsite\Excel\Concerns\WithStyles;
@@ -14,14 +13,17 @@ use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 use App\Helper\Common;
+use App\Services\ReportBranchScope;
+use App\Services\SalesReportData;
 
 class ItemReportExport implements WithMapping, FromCollection, WithHeadings, WithStyles, ShouldAutoSize
 {
     protected string $startDateTime, $endDateTime;
     protected string $startTime, $endTime, $timezone, $searchTerm;
+    protected string $branchFilter;
     protected $headingDateTime, $headingEndDateTime, $headingStartTime, $headingEndTime;
 
-    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, ?string $searchTerm = '')
+    public function __construct(string $startDateTime, string $endDateTime, string $startTime, string $endTime, string $timezone, ?string $searchTerm = '', string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDateTime = $startDateTime;
         $this->endDateTime = $endDateTime;
@@ -29,6 +31,7 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
         $this->endTime = $endTime;
         $this->timezone = $timezone;
         $this->searchTerm = $searchTerm ?? '';
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
 
         $this->headingDateTime = Carbon::parse($startDateTime)->setTimezone($timezone)->format('Y-m-d');
         $this->headingEndDateTime = Carbon::parse($endDateTime)->setTimezone($timezone)->format('Y-m-d');
@@ -43,7 +46,7 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
             : __('modules.report.salesDataFrom') . " {$this->headingDateTime} " . __('app.to') . " {$this->headingEndDateTime}, " . __('modules.report.timePeriodEachDay') . " {$this->headingStartTime} - {$this->headingEndTime}";
 
         return [
-            [__('menu.itemReport') . ' ' . $headingTitle],
+            [ReportBranchScope::appendExportScope(__('menu.itemReport') . ' ' . $headingTitle, $this->branchFilter)],
             [
                 __('modules.menu.itemName'),
                 __('modules.menu.categoryName'),
@@ -55,33 +58,46 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
     }
     public function map($item): array
     {
-        $rows = [];
+        $itemName = $item->item_name;
 
-        // Check if the item has variations
-        if ($item->variations->count() > 0) {
-            foreach ($item->variations as $variation) {
-                $quantitySold = $item->orders->where('menu_item_variation_id', $variation->id)->sum('quantity');
-                $rows[] = [
-                    $item->item_name . ' (' . $variation->variation . ')',
-                    $item->category->category_name,
-                    $quantitySold,
-                    currency_format($variation->price, restaurant()->currency_id),
-                    currency_format($variation->price * $quantitySold, restaurant()->currency_id),
-                ];
-            }
-        } else {
-            // If there are no variations, just use the item name and price
-            $quantitySold = $item->orders->sum('quantity');
-            $rows[] = [
-                $item->item_name,
-                $item->category->category_name,
-                $quantitySold,
-                currency_format($item->price, restaurant()->currency_id),
-                currency_format($item->price * $quantitySold, restaurant()->currency_id),
-            ];
+        if (!empty($item->variation)) {
+            $itemName .= ' (' . $item->variation . ')';
         }
 
-        return $rows;
+        return [
+            $itemName,
+            $this->getTranslatedText($item->category_name),
+            (int) $item->quantity_sold,
+            currency_format($item->sold_unit_price, restaurant()->currency_id),
+            currency_format($item->total_revenue, restaurant()->currency_id),
+        ];
+    }
+
+    /**
+     * Convert a translatable JSON value into the active locale text.
+     */
+    private function getTranslatedText($value): string
+    {
+        if (is_array($value)) {
+            $translations = $value;
+        } else {
+            $decoded = json_decode((string) $value, true);
+            $translations = is_array($decoded) ? $decoded : null;
+        }
+
+        if (!$translations) {
+            return (string) ($value ?? '');
+        }
+
+        $locale = app()->getLocale();
+
+        return (string) (
+            $translations[$locale]
+            ?? $translations['en']
+            ?? $translations['eng']
+            ?? reset($translations)
+            ?? ''
+        );
     }
 
     public function defaultStyles(Style $defaultStyle)
@@ -107,32 +123,51 @@ class ItemReportExport implements WithMapping, FromCollection, WithHeadings, Wit
      */
     public function collection()
     {
-        return MenuItem::withoutGlobalScope(AvailableMenuItemScope::class)->with(['orders' => function ($q) {
-            return $q->join('orders', 'orders.id', '=', 'order_items.order_id')
-                ->whereBetween('orders.date_time', [$this->startDateTime, $this->endDateTime])
-                ->where('orders.status', 'paid')
-                ->where(function ($q) {
-                    if ($this->startTime < $this->endTime) {
-                        $q->whereRaw("TIME(orders.date_time) BETWEEN ? AND ?", [$this->startTime, $this->endTime]);
-                    } else {
-                        $q->where(function ($sub) {
-                            $sub->whereRaw("TIME(orders.date_time) >= ?", [$this->startTime])
-                                ->orWhereRaw("TIME(orders.date_time) <= ?", [$this->endTime]);
-                        });
-                    }
-                });
-        }, 'category', 'variations'])
-            ->where(function ($query) {
-                if ($this->searchTerm) {
-                    $query->where(function ($q) {
-                        $safeTerm = Common::safeString($this->searchTerm);
+        $query = DB::table('order_items')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->join('menu_items', 'menu_items.id', '=', 'order_items.menu_item_id')
+            ->leftJoin('menu_item_variations', 'menu_item_variations.id', '=', 'order_items.menu_item_variation_id')
+            ->leftJoin('item_categories', 'item_categories.id', '=', 'menu_items.item_category_id');
 
-                        $q->where('item_name', 'like', '%' . $safeTerm . '%')
-                            ->orWhereHas('category', function ($q) use ($safeTerm) {
-                                $q->where('category_name', 'like', '%' . $safeTerm . '%');
-                            });
-                    });
-                }
-            })->get();
+        SalesReportData::applyItemReportOrderFilters($query, [
+            'startDateTime' => $this->startDateTime,
+            'endDateTime' => $this->endDateTime,
+            'startTime' => $this->startTime,
+            'endTime' => $this->endTime,
+        ], $this->branchFilter);
+
+        if ($this->searchTerm) {
+            $safeTerm = Common::safeString($this->searchTerm);
+
+            $query->where(function ($q) use ($safeTerm) {
+                $q->where('menu_items.item_name', 'like', '%' . $safeTerm . '%')
+                    ->orWhere('item_categories.category_name', 'like', '%' . $safeTerm . '%')
+                    ->orWhere('menu_item_variations.variation', 'like', '%' . $safeTerm . '%');
+            });
+        }
+
+        return $query
+            ->select(
+                'order_items.menu_item_id',
+                'order_items.menu_item_variation_id',
+                'menu_items.item_name',
+                'item_categories.category_name',
+                'menu_item_variations.variation',
+                'order_items.price as sold_unit_price',
+                DB::raw('SUM(order_items.quantity) as quantity_sold'),
+                DB::raw('SUM(order_items.amount) as total_revenue')
+            )
+            ->groupBy(
+                'order_items.menu_item_id',
+                'order_items.menu_item_variation_id',
+                'menu_items.item_name',
+                'item_categories.category_name',
+                'menu_item_variations.variation',
+                'order_items.price'
+            )
+            ->orderBy('menu_items.item_name')
+            ->orderBy('menu_item_variations.variation')
+            ->orderBy('order_items.price')
+            ->get();
     }
 }

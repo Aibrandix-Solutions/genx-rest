@@ -8,7 +8,9 @@ use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\SupplierPayment;
 use Modules\Inventory\Entities\PaymentAccount;
 use Modules\Inventory\Entities\AccountTransaction;
+use App\Models\BranchPaymentAccountSetting;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
 class PurchaseReturnPayment extends Component
@@ -17,7 +19,8 @@ class PurchaseReturnPayment extends Component
 
     public $showModal = false;
     public $purchaseReturn;
-    
+    public $isSaving = false;
+
     // Payment form fields (refund received from supplier)
     public $paymentAmount;
     public $paymentDate;
@@ -80,9 +83,21 @@ class PurchaseReturnPayment extends Component
 
     public function resetForm()
     {
-        $this->reset(['paymentAmount', 'paymentMethod', 'paymentAccount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->reset(['paymentAmount', 'paymentNote', 'paymentDocument', 'transactionId']);
+        $this->paymentMethod = 'cash';
+        $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(
+            branch()->id,
+            $this->paymentMethod
+        );
         $this->paymentDate = now()->format('Y-m-d\TH:i');
         $this->resetValidation();
+    }
+
+    public function updatedPaymentMethod($value)
+    {
+        if ($value) {
+            $this->paymentAccount = BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $value);
+        }
     }
 
     public function updatedPaymentAmount()
@@ -100,64 +115,83 @@ class PurchaseReturnPayment extends Component
 
     public function savePayment()
     {
-        $this->validate();
-
-        if (!$this->purchaseReturn) {
-            $this->alert('error', 'Purchase return not found.');
+        if ($this->isSaving) {
             return;
         }
 
-        // Refresh purchase return to get latest payments
-        $this->purchaseReturn->load('payments');
-        
-        // Check if payment amount exceeds due amount
-        $dueAmount = max(0, $this->purchaseReturn->total_amount - $this->purchaseReturn->paid_amount);
-        if ($this->paymentAmount > $dueAmount) {
-            $this->alert('error', 'Payment amount cannot exceed the due amount.');
+        $lock = Cache::lock('return-refund:' . ($this->purchaseReturn?->id) . ':' . auth()->id(), 30);
+        if (! $lock->get()) {
             return;
         }
 
-        $path = null;
-        if ($this->paymentDocument) {
-            $path = $this->paymentDocument->store('supplier-payments', 'public');
-        }
+        $this->isSaving = true;
 
-        $payment = SupplierPayment::create([
-            'supplier_id' => $this->purchaseReturn->supplier_id,
-            'purchase_return_id' => $this->purchaseReturn->id,
-            'payment_account_id' => $this->paymentAccount,
-            'amount' => $this->paymentAmount,
-            'paid_on' => $this->paymentDate,
-            'payment_method' => $this->paymentMethod,
-            'transaction_id' => $this->transactionId,
-            'note' => $this->paymentNote,
-            'document_path' => $path,
-            'added_by' => Auth::id(),
-        ]);
+        try {
+            $this->validate();
 
-        // Update Payment Account Balance if selected (money comes IN for refund)
-        if ($this->paymentAccount) {
-            $account = PaymentAccount::find($this->paymentAccount);
-            if ($account) {
-                $account->increment('current_balance', $this->paymentAmount);
-
-                // Log Transaction (debit - money in)
-                AccountTransaction::create([
-                    'payment_account_id' => $account->id,
-                    'amount' => $this->paymentAmount,
-                    'type' => 'debit', // Money In (refund from supplier)
-                    'reference_type' => get_class($payment),
-                    'reference_id' => $payment->id,
-                    'description' => 'Refund for Purchase Return: ' . $this->purchaseReturn->reference_no . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
-                    'transaction_date' => $this->paymentDate,
-                ]);
+            if (!$this->purchaseReturn) {
+                $this->alert('error', 'Purchase return not found.');
+                return;
             }
-        }
 
-        $this->alert('success', 'Refund payment recorded successfully');
-        $this->showModal = false;
-        $this->dispatch('purchaseReturnPaymentSaved');
-        $this->resetForm();
+            $this->purchaseReturn->load('payments');
+
+            $dueAmount = max(0, $this->purchaseReturn->total_amount - $this->purchaseReturn->paid_amount);
+            if ($this->paymentAmount > $dueAmount) {
+                $this->alert('error', 'Payment amount cannot exceed the due amount.');
+                return;
+            }
+
+            $path = null;
+            if ($this->paymentDocument) {
+                $path = $this->paymentDocument->store('supplier-payments', 'public');
+            }
+
+            $paymentAccount = $this->paymentAccount
+                ?: BranchPaymentAccountSetting::resolveDefaultAccountId(branch()->id, $this->paymentMethod);
+
+            $payment = SupplierPayment::create([
+                'supplier_id'        => $this->purchaseReturn->supplier_id,
+                'purchase_return_id' => $this->purchaseReturn->id,
+                'payment_account_id' => $paymentAccount,
+                'amount'             => $this->paymentAmount,
+                'paid_on'            => $this->paymentDate,
+                'payment_method'     => $this->paymentMethod,
+                'transaction_id'     => $this->transactionId,
+                'note'               => $this->paymentNote,
+                'document_path'      => $path,
+                'added_by'           => Auth::id(),
+            ]);
+
+            if ($paymentAccount) {
+                $account = PaymentAccount::find($paymentAccount);
+                if ($account) {
+                    $account->increment('current_balance', $this->paymentAmount);
+
+                    AccountTransaction::create([
+                        'payment_account_id' => $account->id,
+                        'amount'             => $this->paymentAmount,
+                        'type'               => 'debit', // Money In (refund from supplier)
+                        'reference_type'     => get_class($payment),
+                        'reference_id'       => $payment->id,
+                        'description'        => 'Refund for Purchase Return: ' . $this->purchaseReturn->reference_no . ($this->paymentNote ? ' - ' . $this->paymentNote : ''),
+                        'transaction_date'   => $this->paymentDate,
+                    ]);
+                }
+            }
+
+            $this->alert('success', 'Refund payment recorded successfully');
+            $this->showModal = false;
+            $this->dispatch('purchaseReturnPaymentSaved');
+            $this->resetForm();
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            $this->alert('error', 'Failed to record refund: ' . $e->getMessage());
+        } finally {
+            $this->isSaving = false;
+            $lock->release();
+        }
     }
 
     public function render()

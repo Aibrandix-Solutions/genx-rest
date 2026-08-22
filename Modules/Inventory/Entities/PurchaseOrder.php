@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 use App\Traits\HasBranch;
 use App\Models\User;
+use App\Scopes\BranchScope;
 
 class PurchaseOrder extends Model
 {
@@ -23,6 +24,14 @@ class PurchaseOrder extends Model
         'total_amount' => 'decimal:2',
         'discount' => 'decimal:2',
     ];
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::withoutGlobalScope(BranchScope::class)
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->first();
+    }
 
     public function supplier(): BelongsTo
     {
@@ -82,22 +91,28 @@ class PurchaseOrder extends Model
         return max(0, $this->subtotal - $this->discount_amount);
     }
 
-    // Helper to get paid amount
+    // Authoritative purchase total (includes item-level discounts saved on create/edit)
+    public function getEffectiveTotalAttribute()
+    {
+        return (float) ($this->total_amount ?? $this->final_total);
+    }
+
+    // Helper to get paid amount (purchase payments only; excludes return refunds)
     public function getPaidAmountAttribute()
     {
-        return $this->payments()->sum('amount');
+        return (float) $this->payments()->whereNull('purchase_return_id')->sum('amount');
     }
 
     // Helper to get due amount
     public function getDueAmountAttribute()
     {
-        return max(0, $this->final_total - $this->paid_amount);
+        return max(0, $this->effective_total - $this->paid_amount);
     }
 
     // Helper to determine payment status
     public function getPaymentStatusAttribute()
     {
-        if ($this->paid_amount >= $this->final_total) {
+        if ($this->paid_amount >= $this->effective_total) {
             return 'paid';
         } elseif ($this->paid_amount > 0) {
             return 'partial';

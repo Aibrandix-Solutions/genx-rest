@@ -2,7 +2,7 @@
 
 namespace App\Exports;
 
-use App\Models\Expenses;
+use App\Services\ReportBranchScope;
 use Carbon\Carbon;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Style\Style;
@@ -17,22 +17,27 @@ class ExpenseSummaryReportExport implements WithMapping, FromCollection, WithHea
 {
     protected $startDate;
     protected $endDate;
+    protected string $branchFilter;
     public $totalAmount;
 
-    public function __construct($startDate, $endDate)
+    public function __construct($startDate, $endDate, string $branchFilter = ReportBranchScope::FILTER_CURRENT)
     {
         $this->startDate = Carbon::createFromFormat('m/d/Y', $startDate)->toDateString();
         $this->endDate = Carbon::createFromFormat('m/d/Y', $endDate)->toDateString();
+        $this->branchFilter = ReportBranchScope::validateFilter($branchFilter, (int) restaurant()->id);
 
-        // Calculate total amount across all expenses
-        $this->totalAmount = Expenses::whereBetween('expense_date', [$this->startDate, $this->endDate])
+        $this->totalAmount = ReportBranchScope::expensesBaseQuery($this->branchFilter)
+            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->sum('amount');
     }
 
     public function headings(): array
     {
         return [
-            [__('modules.expenses.reports.expenseSummaryReport') . ' ' . $this->startDate .' - ' . $this->endDate],
+            [ReportBranchScope::appendExportScope(
+                __('modules.expenses.reports.expenseSummaryReport') . ' ' . $this->startDate . ' - ' . $this->endDate,
+                $this->branchFilter
+            )],
             [
                 'Category',
                 'Total Expense',
@@ -70,7 +75,8 @@ class ExpenseSummaryReportExport implements WithMapping, FromCollection, WithHea
     */
     public function collection()
     {
-        return Expenses::with(['category'])
+        return ReportBranchScope::expensesBaseQuery($this->branchFilter)
+            ->with(ReportBranchScope::eagerLoadExpenseCategoryForReport())
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->selectRaw('expense_category_id, SUM(amount) as total_amount')
             ->groupBy('expense_category_id')

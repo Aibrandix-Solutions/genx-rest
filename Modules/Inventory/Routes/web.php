@@ -32,6 +32,10 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('inventory-item-categories', InventoryItemCategoryController::class);
     Route::resource('inventory-items', InventoryItemController::class);
     Route::resource('inventory-stocks', InventoryStockController::class);
+    Route::get('consumption', [InventoryStockController::class, 'consumption'])->name('inventory.consumption.index');
+    Route::get('consumption/report', [InventoryStockController::class, 'consumptionReport'])->name('inventory.consumption.report');
+    Route::get('consumption/report/print', [InventoryStockController::class, 'consumptionReportPrint'])->name('inventory.consumption.report.print');
+    Route::get('disposal', [InventoryStockController::class, 'disposal'])->name('inventory.disposal.index');
     Route::get('inventory-movements/export', [InventoryMovementController::class, 'export'])->name('inventory-movements.export');
     Route::resource('inventory-movements', InventoryMovementController::class);
     Route::resource('recipes', InventoryRecipeController::class);
@@ -39,23 +43,38 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
     Route::resource('purchase-returns', PurchaseReturnController::class);
     Route::resource('suppliers', SupplierController::class);
     Route::resource('stock-transfers', \Modules\Inventory\Http\Controllers\StockTransferController::class);
+    Route::get('stock-transfers/report/print', [\Modules\Inventory\Http\Controllers\StockTransferController::class, 'reportPrint'])->name('stock-transfers.report.print');
     Route::resource('inventory-settings', InventorySettingController::class);
     Route::get('locations', [PurchaseLocationController::class, 'index'])->name('inventory.locations.index');
     
     Route::controller(PurchaseOrderController::class)->group(function () {
+        Route::get('purchases/report/print', 'reportPrint')->name('purchases.report.print');
         Route::get('purchases/{purchase_order}/pdf', 'generatePdf')->name('purchases.pdf');
     });
 
     // Payment Accounts & Reports
-    Route::resource('payment-accounts', \Modules\Inventory\Http\Controllers\PaymentAccountController::class);
+    Route::resource('payment-accounts', \Modules\Inventory\Http\Controllers\PaymentAccountController::class)
+        ->middleware('can:Show Payment Account');
     Route::prefix('payment-accounts')->name('payment-accounts.')->group(function () {
-        Route::get('reports/account-report', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'report'])->name('report');
-        Route::get('reports/balance-sheet', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'balanceSheet'])->name('balance-sheet');
-        Route::get('reports/trial-balance', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'trialBalance'])->name('trial-balance');
-        Route::get('reports/cash-flow', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'cashFlow'])->name('cash-flow');
+        Route::get('reports/account-report', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'report'])
+            ->middleware('can:Show Payment Account Report')
+            ->name('report');
+        Route::get('reports/balance-sheet', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'balanceSheet'])
+            ->middleware('can:Show Payment Account Balance Sheet')
+            ->name('balance-sheet');
+        Route::get('reports/trial-balance', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'trialBalance'])
+            ->middleware('can:Show Payment Account Trial Balance')
+            ->name('trial-balance');
+        Route::get('reports/cash-flow', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'cashFlow'])
+            ->middleware('can:Show Payment Account Cash Flow')
+            ->name('cash-flow');
         // Export Route
-        Route::get('reports/export', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'exportReport'])->name('export');
+        Route::get('reports/export', [\Modules\Inventory\Http\Controllers\PaymentAccountController::class, 'exportReport'])
+            ->middleware('can:Show Payment Account Report')
+            ->name('export');
     });
+
+    Route::get('item-purchases', [ReportController::class, 'itemPurchases'])->name('inventory.item-purchases.index');
 
     // New Reports Section
     Route::prefix('reports')->name('inventory.reports.')->group(function () {
@@ -64,5 +83,8 @@ Route::middleware(['auth', config('jetstream.auth_session'), 'verified', LocaleM
         Route::get('forecasting', [ReportController::class, 'forecasting'])->name('forecasting');
         Route::get('cogs', [ReportController::class, 'cogs'])->name('cogs');
         Route::get('profit-and-loss', [ReportController::class, 'profitAndLoss'])->name('profit-and-loss');
+        Route::get('item-inventory', [ReportController::class, 'itemInventory'])->name('item-inventory');
+        Route::get('item-inventory/pdf', [ReportController::class, 'itemInventoryPdf'])->name('item-inventory.pdf');
+        Route::get('transfers', [ReportController::class, 'transfers'])->name('transfers');
     });
 });

@@ -33,8 +33,8 @@ class PackageTable extends Component
 
     public function getAvailableModules()
     {
-        $allModules = Module::all();
-        
+        $allModules = Module::excludeDeprecated()->get();
+
         return $allModules->filter(function ($module) {
             // If it's SMS module, check if it's enabled
             if ($module->name === 'Sms') {

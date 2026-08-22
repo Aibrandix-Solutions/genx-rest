@@ -178,6 +178,7 @@
                 <tr>
                     <th>#</th>
                     <th>{{ trans('inventory::modules.inventoryItem.name') }}</th>
+                    <th>{{ trans('inventory::modules.inventoryItem.unit') }}</th>
                     <th>{{ trans('inventory::modules.purchaseOrder.quantity') }}</th>
                 </tr>
             </thead>
@@ -186,13 +187,13 @@
                 <tr>
                     <td>{{ $index + 1 }}</td>
                     <td>
+                        @if(!empty($item->inventoryItem->item_code))
+                            <span style="font-family: monospace; font-size: 0.85em; color: var(--text-secondary);">[{{ $item->inventoryItem->item_code }}]</span>
+                        @endif
                         {{ $item->inventoryItem->name }}
                     </td>
-                    <td>{{ number_format($item->quantity, 2) }} 
-                        <span style="color: var(--text-secondary); font-size: 0.875em;">
-                            ({{ $item->inventoryItem->unit->symbol }})
-                        </span>
-                    </td>
+                    <td>{{ $item->displayUnitSymbol() }}</td>
+                    <td>{{ number_format($item->quantity, 2) }}</td>
                 </tr>
                 @endforeach
             </tbody>

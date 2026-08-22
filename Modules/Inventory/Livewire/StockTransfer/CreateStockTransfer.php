@@ -111,14 +111,23 @@ class CreateStockTransfer extends Component
                 $itemId = $value;
                 
                 if ($itemId && isset($this->transferItems[$index])) {
-                    // Use already-loaded collection to avoid extra DB queries
-                    $sourceItem = $this->availableItems->find($itemId);
-
-                    // Source location is always set when transfer rows can be added
-                    $stock = InventoryStock::where('inventory_item_id', $itemId)
-                        ->where('location_id', $this->sourceLocation)
-                        ->first();
-
+                    // Get source item details
+                    $sourceItem = InventoryItem::query()
+                        ->where('restaurant_id', restaurant()->id)
+                        ->find($itemId);
+                    
+                    // Get available stock from the specific source location if selected
+                    if ($this->sourceLocation) {
+                        $stock = InventoryStock::where('inventory_item_id', $itemId)
+                            ->where('location_id', $this->sourceLocation)
+                            ->first();
+                    } else {
+                        // Default to current branch
+                        $stock = InventoryStock::where('inventory_item_id', $itemId)
+                            ->where('branch_id', branch()->id)
+                            ->first();
+                    }
+                    
                     $currentStock = $stock ? (float)$stock->quantity : 0;
                     
                     // Calculate pending transfers from this location

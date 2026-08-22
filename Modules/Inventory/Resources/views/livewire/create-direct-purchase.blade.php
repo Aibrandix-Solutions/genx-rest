@@ -21,6 +21,12 @@
                 </div>
 
                 <div>
+                    <x-label value="Invoice No (Optional)" />
+                    <x-input type="text" wire:model.live="invoiceNo" class="w-full" placeholder="Enter invoice number" />
+                    @error('invoiceNo') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+
+                <div>
                     <x-label value="Location" />
                     <x-select wire:model.live="location_id" class="w-full">
                         <option value="">Select location...</option>
@@ -65,7 +71,20 @@
             <div class="space-y-4">
                 <div class="flex items-center justify-between">
                     <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Items</h2>
+                    <div class="flex items-center gap-2">
+                        <x-secondary-button type="button" wire:click="downloadItemsImportTemplate">
+                            Download Import Template
+                        </x-secondary-button>
+                        <label class="inline-flex items-center px-3 py-2 text-sm font-medium border rounded-md cursor-pointer border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200">
+                            Import Items
+                            <input type="file" class="hidden" wire:model="itemImportFile" accept=".xlsx,.xls,.csv,.txt">
+                        </label>
+                        <x-button type="button" wire:click="importItemsFromFile" wire:loading.attr="disabled" wire:target="itemImportFile,importItemsFromFile">
+                            Upload
+                        </x-button>
+                    </div>
                 </div>
+                @error('itemImportFile') <p class="text-sm text-red-600">{{ $message }}</p> @enderror
 
                 <!-- Item Search Bar -->
                 <div class="relative">
@@ -80,7 +99,7 @@
                         />
                     </div>
                     
-                    @if($showSearchResults && !empty($filteredItems))
+                    @if($showSearchResults && count($filteredItems) > 0)
                         <div class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg z-10 max-h-60 overflow-auto">
                             @foreach($filteredItems as $item)
                                 <button 
@@ -88,14 +107,35 @@
                                     wire:click="selectItem({{ $item->id }})"
                                     class="w-full text-left px-4 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-700 last:border-b-0 transition"
                                 >
-                                    <div class="font-medium text-gray-900 dark:text-white">{{ $item->name }}</div>
-                                    <div class="text-xs text-gray-500 dark:text-gray-400">Price: {{ currency_format($item->unit_purchase_price, restaurant()->currency_id) }}</div>
+                                    <div class="font-medium text-gray-900 dark:text-white">
+                                        @if(!empty($item->item_code))
+                                            <span class="font-mono text-xs bg-gray-100 dark:bg-gray-600 px-1.5 py-0.5 rounded mr-1">{{ $item->item_code }}</span>
+                                        @endif
+                                        {{ $item->name }}
+                                    </div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">Default price: {{ currency_format($item->unit_purchase_price, restaurant()->currency_id) }}</div>
+                                    @if($item->last_purchase_price !== null)
+                                        <div class="text-xs text-blue-600 dark:text-blue-400">Last purchased: {{ currency_format($item->last_purchase_price, restaurant()->currency_id) }}</div>
+                                    @else
+                                        <div class="text-xs text-gray-400 dark:text-gray-500 italic">No purchase history</div>
+                                    @endif
                                 </button>
                             @endforeach
                         </div>
-                    @elseif($showSearchResults && $searchItem)
+                    @elseif($showSearchResults && filled($searchItem))
                         <div class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg z-10 p-4">
-                            <p class="text-sm text-gray-500 dark:text-gray-400 text-center">No items found</p>
+                            <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-2">No items found for "{{ $searchItem }}"</p>
+                            @if(user_can('Create Inventory Item'))
+                            <div class="flex justify-center">
+                                <button type="button" wire:click="openQuickAddModal"
+                                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/40 border border-green-300 dark:border-green-700 rounded-lg hover:bg-green-100 dark:hover:bg-green-800/50 transition">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                                    </svg>
+                                    Quick add "{{ $searchItem }}"
+                                </button>
+                            </div>
+                            @endif
                         </div>
                     @endif
                 </div>
@@ -107,34 +147,53 @@
                             <div class="space-y-3">
                                 <div>
                                     <x-label value="Item" />
-                                    <x-select wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
+                                    <x-select wire:key="purchase-item-select-mobile-{{ $item['_key'] ?? $index }}-{{ count($inventoryItems) }}" wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
                                         <option value="">Select item...</option>
                                         @foreach($inventoryItems as $inventoryItem)
-                                            <option value="{{ $inventoryItem->id }}">{{ $inventoryItem->name }}</option>
+                                            <option value="{{ $inventoryItem->id }}">{{ !empty($inventoryItem->item_code) ? '['.$inventoryItem->item_code.'] ' : '' }}{{ $inventoryItem->name }}</option>
                                         @endforeach
                                     </x-select>
+                                    @if(!empty($item['last_purchase_price']))
+                                        <p class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="inline w-3 h-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                            Last price: {{ currency_format($item['last_purchase_price'], restaurant()->currency_id) }}
+                                        </p>
+                                    @endif
                                     @error('items.'.$index.'.inventory_item_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
+                                        <x-label value="Unit" />
+                                        <x-select wire:model.live="items.{{ $index }}.unit_id" class="w-full">
+                                            <option value="">Select unit...</option>
+                                            @foreach($units as $unitOption)
+                                                <option value="{{ $unitOption->id }}">{{ $unitOption->name }} ({{ $unitOption->symbol }})</option>
+                                            @endforeach
+                                        </x-select>
+                                        @error('items.'.$index.'.unit_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div>
                                         <x-label value="Qty" />
                                         <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full text-base" />
                                         @error('items.'.$index.'.quantity') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
-                                    </div>
-                                    <div>
-                                        <x-label value="Unit Price" />
-                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full text-base" />
-                                        @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </div>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-3">
                                     <div>
+                                        <x-label value="Unit Price" />
+                                        <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.unit_price" class="w-full text-base" />
+                                        @error('items.'.$index.'.unit_price') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </div>
+                                    <div>
                                         <x-label value="Discount" />
                                         <x-input type="number" step="0.01" min="0" wire:model.live="items.{{ $index }}.discount" class="w-full text-base" />
                                         @error('items.'.$index.'.discount') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </div>
+                                </div>
+
+                                <div class="grid grid-cols-2 gap-3">
                                     <div>
                                         <x-label value="Type" />
                                         <x-select wire:model.live="items.{{ $index }}.discount_type" class="w-full">
@@ -172,6 +231,7 @@
                         <thead class="bg-gray-50 dark:bg-gray-700 text-gray-600 dark:text-gray-200">
                             <tr>
                                 <th class="px-4 py-2 text-left">Item</th>
+                                <th class="px-4 py-2 text-left">Unit</th>
                                 <th class="px-4 py-2 text-left">Qty</th>
                                 <th class="px-4 py-2 text-left">Unit Price</th>
                                 <th class="px-4 py-2 text-left">Discount</th>
@@ -182,14 +242,29 @@
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                             @foreach($items as $index => $item)
                                 <tr wire:key="purchase-item-{{ $item['_key'] ?? $index }}">
-                                    <td class="px-4 py-2 min-w-[180px]">
-                                        <x-select wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
+                                    <td class="px-4 py-2 min-w-[200px]">
+                                        <x-select wire:key="purchase-item-select-desktop-{{ $item['_key'] ?? $index }}-{{ count($inventoryItems) }}" wire:model.live="items.{{ $index }}.inventory_item_id" wire:change="updateItemPrice({{ $index }})" class="w-full">
                                             <option value="">Select item...</option>
                                             @foreach($inventoryItems as $inventoryItem)
-                                                <option value="{{ $inventoryItem->id }}">{{ $inventoryItem->name }}</option>
+                                                <option value="{{ $inventoryItem->id }}">{{ !empty($inventoryItem->item_code) ? '['.$inventoryItem->item_code.'] ' : '' }}{{ $inventoryItem->name }}</option>
                                             @endforeach
                                         </x-select>
+                                        @if(!empty($item['last_purchase_price']))
+                                            <p class="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="inline w-3 h-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                                                Last price: {{ currency_format($item['last_purchase_price'], restaurant()->currency_id) }}
+                                            </p>
+                                        @endif
                                         @error('items.'.$index.'.inventory_item_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                                    </td>
+                                    <td class="px-4 py-2 min-w-[140px] md:w-36">
+                                        <x-select wire:model.live="items.{{ $index }}.unit_id" class="w-full">
+                                            <option value="">Select unit...</option>
+                                            @foreach($units as $unitOption)
+                                                <option value="{{ $unitOption->id }}">{{ $unitOption->name }} ({{ $unitOption->symbol }})</option>
+                                            @endforeach
+                                        </x-select>
+                                        @error('items.'.$index.'.unit_id') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
                                     </td>
                                     <td class="px-4 py-2 min-w-[140px] md:w-28">
                                         <x-input type="number" step="0.01" min="0.01" wire:model.live="items.{{ $index }}.quantity" class="w-full text-base md:text-sm" />
@@ -410,8 +485,65 @@
             </div>
 
             <div class="flex items-center justify-end gap-2">
-                <x-button type="submit" wire:loading.attr="disabled">Save Purchase</x-button>
+                <x-button type="submit" wire:loading.attr="disabled" wire:target="savePurchase" :disabled="$isSaving">Save Purchase</x-button>
             </div>
         </form>
     </div>
+
+    {{-- Quick Add Inventory Item Modal --}}
+    @if($showQuickAddModal)
+    <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" wire:keydown.escape="closeQuickAddModal">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-md mx-4">
+            <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Quick Add Inventory Item</h3>
+                <button type="button" wire:click="closeQuickAddModal" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="px-6 py-4 space-y-4">
+                <div>
+                    <x-label value="Item Name" />
+                    <x-input type="text" wire:model.live="quickAddName" class="w-full mt-1" placeholder="e.g. Chicken Thighs" autofocus />
+                    @error('quickAddName') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <x-label value="Category" />
+                    <x-select wire:model.live="quickAddCategoryId" class="w-full mt-1">
+                        <option value="">Select category...</option>
+                        @foreach($itemCategories as $cat)
+                            <option value="{{ $cat->id }}">{{ $cat->name }}</option>
+                        @endforeach
+                    </x-select>
+                    @error('quickAddCategoryId') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <x-label value="Unit of Measure" />
+                    <x-select wire:model.live="quickAddUnitId" class="w-full mt-1">
+                        <option value="">Select unit...</option>
+                        @foreach($units as $u)
+                            <option value="{{ $u->id }}">{{ $u->name }} ({{ $u->symbol }})</option>
+                        @endforeach
+                    </x-select>
+                    @error('quickAddUnitId') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <x-label value="Default Purchase Price" />
+                    <x-input type="number" step="0.01" min="0" wire:model.live="quickAddPrice" class="w-full mt-1" placeholder="0.00" />
+                    @error('quickAddPrice') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+                <div>
+                    <x-label value="Threshold Quantity" />
+                    <x-input type="number" step="0.01" min="0" wire:model.live="quickAddThresholdQuantity" class="w-full mt-1" placeholder="0" />
+                    @error('quickAddThresholdQuantity') <p class="text-sm text-red-600 mt-1">{{ $message }}</p> @enderror
+                </div>
+            </div>
+            <div class="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+                <x-secondary-button type="button" wire:click="closeQuickAddModal">Cancel</x-secondary-button>
+                <x-button type="button" wire:click="saveQuickAddItem" wire:loading.attr="disabled" wire:target="saveQuickAddItem">Create & Add</x-button>
+            </div>
+        </div>
+    </div>
+    @endif
 </div>

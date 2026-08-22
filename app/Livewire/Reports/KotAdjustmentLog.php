@@ -3,30 +3,43 @@
 namespace App\Livewire\Reports;
 
 use App\Models\KotItemAdjustment;
+use App\Livewire\Reports\Concerns\HasReportBranchFilter;
+use App\Services\ReportBranchScope;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Livewire\Component;
 use Livewire\WithPagination;
 
 class KotAdjustmentLog extends Component
 {
+    use HasReportBranchFilter;
     use WithPagination;
 
     public string $dateRangeType = 'last7Days';
     public $fromDate;
     public $toDate;
     public $actionType = 'all';
+    public $performedBy = 'all';
     public $search = '';
     public $perPage = 15;
+    public bool $comboOnly = false;
 
     protected $queryString = [
         'dateRangeType' => ['except' => 'last7Days'],
         'fromDate' => ['except' => ''],
         'toDate' => ['except' => ''],
         'actionType' => ['except' => 'all'],
+        'performedBy' => ['except' => 'all'],
+        'comboOnly' => ['except' => false],
         'search' => ['except' => ''],
     ];
 
     public function mount(): void
     {
+        abort_unless(in_array('Report', restaurant_modules()), 403);
+        abort_unless(user_can('Show Reports'), 403);
+
+        $this->mountReportBranchFilter();
+
         if ($this->fromDate || $this->toDate) {
             $this->dateRangeType = 'custom';
             $this->fromDate = $this->fromDate ?: now()->subDays(7)->format('Y-m-d');
@@ -116,7 +129,7 @@ class KotAdjustmentLog extends Component
 
     public function updated($field): void
     {
-        if (in_array($field, ['fromDate', 'toDate', 'dateRangeType', 'actionType', 'perPage'])) {
+        if (in_array($field, ['fromDate', 'toDate', 'dateRangeType', 'actionType', 'performedBy', 'comboOnly', 'perPage', 'branchFilter'])) {
             $this->resetPage();
         }
     }
@@ -128,15 +141,17 @@ class KotAdjustmentLog extends Component
 
     public function resetFilters(): void
     {
-        $this->reset(['dateRangeType', 'fromDate', 'toDate', 'actionType', 'search', 'perPage']);
+        $this->reset(['dateRangeType', 'fromDate', 'toDate', 'actionType', 'performedBy', 'search', 'perPage', 'comboOnly']);
         $this->mount();
     }
 
-    public function render()
+    protected function buildFilteredQuery()
     {
         $query = KotItemAdjustment::query()
-            ->with('performedBy')
+            ->with(['performedBy', 'branch'])
             ->forCurrentRestaurant();
+
+        ReportBranchScope::applyToColumn($query, 'kot_item_adjustments.branch_id', $this->branchFilter);
 
         if ($this->fromDate) {
             $query->whereDate('created_at', '>=', $this->fromDate);
@@ -148,6 +163,17 @@ class KotAdjustmentLog extends Component
 
         if ($this->actionType !== 'all') {
             $query->where('action', $this->actionType);
+        }
+
+        if ($this->performedBy !== 'all') {
+            $query->where('performed_by', (int) $this->performedBy);
+        }
+
+        if ($this->comboOnly) {
+            $query->where(function ($subQuery) {
+                $subQuery->whereNotNull('note')
+                    ->where('note', 'like', '%combo%');
+            });
         }
 
         if ($this->search) {
@@ -162,12 +188,131 @@ class KotAdjustmentLog extends Component
             });
         }
 
-        $adjustments = $query
+        return $query;
+    }
+
+    protected function groupKey(KotItemAdjustment $adjustment): string
+    {
+        $timestamp = optional($adjustment->created_at)->format('Y-m-d H:i:s') ?? 'na';
+
+        return implode('|', [
+            (string) ($adjustment->order_id ?? 'na'),
+            (string) ($adjustment->performed_by ?? 'na'),
+            (string) ($adjustment->action ?? 'na'),
+            trim((string) ($adjustment->note ?? '')),
+            $timestamp,
+        ]);
+    }
+
+    protected function groupedEvents($adjustmentsPage): array
+    {
+        $groups = [];
+
+        foreach ($adjustmentsPage as $adjustment) {
+            $key = $this->groupKey($adjustment);
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = [
+                    'key' => $key,
+                    'header' => $adjustment,
+                    'items' => [],
+                ];
+            }
+
+            $groups[$key]['items'][] = $adjustment;
+        }
+
+        return array_values($groups);
+    }
+
+    public function exportCsv(): StreamedResponse
+    {
+        $fileName = 'kot-adjustments-' . now()->format('Ymd_His') . '.csv';
+        $query = $this->buildFilteredQuery()->orderByDesc('created_at');
+
+        $branchFilter = $this->branchFilter;
+
+        return response()->streamDownload(function () use ($query, $branchFilter) {
+            $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, [ReportBranchScope::exportScopeLabel($branchFilter)]);
+
+            fputcsv($handle, [
+                'Date Time',
+                'Branch',
+                'Order Number',
+                'Order ID',
+                'Table',
+                'Action',
+                'Item',
+                'Variation',
+                'Qty Before',
+                'Qty After',
+                'User',
+                'Note',
+            ]);
+
+            $query->chunk(500, function ($rows) use ($handle) {
+                foreach ($rows as $row) {
+                    fputcsv($handle, [
+                        optional($row->created_at)->timezone(timezone())->format('Y-m-d H:i:s'),
+                        $row->branch->name ?? '',
+                        $row->formatted_order_number ?? $row->order_number,
+                        $row->order_id,
+                        $row->table_code,
+                        $row->action,
+                        $row->menu_item_name,
+                        $row->menu_item_variation_name,
+                        $row->quantity_before,
+                        $row->quantity_after,
+                        $row->performed_by_name,
+                        $row->note,
+                    ]);
+                }
+            });
+
+            fclose($handle);
+        }, $fileName);
+    }
+
+    public function render()
+    {
+        $baseQuery = $this->buildFilteredQuery();
+
+        $summary = [
+            'total' => (clone $baseQuery)->count(),
+            'deleted' => (clone $baseQuery)->where('action', 'deleted')->count(),
+            'quantity_updated' => (clone $baseQuery)->where('action', 'quantity_updated')->count(),
+            'deleted_from_order' => (clone $baseQuery)->where('action', 'deleted_from_order')->count(),
+            'unique_orders' => (clone $baseQuery)->whereNotNull('order_id')->distinct('order_id')->count('order_id'),
+            'unique_users' => (clone $baseQuery)->whereNotNull('performed_by')->distinct('performed_by')->count('performed_by'),
+        ];
+
+        $performedByOptions = KotItemAdjustment::query()
+            ->forCurrentRestaurant();
+        ReportBranchScope::applyToColumn($performedByOptions, 'kot_item_adjustments.branch_id', $this->branchFilter);
+        $performedByOptions = $performedByOptions
+            ->whereNotNull('performed_by')
+            ->whereNotNull('performed_by_name')
+            ->select('performed_by', 'performed_by_name')
+            ->distinct()
+            ->orderBy('performed_by_name')
+            ->get();
+
+        $adjustments = $baseQuery
             ->orderByDesc('created_at')
             ->paginate($this->perPage);
 
+        $groupedAdjustments = $this->groupedEvents($adjustments->getCollection());
+
         return view('livewire.reports.kot-adjustment-log', [
             'adjustments' => $adjustments,
+            'groupedAdjustments' => $groupedAdjustments,
+            'summary' => $summary,
+            'performedByOptions' => $performedByOptions,
+            'showBranchFilter' => $this->showBranchFilter(),
+            'reportBranches' => $this->reportBranches(),
+            'showBranchColumn' => $this->showBranchColumn(),
         ]);
     }
 }

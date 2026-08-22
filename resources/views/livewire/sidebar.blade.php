@@ -28,9 +28,49 @@
                         </div>
                     @endif
 
+                    @php($businessMode = function_exists('hotel_business_mode') ? hotel_business_mode() : 'restaurant_primary')
+
                     <ul class="py-2 space-y-2">
 
-                        @livewire('sidebar-menu-item', ['name' => __('menu.dashboard'), 'icon' => 'dashboard', 'link' => route('dashboard'), 'active' => request()->routeIs('dashboard')])
+                        {{-- Dashboard link: context-aware --}}
+                        @if($businessMode === 'hotel_primary')
+                            @livewire('sidebar-menu-item', [
+                                'name' => __('menu.dashboard'),
+                                'icon' => 'dashboard',
+                                'link' => route('hotel.dashboard'),
+                                'active' => request()->routeIs('hotel.dashboard'),
+                                'customIcon' => '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 transition duration-75 group-hover:text-gray-900 dark:text-gray-400 dark:group-hover:text-white"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3H21m-3.75 3H21"/></svg>',
+                            ])
+                        @else
+                            @livewire('sidebar-menu-item', ['name' => __('menu.dashboard'), 'icon' => 'dashboard', 'link' => route('dashboard'), 'active' => request()->routeIs('dashboard')])
+                        @endif
+
+                        {{-- ═══ HOTEL-FIRST: Hotel top-level items, then restaurant in dropdown ═══ --}}
+                        @if($businessMode === 'hotel_primary')
+
+                            @includeIf('hotel::sections.sidebar-primary')
+
+                            {{-- Divider --}}
+                            <li class="pt-2 mt-2 border-t border-gray-200 dark:border-gray-700">
+                                <span class="px-3 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">Restaurant</span>
+                            </li>
+
+                        @elseif($businessMode === 'equal')
+
+                            {{-- Equal mode: Hotel as dropdown at the top --}}
+                            @foreach ($customPlugins as $item)
+                                @if(strtolower($item) === 'hotel')
+                                    @includeIf('hotel::sections.sidebar')
+                                @endif
+                            @endforeach
+
+                        @endif
+
+                        {{-- ═══ CORE RESTAURANT ITEMS (always shown) ═══ --}}
+
+                        @if($businessMode === 'hotel_primary')
+                            @livewire('sidebar-menu-item', ['name' => 'Restaurant Dashboard', 'icon' => 'dashboard', 'link' => route('dashboard'), 'active' => request()->routeIs('dashboard')])
+                        @endif
 
                         @if ($this->hasModule('Menu') || $this->hasModule('Menu Item') || $this->hasModule('Item Category'))
                             @if (user_can('Show Menu') || user_can('Show Menu Item') || user_can('Show Item Category'))
@@ -154,13 +194,32 @@
                         @endif
 
                         {{-- Payment Accounts (Inventory) --}}
-                        @if ($this->hasModule('Inventory'))
+                        @if (
+                            $this->hasModule('Inventory')
+                            && (
+                                user_can('Show Payment Account')
+                                || user_can('Show Payment Account Report')
+                                || user_can('Show Payment Account Balance Sheet')
+                                || user_can('Show Payment Account Trial Balance')
+                                || user_can('Show Payment Account Cash Flow')
+                            )
+                        )
                             <x-sidebar-dropdown-menu name='Payment Accounts' icon='payments' :active='request()->routeIs(["payment-accounts.*"])'>
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Accounts', 'link' => route('payment-accounts.index'), 'active' => request()->routeIs('payment-accounts.index')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Payment Account Report', 'link' => route('payment-accounts.report'), 'active' => request()->routeIs('payment-accounts.report')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Balance Sheet', 'link' => route('payment-accounts.balance-sheet'), 'active' => request()->routeIs('payment-accounts.balance-sheet')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Trial Balance', 'link' => route('payment-accounts.trial-balance'), 'active' => request()->routeIs('payment-accounts.trial-balance')])
-                                @livewire('sidebar-dropdown-menu', ['name' => 'Cash Flow', 'link' => route('payment-accounts.cash-flow'), 'active' => request()->routeIs('payment-accounts.cash-flow')])
+                                @if (user_can('Show Payment Account'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Accounts', 'link' => route('payment-accounts.index'), 'active' => request()->routeIs('payment-accounts.index')])
+                                @endif
+                                @if (user_can('Show Payment Account Report'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Payment Account Report', 'link' => route('payment-accounts.report'), 'active' => request()->routeIs('payment-accounts.report')])
+                                @endif
+                                @if (user_can('Show Payment Account Balance Sheet'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Balance Sheet', 'link' => route('payment-accounts.balance-sheet'), 'active' => request()->routeIs('payment-accounts.balance-sheet')])
+                                @endif
+                                @if (user_can('Show Payment Account Trial Balance'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Trial Balance', 'link' => route('payment-accounts.trial-balance'), 'active' => request()->routeIs('payment-accounts.trial-balance')])
+                                @endif
+                                @if (user_can('Show Payment Account Cash Flow'))
+                                    @livewire('sidebar-dropdown-menu', ['name' => 'Cash Flow', 'link' => route('payment-accounts.cash-flow'), 'active' => request()->routeIs('payment-accounts.cash-flow')])
+                                @endif
                             </x-sidebar-dropdown-menu>
                         @endif
 
@@ -169,10 +228,17 @@
                                 <x-sidebar-dropdown-menu :name='__("menu.reports")' icon='reports' :active='request()->routeIs(["reports.*"])'>
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.salesReport'), 'link' => route('reports.sales'), 'active' => request()->routeIs('reports.sales')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.detailedSalesReport'), 'link' => route('reports.detailedSales'), 'active' => request()->routeIs('reports.detailedSales')])
+                                    @if (module_enabled('Hotel'))
+                                        @livewire('sidebar-dropdown-menu', ['name' => __('menu.roomChargeOrdersReport'), 'link' => route('reports.roomChargeOrders'), 'active' => request()->routeIs('reports.roomChargeOrders')])
+                                    @endif
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.itemReport'), 'link' => route('reports.item'), 'active' => request()->routeIs('reports.item')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.categoryReport'), 'link' => route('reports.category'), 'active' => request()->routeIs('reports.category')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.deliveryAppReport'), 'link' => route('reports.delivery'), 'active' => request()->routeIs('reports.delivery')])
                                     @livewire('sidebar-dropdown-menu', ['name' => __('menu.kotAdjustmentLog'), 'link' => route('reports.kotAdjustments'), 'active' => request()->routeIs('reports.kotAdjustments')])
+                                    @if (user_can('View Activity Log'))
+                                        @livewire('sidebar-dropdown-menu', ['name' => __('menu.activityLog'), 'link' => route('reports.activityLog'), 'active' => request()->routeIs('reports.activityLog')])
+                                    @endif
+                                    @livewire('sidebar-dropdown-menu', ['name' => __('menu.menuItemReport'), 'link' => route('reports.menuItem'), 'active' => request()->routeIs('reports.menuItem')])
                                     @if ($this->hasModule('Expense'))
                                         @livewire('sidebar-dropdown-menu', ['name' => __('menu.expenseReports'), 'link' => route('reports.expenseReports'), 'active' => request()->routeIs('reports.expenseReports')])
                                     @endif
@@ -182,6 +248,9 @@
                         @endif
 
                         @foreach ($customPlugins as $item)
+                            @if (strtolower($item) === 'hotel' && in_array($businessMode, ['hotel_primary', 'equal'], true))
+                                @continue
+                            @endif
                             @includeIf(strtolower($item) . '::sections.sidebar')
                         @endforeach
 

@@ -6,10 +6,13 @@ use App\Models\BaseModel;
 use App\Traits\HasBranch;
 use App\Enums\OrderStatus;
 use App\Models\OrderCharge;
+use App\Models\OrderExtra;
 use App\Scopes\BranchScope;
 use App\Models\DeliveryExecutive;
 use App\Models\OrderNumberSetting;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -26,6 +29,8 @@ class Order extends BaseModel
     protected $casts = [
         'date_time' => 'datetime',
         'order_status' => OrderStatus::class,
+        'charged_to_folio_at' => 'datetime',
+        'folio_settled_at' => 'datetime',
     ];
 
     protected static function boot()
@@ -51,9 +56,47 @@ class Order extends BaseModel
         return $this->belongsTo(Customer::class);
     }
 
+    /**
+     * Whether this order may have an outstanding balance tracked as "due" (POS / ledger policy).
+     */
+    public function canRecordDueBalance(): bool
+    {
+        return (bool) $this->customer_id;
+    }
+
+    /**
+     * Sum of collected payments (excludes `due` placeholders; uses split totals for item splits).
+     */
+    public function nonDuePaymentsSum(): float
+    {
+        if ($this->split_type === 'items') {
+            return (float) $this->splitOrders()->where('status', 'paid')->sum('amount');
+        }
+
+        return (float) $this->payments()->where('payment_method', '!=', 'due')->sum('amount');
+    }
+
+    /**
+     * Amount still owed on this order (never negative).
+     */
+    public function outstandingAmount(): float
+    {
+        return max(0, round((float) $this->total - $this->nonDuePaymentsSum(), 2));
+    }
+
+    public function isFullyPaid(float $epsilon = 0.0001): bool
+    {
+        return $this->outstandingAmount() <= $epsilon;
+    }
+
     public function waiter(): BelongsTo
     {
         return $this->belongsTo(User::class)->withoutGlobalScope(BranchScope::class);
+    }
+
+    public function posUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'pos_user_id')->withoutGlobalScope(BranchScope::class);
     }
 
     public function items(): HasMany
@@ -69,6 +112,11 @@ class Order extends BaseModel
     public function charges(): HasMany
     {
         return $this->hasMany(OrderCharge::class);
+    }
+
+    public function extras(): HasMany
+    {
+        return $this->hasMany(OrderExtra::class);
     }
 
     public function extraCharges(): BelongsToMany
@@ -106,6 +154,16 @@ class Order extends BaseModel
         return $this->belongsTo(Reservation::class);
     }
 
+    public function hotelReservation(): BelongsTo
+    {
+        return $this->belongsTo(\Modules\Hotel\Entities\Reservation::class, 'hotel_reservation_id');
+    }
+
+    public function scopeRoomService($query)
+    {
+        return $query->whereNotNull('hotel_reservation_id');
+    }
+
     public function cancelReason(): BelongsTo
     {
         return $this->belongsTo(KotCancelReason::class, 'cancel_reason_id');
@@ -140,8 +198,13 @@ class Order extends BaseModel
             return self::generateFormattedOrderNumber($branch->id, $settings);
         }
 
-        $lastOrder = Order::where('branch_id', $branch->id)->latest()->first();
+        $lastOrder = Order::where('branch_id', $branch->id)->latest('id')->first();
         $orderNumber = $lastOrder ? ((int)$lastOrder->order_number + 1) : 1;
+
+        // Ensure the number is unique (avoid race conditions)
+        while (Order::where('branch_id', $branch->id)->where('order_number', $orderNumber)->exists()) {
+            $orderNumber++;
+        }
 
         return [
             'order_number' => $orderNumber,
@@ -249,5 +312,55 @@ class Order extends BaseModel
         }
 
         return null;
+    }
+
+    /**
+     * True when the segment should match orders.uuid (full RFC UUID string).
+     * Numeric ids must never be compared to uuid — MySQL coerces uuid strings to
+     * numbers and can return the wrong row (e.g. id 19411 vs uuid "19411c4c-...").
+     */
+    public static function identifierIsUuid(mixed $identifier): bool
+    {
+        return is_string($identifier) && Str::isUuid($identifier);
+    }
+
+    /**
+     * @param  Builder<Order>  $query
+     * @return Builder<Order>
+     */
+    public function scopeWhereIdentifier(Builder $query, mixed $identifier): Builder
+    {
+        $table = $query->getModel()->getTable();
+
+        if (static::identifierIsUuid($identifier)) {
+            return $query->where($table . '.uuid', $identifier);
+        }
+
+        return $query->where($table . '.id', (int) $identifier);
+    }
+
+    public static function findIdByIdentifier(mixed $identifier): ?int
+    {
+        $id = static::query()->whereIdentifier($identifier)->value('id');
+
+        return $id !== null ? (int) $id : null;
+    }
+
+    public static function findByIdentifier(mixed $identifier): ?self
+    {
+        return static::query()->whereIdentifier($identifier)->first();
+    }
+
+    /**
+     * Shareable URL for this order (KOT POS screen vs orders deep-link).
+     * In-app UI should prefer dispatching showOrderDetail to avoid leaving the current page.
+     */
+    public function staffDetailUrl(): string
+    {
+        if ($this->status === 'kot') {
+            return route('pos.kot', $this->id) . '?show-order-detail=true';
+        }
+
+        return route('orders.show', $this);
     }
 }

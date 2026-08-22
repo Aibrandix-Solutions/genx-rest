@@ -50,8 +50,9 @@
                         <!-- Payment Methods -->
                         <div @class([
                             'grid gap-3',
-                            'grid-cols-2 sm:grid-cols-4' => !$canAddTip,
-                            'grid-cols-2 sm:grid-cols-5' => $canAddTip
+                            'grid-cols-2 sm:grid-cols-4' => !$canAddTip && !$showRoomCharge,
+                            'grid-cols-2 sm:grid-cols-5' => ($canAddTip xor $showRoomCharge),
+                            'grid-cols-2 sm:grid-cols-6' => $canAddTip && $showRoomCharge,
                         ])>
                             <button wire:click="setPaymentMethod('cash')"
                                 class="p-3 text-center border rounded-lg {{ $paymentMethod === 'cash' ? 'bg-skin-base/5 border-skin-base' : 'hover:bg-gray-50' }}">
@@ -87,6 +88,16 @@
                                 </svg>
                                 <span class="text-sm">@lang('modules.order.due')</span>
                             </button>
+                            @if($showRoomCharge)
+                            <button wire:click="setPaymentMethod('room_charge')"
+                                class="p-3 text-center border rounded-lg {{ $paymentMethod === 'room_charge' ? 'bg-purple-50 border-purple-500 dark:bg-purple-900/30' : 'hover:bg-gray-50 dark:hover:bg-gray-700' }}">
+                                <svg class="w-6 h-6 mx-auto mb-1 {{ $paymentMethod === 'room_charge' ? 'text-purple-600' : '' }}" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" />
+                                </svg>
+                                <span class="text-sm">Room Charge</span>
+                            </button>
+                            @endif
+
                             @if($canAddTip)
                             <button wire:click="addTipModal"
                                 class="p-3 text-center border rounded-lg transition-all duration-200 {{ $order && $order->tip_amount > 0
@@ -116,6 +127,27 @@
                             </button>
                             @endif
                         </div>
+
+                        {{-- Room Charge: Guest/Room selector --}}
+                        @if($showRoomCharge && $paymentMethod === 'room_charge')
+                            <div class="mt-3 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-700 rounded-lg">
+                                <label class="block text-sm font-medium text-purple-800 dark:text-purple-300 mb-1.5">
+                                    Charge to Room
+                                </label>
+                                <select wire:model="roomChargeReservationId"
+                                    class="w-full rounded-lg border-purple-300 dark:border-purple-600 dark:bg-gray-800 dark:text-gray-200 focus:border-purple-500 focus:ring-purple-500 text-sm">
+                                    <option value="">Select in-house guest...</option>
+                                    @foreach($inHouseReservations as $res)
+                                        <option value="{{ $res['id'] }}">{{ $res['label'] }}</option>
+                                    @endforeach
+                                </select>
+                                @if(empty($inHouseReservations))
+                                    <p class="mt-1 text-xs text-purple-600 dark:text-purple-400">No checked-in guests found.</p>
+                                @else
+                                    <p class="mt-1 text-xs text-purple-600 dark:text-purple-400">Amount will be posted to the guest's folio.</p>
+                                @endif
+                            </div>
+                        @endif
 
                         <!-- Amount Input and Summary -->
                         <div class="mt-4 space-y-4">
@@ -327,7 +359,7 @@
                                         </div>
 
                                         <select class="rounded-lg border-gray-300 w-28"
-                                            wire:model.live="splits.{{ $i }}.paymentMethod">
+                                            wire:model.change="splits.{{ $i }}.paymentMethod">
                                             <option value="cash">{{ __('modules.order.cash') }}</option>
                                             <option value="card">{{ __('modules.order.card') }}</option>
                                             <option value="upi">{{ __('modules.order.upi') }}</option>
@@ -376,7 +408,7 @@
                                                 oninput="if(this.value < 0) this.value = 0;">
                                         </div>
                                         <select class="rounded-lg border-gray-300 w-28"
-                                            wire:model.live="splits.{{ $splitNumber }}.paymentMethod">
+                                            wire:model.change="splits.{{ $splitNumber }}.paymentMethod">
                                             <option value="cash">{{ __('modules.order.cash') }}</option>
                                             <option value="card">{{ __('modules.order.card') }}</option>
                                             <option value="upi">{{ __('modules.order.upi') }}</option>
@@ -673,7 +705,8 @@
                 <x-button-cancel class="flex-1 px-6 py-3 text-base font-medium text-gray-700 hover:bg-gray-100 rounded-lg" wire:click="$toggle('showAddPaymentModal')">
                     {{ __('app.cancel') }}
                 </x-button-cancel>
-                <x-button wire:click="submitForm" class="flex-1 px-6 py-3 text-base font-medium bg-skin-base text-white rounded-lg hover:bg-skin-base-600">
+                <x-button wire:click="submitForm" wire:loading.attr="disabled" wire:target="submitForm" class="flex-1 px-6 py-3 text-base font-medium bg-skin-base text-white rounded-lg hover:bg-skin-base-600"
+                    @click="if (@js((bool) (restaurant()->receiptSetting?->direct_print_after_payment ?? false))) { window.preparePosPrintPlaceholder?.(); }">
                     {{ __('modules.order.completePayment') }}
                 </x-button>
                 </div>

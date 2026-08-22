@@ -243,49 +243,64 @@ class CreateModifierGroup extends Component
     // PRICING MANAGEMENT
     public function updatedModifierOptions($value, $key): void
     {
-        // Parse the key to get option index and orderType
         $parts = explode('.', $key);
-        if (count($parts) >= 2 && is_numeric($parts[0])) {
-            $optionIndex = (int)$parts[0];
-            
-            // Ensure the option exists
-            if (!isset($this->modifierOptions[$optionIndex]) || !isset($this->optionOrderTypePrices[$optionIndex])) {
-                return;
-            }
-            
-            $orderTypeId = (int)$parts[1];
-            
-            // Only proceed with auto-filling if the current value is not empty
-            if (!empty($value)) {
-                // Check if all other prices are empty (first price entry)
-                $allOthersEmpty = true;
-                foreach ($this->optionOrderTypePrices[$optionIndex] as $otId => $price) {
-                    if ($otId != $orderTypeId && !empty($price)) {
-                        $allOthersEmpty = false;
-                        break;
-                    }
-                }
-                
-                // If all others are empty, this is the first price entry
-                if ($allOthersEmpty) {
-                    // Auto-fill all other order types and base delivery price in one loop
-                    foreach ($this->optionOrderTypePrices[$optionIndex] as $otId => &$price) {
-                        if ($otId != $orderTypeId) {
-                            $price = $value;
-                        }
-                    }
-                    unset($price); // Break reference
-                    
-                    // Set base delivery price if empty
-                    if (empty($this->optionBaseDeliveryPrice[$optionIndex])) {
-                        $this->optionBaseDeliveryPrice[$optionIndex] = $value;
-                    }
-                }
-            }
-            
-            // Always recalculate delivery prices after an update
-            $this->calculateOptionDeliveryPrices($optionIndex);
+        if (count($parts) < 2 || !is_numeric($parts[0]) || $parts[1] !== 'price') {
+            return;
         }
+
+        $optionIndex = (int) $parts[0];
+
+        if (!isset($this->modifierOptions[$optionIndex])) {
+            return;
+        }
+
+        if ($value !== '' && $value !== null) {
+            foreach ($this->optionOrderTypePrices[$optionIndex] ?? [] as $orderTypeId => $price) {
+                if ($price === '' || $price === null) {
+                    $this->optionOrderTypePrices[$optionIndex][$orderTypeId] = $value;
+                }
+            }
+
+            if (($this->optionBaseDeliveryPrice[$optionIndex] ?? '') === '') {
+                $this->optionBaseDeliveryPrice[$optionIndex] = $value;
+            }
+        }
+
+        $this->calculateOptionDeliveryPrices($optionIndex);
+    }
+
+    public function updatedOptionOrderTypePrices($value, $key): void
+    {
+        $parts = explode('.', $key);
+        if (count($parts) < 2 || !is_numeric($parts[0])) {
+            return;
+        }
+
+        $optionIndex = (int) $parts[0];
+
+        if (!isset($this->modifierOptions[$optionIndex]) || !isset($this->optionOrderTypePrices[$optionIndex])) {
+            return;
+        }
+
+        if ($value !== '' && $value !== null) {
+            $filledCount = collect($this->optionOrderTypePrices[$optionIndex])
+                ->filter(fn ($price) => $price !== '' && $price !== null)
+                ->count();
+
+            if ($filledCount === 1) {
+                foreach ($this->optionOrderTypePrices[$optionIndex] as $orderTypeId => $price) {
+                    if ($price === '' || $price === null) {
+                        $this->optionOrderTypePrices[$optionIndex][$orderTypeId] = $value;
+                    }
+                }
+
+                if (($this->optionBaseDeliveryPrice[$optionIndex] ?? '') === '') {
+                    $this->optionBaseDeliveryPrice[$optionIndex] = $value;
+                }
+            }
+        }
+
+        $this->calculateOptionDeliveryPrices($optionIndex);
     }
 
     public function updatedOptionBaseDeliveryPrice($value, $key): void
@@ -529,6 +544,7 @@ class CreateModifierGroup extends Component
                             'menu_item_id' => $menuItemId,
                             'menu_item_variation_id' => null,
                             'modifier_group_id' => $modifierGroup->id,
+                            'allow_multiple_selection' => true,
                         ];
                     } else {
                         $hasSelectedVariations = false;
@@ -539,6 +555,7 @@ class CreateModifierGroup extends Component
                                     'menu_item_id' => $menuItemId,
                                     'menu_item_variation_id' => $variationId,
                                     'modifier_group_id' => $modifierGroup->id,
+                                    'allow_multiple_selection' => true,
                                 ];
                             }
                         }
@@ -548,6 +565,7 @@ class CreateModifierGroup extends Component
                                 'menu_item_id' => $menuItemId,
                                 'menu_item_variation_id' => null,
                                 'modifier_group_id' => $modifierGroup->id,
+                                'allow_multiple_selection' => true,
                             ];
                         }
                     }
@@ -556,6 +574,7 @@ class CreateModifierGroup extends Component
                         'menu_item_id' => $menuItemId,
                         'menu_item_variation_id' => null,
                         'modifier_group_id' => $modifierGroup->id,
+                        'allow_multiple_selection' => true,
                     ];
                 }
             }

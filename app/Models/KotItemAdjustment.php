@@ -55,6 +55,9 @@ class KotItemAdjustment extends Model
     {
         return $this->belongsTo(User::class, 'performed_by');
     }
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
+    }
 }
-
-

@@ -8,6 +8,9 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
                     </svg>
                     {{ $movement->item->name ?? '--' }}
+                    @if($movement->item && !empty($movement->item->item_code))
+                        <span class="ml-2 font-mono text-xs bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">{{ $movement->item->item_code }}</span>
+                    @endif
                 </h3>
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -143,9 +146,22 @@
             <div class="grid grid-cols-3 items-center py-3 border-b border-gray-100 dark:border-gray-700">
                 <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Location
+                </dt>
+                <dd class="text-sm text-gray-900 dark:text-white col-span-2">
+                    {{ $movement->location?->display_name ?? '--' }}
+                </dd>
+            </div>
+
+            <div class="grid grid-cols-3 items-center py-3 border-b border-gray-100 dark:border-gray-700">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
                     </svg>
-                    {{ __('inventory::modules.movements.fields.source_branch') }}
+                    Branch
                 </dt>
                 <dd class="text-sm text-gray-900 dark:text-white col-span-2">
                     {{ $movement->sourceBranch->name ?? '--' }}

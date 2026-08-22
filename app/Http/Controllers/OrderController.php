@@ -24,17 +24,41 @@ class OrderController extends Controller
 
     public function show($id)
     {
-        return view('order.show', compact('id'));
+        abort_if(! in_array('Order', restaurant_modules()), 403);
+        abort_if(! user_can('Show Order'), 403);
+
+        $order = Order::findByIdentifier($id);
+
+        abort_if(! $order, 404);
+
+        if ($order->status === 'kot') {
+            return redirect()->to($order->staffDetailUrl());
+        }
+
+        return view('order.show', ['id' => $order->id]);
     }
 
     public function printOrder($id, $width = 80, $thermal = false, $generateImage = false)
     {
-        $id = Order::where('id', $id)->orWhere('uuid', $id)->value('id') ?: $id;
+        $id = Order::findIdByIdentifier($id) ?? abort(404);
 
         $payment = Payment::where('order_id', $id)->first();
         $restaurant = restaurant();
         $taxDetails = RestaurantTax::where('restaurant_id', $restaurant->id)->get();
-        $order = Order::find($id);
+        $order = Order::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'items.comboPack',
+            'charges.charge',
+            'taxes.tax',
+            'payments',
+            'kot',
+            'table',
+            'waiter',
+            'posUser',
+            'customer',
+        ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
         $taxMode = $order?->tax_mode ?? ($restaurant->tax_mode ?? 'order');
         $totalTaxAmount = 0;
@@ -57,10 +81,25 @@ class OrderController extends Controller
      */
     public function generateOrderPdf($id)
     {
+        $id = Order::findIdByIdentifier($id) ?? abort(404);
+
         $payment = Payment::where('order_id', $id)->first();
         $restaurant = restaurant();
         $taxDetails = RestaurantTax::where('restaurant_id', $restaurant->id)->get();
-        $order = Order::find($id);
+        $order = Order::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'items.comboPack',
+            'charges.charge',
+            'taxes.tax',
+            'payments',
+            'kot',
+            'table',
+            'waiter',
+            'posUser',
+            'customer',
+        ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
         $taxMode = $restaurant->tax_mode ?? 'order';
         $totalTaxAmount = 0;
@@ -86,7 +125,20 @@ class OrderController extends Controller
         $payment = Payment::where('order_id', $id)->first();
         $restaurant = restaurant();
         $taxDetails = RestaurantTax::where('restaurant_id', $restaurant->id)->get();
-        $order = Order::find($id);
+        $order = Order::with([
+            'items.menuItem',
+            'items.menuItemVariation',
+            'items.modifierOptions',
+            'items.comboPack',
+            'charges.charge',
+            'taxes.tax',
+            'payments',
+            'kot',
+            'table',
+            'waiter',
+            'posUser',
+            'customer',
+        ])->find($id);
         $receiptSettings = $restaurant->receiptSetting;
         $taxMode = $restaurant->tax_mode ?? 'order';
         $totalTaxAmount = 0;

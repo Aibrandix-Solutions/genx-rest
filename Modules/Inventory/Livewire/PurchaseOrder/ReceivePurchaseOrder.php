@@ -4,6 +4,9 @@ namespace Modules\Inventory\Livewire\PurchaseOrder;
 
 use Livewire\Component;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseLocation;
+use App\Enums\ActivityEvent;
+use App\Support\ActivityLogger;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 
@@ -24,6 +27,7 @@ class ReceivePurchaseOrder extends Component
             return [
                 'id' => $item->id,
                 'name' => $item->inventoryItem->name,
+                'item_code' => $item->inventoryItem->item_code,
                 'quantity' => $item->quantity,
                 'received_quantity' => $item->received_quantity,
                 'receiving_quantity' => 0,
@@ -41,7 +45,38 @@ class ReceivePurchaseOrder extends Component
             'items.*.receiving_quantity' => trans('inventory::modules.purchaseOrder.receiving_quantity'),
         ]);
 
-        DB::transaction(function () {
+        $this->purchaseOrder->loadMissing(['location', 'branch']);
+        $purchaseLocation = $this->purchaseOrder->location;
+
+        if (!$purchaseLocation && $this->purchaseOrder->location_id) {
+            $purchaseLocation = PurchaseLocation::find($this->purchaseOrder->location_id);
+        }
+
+        if (!$purchaseLocation) {
+            $restaurantId = $this->purchaseOrder->branch?->restaurant_id ?? restaurant()->id;
+            $purchaseLocation = PurchaseLocation::query()
+                ->where('restaurant_id', $restaurantId)
+                ->where('type', 'branch')
+                ->where('branch_id', $this->purchaseOrder->branch_id)
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->first();
+        }
+
+        if (!$purchaseLocation) {
+            $this->alert('error', trans('inventory::modules.purchaseOrder.receive_location_required'));
+
+            return;
+        }
+
+        $targetLocationId = (int) $purchaseLocation->id;
+        $targetBranchId = ($purchaseLocation->type === 'branch' && $purchaseLocation->branch_id !== null)
+            ? (int) $purchaseLocation->branch_id
+            : ($this->purchaseOrder->branch_id !== null ? (int) $this->purchaseOrder->branch_id : null);
+
+        $finalStatus = null;
+
+        DB::transaction(function () use ($targetLocationId, $targetBranchId, &$finalStatus) {
             $allReceived = true;
             
             foreach ($this->items as $item) {
@@ -57,7 +92,8 @@ class ReceivePurchaseOrder extends Component
 
                     // Create inventory movement
                     $poItem->inventoryItem->movements()->create([
-                        'branch_id' => branch()->id,
+                        'branch_id' => $targetBranchId,
+                        'location_id' => $targetLocationId,
                         'quantity' => $item['receiving_quantity'],
                         'transaction_type' => 'in',
                         'supplier_id' => $this->purchaseOrder->supplier_id,
@@ -66,7 +102,10 @@ class ReceivePurchaseOrder extends Component
 
                     // Update or create inventory stock
                     $poItem->inventoryItem->stocks()->updateOrCreate(
-                        ['branch_id' => branch()->id],
+                        [
+                            'branch_id' => $targetBranchId,
+                            'location_id' => $targetLocationId,
+                        ],
                         [
                             'quantity' => DB::raw('quantity + ' . $item['receiving_quantity'])
                         ]
@@ -82,7 +121,21 @@ class ReceivePurchaseOrder extends Component
             $this->purchaseOrder->update([
                 'status' => $allReceived ? 'received' : 'partially_received'
             ]);
+
+            $finalStatus = $allReceived ? 'received' : 'partially_received';
         });
+
+        ActivityLogger::recordEvent(
+            activityEvent: ActivityEvent::PurchaseOrderReceived,
+            description: "Purchase order {$this->purchaseOrder->po_number} received ({$finalStatus})",
+            subject: $this->purchaseOrder->fresh(),
+            properties: [
+                'purchase_order_id' => $this->purchaseOrder->id,
+                'po_number' => $this->purchaseOrder->po_number,
+                'status' => $finalStatus,
+            ],
+            branchId: $this->purchaseOrder->branch_id ? (int) $this->purchaseOrder->branch_id : null,
+        );
 
         $this->showModal = false;
         $this->dispatch('purchaseOrderSaved');
