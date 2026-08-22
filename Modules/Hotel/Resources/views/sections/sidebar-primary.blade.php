@@ -8,6 +8,7 @@
     || user_can('view_hotel_billing')
     || user_can('view_hotel_housekeeping')
     || user_can('view_hotel_reports')
+    || user_can('manage_room_pricing')
     || user_can('view_hotel_expenses')
     || user_can('view_unified_finance_report')
     || user_can('view_property_pnl')

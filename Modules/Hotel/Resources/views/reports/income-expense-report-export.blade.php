@@ -157,7 +157,7 @@
         <tbody>
             @php $sumExpenses = 0; @endphp
             @foreach($detailedExpenses as $expense)
-                @php $sumExpenses += (float)$expense->amount; @endphp
+                @php $expenseTotal = (float) ($expense->total_amount ?? $expense->amount); $sumExpenses += $expenseTotal; @endphp
                 <tr>
                     <td>{{ $expense->expense_date->format('Y-m-d') }}</td>
                     <td>
@@ -165,13 +165,13 @@
                         <div class="sub-txt">{{ $expense->title }}@if($expense->description) - {{ $expense->description }}@endif</div>
                     </td>
                     <td style="text-transform: capitalize;">{{ str_replace('_', ' ', $expense->department) }}</td>
-                    <td class="num" style="font-weight: 600;">{{ currency_format((float)$expense->amount, $currencyId) }}</td>
+                    <td class="num" style="font-weight: 600;">{{ currency_format($expenseTotal, $currencyId) }}</td>
                     <td style="text-transform: capitalize;">{{ $expense->payment_method }}</td>
                     <td style="text-align: center;">
                         @if($expense->status === 'paid')
                             <span class="status-badge status-paid">Paid</span>
                         @else
-                            <span class="status-badge status-partial">Pending</span>
+                            <span class="status-badge status-partial">{{ \Modules\Hotel\Entities\HotelExpense::statusLabel($expense->status) }}</span>
                         @endif
                     </td>
                 </tr>

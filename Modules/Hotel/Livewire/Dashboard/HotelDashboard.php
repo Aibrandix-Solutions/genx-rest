@@ -10,6 +10,7 @@ use Modules\Hotel\Entities\HousekeepingTask;
 use Modules\Hotel\Entities\HotelSetting;
 use Modules\Hotel\Entities\HotelExpense;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class HotelDashboard extends Component
 {
@@ -28,10 +29,11 @@ class HotelDashboard extends Component
      */
     private function getPeriodRange(): array
     {
+        // Inclusive calendar bounds so Today / This Week / This Month match posted dates exactly.
         return match ($this->selectedPeriod) {
-            'week' => [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()],
-            'month' => [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()],
-            default => [Carbon::today(), Carbon::today()],
+            'week' => [Carbon::now()->startOfWeek()->startOfDay(), Carbon::now()->endOfWeek()->endOfDay()],
+            'month' => [Carbon::now()->startOfMonth()->startOfDay(), Carbon::now()->endOfMonth()->endOfDay()],
+            default => [Carbon::today()->startOfDay(), Carbon::today()->endOfDay()],
         };
     }
 
@@ -115,7 +117,8 @@ class HotelDashboard extends Component
                 ->whereBetween('check_in_date', [$startDate, $endDate])
                 ->count(),
             'outstanding_balance' => (float) Reservation::query()
-                ->where('status', Reservation::STATUS_CHECKED_IN)
+                ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+                ->where('balance_due', '>', 0)
                 ->sum('balance_due'),
         ];
     }
@@ -198,7 +201,7 @@ class HotelDashboard extends Component
         }
 
         [$startDate, $endDate] = $this->getPeriodRange();
-        $orderQuery = \App\Models\Order::whereBetween('date_time', [$startDate, $endDate->endOfDay()]);
+        $orderQuery = \App\Models\Order::whereBetween('date_time', [$startDate, $endDate]);
 
         return [
             'orders' => (clone $orderQuery)->count(),
@@ -215,10 +218,17 @@ class HotelDashboard extends Component
         [$startDate, $endDate] = $this->getPeriodRange();
         $daysInPeriod = max(1, $startDate->diffInDays($endDate) + 1);
 
+        // Revenue from folio charges only — never count cancelled / no-show stays.
         $charges = RoomCharge::query()
-            ->where('branch_id', branch()->id)
+            ->where('hotel_room_charges.branch_id', branch()->id)
             ->whereDate('charge_date', '>=', $startDate)
             ->whereDate('charge_date', '<=', $endDate)
+            ->whereHas('reservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->selectRaw('charge_type, SUM(amount) as total')
             ->groupBy('charge_type')
             ->pluck('total', 'charge_type');
@@ -228,17 +238,18 @@ class HotelDashboard extends Component
         $totalRevenue = $roomRevenue + $otherRevenue;
 
         $expensesPaid = 0.0;
-        $expensesPending = 0.0;
+        $expensesOutstanding = 0.0;
         $expenses = 0.0;
 
         if (user_can('view_hotel_expenses')) {
+            // Billed totals for the period; paid vs still-owed from payment ledger.
             $expenseQuery = HotelExpense::query()
                 ->whereBetween('expense_date', [$startDate->toDateString(), $endDate->toDateString()])
-                ->whereIn('status', [HotelExpense::STATUS_PAID, HotelExpense::STATUS_PENDING]);
+                ->where('status', '!=', HotelExpense::STATUS_CANCELLED);
 
-            $expensesPaid = (float) (clone $expenseQuery)->where('status', HotelExpense::STATUS_PAID)->sum('amount');
-            $expensesPending = (float) (clone $expenseQuery)->where('status', HotelExpense::STATUS_PENDING)->sum('amount');
-            $expenses = $expensesPaid + $expensesPending;
+            $expenses = (float) (clone $expenseQuery)->sum(DB::raw('COALESCE(total_amount, amount)'));
+            $expensesPaid = (float) (clone $expenseQuery)->sum('amount_paid');
+            $expensesOutstanding = (float) (clone $expenseQuery)->sum('balance_due');
         }
 
         $net = user_can('view_hotel_expenses')
@@ -263,7 +274,9 @@ class HotelDashboard extends Component
             'other_revenue' => round($otherRevenue, 2),
             'expenses' => round($expenses, 2),
             'expenses_paid' => round($expensesPaid, 2),
-            'expenses_pending' => round($expensesPending, 2),
+            'expenses_outstanding' => round($expensesOutstanding, 2),
+            // Keep legacy key for any stale views during deploy.
+            'expenses_pending' => round($expensesOutstanding, 2),
             'net' => round($net, 2),
             'adr' => round($adr, 2),
             'rev_par' => round($revPar, 2),

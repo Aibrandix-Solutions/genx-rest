@@ -31,8 +31,10 @@
                         <select wire:model.live="statusFilter"
                             class="rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 text-sm">
                             <option value="all">All Status</option>
+                            <option value="outstanding">Still owed</option>
                             <option value="paid">Paid</option>
-                            <option value="pending">Pending</option>
+                            <option value="pending">Unpaid</option>
+                            <option value="partial">Partially paid</option>
                             <option value="cancelled">Cancelled</option>
                         </select>
 
@@ -84,8 +86,9 @@
                 <div class="text-xs text-green-600 dark:text-green-400 mb-1">Paid</div>
                 <div class="text-xl font-bold text-green-700 dark:text-green-300">{{ currency_format($summary['paid'], restaurant()->currency_id) }}</div>
             </div>
-            <div class="bg-white dark:bg-gray-800 rounded-lg border border-yellow-200 dark:border-yellow-800 p-4">
-                <div class="text-xs text-yellow-600 dark:text-yellow-400 mb-1">Pending</div>
+            <div class="bg-white dark:bg-gray-800 rounded-lg border border-yellow-200 dark:border-yellow-800 p-4 cursor-pointer hover:bg-yellow-50 dark:hover:bg-gray-700"
+                wire:click="$set('statusFilter', 'outstanding')" title="Show expenses with balance still owed">
+                <div class="text-xs text-yellow-600 dark:text-yellow-400 mb-1">Still owed</div>
                 <div class="text-xl font-bold text-yellow-700 dark:text-yellow-300">{{ currency_format($summary['pending'], restaurant()->currency_id) }}</div>
             </div>
             <div class="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-800 p-4">
@@ -140,22 +143,38 @@
                                             {{ $expense->vendor ?? '—' }}
                                         </td>
                                         <td class="p-4 text-sm font-semibold text-gray-900 whitespace-nowrap dark:text-white">
-                                            {{ currency_format($expense->amount, restaurant()->currency_id) }}
+                                            <div>{{ currency_format($expense->total_amount ?? $expense->amount, restaurant()->currency_id) }}</div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">
+                                                Due: {{ currency_format($expense->balance_due ?? 0, restaurant()->currency_id) }}
+                                            </div>
+                                            @if($expense->due_date)
+                                                <div class="text-xs text-gray-400">Due date: {{ $expense->due_date->format('M d, Y') }}</div>
+                                            @endif
                                         </td>
                                         <td class="p-4 text-sm text-gray-500 whitespace-nowrap dark:text-gray-400 capitalize">
-                                            {{ \Modules\Hotel\Entities\HotelExpense::PAYMENT_METHODS[$expense->payment_method] ?? ucfirst($expense->payment_method) }}
+                                            <div>{{ \Modules\Hotel\Entities\HotelExpense::PAYMENT_METHODS[$expense->payment_method] ?? ucfirst($expense->payment_method) }}</div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">
+                                                Paid: {{ currency_format($expense->amount_paid ?? 0, restaurant()->currency_id) }}
+                                            </div>
                                         </td>
                                         <td class="p-4 whitespace-nowrap">
                                             <span @class([
                                                 'px-2 py-1 text-xs font-medium rounded',
                                                 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' => $expense->status === 'paid',
+                                                'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' => $expense->status === 'partial',
                                                 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' => $expense->status === 'pending',
                                                 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300' => $expense->status === 'cancelled',
                                             ])>
-                                                {{ ucfirst($expense->status) }}
+                                                {{ \Modules\Hotel\Entities\HotelExpense::statusLabel($expense->status) }}
                                             </span>
                                         </td>
                                         <td class="p-4 space-x-2 whitespace-nowrap">
+                                            @if(user_can('edit_hotel_expense') && $expense->status !== 'cancelled')
+                                                <button wire:click="openPaymentModal({{ $expense->id }})"
+                                                    class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700 dark:hover:bg-emerald-900/50">
+                                                    Record Payment
+                                                </button>
+                                            @endif
                                             @if(user_can('edit_hotel_expense'))
                                                 <button wire:click="openEdit({{ $expense->id }})"
                                                     class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700 dark:hover:bg-blue-900/50">
@@ -302,7 +321,7 @@
                         </div>
                     </div>
 
-                    {{-- Date + Status --}}
+                    {{-- Date + Due Date --}}
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <x-label for="exp_date" value="Expense Date *" />
@@ -310,14 +329,29 @@
                             <x-input-error for="expense_date" class="mt-1" />
                         </div>
                         <div>
+                            <x-label for="exp_due_date" value="Due Date" />
+                            <x-input id="exp_due_date" type="date" class="block w-full mt-1" wire:model="due_date" />
+                            <x-input-error for="due_date" class="mt-1" />
+                        </div>
+                    </div>
+
+                    {{-- Status + Receipt File --}}
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
                             <x-label for="exp_status" value="Status *" />
                             <select id="exp_status" wire:model="status"
                                 class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
-                                <option value="paid">Paid</option>
-                                <option value="pending">Pending</option>
+                                <option value="paid">Paid in full</option>
+                                <option value="partial">Partially paid</option>
+                                <option value="pending">Unpaid</option>
                                 <option value="cancelled">Cancelled</option>
                             </select>
                             <x-input-error for="status" class="mt-1" />
+                        </div>
+                        <div>
+                            <x-label for="exp_receipt_file" value="Receipt File (max 5MB)" />
+                            <x-input id="exp_receipt_file" type="file" class="block w-full mt-1" wire:model="receipt_file" />
+                            <x-input-error for="receipt_file" class="mt-1" />
                         </div>
                     </div>
 
@@ -369,6 +403,111 @@
                     </x-button>
                 </div>
             </form>
+        </x-slot>
+    </x-right-modal>
+
+    {{-- Record Expense Payment Modal --}}
+    <x-right-modal wire:model.live="showPaymentModal">
+        <x-slot name="title">Record Expense Payment</x-slot>
+        <x-slot name="content">
+            @if($selectedExpense)
+                <div class="mb-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-700/40 border border-gray-200 dark:border-gray-600">
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ $selectedExpense->title }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        Total: {{ currency_format($selectedExpense->total_amount ?? $selectedExpense->amount, restaurant()->currency_id) }} |
+                        Paid: {{ currency_format($selectedExpense->amount_paid ?? 0, restaurant()->currency_id) }} |
+                        Due: {{ currency_format($selectedExpense->balance_due ?? 0, restaurant()->currency_id) }}
+                    </div>
+                </div>
+            @endif
+
+            <form wire:submit.prevent="savePayment">
+                <div class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <x-label for="payment_amount" value="Payment Amount *" />
+                            <x-input id="payment_amount" type="number" step="0.01" min="0.01" class="block w-full mt-1" wire:model="payment_amount" />
+                            <x-input-error for="payment_amount" class="mt-1" />
+                        </div>
+                        <div>
+                            <x-label for="payment_paid_at" value="Paid At *" />
+                            <x-input id="payment_paid_at" type="datetime-local" class="block w-full mt-1" wire:model="payment_paid_at" />
+                            <x-input-error for="payment_paid_at" class="mt-1" />
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <x-label for="payment_method_entry" value="Method *" />
+                            <select id="payment_method_entry" wire:model="payment_method_entry"
+                                class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                @foreach($methods as $key => $label)
+                                    <option value="{{ $key }}">{{ $label }}</option>
+                                @endforeach
+                            </select>
+                            <x-input-error for="payment_method_entry" class="mt-1" />
+                        </div>
+                        <div>
+                            <x-label for="payment_reference_number" value="Reference Number" />
+                            <x-input id="payment_reference_number" type="text" class="block w-full mt-1" wire:model="payment_reference_number" />
+                            <x-input-error for="payment_reference_number" class="mt-1" />
+                        </div>
+                    </div>
+
+                    <div>
+                        <x-label for="payment_receipt_file" value="Payment Receipt (optional)" />
+                        <x-input id="payment_receipt_file" type="file" class="block w-full mt-1" wire:model="payment_receipt_file" />
+                        <x-input-error for="payment_receipt_file" class="mt-1" />
+                    </div>
+
+                    <div>
+                        <x-label for="payment_notes" value="Notes" />
+                        <textarea id="payment_notes" wire:model="payment_notes" rows="2"
+                            class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm"></textarea>
+                        <x-input-error for="payment_notes" class="mt-1" />
+                    </div>
+                </div>
+
+                <div class="mt-6 flex justify-end gap-3">
+                    <x-button type="button" wire:click="$set('showPaymentModal', false)"
+                        class="bg-gray-200 text-gray-800 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600">
+                        Close
+                    </x-button>
+                    <x-button type="submit" wire:loading.attr="disabled">Save Payment</x-button>
+                </div>
+            </form>
+
+            @if($selectedExpense && $selectedExpense->payments->count())
+                <div class="mt-8">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">Payment History</h3>
+                    <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        @foreach($selectedExpense->payments as $payment)
+                            <div class="border border-gray-200 dark:border-gray-600 rounded-lg p-3 bg-white dark:bg-gray-800">
+                                <div class="flex items-center justify-between">
+                                    <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                                        {{ currency_format($payment->amount, restaurant()->currency_id) }}
+                                    </div>
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                                        {{ \Carbon\Carbon::parse($payment->paid_at)->format('M d, Y h:i A') }}
+                                    </div>
+                                </div>
+                                <div class="text-xs text-gray-600 dark:text-gray-300 mt-1">
+                                    {{ \Modules\Hotel\Entities\HotelExpense::PAYMENT_METHODS[$payment->payment_method] ?? ucfirst($payment->payment_method) }}
+                                    @if($payment->reference_number)
+                                        | Ref: {{ $payment->reference_number }}
+                                    @endif
+                                    @if($payment->paidBy)
+                                        | By: {{ $payment->paidBy->name }}
+                                    @endif
+                                </div>
+                                @if($payment->notes)
+                                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $payment->notes }}</div>
+                                @endif
+                            </div>
+                        @endforeach
+                    </div>
+                </div>
+            @endif
         </x-slot>
     </x-right-modal>
 

@@ -2,14 +2,16 @@
 
 namespace Modules\Hotel\Livewire\Expense;
 
+use App\Helper\Files;
 use Carbon\Carbon;
-use Livewire\Component;
-use Livewire\WithPagination;
-use Livewire\WithFileUploads;
+use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Livewire\Component;
+use Livewire\WithFileUploads;
+use Livewire\WithPagination;
 use Modules\Hotel\Entities\HotelExpense;
 use Modules\Hotel\Entities\HotelExpenseDepartment;
-use Illuminate\Support\Facades\DB;
+use Modules\Hotel\Entities\HotelExpensePayment;
 
 class HotelExpenseList extends Component
 {
@@ -25,6 +27,10 @@ class HotelExpenseList extends Component
     public $dateFrom       = '';
     public $dateTo         = '';
 
+    protected $queryString = [
+        'statusFilter' => ['except' => 'all'],
+    ];
+
     // --- Create / Edit Form ---
     public $showModal       = false;
     public $editingId       = null;
@@ -34,10 +40,22 @@ class HotelExpenseList extends Component
     public $description     = '';
     public $amount          = '';
     public $expense_date    = '';
+    public $due_date        = '';
     public $payment_method  = 'cash';
     public $vendor          = '';
     public $receipt_number  = '';
-    public $status          = 'paid';
+    public $status          = 'pending';
+    public $receipt_file;
+
+    // --- Payment Modal ---
+    public $showPaymentModal = false;
+    public $paymentExpenseId = null;
+    public $payment_amount = '';
+    public $payment_method_entry = 'cash';
+    public $payment_reference_number = '';
+    public $payment_paid_at = '';
+    public $payment_notes = '';
+    public $payment_receipt_file;
 
     // --- Delete Confirm ---
     public $pendingDeleteId = null;
@@ -57,10 +75,24 @@ class HotelExpenseList extends Component
             'description'    => 'nullable|string|max:1000',
             'amount'         => 'required|numeric|min:0.01',
             'expense_date'   => 'required|date',
+            'due_date'       => 'nullable|date|after_or_equal:expense_date',
             'payment_method' => 'required|string',
             'vendor'         => 'nullable|string|max:255',
             'receipt_number' => 'nullable|string|max:100',
-            'status'         => 'required|in:paid,pending,cancelled',
+            'status'         => 'required|in:paid,pending,partial,cancelled',
+            'receipt_file'   => 'nullable|file|max:5120',
+        ];
+    }
+
+    protected function paymentRules(): array
+    {
+        return [
+            'payment_amount' => 'required|numeric|min:0.01',
+            'payment_method_entry' => 'required|string',
+            'payment_reference_number' => 'nullable|string|max:100',
+            'payment_paid_at' => 'required|date',
+            'payment_notes' => 'nullable|string|max:1000',
+            'payment_receipt_file' => 'nullable|file|max:5120',
         ];
     }
 
@@ -68,6 +100,8 @@ class HotelExpenseList extends Component
     {
         abort_unless(user_can('view_hotel_expenses'), 403);
         $this->expense_date = Carbon::today()->format('Y-m-d');
+        $this->due_date     = Carbon::today()->format('Y-m-d');
+        $this->payment_paid_at = Carbon::now()->format('Y-m-d\TH:i');
         $this->dateFrom     = Carbon::today()->startOfMonth()->format('Y-m-d');
         $this->dateTo       = Carbon::today()->format('Y-m-d');
     }
@@ -76,12 +110,13 @@ class HotelExpenseList extends Component
 
     public function getSummaryProperty()
     {
-        $query = HotelExpense::whereBetween('expense_date', [$this->dateFrom ?: '2000-01-01', $this->dateTo ?: now()->toDateString()]);
+        $query = HotelExpense::whereBetween('expense_date', [$this->dateFrom ?: '2000-01-01', $this->dateTo ?: now()->toDateString()])
+            ->where('status', '!=', HotelExpense::STATUS_CANCELLED);
 
         return [
-            'total'    => $query->sum('amount'),
-            'paid'     => $query->clone()->where('status', 'paid')->sum('amount'),
-            'pending'  => $query->clone()->where('status', 'pending')->sum('amount'),
+            'total'    => $query->sum(DB::raw('COALESCE(total_amount, amount)')),
+            'paid'     => $query->clone()->sum('amount_paid'),
+            'pending'  => $query->clone()->sum('balance_due'),
             'count'    => $query->clone()->count(),
         ];
     }
@@ -110,8 +145,9 @@ class HotelExpenseList extends Component
         $this->title          = $expense->title;
         $this->department_id  = $expense->department_id;
         $this->description    = $expense->description;
-        $this->amount         = $expense->amount;
+        $this->amount         = $expense->total_amount ?? $expense->amount;
         $this->expense_date   = $expense->expense_date->format('Y-m-d');
+        $this->due_date       = optional($expense->due_date)->format('Y-m-d');
         $this->payment_method = $expense->payment_method;
         $this->vendor         = $expense->vendor;
         $this->receipt_number = $expense->receipt_number;
@@ -129,22 +165,119 @@ class HotelExpenseList extends Component
         }
 
         $data = $this->validate();
-        $data['branch_id']     = branch()->id;
-        $data['restaurant_id'] = restaurant()->id;
+        $statusPreference = $data['status'];
+        unset($data['receipt_file'], $data['status']);
 
-        if ($this->editingId) {
-            HotelExpense::where('id', $this->editingId)
-                ->update($data);
-            $this->alert('success', 'Expense updated successfully.');
-        } else {
-            HotelExpense::create(array_merge($data, [
-                'created_by_user_id' => auth()->id(),
-            ]));
-            $this->alert('success', 'Expense added successfully.');
+        $data['branch_id'] = branch()->id;
+        $data['restaurant_id'] = restaurant()->id;
+        $data['total_amount'] = $data['amount'];
+        $data['amount_paid'] = 0;
+        $data['balance_due'] = $data['amount'];
+        $data['status'] = HotelExpense::STATUS_PENDING;
+
+        if ($this->receipt_file) {
+            $data['receipt_path'] = Files::uploadLocalOrS3($this->receipt_file, 'hotel-expenses');
         }
+
+        DB::transaction(function () use ($data, $statusPreference) {
+            if ($this->editingId) {
+                $expense = HotelExpense::findOrFail($this->editingId);
+                $data['amount_paid'] = $expense->amount_paid;
+                $data['balance_due'] = max($data['total_amount'] - $data['amount_paid'], 0);
+                $data['status'] = $expense->status === HotelExpense::STATUS_CANCELLED
+                    ? HotelExpense::STATUS_CANCELLED
+                    : HotelExpense::STATUS_PENDING;
+                $expense->update($data);
+            } else {
+                $expense = HotelExpense::create(array_merge($data, [
+                    'created_by_user_id' => auth()->id(),
+                ]));
+            }
+
+            // Keep quick-entry behavior: when user marks as paid, auto-create settlement payment.
+            if ($statusPreference === HotelExpense::STATUS_PAID && $expense->balance_due > 0) {
+                HotelExpensePayment::create([
+                    'branch_id' => $expense->branch_id,
+                    'restaurant_id' => $expense->restaurant_id,
+                    'hotel_expense_id' => $expense->id,
+                    'amount' => $expense->balance_due,
+                    'payment_method' => $expense->payment_method,
+                    'reference_number' => $expense->receipt_number,
+                    'paid_at' => now(),
+                    'notes' => 'Auto-created from expense save (marked paid).',
+                    'paid_by_user_id' => auth()->id(),
+                ]);
+            }
+
+            $expense->recalculatePaymentTotals();
+        });
+
+        $this->alert('success', $this->editingId ? 'Expense updated successfully.' : 'Expense added successfully.');
 
         $this->showModal = false;
         $this->resetForm();
+    }
+
+    public function openPaymentModal($id)
+    {
+        abort_unless(user_can('edit_hotel_expense'), 403);
+        $expense = HotelExpense::with('payments.paidBy')->findOrFail($id);
+        if ($expense->status === HotelExpense::STATUS_CANCELLED) {
+            $this->alert('error', 'Cannot record payments for cancelled expenses.');
+            return;
+        }
+
+        $this->paymentExpenseId = $id;
+        $this->payment_amount = $expense->balance_due > 0 ? number_format((float) $expense->balance_due, 2, '.', '') : '';
+        $this->payment_method_entry = $expense->payment_method ?: 'cash';
+        $this->payment_reference_number = '';
+        $this->payment_paid_at = Carbon::now()->format('Y-m-d\TH:i');
+        $this->payment_notes = '';
+        $this->payment_receipt_file = null;
+        $this->resetErrorBag();
+        $this->showPaymentModal = true;
+    }
+
+    public function savePayment()
+    {
+        abort_unless(user_can('edit_hotel_expense'), 403);
+        $data = $this->validate($this->paymentRules());
+
+        $expense = HotelExpense::findOrFail($this->paymentExpenseId);
+        if ($expense->status === HotelExpense::STATUS_CANCELLED) {
+            $this->alert('error', 'Cannot record payments for cancelled expenses.');
+            return;
+        }
+
+        $amount = (float) $data['payment_amount'];
+        if ($amount > (float) $expense->balance_due) {
+            $this->addError('payment_amount', 'Payment amount cannot exceed balance due.');
+            return;
+        }
+
+        DB::transaction(function () use ($data, $expense) {
+            $paymentPayload = [
+                'branch_id' => $expense->branch_id,
+                'restaurant_id' => $expense->restaurant_id,
+                'hotel_expense_id' => $expense->id,
+                'amount' => $data['payment_amount'],
+                'payment_method' => $data['payment_method_entry'],
+                'reference_number' => $data['payment_reference_number'],
+                'paid_at' => $data['payment_paid_at'],
+                'notes' => $data['payment_notes'],
+                'paid_by_user_id' => auth()->id(),
+            ];
+
+            if ($this->payment_receipt_file) {
+                $paymentPayload['receipt_path'] = Files::uploadLocalOrS3($this->payment_receipt_file, 'hotel-expense-payments');
+            }
+
+            HotelExpensePayment::create($paymentPayload);
+            $expense->recalculatePaymentTotals();
+        });
+
+        $this->alert('success', 'Expense payment recorded.');
+        $this->openPaymentModal($expense->id);
     }
 
     public function confirmDelete($id)
@@ -180,10 +313,12 @@ class HotelExpenseList extends Component
         $this->description    = '';
         $this->amount         = '';
         $this->expense_date   = Carbon::today()->format('Y-m-d');
+        $this->due_date       = Carbon::today()->format('Y-m-d');
         $this->payment_method = 'cash';
         $this->vendor         = '';
         $this->receipt_number = '';
-        $this->status         = 'paid';
+        $this->status         = 'pending';
+        $this->receipt_file   = null;
         $this->resetErrorBag();
     }
 
@@ -310,7 +445,20 @@ class HotelExpenseList extends Component
                        ->orWhere('receipt_number', 'like', '%' . $this->search . '%');
                 });
             })
-            ->when($this->statusFilter !== 'all', fn($q) => $q->where('status', $this->statusFilter))
+            ->when($this->statusFilter !== 'all', function ($q) {
+                if ($this->statusFilter === 'outstanding') {
+                    $q->where('status', '!=', HotelExpense::STATUS_CANCELLED)
+                        ->where('balance_due', '>', 0);
+                    return;
+                }
+                if ($this->statusFilter === HotelExpense::STATUS_PARTIAL) {
+                    $q->where('status', '!=', HotelExpense::STATUS_CANCELLED)
+                        ->where('amount_paid', '>', 0)
+                        ->where('balance_due', '>', 0);
+                    return;
+                }
+                $q->where('status', $this->statusFilter);
+            })
             ->when($this->departmentFilter !== 'all', fn($q) => $q->where('department_id', $this->departmentFilter))
             ->when($this->dateFrom, fn($q) => $q->where('expense_date', '>=', $this->dateFrom))
             ->when($this->dateTo, fn($q) => $q->where('expense_date', '<=', $this->dateTo))
@@ -334,6 +482,9 @@ class HotelExpenseList extends Component
             'departments'    => $departmentsList->pluck('name', 'id')->toArray(),
             'allDepartments' => $allDepartments,
             'methods'        => HotelExpense::PAYMENT_METHODS,
+            'selectedExpense' => $this->paymentExpenseId
+                ? HotelExpense::with(['payments' => fn($query) => $query->with('paidBy')->latest('paid_at')])->find($this->paymentExpenseId)
+                : null,
         ])->layout('layouts.app');
     }
 }
