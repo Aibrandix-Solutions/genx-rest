@@ -256,7 +256,8 @@ class IncomeExpenseReportExport implements FromArray, WithEvents, WithTitle, Sho
         } else {
             $sumExpenses = 0;
             foreach ($this->detailedExpenses as $expense) {
-                $sumExpenses += (float)$expense->amount;
+                $billAmount = (float) ($expense->total_amount ?? $expense->amount);
+                $sumExpenses += $billAmount;
                 
                 $ref = ($expense->receipt_number ?: 'EXP' . str_pad($expense->id, 6, '0', STR_PAD_LEFT))
                     . "\n" . $expense->title . ($expense->description ? ' - ' . $expense->description : '');
@@ -265,7 +266,7 @@ class IncomeExpenseReportExport implements FromArray, WithEvents, WithTitle, Sho
                     $expense->expense_date->format('Y-m-d'),
                     $ref,
                     ucwords(str_replace('_', ' ', $expense->department)),
-                    $this->money((float)$expense->amount),
+                    $this->money($billAmount),
                     ucwords($expense->payment_method),
                     ucfirst($expense->status),
                 ];

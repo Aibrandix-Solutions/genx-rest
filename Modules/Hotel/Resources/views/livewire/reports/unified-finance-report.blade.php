@@ -170,7 +170,7 @@
         <div class="bg-white dark:bg-gray-800 rounded-xl border border-yellow-200 dark:border-yellow-900 p-4 shadow-sm">
             <div class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Hotel Outstanding</div>
             <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{ currency_format($summary['hotelOutstanding'], $currencyId) }}</div>
-            <div class="text-xs text-gray-400 mt-1">Pending balances on active reservations</div>
+            <div class="text-xs text-gray-400 mt-1">Unpaid folio balances (confirmed & in-house)</div>
             <a href="{{ route('hotel.billing') }}" class="mt-3 inline-block text-xs text-yellow-600 hover:underline dark:text-yellow-400">View Billing →</a>
         </div>
     </div>
@@ -432,7 +432,7 @@
                                                                 {{ str_replace('_', ' ', $expense->department) }}
                                                             </td>
                                                             <td class="px-4 py-3 text-xs text-right text-gray-900 dark:text-white whitespace-nowrap font-bold">
-                                                                {{ currency_format($expense->amount, $currencyId) }}
+                                                                {{ currency_format($expense->total_amount ?? $expense->amount, $currencyId) }}
                                                             </td>
                                                             <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 capitalize">
                                                                 {{ $expense->payment_method }}
@@ -444,7 +444,7 @@
                                                                     </span>
                                                                 @else
                                                                     <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-300 text-[10px] font-semibold">
-                                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> Pending
+                                                                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg> {{ \Modules\Hotel\Entities\HotelExpense::statusLabel($expense->status) }}
                                                                     </span>
                                                                 @endif
                                                             </td>
@@ -627,7 +627,7 @@
                                                                 {{ str_replace('_', ' ', $expense->department) }}
                                                             </td>
                                                             <td class="px-4 py-3 text-xs text-right text-gray-900 dark:text-white whitespace-nowrap font-bold">
-                                                                {{ currency_format($expense->amount, $currencyId) }}
+                                                                {{ currency_format($expense->total_amount ?? $expense->amount, $currencyId) }}
                                                             </td>
                                                             <td class="px-4 py-3 text-xs text-gray-500 dark:text-gray-400 capitalize">
                                                                 {{ $expense->payment_method }}

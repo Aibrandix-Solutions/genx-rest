@@ -103,8 +103,8 @@
                 <div class="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">{{ currency_format($revenueMetrics['expenses']) }}</div>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Paid {{ currency_format($revenueMetrics['expenses_paid']) }}
-                    @if($revenueMetrics['expenses_pending'] > 0)
-                        · Pending {{ currency_format($revenueMetrics['expenses_pending']) }}
+                    @if(($revenueMetrics['expenses_outstanding'] ?? $revenueMetrics['expenses_pending']) > 0)
+                        · Still owed {{ currency_format($revenueMetrics['expenses_outstanding'] ?? $revenueMetrics['expenses_pending']) }}
                     @endif
                 </p>
             </div>
@@ -115,7 +115,7 @@
             <div class="p-5">
                 <h4 class="text-xs font-semibold uppercase tracking-wide {{ $revenueMetrics['net'] >= 0 ? 'text-indigo-700 dark:text-indigo-300' : 'text-orange-700 dark:text-orange-300' }}">Net</h4>
                 <div class="mt-1 text-3xl font-bold {{ $revenueMetrics['net'] >= 0 ? 'text-gray-900 dark:text-gray-100' : 'text-orange-700 dark:text-orange-300' }}">{{ currency_format($revenueMetrics['net']) }}</div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Revenue minus expenses (paid + pending)</p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Revenue minus billed expenses</p>
             </div>
             <div class="h-1.5 w-full {{ $revenueMetrics['net'] >= 0 ? 'bg-indigo-500' : 'bg-orange-500' }}"></div>
         </div>
@@ -125,7 +125,7 @@
             <div class="p-5">
                 <h4 class="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">Outstanding balance</h4>
                 <div class="mt-1 text-3xl font-bold text-gray-900 dark:text-gray-100">{{ currency_format($reservationStats['outstanding_balance']) }}</div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Unpaid folio total (in-house)</p>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Unpaid folio total (confirmed & in-house)</p>
             </div>
             <div class="h-1.5 w-full bg-amber-500"></div>
         </div>

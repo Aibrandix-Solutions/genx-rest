@@ -67,53 +67,64 @@ class UnifiedFinanceReport extends Component
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
-        // 1. Get filtered active reservations (EXCLUDING cancelled and no-show)
+        // Revenue — same charge_date / order date rules as Dashboard & P&L.
+        $restaurantSales = Order::where('branch_id', $branchId)
+            ->whereNull('hotel_reservation_id')
+            ->whereIn('status', ['paid', 'payment_due'])
+            ->whereBetween('date_time', [$from, $to])
+            ->sum('total');
+
+        $roomServiceSales = Order::where('branch_id', $branchId)
+            ->whereNotNull('hotel_reservation_id')
+            ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
+            ->whereBetween('date_time', [$from, $to])
+            ->whereHas('hotelReservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
+            ->sum('total');
+
+        $activeReservationFilter = function ($q) {
+            $q->whereNotIn('status', [
+                Reservation::STATUS_CANCELLED,
+                Reservation::STATUS_NO_SHOW,
+            ]);
+        };
+
+        $roomNightRevenue = RoomCharge::where('branch_id', $branchId)
+            ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
+            ->whereDate('charge_date', '>=', $this->startDate)
+            ->whereDate('charge_date', '<=', $this->endDate)
+            ->whereHas('reservation', $activeReservationFilter)
+            ->sum('amount');
+
+        $hotelAddOns = RoomCharge::where('branch_id', $branchId)
+            ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
+            ->whereDate('charge_date', '>=', $this->startDate)
+            ->whereDate('charge_date', '<=', $this->endDate)
+            ->whereHas('reservation', $activeReservationFilter)
+            ->sum('amount');
+
+        // Payments & outstanding — active folios (not period-scoped).
         $detailedIncome = Reservation::with(['guest', 'room.roomType', 'charges'])
             ->where('branch_id', $branchId)
             ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
             ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
             ->get();
 
-        $filteredResIds = $detailedIncome->pluck('id')->toArray();
-
-        // 2. Restaurant dine-in / pickup / delivery sales (NOT room-service)
-        $restaurantSales = 0;
-
-        // 3. Room-service orders (tagged to filtered active hotel reservations)
-        $roomServiceSales = 0;
-        if (!empty($filteredResIds)) {
-            $roomServiceSales = Order::where('branch_id', $branchId)
-                ->whereIn('hotel_reservation_id', $filteredResIds)
-                ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
-                ->sum('total');
-        }
-
-        // 4. Room Night charges from filtered active reservations
-        $roomNightRevenue = 0;
-        foreach ($detailedIncome as $res) {
-            $roomNightRevenue += (float)$res->charges->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)->sum('amount');
-        }
-
-        // 5. Other hotel add-on charges (minibar, laundry, service, tax, other — NOT room_night / restaurant) from filtered active reservations
-        $hotelAddOns = 0;
-        foreach ($detailedIncome as $res) {
-            $hotelAddOns += (float)$res->charges->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])->sum('amount');
-        }
-
-        // 6. Hotel Payments and outstanding balances from filtered active reservations (splitting restaurant charges)
         $hotelPaymentsReceived = 0.0;
-        $hotelOutstanding = 0.0;
         $restaurantPaymentsReceived = 0.0;
         $unpaidRestaurant = 0.0;
 
         foreach ($detailedIncome as $res) {
-            $resRestaurantCharges = (float)$res->charges->where('charge_type', RoomCharge::TYPE_RESTAURANT)->sum('amount');
-            $paid = (float)$res->paid_amount;
-            $unpaid = (float)$res->balance_due;
-            $total = (float)$res->total_amount;
+            $resRestaurantCharges = (float) $res->charges->where('charge_type', RoomCharge::TYPE_RESTAURANT)->sum('amount');
+            $paid = (float) $res->paid_amount;
+            $unpaid = (float) $res->balance_due;
+            $total = (float) $res->total_amount;
 
             $hotelPaymentsReceived += ($paid - $resRestaurantCharges * ($total > 0 ? ($paid / $total) : 0));
-            $hotelOutstanding += ($unpaid - $resRestaurantCharges * ($total > 0 ? ($unpaid / $total) : 0));
 
             if ($total > 0) {
                 $ratio = $resRestaurantCharges / $total;
@@ -123,24 +134,31 @@ class UnifiedFinanceReport extends Component
         }
         $restaurantPaymentsReceived -= $unpaidRestaurant;
 
-        $hotelRefunds = 0;
+        $hotelRefunds = (float) HotelPayment::where('branch_id', $branchId)
+            ->whereBetween('created_at', [$from, $to])
+            ->where('payment_type', HotelPayment::TYPE_REFUND)
+            ->sum('amount');
 
-        // 7. Restaurant Payments received (already calculated above)
-        $restaurantPaymentsReceivedRaw = 0;
+        $hotelOutstanding = (float) Reservation::query()
+            ->where('branch_id', $branchId)
+            ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+            ->where('balance_due', '>', 0)
+            ->sum('balance_due');
 
-        // 8. Hotel Expenses
+        // Hotel Expenses
         $detailedExpenses = $this->detailedExpenses;
-        $hotelExpenses = $detailedExpenses->sum('amount');
-        $hotelExpensesPaid = $detailedExpenses->where('status', 'paid')->sum('amount');
-        $hotelExpensesUnpaid = $detailedExpenses->where('status', 'pending')->sum('amount');
+        $hotelExpenses = $detailedExpenses->sum(fn ($e) => (float) ($e->total_amount ?? $e->amount ?? 0));
+        $hotelExpensesPaid = $detailedExpenses->sum(fn ($e) => (float) ($e->amount_paid ?? ($e->status === 'paid' ? ($e->total_amount ?? $e->amount ?? 0) : 0)));
+        $hotelExpensesUnpaid = $detailedExpenses->sum(fn ($e) => (float) ($e->balance_due ?? ($e->status === 'pending' ? ($e->total_amount ?? $e->amount ?? 0) : 0)));
 
         $hotelExpensesByDept = $detailedExpenses
             ->groupBy('department')
-            ->mapWithKeys(fn($items, $dept) => [$dept => $items->sum('amount')]);
+            ->mapWithKeys(fn ($items, $dept) => [
+                $dept => $items->sum(fn ($e) => (float) ($e->total_amount ?? $e->amount ?? 0)),
+            ]);
 
-        // 9. Total Revenue and Total Collected
-        $totalRevenue = $restaurantSales + $detailedIncome->sum('total_amount');
-        $totalCollected = $restaurantPaymentsReceived + $detailedIncome->sum('paid_amount');
+        $totalRevenue = $restaurantSales + $roomServiceSales + $roomNightRevenue + $hotelAddOns;
+        $totalCollected = $restaurantPaymentsReceived + $hotelPaymentsReceived - $hotelRefunds;
 
         return compact(
             'restaurantSales',
@@ -178,11 +196,17 @@ class UnifiedFinanceReport extends Component
             ->select(DB::raw('DATE(date_time) as day'), DB::raw('SUM(total) as amount'))
             ->get()->keyBy('day');
 
-        // Room-service per day
+        // Room-service per day (exclude cancelled / no-show stays)
         $roomServiceByDay = Order::where('branch_id', $branchId)
             ->whereNotNull('hotel_reservation_id')
             ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween(DB::raw('DATE(date_time)'), [$from, $to])
+            ->whereHas('hotelReservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->groupBy(DB::raw('DATE(date_time)'))
             ->select(DB::raw('DATE(date_time) as day'), DB::raw('SUM(total) as amount'))
             ->get()->keyBy('day');
@@ -191,15 +215,21 @@ class UnifiedFinanceReport extends Component
         $roomChargesByDay = RoomCharge::where('branch_id', $branchId)
             ->where('charge_type', '!=', RoomCharge::TYPE_RESTAURANT)
             ->whereBetween(DB::raw('DATE(charge_date)'), [$from, $to])
+            ->whereHas('reservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->groupBy(DB::raw('DATE(charge_date)'))
             ->select(DB::raw('DATE(charge_date) as day'), DB::raw('SUM(amount) as amount'))
             ->get()->keyBy('day');
 
         // Expenses per day (HasBranch scope auto-applies)
-        $expensesByDay = HotelExpense::whereIn('status', ['paid', 'pending'])
+        $expensesByDay = HotelExpense::where('status', '!=', HotelExpense::STATUS_CANCELLED)
             ->whereBetween('expense_date', [$from, $to])
             ->groupBy('expense_date')
-            ->select(DB::raw('DATE(expense_date) as day'), DB::raw('SUM(amount) as amount'))
+            ->select(DB::raw('DATE(expense_date) as day'), DB::raw('SUM(COALESCE(total_amount, amount)) as amount'))
             ->get()->keyBy('day');
 
         // Build day range
@@ -208,7 +238,7 @@ class UnifiedFinanceReport extends Component
         $end = Carbon::parse($to);
         while ($current->lte($end)) {
             $day = $current->toDateString();
-            $rSales   = 0.0;
+            $rSales   = (float) ($restaurantByDay->get($day)?->amount ?? 0);
             $rsService = (float) ($roomServiceByDay->get($day)?->amount ?? 0);
             $rCharges  = (float) ($roomChargesByDay->get($day)?->amount ?? 0);
             $expenses  = (float) ($expensesByDay->get($day)?->amount ?? 0);
@@ -351,7 +381,15 @@ class UnifiedFinanceReport extends Component
             
             $chargeSummary = [];
             foreach ($reservations as $res) {
-                foreach ($res->charges as $c) {
+                $periodCharges = $res->charges->filter(function ($c) {
+                    $chargeDay = $c->charge_date instanceof \Carbon\Carbon
+                        ? $c->charge_date->toDateString()
+                        : (string) $c->charge_date;
+
+                    return $chargeDay >= $this->startDate && $chargeDay <= $this->endDate;
+                });
+
+                foreach ($periodCharges as $c) {
                     $typeLabel = '';
                     if ($c->charge_type === RoomCharge::TYPE_ROOM_NIGHT) {
                         $typeLabel = 'Room Charge';
@@ -397,7 +435,7 @@ class UnifiedFinanceReport extends Component
     public function getDetailedExpensesProperty(): \Illuminate\Support\Collection
     {
         $expenses = HotelExpense::with('departmentRelation')
-            ->whereIn('status', ['paid', 'pending'])
+            ->where('status', '!=', HotelExpense::STATUS_CANCELLED)
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->get();
 
@@ -418,6 +456,9 @@ class UnifiedFinanceReport extends Component
                     'title' => 'Restaurant Folio Transfer: ' . $res->reservation_number,
                     'description' => 'Restaurant order charged to room ' . ($res->room?->room_number ?? ''),
                     'amount' => $charge->amount,
+                    'total_amount' => $charge->amount,
+                    'amount_paid' => $isPaid ? $charge->amount : 0,
+                    'balance_due' => $isPaid ? 0 : $charge->amount,
                     'department' => 'restaurant',
                     'payment_method' => 'room_folio',
                     'status' => $isPaid ? 'paid' : 'pending',
@@ -443,7 +484,7 @@ class UnifiedFinanceReport extends Component
         $totalInflow = (float) $payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount') 
                        - (float) $payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
 
-        $totalOutflow = (float) $this->detailedExpenses->where('status', 'paid')->sum('amount');
+        $totalOutflow = (float) $this->detailedExpenses->sum(fn ($e) => (float) ($e->amount_paid ?? ($e->status === 'paid' ? ($e->total_amount ?? $e->amount ?? 0) : 0)));
 
         return [
             'totalInflow' => $totalInflow,
@@ -495,7 +536,7 @@ class UnifiedFinanceReport extends Component
 
     public function getDetailedCashOutflowProperty(): \Illuminate\Support\Collection
     {
-        return $this->detailedExpenses->where('status', 'paid');
+        return $this->detailedExpenses->filter(fn ($e) => (float) ($e->amount_paid ?? 0) > 0 || $e->status === 'paid');
     }
 
     public function render()

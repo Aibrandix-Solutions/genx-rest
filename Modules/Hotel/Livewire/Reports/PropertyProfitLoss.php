@@ -10,6 +10,7 @@ use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Maatwebsite\Excel\Facades\Excel;
 use Modules\Hotel\Exports\PropertyProfitLossExport;
 use Modules\Hotel\Entities\HotelPayment;
+use Modules\Hotel\Entities\Reservation;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
 use App\Models\Order;
@@ -74,20 +75,32 @@ class PropertyProfitLoss extends Component
             ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
+            ->whereHas('reservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->sum('amount');
 
         $hotelAddOns = RoomCharge::where('branch_id', $branchId)
             ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
+            ->whereHas('reservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->sum('amount');
 
         $totalRevenue = $restaurantSales + $roomServiceSales + $roomNightRevenue + $hotelAddOns;
 
         // ── EXPENSES (HasBranch scope auto-applies for HotelExpense) ──
-        $hotelExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
+        $hotelExpenses = HotelExpense::where('status', '!=', HotelExpense::STATUS_CANCELLED)
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
-            ->sum('amount');
+            ->sum(DB::raw('COALESCE(total_amount, amount)'));
 
         // Restaurant Expenses — scoped by branch_id (Expenses uses HasBranch, not HasRestaurant)
         $restaurantExpenses = DB::table('expenses')
@@ -102,11 +115,14 @@ class PropertyProfitLoss extends Component
         $profitMargin = $totalRevenue > 0 ? round(($netProfit / $totalRevenue) * 100, 1) : 0;
 
         // ── HOTEL EXPENSES BY DEPARTMENT ──
-        $hotelExpByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
+        $hotelExpByDept = HotelExpense::where('hotel_expenses.status', '!=', HotelExpense::STATUS_CANCELLED)
             ->whereBetween('expense_date', [$this->startDate, $this->endDate])
             ->leftJoin('hotel_expense_departments', 'hotel_expenses.department_id', '=', 'hotel_expense_departments.id')
             ->groupBy('hotel_expense_departments.name')
-            ->select(DB::raw("COALESCE(hotel_expense_departments.name, 'Other') as department"), DB::raw('SUM(amount) as total'))
+            ->select(
+                DB::raw("COALESCE(hotel_expense_departments.name, 'Other') as department"),
+                DB::raw('SUM(COALESCE(hotel_expenses.total_amount, hotel_expenses.amount)) as total')
+            )
             ->get();
 
         // ── RESTAURANT EXPENSES BY CATEGORY ──
@@ -126,17 +142,43 @@ class PropertyProfitLoss extends Component
             $mTo   = $monthEnd   . ' 23:59:59';
 
             $mRevenue = Order::where('branch_id', $branchId)
+                ->whereNull('hotel_reservation_id')
                 ->whereIn('status', ['paid', 'payment_due'])
                 ->whereBetween('date_time', [$mFrom, $mTo])
                 ->sum('total');
+            $mRevenue += Order::where('branch_id', $branchId)
+                ->whereNotNull('hotel_reservation_id')
+                ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
+                ->whereBetween('date_time', [$mFrom, $mTo])
+                ->whereHas('hotelReservation', function ($q) {
+                    $q->whereNotIn('status', [
+                        Reservation::STATUS_CANCELLED,
+                        Reservation::STATUS_NO_SHOW,
+                    ]);
+                })
+                ->sum('total');
+            $activeReservationFilter = function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            };
             $mRevenue += RoomCharge::where('branch_id', $branchId)
+                ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
                 ->whereDate('charge_date', '>=', $monthStart)
                 ->whereDate('charge_date', '<=', $monthEnd)
+                ->whereHas('reservation', $activeReservationFilter)
+                ->sum('amount');
+            $mRevenue += RoomCharge::where('branch_id', $branchId)
+                ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
+                ->whereDate('charge_date', '>=', $monthStart)
+                ->whereDate('charge_date', '<=', $monthEnd)
+                ->whereHas('reservation', $activeReservationFilter)
                 ->sum('amount');
 
-            $mExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
+            $mExpenses = HotelExpense::where('status', '!=', HotelExpense::STATUS_CANCELLED)
                 ->whereBetween('expense_date', [$monthStart, $monthEnd])
-                ->sum('amount');
+                ->sum(DB::raw('COALESCE(total_amount, amount)'));
             $mExpenses += DB::table('expenses')
                 ->where('branch_id', branch()->id)
                 ->whereBetween('expense_date', [$monthStart, $monthEnd])

@@ -246,7 +246,7 @@ class UnifiedFinanceReportExport implements FromArray, WithEvents, WithTitle, Sh
 
         $outLines = [
             $this->money($this->summary['hotelOutstanding']),
-            'Pending balances on active reservations',
+            'Unpaid folio balances on confirmed & in-house stays',
         ];
 
         $maxLines = max(count($payLines), count($expLines), count($outLines));

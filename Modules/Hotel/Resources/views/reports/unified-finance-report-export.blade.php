@@ -121,7 +121,7 @@
                 <div class="card yellow">
                     <div class="card-heading">Hotel Outstanding</div>
                     <div class="outstanding-value">{{ currency_format($summary['hotelOutstanding'], $currencyId) }}</div>
-                    <div class="card-sub">Pending balances on active reservations</div>
+                    <div class="card-sub">Unpaid folio balances on confirmed & in-house stays</div>
                 </div>
             </td>
         </tr>
