@@ -18,6 +18,7 @@ use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\PurchaseReturn;
 use Modules\Inventory\Entities\AccountTransaction;
 use App\Models\BranchPaymentAccountSetting;
+use App\Scopes\BranchScope;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -138,7 +139,7 @@ class SupplierDetails extends Component
     public function loadLedger()
     {
         // 1. Received Purchases → Debits (what we owe the supplier)
-        $purchasesQuery = $this->supplier->orders()->where('status', 'received');
+        $purchasesQuery = $this->supplier->restaurantOrders()->where('status', 'received');
 
         if ($this->locationId) {
             $purchasesQuery->where('location_id', $this->locationId);
@@ -162,7 +163,7 @@ class SupplierDetails extends Component
 
         if ($this->locationId) {
             $paymentsQuery->where(function ($q) {
-                $q->whereHas('purchaseOrder', fn ($q2) => $q2->where('location_id', $this->locationId))
+                $q->whereHas('purchaseOrder', fn ($q2) => $q2->withoutGlobalScope(BranchScope::class)->where('location_id', $this->locationId))
                   ->orWhereNull('purchase_order_id');
             });
         }
@@ -178,10 +179,10 @@ class SupplierDetails extends Component
             ]);
 
         // 3. Purchase Returns → Credits (goods returned, reducing what we owe)
-        $returnsQuery = PurchaseReturn::where('supplier_id', $this->supplier->id);
+        $returnsQuery = $this->supplier->restaurantReturns();
 
         if ($this->locationId) {
-            $returnsQuery->whereHas('purchaseOrder', fn ($q) => $q->where('location_id', $this->locationId));
+            $returnsQuery->whereHas('purchaseOrder', fn ($q) => $q->withoutGlobalScope(BranchScope::class)->where('location_id', $this->locationId));
         }
 
         $returns = $returnsQuery->get(['id', 'reference_no', 'return_date', 'total_amount'])
@@ -298,7 +299,7 @@ class SupplierDetails extends Component
     {
         // Fetch items purchased from this supplier
         // We'll look at received purchases
-        $query = $this->supplier->orders()
+        $query = $this->supplier->restaurantOrders()
             ->where('status', 'received')
             ->with(['items.inventoryItem.unit']);
 
@@ -394,7 +395,7 @@ class SupplierDetails extends Component
             $paymentBatchId = (string) Str::uuid();
 
             // FIFO: oldest received & still-due purchases first
-            $duePurchases = $this->supplier->orders()
+            $duePurchases = $this->supplier->restaurantOrders()
                 ->where('status', 'received')
                 ->with('payments')
                 ->orderBy('order_date', 'asc')
@@ -657,7 +658,7 @@ class SupplierDetails extends Component
     {
         abort_if(!user_can('Show Purchase Order'), 403);
 
-        $purchaseOrder = PurchaseOrder::query()
+        $purchaseOrder = PurchaseOrder::withoutGlobalScope(BranchScope::class)
             ->where('id', $purchaseOrderId)
             ->where('supplier_id', $this->supplier->id)
             ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
@@ -688,7 +689,7 @@ class SupplierDetails extends Component
 
     public function confirmDeletePurchase($purchaseOrderId)
     {
-        $purchaseOrder = PurchaseOrder::find($purchaseOrderId);
+        $purchaseOrder = PurchaseOrder::withoutGlobalScope(BranchScope::class)->find($purchaseOrderId);
         if ($purchaseOrder && !in_array($purchaseOrder->status, ['cancelled'], true)) {
             $this->purchaseOrderToDelete = $purchaseOrder;
             $this->confirmingDeletion = true;
@@ -833,7 +834,7 @@ class SupplierDetails extends Component
 
     public function getPurchasesProperty()
     {
-        return $this->supplier->orders()
+        return $this->supplier->restaurantOrders()
             ->when($this->search, function ($query) {
                 $query->where(function ($q) {
                     $q->where('id', 'like', '%' . $this->search . '%')

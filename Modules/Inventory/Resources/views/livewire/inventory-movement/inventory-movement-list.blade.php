@@ -105,6 +105,13 @@
                     </x-dropdown>
                 </div>
 
+                <select wire:model.live="locationFilter" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">{{ __('inventory::modules.stock.allLocations') }}</option>
+                    @foreach($locations as $location)
+                        <option value="{{ $location->id }}">{{ $location->display_name ?? $location->name }}</option>
+                    @endforeach
+                </select>
+
                 <select wire:model.live="filterType" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500">
                     <option value="">{{ __('inventory::modules.movements.filters.all_types') }}</option>
                     @foreach(['in', 'out', 'waste', 'transfer'] as $type)
@@ -126,7 +133,7 @@
                     <option value="quarter">{{ __('inventory::modules.movements.filters.date_ranges.quarter') }}</option>
                 </select>
 
-                @if($search || $filterType || $category || $dateRange !== 'month' || $startDate || $endDate)
+                @if($search || $locationFilter || $filterType || $category || $dateRange !== 'month' || $startDate || $endDate)
                     <button
                         wire:click="clearFilters"
                         class="inline-flex items-center px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200">

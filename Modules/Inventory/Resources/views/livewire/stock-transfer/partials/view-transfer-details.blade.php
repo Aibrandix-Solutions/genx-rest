@@ -82,6 +82,9 @@
                             {{ __('inventory::modules.transfers.item') }}
                         </th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
+                            {{ __('inventory::modules.transfers.item_code') }}
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
                             {{ __('inventory::modules.transfers.requested_quantity') }}
                         </th>
                         <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase">
@@ -100,6 +103,9 @@
                         <tr class="align-top">
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
                                 {{ $item->sourceItem->name }}
+                            </td>
+                            <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 font-mono">
+                                {{ $item->sourceItem->item_code ?: '—' }}
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-900 dark:text-white">
                                 {{ number_format($item->requested_quantity, 2) }} {{ $item->unit?->symbol ?? $item->sourceItem->unit?->symbol ?? '' }}

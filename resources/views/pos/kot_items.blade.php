@@ -276,7 +276,8 @@
         </div>
 
         <div class="flex flex-col rounded">
-            <table class=" flex-1  min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+            <table class="pos-cart-table flex-1 min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <x-pos.cart-table-cols />
                 <thead class="bg-gray-100 dark:bg-gray-700">
                     <tr>
                         <th scope="col"
@@ -409,13 +410,13 @@
 
                                 <x-pos.item-note :id="$key" :note="$itemNotes[$key] ?? ''" />
                             </td>
-                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
+                            <td class="p-1 text-center align-middle overflow-hidden">
 
-                                <div class="relative flex items-center max-w-[8rem] mx-auto"
+                                <div class="relative flex items-center w-full max-w-full mx-auto"
                                     wire:key='orderItemQty-{{ $key }}-counter'>
                                     <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), -1, this); return false;"
                                         @disabled($comboId)
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round"
@@ -431,12 +432,12 @@
                                             window.posClient?.queueQtySet(@js((string) $key), normalized, this);
                                             return false;
                                         "
-                                        class="min-w-10 bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
+                                        class="min-w-0 w-full h-7 bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" @readonly($comboId) />
 
                                     <button type="button" onclick="window.posClient?.queueQtyDelta(@js((string) $key), 1, this); return false;"
                                         @disabled($comboId)
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round"
@@ -456,10 +457,10 @@
                                 {{ currency_format($displayPrice, restaurant()->currency_id) }}
                             </td>
                             <td
-                                class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                 {{ currency_format($totalAmount, restaurant()->currency_id) }}
                             </td>
-                            <td class="p-2 whitespace-nowrap text-right">
+                            <td class="p-1 whitespace-nowrap text-right">
                                 @if($canManageItems && !$comboId)
                                 <button
                                     class="rounded text-gray-800 dark:text-gray-400 border dark:border-gray-500 hover:bg-gray-200 dark:hover:bg-gray-900/20 p-2 relative"
@@ -696,103 +697,36 @@
             @if (in_array('KOT', restaurant_modules()))
                 <div class="flex gap-3">
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative" wire:click="saveOrder('kot')"
-                        wire:loading.attr="disabled" wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('kot')">@lang('modules.order.kot')</span>
-                        <span wire:loading wire:target="saveOrder('kot')">
-                            <svg class="animate-spin -ml-1 mr-1 h-4 w-4 inline-flex text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.kot')
-                        </span>
+                        wire:loading.attr="disabled" wire:target="saveOrder('kot')">
+                        @lang('modules.order.kot')
                     </button>
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative"
                         wire:click="saveOrder('kot', 'print')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('kot', 'print')">@lang('modules.order.kotAndPrint')</span>
-                        <span wire:loading wire:target="saveOrder('kot', 'print')" class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.kotAndPrint')
-                        </span>
+                        wire:target="saveOrder('kot', 'print')">
+                        @lang('modules.order.kotAndPrint')
                     </button>
                     <button class="rounded bg-gray-700 text-white w-full p-2 relative"
                         wire:click="saveOrder('kot','bill','payment', 'print')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove
-                            wire:target="saveOrder('kot','bill','payment', 'print')">@lang('modules.order.kotBillAndPayment')</span>
-                        <span wire:loading wire:target="saveOrder('kot','bill','payment', 'print')" >
-                            <svg class="animate-spin inline-flex -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.kotBillAndPayment')
-                        </span>
+                        wire:target="saveOrder('kot','bill','payment', 'print')">
+                        @lang('modules.order.kotBillAndPayment')
                     </button>
                 </div>
             @endif
             @if (!$orderID)
                 <div class="flex gap-3 mt-3">
                     <button class="rounded bg-skin-base text-white w-full p-2 relative" wire:click="saveOrder('bill')"
-                        wire:loading.attr="disabled" wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('bill')">@lang('modules.order.bill')</span>
-                        <span wire:loading wire:target="saveOrder('bill')">
-                            <svg class="animate-spin inline-flex items-center -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.bill')
-                        </span>
+                        wire:loading.attr="disabled" wire:target="saveOrder('bill')">
+                        @lang('modules.order.bill')
                     </button>
                     <button class="rounded bg-green-500 text-white w-full p-2 relative"
                         wire:click="saveOrder('bill', 'payment')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('bill', 'payment')">@lang('modules.order.billAndPayment')</span>
-                        <span wire:loading wire:target="saveOrder('bill', 'payment')">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-flex items-center" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.billAndPayment')
-                        </span>
+                        wire:target="saveOrder('bill', 'payment')">
+                        @lang('modules.order.billAndPayment')
                     </button>
                     <button class="rounded bg-blue-500 text-white w-full p-2 relative"
                         wire:click="saveOrder('bill', 'print')" wire:loading.attr="disabled"
-                        wire:loading.class="opacity-50">
-                        <span wire:loading.remove wire:target="saveOrder('bill', 'print')">@lang('modules.order.createBillAndPrintReceipt')</span>
-                        <span wire:loading wire:target="saveOrder('bill', 'print')" class="inline-flex items-center">
-                            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                fill="none" viewBox="0 0 24 24">
-                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                    stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor"
-                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                </path>
-                            </svg>
-                            @lang('modules.order.createBillAndPrintReceipt')
-                        </span>
+                        wire:target="saveOrder('bill', 'print')">
+                        @lang('modules.order.createBillAndPrintReceipt')
                     </button>
                 </div>
             @endif

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\DB;
 use App\Traits\HasBranch;
 use App\Models\User;
+use App\Scopes\BranchScope;
 
 class PurchaseOrder extends Model
 {
@@ -23,6 +24,14 @@ class PurchaseOrder extends Model
         'total_amount' => 'decimal:2',
         'discount' => 'decimal:2',
     ];
+
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::withoutGlobalScope(BranchScope::class)
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->first();
+    }
 
     public function supplier(): BelongsTo
     {

@@ -3,11 +3,7 @@
 namespace Modules\Hotel\Livewire\Folio;
 
 use Livewire\Component;
-use Modules\Hotel\Entities\Reservation;
-use Modules\Hotel\Entities\RoomCharge;
-use Modules\Hotel\Entities\HotelPayment;
-use Modules\Hotel\Entities\HotelSetting;
-use Modules\Hotel\Services\FolioChargePresenter;
+use Modules\Hotel\Services\FolioInvoiceData;
 
 class InvoiceV2 extends Component
 {
@@ -16,6 +12,7 @@ class InvoiceV2 extends Component
     public $charges;
     public $folioSummary = [];
     public $payments;
+    public $viewMode = 'single'; // single | group
     public $totalCharges = 0;
     public $totalPayments = 0;
     public $balance = 0;
@@ -23,49 +20,62 @@ class InvoiceV2 extends Component
     public $hotelLogo    = '';
     public $hotelAddress = '';
     public $hotelPhone   = '';
+    public $format = 'thermal';
+    public $width = 80;
+    public $thermal = true;
 
     public function mount($reservationId)
     {
         abort_unless(user_can('view_hotel_billing'), 403);
         $this->reservationId = $reservationId;
+        $this->viewMode = request()->query('viewMode', 'consolidated');
+        $this->format = request()->query('format', 'thermal');
+        if (! in_array($this->format, ['thermal', 'a4'], true)) {
+            $this->format = 'thermal';
+        }
+        $this->width = (int) request()->query('width', 80);
+        if (! in_array($this->width, [56, 58, 80, 112], true)) {
+            $this->width = 80;
+        }
+        $this->thermal = request()->boolean('thermal', $this->format === 'thermal');
+        if (! $this->thermal) {
+            $this->format = 'a4';
+        }
         $this->loadData();
     }
 
     public function loadData()
     {
-        $this->reservation = Reservation::with(['guest', 'room', 'room.roomType'])
-            ->findOrFail($this->reservationId);
+        $data = FolioInvoiceData::build(
+            (int) $this->reservationId,
+            $this->viewMode,
+            $this->format,
+            $this->width,
+        );
 
-        // Load hotel name from settings
-        $settings = HotelSetting::first();
-        $this->hotelName    = $settings->hotel_name ?? restaurant()->name ?? '';
-        $this->hotelLogo    = $settings->hotel_logo ?? '';
-        $this->hotelAddress = restaurant()->address ?? '';
-        $this->hotelPhone   = restaurant()->phone ?? '';
-        
-        $this->charges = RoomCharge::with('order')
-            ->where('reservation_id', $this->reservationId)
-            ->orderBy('charge_date', 'asc')
-            ->get();
-
-        $this->folioSummary = FolioChargePresenter::summarize($this->reservation, $this->charges);
-
-        $this->payments = HotelPayment::where('reservation_id', $this->reservationId)
-            ->orderBy('created_at', 'asc')
-            ->get();
-
-        $this->totalCharges = $this->folioSummary['subtotal'];
-
-        $totalPaid = $this->payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount');
-        $totalRefunds = $this->payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
-        $this->totalPayments = $totalPaid - $totalRefunds;
-
-        $this->balance = $this->totalCharges - $this->totalPayments;
+        $this->reservation = $data['reservation'];
+        $this->folioSummary = $data['folioSummary'];
+        $this->payments = $data['payments'];
+        $this->totalCharges = $data['totalCharges'];
+        $this->totalPayments = $data['totalPayments'];
+        $this->balance = $data['balance'];
+        $this->hotelName = $data['hotelName'];
+        $this->hotelLogo = $data['hotelLogo'];
+        $this->hotelAddress = $data['hotelAddress'];
+        $this->hotelPhone = $data['hotelPhone'];
     }
 
     public function render()
     {
-        return view('hotel::livewire.folio.invoice-v2')
-            ->layout('layouts.empty');
+        $view = $this->format === 'a4'
+            ? 'hotel::folio.invoice-print-a4'
+            : 'hotel::folio.invoice-print';
+
+        return view($view, FolioInvoiceData::build(
+            (int) $this->reservationId,
+            $this->viewMode,
+            $this->format,
+            $this->width,
+        ));
     }
 }

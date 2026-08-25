@@ -22,17 +22,23 @@
                         </h1>
                         <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-stone-600 dark:text-gray-400">
                             <span class="font-medium text-stone-800 dark:text-gray-200">
-                                @lang('hotel::modules.reservation.room') {{ $reservation->room->room_number }}
+                                @if($reservation->group_booking_id)
+                                    Rooms: {{ $this->roomNumbersList }}
+                                @else
+                                    @lang('hotel::modules.reservation.room') {{ $reservation->room->room_number }} ({{ $reservation->room->roomType->name }})
+                                @endif
                             </span>
-                            <span class="text-stone-300 dark:text-gray-600">|</span>
-                            <span>{{ $reservation->room->roomType->name }}</span>
                             <span class="text-stone-300 dark:text-gray-600">|</span>
                             <span>{{ $reservation->check_in_date->format('d M') }} – {{ $reservation->checkout_date->format('d M Y') }}</span>
                             <span class="text-stone-300 dark:text-gray-600">|</span>
                             <span>{{ $reservation->getNumberOfNights() }} @lang('hotel::modules.folio.nights')</span>
                         </div>
                         <p class="text-xs font-mono text-stone-500 dark:text-gray-500">
-                            {{ $reservation->reservation_number }}
+                            @if($reservation->group_booking_id)
+                                Reservations: {{ $this->groupReservationNumbers }}
+                            @else
+                                {{ $reservation->reservation_number }}
+                            @endif
                             <span @class([
                                 'ml-2 px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide',
                                 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' => $reservation->status === 'checked_in',
@@ -63,13 +69,42 @@
                             @lang('hotel::modules.folio.issueRefund')
                         </button>
                         @endif
-                        <a href="{{ route('hotel.invoice', $reservation->id) }}" target="_blank" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-stone-700 bg-white border border-stone-200 rounded-xl hover:bg-stone-50 transition dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700">
-                            @lang('hotel::modules.folio.printInvoice')
+                        <a href="{{ route('hotel.invoice', $reservation->id) }}?viewMode={{ $viewMode }}&format=thermal&width=80&thermal=1" target="_blank" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-stone-700 bg-white border border-stone-200 rounded-xl hover:bg-stone-50 transition dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700">
+                            @lang('hotel::modules.folio.printInvoiceThermal')
+                        </a>
+                        <a href="{{ route('hotel.invoice', $reservation->id) }}?viewMode={{ $viewMode }}&format=a4" target="_blank" class="inline-flex items-center px-4 py-2.5 text-sm font-medium text-stone-700 bg-white border border-stone-200 rounded-xl hover:bg-stone-50 transition dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-700">
+                            @lang('hotel::modules.folio.printInvoiceA4')
                         </a>
                     </div>
                 </div>
             </div>
         </div>
+
+        {{-- Group Booking Toggle --}}
+        @if($reservation->group_booking_id)
+            <div class="flex items-center justify-between p-4 bg-amber-50/60 border border-amber-200/80 rounded-2xl dark:bg-amber-950/20 dark:border-amber-900/60">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">Group Booking</span>
+                    <span class="text-sm text-stone-600 dark:text-gray-400">This reservation is part of a group booking (Code: <strong>{{ $reservation->group_booking_id }}</strong>).</span>
+                </div>
+                <div class="flex border border-stone-200 rounded-xl overflow-hidden shadow-sm dark:border-gray-700">
+                    <button wire:click="$set('viewMode', 'consolidated')" @class([
+                        'px-4 py-2 text-xs font-semibold transition-all duration-150',
+                        'bg-stone-800 text-white dark:bg-stone-700' => $viewMode === 'consolidated',
+                        'bg-white text-stone-700 hover:bg-stone-50 dark:bg-gray-800 dark:text-gray-300' => $viewMode !== 'consolidated',
+                    ])>
+                        Consolidated (All Rooms)
+                    </button>
+                    <button wire:click="$set('viewMode', 'roomwise')" @class([
+                        'px-4 py-2 text-xs font-semibold transition-all duration-150',
+                        'bg-stone-800 text-white dark:bg-stone-700' => $viewMode === 'roomwise',
+                        'bg-white text-stone-700 hover:bg-stone-50 dark:bg-gray-800 dark:text-gray-300' => $viewMode !== 'roomwise',
+                    ])>
+                        Room-wise Breakdown
+                    </button>
+                </div>
+            </div>
+        @endif
 
         {{-- Balance ledger strip --}}
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -352,6 +387,19 @@
         <x-slot name="content">
             <form wire:submit.prevent="saveCharge">
                 <div class="space-y-4" x-data="{ showCustomType: @js($chargeType === 'other') }">
+                    @if($reservation->group_booking_id)
+                        <div>
+                            <x-label for="chargeReservationId" value="Apply Charge To Room *" />
+                            <select id="chargeReservationId" wire:model="chargeReservationId"
+                                class="block w-full mt-1 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white sm:text-sm">
+                                @foreach($this->groupReservationsList as $resItem)
+                                    <option value="{{ $resItem->id }}">Room {{ $resItem->room->room_number }} ({{ $resItem->room->roomType->name }})</option>
+                                @endforeach
+                            </select>
+                            <x-input-error for="chargeReservationId" class="mt-2" />
+                        </div>
+                    @endif
+
                     <div>
                         <x-label for="chargeType" value="{{ __('hotel::modules.folio.chargeType') }}" />
                         <select id="chargeType" wire:model="chargeType"

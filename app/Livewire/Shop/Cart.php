@@ -192,17 +192,23 @@ class Cart extends Component
             // For regular users, determine default order type but show modal first
             $this->orderType = $this->restaurant->allow_dine_in_orders ? 'dine_in' : ($this->restaurant->allow_customer_delivery_orders ? 'delivery' : 'pickup');
 
-            // Check if we have multiple order types to show modal
-            $availableOrderTypes = OrderType::where('branch_id', $this->shopBranch->id)
-                ->where('is_active', true)
-                ->count();
+            $customerOrderTypes = $this->customerSiteOrderTypes()->get();
+            $availableOrderTypes = $customerOrderTypes->count();
 
             // Show modal if more than one order type available
             $this->showOrderTypeModal = $availableOrderTypes > 1;
 
             // If only one order type, set it automatically
             if ($availableOrderTypes == 1) {
-                $this->setDefaultOrderType();
+                $single = $customerOrderTypes->first();
+                if ($single) {
+                    $this->orderType = $single->type;
+                    $this->orderTypeId = $single->id;
+                    $this->orderTypeSlug = $single->slug;
+                    $this->updatedOrderTypeId($this->orderTypeId);
+                } else {
+                    $this->setDefaultOrderType();
+                }
             }
         }
 
@@ -236,6 +242,37 @@ class Cart extends Component
 
         // Initialize header settings
         $this->initializeHeaderSettings();
+    }
+
+    /**
+     * Order types offered on the public customer site.
+     * Room Service is staff/POS-only (needs an in-house reservation).
+     */
+    private function customerSiteOrderTypes()
+    {
+        $allowedTypes = [];
+
+        if ($this->restaurant->allow_dine_in_orders) {
+            $allowedTypes[] = 'dine_in';
+        }
+        if ($this->restaurant->allow_customer_delivery_orders) {
+            $allowedTypes[] = 'delivery';
+        }
+        if ($this->restaurant->allow_customer_pickup_orders) {
+            $allowedTypes[] = 'pickup';
+        }
+
+        return OrderType::where('branch_id', $this->shopBranch->id)
+            ->where('is_active', true)
+            ->where('slug', '!=', 'room_service')
+            ->where('type', '!=', 'room_service')
+            ->when(
+                ! empty($allowedTypes),
+                fn ($q) => $q->whereIn('type', $allowedTypes),
+                fn ($q) => $q->whereRaw('0 = 1')
+            )
+            ->orderByRaw("FIELD(type, 'dine_in', 'pickup', 'delivery')")
+            ->orderBy('order_type_name');
     }
 
     private function isDeliveryOrderType(): bool
@@ -509,11 +546,22 @@ class Cart extends Component
             return;
         }
 
+        $orderType = OrderType::where('id', $orderTypeId)
+            ->where('branch_id', $this->shopBranch->id)
+            ->where('is_active', true)
+            ->where('slug', '!=', 'room_service')
+            ->where('type', '!=', 'room_service')
+            ->first();
+
+        if (!$orderType) {
+            return;
+        }
+
         // Set the order type ID which will trigger updatedOrderTypeId
-        $this->orderTypeId = $orderTypeId;
+        $this->orderTypeId = $orderType->id;
 
         // Livewire does not run updated hooks for server-side assignments
-        $this->updatedOrderTypeId($orderTypeId);
+        $this->updatedOrderTypeId($orderType->id);
 
         // Close the modal
         $this->showOrderTypeModal = false;
@@ -1238,7 +1286,10 @@ class Cart extends Component
 
             // Items without a kitchen go into a default KOT
             if (!empty($noKitchenItems)) {
-                $defaultKitchen = \App\Models\KotPlace::where('is_default', true)->first();
+                $defaultKitchen = \App\Models\KotPlace::where('branch_id', $this->shopBranch->id)
+                    ->where('is_default', true)
+                    ->first()
+                    ?? \App\Models\KotPlace::where('branch_id', $this->shopBranch->id)->first();
                 $kotObj = Kot::create([
                     'branch_id' => $this->shopBranch->id,
                     'kot_number' => (Kot::generateKotNumber($this->shopBranch) + 1),
@@ -1985,12 +2036,16 @@ class Cart extends Component
         }
 
         if ($this->search) {
-            $query->where(function ($q) {
-                $q->where('item_name', 'like', '%' . $this->search . '%')
-                    ->orWhere('item_code', 'like', '%' . $this->search . '%') // Search by item code
-                    ->orWhereTranslation('item_name', 'like', '%' . $this->search . '%', locale: current_locale(), fallback: false)
-                    ->orWhereHas('category', function ($q) {
-                        $q->where('item_name', 'like', '%' . $this->search . '%');
+            $search = '%' . $this->search . '%';
+            $query->where(function ($q) use ($locale, $search) {
+                $q->where('menu_items.item_name', 'like', $search)
+                    ->orWhere('menu_items.item_code', 'like', $search)
+                    ->orWhereHas('translations', function ($tq) use ($locale, $search) {
+                        $tq->where('locale', $locale)
+                            ->where('item_name', 'like', $search);
+                    })
+                    ->orWhereHas('category', function ($cq) use ($search) {
+                        $cq->where('category_name', 'like', $search);
                     });
             });
         }
@@ -2026,20 +2081,8 @@ class Cart extends Component
 
         $menuList = Menu::withoutGlobalScopes()->where('branch_id', $this->shopBranch->id)->withCount('items')->orderBy('sort_order')->get();
 
-        // Get available order types for customer (no delivery apps)
-        $orderTypes = OrderType::where('branch_id', $this->shopBranch->id)
-            ->where('is_active', true)
-            ->where('is_default', false) // Only custom order types
-            ->orderBy('order_type_name')
-            ->get();
-
-        // Also get default order types if no custom ones exist
-        if ($orderTypes->isEmpty()) {
-            $orderTypes = OrderType::where('branch_id', $this->shopBranch->id)
-                ->where('is_active', true)
-                ->orderBy('order_type_name')
-                ->get();
-        }
+        // Customer-facing order types only (never Room Service / staff POS types)
+        $orderTypes = $this->customerSiteOrderTypes()->get();
 
         // Set price context on menu items in the query results
         if ($this->orderTypeId) {

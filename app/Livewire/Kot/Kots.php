@@ -250,7 +250,21 @@ class Kots extends Component
 
             // Filter by kitchen if selected (use KOT's kitchen_place_id for multi-kitchen support)
             if ($this->selectedKitchen) {
-                $kots = $kots->where('kots.kitchen_place_id', $this->selectedKitchen);
+                $selectedKitchenId = $this->selectedKitchen;
+                $kots = $kots->where(function ($q) use ($selectedKitchenId) {
+                    $q->where('kots.kitchen_place_id', $selectedKitchenId)
+                        ->orWhere(function ($orphan) use ($selectedKitchenId) {
+                            $orphan->whereNull('kots.kitchen_place_id')
+                                ->whereHas('items.menuItem', function ($mi) use ($selectedKitchenId) {
+                                    $mi->where(function ($inner) use ($selectedKitchenId) {
+                                        $inner->where('menu_items.kot_place_id', $selectedKitchenId)
+                                            ->orWhereHas('kotPlaces', function ($pivotQuery) use ($selectedKitchenId) {
+                                                $pivotQuery->where('kot_places.id', $selectedKitchenId);
+                                            });
+                                    });
+                                });
+                        });
+                });
             }
 
             // Search functionality
@@ -288,6 +302,18 @@ class Kots extends Component
                 ->where(function ($q) use ($currentKitchenId) {
                     // KOTs directly assigned to this kitchen
                     $q->where('kots.kitchen_place_id', $currentKitchenId)
+                      // Legacy KOTs missing kitchen_place_id (customer-site staff confirm bug)
+                      ->orWhere(function ($orphan) use ($currentKitchenId) {
+                          $orphan->whereNull('kots.kitchen_place_id')
+                              ->whereHas('items.menuItem', function ($mi) use ($currentKitchenId) {
+                                  $mi->where(function ($inner) use ($currentKitchenId) {
+                                      $inner->where('menu_items.kot_place_id', $currentKitchenId)
+                                          ->orWhereHas('kotPlaces', function ($pivotQuery) use ($currentKitchenId) {
+                                              $pivotQuery->where('kot_places.id', $currentKitchenId);
+                                          });
+                                  });
+                              });
+                      })
                       // OR KOTs with multi-kitchen items that are assigned to this kitchen
                       ->orWhereHas('items', function ($itemQuery) use ($currentKitchenId) {
                           $itemQuery->where('is_multi_kitchen', true)

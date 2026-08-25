@@ -4,11 +4,15 @@ namespace Modules\Hotel\Livewire\Reports;
 
 use Carbon\Carbon;
 use Livewire\Component;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
+use Maatwebsite\Excel\Facades\Excel;
+use Modules\Hotel\Exports\UnifiedFinanceReportExport;
 use Modules\Hotel\Entities\HotelPayment;
 use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HotelExpense;
+use Modules\Hotel\Entities\Reservation;
 use App\Models\Order;
 use App\Models\Payment;
 use Modules\Hotel\Services\OrderFolioSettlement;
@@ -20,6 +24,11 @@ class UnifiedFinanceReport extends Component
     public $dateRangeType = 'currentMonth';
     public $startDate = '';
     public $endDate   = '';
+    public $activeTab = 'daily';
+    public $showIncomeDetails = false;
+    public $showExpenseDetails = false;
+    public $showCashInflowDetails = false;
+    public $showCashOutflowDetails = false;
 
     public function mount()
     {
@@ -58,71 +67,98 @@ class UnifiedFinanceReport extends Component
         $from = $this->startDate . ' 00:00:00';
         $to   = $this->endDate   . ' 23:59:59';
 
-        // --- Restaurant dine-in / pickup / delivery sales (NOT room-service) ---
+        // Revenue — same charge_date / order date rules as Dashboard & P&L.
         $restaurantSales = Order::where('branch_id', $branchId)
             ->whereNull('hotel_reservation_id')
             ->whereIn('status', ['paid', 'payment_due'])
             ->whereBetween('date_time', [$from, $to])
             ->sum('total');
 
-        // --- Room-service orders (tagged to a hotel reservation) ---
         $roomServiceSales = Order::where('branch_id', $branchId)
             ->whereNotNull('hotel_reservation_id')
             ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween('date_time', [$from, $to])
+            ->whereHas('hotelReservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->sum('total');
 
-        // --- Room Night charges (filtered by branch_id directly) ---
+        $activeReservationFilter = function ($q) {
+            $q->whereNotIn('status', [
+                Reservation::STATUS_CANCELLED,
+                Reservation::STATUS_NO_SHOW,
+            ]);
+        };
+
         $roomNightRevenue = RoomCharge::where('branch_id', $branchId)
             ->where('charge_type', RoomCharge::TYPE_ROOM_NIGHT)
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
+            ->whereHas('reservation', $activeReservationFilter)
             ->sum('amount');
 
-        // --- Other hotel add-on charges (minibar, laundry, service, tax, other — NOT room_night / restaurant) ---
         $hotelAddOns = RoomCharge::where('branch_id', $branchId)
             ->whereNotIn('charge_type', [RoomCharge::TYPE_ROOM_NIGHT, RoomCharge::TYPE_RESTAURANT])
             ->whereDate('charge_date', '>=', $this->startDate)
             ->whereDate('charge_date', '<=', $this->endDate)
+            ->whereHas('reservation', $activeReservationFilter)
             ->sum('amount');
 
-        // --- Hotel Payments received (HasBranch scope auto-applies) ---
-        $hotelPaymentsReceived = HotelPayment::where('payment_type', '!=', HotelPayment::TYPE_REFUND)
-            ->whereBetween('created_at', [$from, $to])
-            ->sum('amount');
-
-        $hotelRefunds = HotelPayment::where('payment_type', HotelPayment::TYPE_REFUND)
-            ->whereBetween('created_at', [$from, $to])
-            ->sum('amount');
-
-        // --- Restaurant Payments received ---
-        $restaurantPaymentsReceived = Payment::whereHas('order', function ($q) use ($from, $to, $branchId) {
-            $q->where('branch_id', $branchId)
-              ->whereNull('hotel_reservation_id')
-              ->whereBetween('date_time', [$from, $to]);
-        })->sum('amount');
-
-        // --- Hotel Expenses (HasBranch scope auto-applies) ---
-        $hotelExpenses = HotelExpense::whereIn('status', ['paid', 'pending'])
-            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
-            ->sum('amount');
-
-        $hotelExpensesByDept = HotelExpense::whereIn('status', ['paid', 'pending'])
-            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
-            ->groupBy('department')
-            ->select('department', DB::raw('SUM(amount) as total'))
-            ->get()
-            ->mapWithKeys(fn($r) => [$r->department => $r->total]);
-
-        // --- Outstanding hotel balances ---
-        $hotelOutstanding = DB::table('hotel_reservations')
+        // Payments & outstanding — active folios (not period-scoped).
+        $detailedIncome = Reservation::with(['guest', 'room.roomType', 'charges'])
             ->where('branch_id', $branchId)
-            ->whereIn('status', ['confirmed', 'checked_in'])
-            ->whereRaw('COALESCE(balance_due, 0) > 0')
+            ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+            ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
+            ->get();
+
+        $hotelPaymentsReceived = 0.0;
+        $restaurantPaymentsReceived = 0.0;
+        $unpaidRestaurant = 0.0;
+
+        foreach ($detailedIncome as $res) {
+            $resRestaurantCharges = (float) $res->charges->where('charge_type', RoomCharge::TYPE_RESTAURANT)->sum('amount');
+            $paid = (float) $res->paid_amount;
+            $unpaid = (float) $res->balance_due;
+            $total = (float) $res->total_amount;
+
+            $hotelPaymentsReceived += ($paid - $resRestaurantCharges * ($total > 0 ? ($paid / $total) : 0));
+
+            if ($total > 0) {
+                $ratio = $resRestaurantCharges / $total;
+                $restaurantPaymentsReceived += $paid * $ratio;
+                $unpaidRestaurant += $unpaid * $ratio;
+            }
+        }
+        $restaurantPaymentsReceived -= $unpaidRestaurant;
+
+        $hotelRefunds = (float) HotelPayment::where('branch_id', $branchId)
+            ->whereBetween('created_at', [$from, $to])
+            ->where('payment_type', HotelPayment::TYPE_REFUND)
+            ->sum('amount');
+
+        $hotelOutstanding = (float) Reservation::query()
+            ->where('branch_id', $branchId)
+            ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+            ->where('balance_due', '>', 0)
             ->sum('balance_due');
 
+        // Hotel Expenses
+        $detailedExpenses = $this->detailedExpenses;
+        $hotelExpenses = $detailedExpenses->sum(fn ($e) => (float) ($e->total_amount ?? $e->amount ?? 0));
+        $hotelExpensesPaid = $detailedExpenses->sum(fn ($e) => (float) ($e->amount_paid ?? ($e->status === 'paid' ? ($e->total_amount ?? $e->amount ?? 0) : 0)));
+        $hotelExpensesUnpaid = $detailedExpenses->sum(fn ($e) => (float) ($e->balance_due ?? ($e->status === 'pending' ? ($e->total_amount ?? $e->amount ?? 0) : 0)));
+
+        $hotelExpensesByDept = $detailedExpenses
+            ->groupBy('department')
+            ->mapWithKeys(fn ($items, $dept) => [
+                $dept => $items->sum(fn ($e) => (float) ($e->total_amount ?? $e->amount ?? 0)),
+            ]);
+
         $totalRevenue = $restaurantSales + $roomServiceSales + $roomNightRevenue + $hotelAddOns;
-        $totalCollected = $hotelPaymentsReceived + $restaurantPaymentsReceived - $hotelRefunds;
+        $totalCollected = $restaurantPaymentsReceived + $hotelPaymentsReceived - $hotelRefunds;
 
         return compact(
             'restaurantSales',
@@ -133,10 +169,12 @@ class UnifiedFinanceReport extends Component
             'hotelRefunds',
             'restaurantPaymentsReceived',
             'hotelExpenses',
+            'hotelExpensesPaid',
+            'hotelExpensesUnpaid',
             'hotelExpensesByDept',
             'hotelOutstanding',
             'totalRevenue',
-            'totalCollected',
+            'totalCollected'
         );
     }
 
@@ -158,11 +196,17 @@ class UnifiedFinanceReport extends Component
             ->select(DB::raw('DATE(date_time) as day'), DB::raw('SUM(total) as amount'))
             ->get()->keyBy('day');
 
-        // Room-service per day
+        // Room-service per day (exclude cancelled / no-show stays)
         $roomServiceByDay = Order::where('branch_id', $branchId)
             ->whereNotNull('hotel_reservation_id')
             ->whereIn('status', OrderFolioSettlement::hotelRevenueStatuses())
             ->whereBetween(DB::raw('DATE(date_time)'), [$from, $to])
+            ->whereHas('hotelReservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->groupBy(DB::raw('DATE(date_time)'))
             ->select(DB::raw('DATE(date_time) as day'), DB::raw('SUM(total) as amount'))
             ->get()->keyBy('day');
@@ -171,15 +215,21 @@ class UnifiedFinanceReport extends Component
         $roomChargesByDay = RoomCharge::where('branch_id', $branchId)
             ->where('charge_type', '!=', RoomCharge::TYPE_RESTAURANT)
             ->whereBetween(DB::raw('DATE(charge_date)'), [$from, $to])
+            ->whereHas('reservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
+            })
             ->groupBy(DB::raw('DATE(charge_date)'))
             ->select(DB::raw('DATE(charge_date) as day'), DB::raw('SUM(amount) as amount'))
             ->get()->keyBy('day');
 
         // Expenses per day (HasBranch scope auto-applies)
-        $expensesByDay = HotelExpense::whereIn('status', ['paid', 'pending'])
+        $expensesByDay = HotelExpense::where('status', '!=', HotelExpense::STATUS_CANCELLED)
             ->whereBetween('expense_date', [$from, $to])
             ->groupBy('expense_date')
-            ->select(DB::raw('DATE(expense_date) as day'), DB::raw('SUM(amount) as amount'))
+            ->select(DB::raw('DATE(expense_date) as day'), DB::raw('SUM(COALESCE(total_amount, amount)) as amount'))
             ->get()->keyBy('day');
 
         // Build day range
@@ -206,12 +256,305 @@ class UnifiedFinanceReport extends Component
         return $days->filter(fn($d) => $d['total_revenue'] > 0 || $d['expenses'] > 0);
     }
 
+    public function exportExcel()
+    {
+        abort_unless(user_can('view_unified_finance_report'), 403);
+
+        if ($this->activeTab === 'income_expense') {
+            $filename = 'income-expense-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+            return Excel::download(
+                new \Modules\Hotel\Exports\IncomeExpenseReportExport(
+                    $this->summary,
+                    $this->detailedIncomeRows,
+                    $this->detailedExpenses,
+                    $this->startDate,
+                    $this->endDate,
+                    (int) restaurant()->currency_id,
+                    (string) (restaurant()->name ?? ''),
+                ),
+                $filename,
+            );
+        } elseif ($this->activeTab === 'cash_flow') {
+            $filename = 'cash-flow-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+            return Excel::download(
+                new \Modules\Hotel\Exports\CashFlowReportExport(
+                    $this->cashFlowSummary,
+                    $this->detailedCashInflow,
+                    $this->detailedCashOutflow,
+                    $this->startDate,
+                    $this->endDate,
+                    (int) restaurant()->currency_id,
+                    (string) (restaurant()->name ?? ''),
+                ),
+                $filename,
+            );
+        }
+
+        $filename = 'finance-report-' . $this->startDate . '_to_' . $this->endDate . '.xlsx';
+
+        return Excel::download(
+            new UnifiedFinanceReportExport(
+                $this->summary,
+                $this->dailyBreakdown,
+                $this->startDate,
+                $this->endDate,
+                (int) restaurant()->currency_id,
+                (string) (restaurant()->name ?? ''),
+            ),
+            $filename,
+        );
+    }
+
+    public function exportPdf()
+    {
+        abort_unless(user_can('view_unified_finance_report'), 403);
+
+        if ($this->activeTab === 'income_expense') {
+            $pdf = Pdf::loadView('hotel::reports.income-expense-report-export', [
+                'summary' => $this->summary,
+                'detailedIncome' => $this->detailedIncomeRows,
+                'detailedExpenses' => $this->detailedExpenses,
+                'startDate' => $this->startDate,
+                'endDate' => $this->endDate,
+                'currencyId' => (int) restaurant()->currency_id,
+                'propertyName' => (string) (restaurant()->name ?? ''),
+            ])->setPaper('A4', 'landscape');
+
+            $filename = 'income-expense-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+            return response()->streamDownload(fn () => print($pdf->output()), $filename);
+        } elseif ($this->activeTab === 'cash_flow') {
+            $pdf = Pdf::loadView('hotel::reports.cash-flow-report-export', [
+                'summary' => $this->cashFlowSummary,
+                'detailedInflow' => $this->detailedCashInflow,
+                'detailedOutflow' => $this->detailedCashOutflow,
+                'startDate' => $this->startDate,
+                'endDate' => $this->endDate,
+                'currencyId' => (int) restaurant()->currency_id,
+                'propertyName' => (string) (restaurant()->name ?? ''),
+            ])->setPaper('A4', 'landscape');
+
+            $filename = 'cash-flow-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+            return response()->streamDownload(fn () => print($pdf->output()), $filename);
+        }
+
+        $pdf = Pdf::loadView('hotel::reports.unified-finance-report-export', [
+            'summary' => $this->summary,
+            'dailyBreakdown' => $this->dailyBreakdown,
+            'startDate' => $this->startDate,
+            'endDate' => $this->endDate,
+            'currencyId' => (int) restaurant()->currency_id,
+            'propertyName' => (string) (restaurant()->name ?? ''),
+        ])->setPaper('A4', 'landscape');
+
+        $filename = 'finance-report-' . $this->startDate . '_to_' . $this->endDate . '.pdf';
+
+        return response()->streamDownload(fn () => print($pdf->output()), $filename);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Detailed Income & Expenses
+    // ──────────────────────────────────────────────
+    public function getDetailedIncomeProperty(): \Illuminate\Support\Collection
+    {
+        return Reservation::with(['guest', 'room.roomType', 'charges'])
+            ->where('branch_id', branch()->id)
+            ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+            ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
+            ->orderBy('check_in_date', 'desc')
+            ->get();
+    }
+
+    public function getDetailedIncomeRowsProperty(): \Illuminate\Support\Collection
+    {
+        $rows = collect();
+        
+        $groupedReservations = $this->detailedIncome->groupBy(function ($res) {
+            return $res->group_booking_id ?: 'single_' . $res->id;
+        });
+
+        foreach ($groupedReservations as $groupKey => $reservations) {
+            $firstRes = $reservations->first();
+            
+            $reservationNumbers = $reservations->pluck('reservation_number')->filter()->unique()->sort()->implode(', ');
+            $roomNumbers = $reservations->map(fn($r) => $r->room?->room_number)->filter()->unique()->sort()->implode(', ');
+            $roomTypes = $reservations->map(fn($r) => $r->room?->roomType?->name)->filter()->unique()->sort()->implode(', ');
+            
+            $chargeSummary = [];
+            foreach ($reservations as $res) {
+                $periodCharges = $res->charges->filter(function ($c) {
+                    $chargeDay = $c->charge_date instanceof \Carbon\Carbon
+                        ? $c->charge_date->toDateString()
+                        : (string) $c->charge_date;
+
+                    return $chargeDay >= $this->startDate && $chargeDay <= $this->endDate;
+                });
+
+                foreach ($periodCharges as $c) {
+                    $typeLabel = '';
+                    if ($c->charge_type === RoomCharge::TYPE_ROOM_NIGHT) {
+                        $typeLabel = 'Room Charge';
+                    } elseif ($c->charge_type === RoomCharge::TYPE_LAUNDRY) {
+                        $typeLabel = 'Laundry';
+                    } elseif ($c->charge_type === RoomCharge::TYPE_MINIBAR) {
+                        $typeLabel = 'Minibar';
+                    } else {
+                        $typeLabel = ucwords(str_replace('_', ' ', $c->charge_type));
+                    }
+                    if (!isset($chargeSummary[$typeLabel])) {
+                        $chargeSummary[$typeLabel] = 0.0;
+                    }
+                    $chargeSummary[$typeLabel] += (float)$c->amount;
+                }
+            }
+
+            $paid = (float)$reservations->sum('paid_amount');
+            $unpaid = (float)$reservations->sum('balance_due');
+            $total = (float)$reservations->sum('total_amount');
+
+            foreach ($chargeSummary as $label => $amount) {
+                $ratio = $total > 0 ? ($amount / $total) : 0;
+                $chargePaid = $paid * $ratio;
+                $chargeUnpaid = $unpaid * $ratio;
+
+                $rows->push((object)[
+                    'date' => $firstRes->check_in_date,
+                    'reservation_number' => $reservationNumbers,
+                    'guest_name' => $firstRes->guest?->name ?? '—',
+                    'room_number' => $roomNumbers ?: '—',
+                    'room_type' => $roomTypes ?: '—',
+                    'charge_details' => $label,
+                    'amount' => $amount,
+                    'paid' => $chargePaid,
+                    'unpaid' => $chargeUnpaid,
+                ]);
+            }
+        }
+        return $rows;
+    }
+
+    public function getDetailedExpensesProperty(): \Illuminate\Support\Collection
+    {
+        $expenses = HotelExpense::with('departmentRelation')
+            ->where('status', '!=', HotelExpense::STATUS_CANCELLED)
+            ->whereBetween('expense_date', [$this->startDate, $this->endDate])
+            ->get();
+
+        // Add restaurant dues (orders billed to active reservations in this range)
+        $branchId = branch()->id;
+        $reservations = Reservation::with(['charges', 'room'])
+            ->where('branch_id', $branchId)
+            ->whereBetween('check_in_date', [$this->startDate, $this->endDate])
+            ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
+            ->get();
+
+        foreach ($reservations as $res) {
+            $restaurantCharges = $res->charges->where('charge_type', RoomCharge::TYPE_RESTAURANT);
+            foreach ($restaurantCharges as $charge) {
+                $isPaid = $res->balance_due <= 0;
+                $pseudoExpense = new HotelExpense([
+                    'expense_date' => $res->check_in_date,
+                    'title' => 'Restaurant Folio Transfer: ' . $res->reservation_number,
+                    'description' => 'Restaurant order charged to room ' . ($res->room?->room_number ?? ''),
+                    'amount' => $charge->amount,
+                    'total_amount' => $charge->amount,
+                    'amount_paid' => $isPaid ? $charge->amount : 0,
+                    'balance_due' => $isPaid ? 0 : $charge->amount,
+                    'department' => 'restaurant',
+                    'payment_method' => 'room_folio',
+                    'status' => $isPaid ? 'paid' : 'pending',
+                ]);
+                $pseudoExpense->id = 999000 + $charge->id;
+                $expenses->push($pseudoExpense);
+            }
+        }
+
+        return $expenses->sortByDesc('expense_date');
+    }
+
+    public function getCashFlowSummaryProperty(): array
+    {
+        $branchId = branch()->id;
+        $from = $this->startDate . ' 00:00:00';
+        $to   = $this->endDate   . ' 23:59:59';
+
+        $payments = HotelPayment::where('branch_id', $branchId)
+            ->whereBetween('created_at', [$from, $to])
+            ->get();
+
+        $totalInflow = (float) $payments->where('payment_type', '!=', HotelPayment::TYPE_REFUND)->sum('amount') 
+                       - (float) $payments->where('payment_type', HotelPayment::TYPE_REFUND)->sum('amount');
+
+        $totalOutflow = (float) $this->detailedExpenses->sum(fn ($e) => (float) ($e->amount_paid ?? ($e->status === 'paid' ? ($e->total_amount ?? $e->amount ?? 0) : 0)));
+
+        return [
+            'totalInflow' => $totalInflow,
+            'totalOutflow' => $totalOutflow,
+            'netCashFlow' => $totalInflow - $totalOutflow,
+        ];
+    }
+
+    public function getDetailedCashInflowProperty(): \Illuminate\Support\Collection
+    {
+        $branchId = branch()->id;
+        $from = $this->startDate . ' 00:00:00';
+        $to   = $this->endDate   . ' 23:59:59';
+
+        $payments = HotelPayment::with(['reservation.guest', 'reservation.room.roomType'])
+            ->where('branch_id', $branchId)
+            ->whereBetween('created_at', [$from, $to])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return $payments->map(function ($payment) {
+            $res = $payment->reservation;
+            
+            $details = ucwords(str_replace('_', ' ', $payment->payment_method));
+            if ($payment->reference_number) {
+                $details .= ' (Ref: ' . $payment->reference_number . ')';
+            }
+            if ($payment->notes) {
+                $details .= ' - ' . $payment->notes;
+            }
+
+            $amount = (float) $payment->amount;
+            if ($payment->payment_type === HotelPayment::TYPE_REFUND) {
+                $amount = -$amount;
+            }
+
+            return (object) [
+                'date' => $payment->created_at,
+                'reservation_number' => $res?->reservation_number ?? '—',
+                'guest_name' => $res?->guest?->name ?? '—',
+                'room_number' => $res?->room?->room_number ?? '—',
+                'room_type' => $res?->room?->roomType?->name ?? '—',
+                'payment_details' => $details,
+                'amount' => $amount,
+                'payment_type' => $payment->payment_type,
+            ];
+        });
+    }
+
+    public function getDetailedCashOutflowProperty(): \Illuminate\Support\Collection
+    {
+        return $this->detailedExpenses->filter(fn ($e) => (float) ($e->amount_paid ?? 0) > 0 || $e->status === 'paid');
+    }
+
     public function render()
     {
         return view('hotel::livewire.reports.unified-finance-report', [
-            'summary'        => $this->summary,
-            'dailyBreakdown' => $this->dailyBreakdown,
-            'currencyId'     => restaurant()->currency_id,
+            'summary'             => $this->summary,
+            'dailyBreakdown'      => $this->dailyBreakdown,
+            'detailedIncome'      => $this->detailedIncomeRows,
+            'detailedExpenses'    => $this->detailedExpenses,
+            'cashFlowSummary'     => $this->cashFlowSummary,
+            'detailedCashInflow'  => $this->detailedCashInflow,
+            'detailedCashOutflow' => $this->detailedCashOutflow,
+            'currencyId'          => restaurant()->currency_id,
+            'activeTab'           => $this->activeTab,
+            'showIncomeDetails'   => $this->showIncomeDetails,
+            'showExpenseDetails'  => $this->showExpenseDetails,
+            'showCashInflowDetails' => $this->showCashInflowDetails,
+            'showCashOutflowDetails' => $this->showCashOutflowDetails,
         ])->layout('layouts.app');
     }
 }

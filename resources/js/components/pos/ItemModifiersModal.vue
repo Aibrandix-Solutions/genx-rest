@@ -9,7 +9,8 @@
                 <div class="flex items-start justify-between gap-4">
                     <div class="flex items-center gap-3">
                         <img v-if="item?.item_photo_url" :src="item.item_photo_url" :alt="item?.item_name"
-                            class="h-12 w-12 object-cover rounded-md" />
+                            class="h-12 w-12 object-cover rounded-md" loading="lazy"
+                            @error="($event) => { $event.target.style.display = 'none'; }" />
                         <div v-else class="h-12 w-12 bg-gray-100 dark:bg-gray-700 rounded-md"></div>
                         <div>
                             <h2 class="text-base font-semibold text-gray-900 dark:text-gray-100">

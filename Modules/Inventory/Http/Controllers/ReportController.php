@@ -55,6 +55,22 @@ class ReportController extends Controller
         return view('inventory::reports.item-inventory');
     }
 
+    public function itemPurchases()
+    {
+        abort_if(! in_array('Inventory', restaurant_modules()), 403);
+        abort_if(! user_can('Show Inventory Report'), 403);
+
+        return view('inventory::reports.item-purchases');
+    }
+
+    public function transfers()
+    {
+        abort_if(! in_array('Inventory', restaurant_modules()), 403);
+        abort_if(! user_can('Show Inventory Report'), 403);
+
+        return view('inventory::reports.transfers');
+    }
+
     public function itemInventoryPdf(Request $request, ItemInventoryReportService $reportService)
     {
         abort_if(! in_array('Inventory', restaurant_modules()), 403);

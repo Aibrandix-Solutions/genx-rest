@@ -411,6 +411,15 @@
                                         @endif
                                     </div>
                                 @endforeach
+                                @if ((float) ($item->item_discount_amount ?? 0) > 0)
+                                    <div class="modifiers">
+                                        @lang('modules.order.itemDiscount'):
+                                        -{{ currency_format_for_receipt_item($item->item_discount_amount, restaurant()->currency_id) }}
+                                        @if ($item->discount_type === 'percent')
+                                            ({{ rtrim(rtrim(number_format((float) $item->discount_value, 2), '0'), '.') }}%)
+                                        @endif
+                                    </div>
+                                @endif
                             </td>
                             <td class="price">{{ currency_format_for_receipt_item($item->price, restaurant()->currency_id) }}</td>
                             <td class="amount">

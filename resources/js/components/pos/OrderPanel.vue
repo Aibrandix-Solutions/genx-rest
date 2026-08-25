@@ -413,7 +413,14 @@
 
         <!-- Cart Items Table -->
         <div ref="cartContainer" class="pos-cart-items-scroll rounded">
-            <table class="w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+            <table class="pos-cart-table w-full min-w-full divide-y divide-gray-200 table-fixed dark:divide-gray-600">
+                <colgroup>
+                    <col>
+                    <col style="width: 6.5rem">
+                    <col style="width: 4rem">
+                    <col style="width: 5.5rem">
+                    <col style="width: 2.75rem">
+                </colgroup>
                 <thead class="pos-cart-items-thead">
                     <tr>
                         <th scope="col"
@@ -510,7 +517,9 @@
                             </tr>
                             <tr :class="['hover:bg-gray-100 dark:hover:bg-gray-700', item._isCombo ? 'border-l-2 border-blue-200 dark:border-blue-800' : '']">
                                 <td class="flex flex-col p-2 lg:min-w-20 relative">
-                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center gap-2 lg:table-cell">
+                                    <div class="text-xs text-gray-900 dark:text-white inline-flex items-center gap-2 lg:table-cell"
+                                        :class="canEditItemPricing(item) ? 'cursor-pointer hover:text-skin-base' : ''"
+                                        @click="openItemPricingModal(item)">
                                         {{ item.name }}
                                         <span v-if="item._isCombo"
                                             class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
@@ -534,6 +543,9 @@
                                                 +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
                                             </span>
                                         </div>
+                                    </div>
+                                    <div v-if="hasItemDiscount(item)" class="text-xs text-green-600 dark:text-green-400">
+                                        Discount: -{{ currencySymbol }} {{ formatPrice(computeItemDiscountAmount(item)) }}
                                     </div>
                                     <div class="text-xs text-gray-600 dark:text-white inline-flex items-center">
                                     </div>
@@ -647,11 +659,11 @@
                                     </div>
                                 </td>
 
-                                <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                                    <div class="relative flex items-center max-w-[8rem] mx-auto">
+                                <td class="p-1 text-center align-middle overflow-hidden">
+                                    <div class="relative flex items-center w-full max-w-full mx-auto">
                                         <button type="button" @click="requestDecreaseKotItem(item)"
                                             :disabled="!canManageLineItems || !canDeleteKotItem || item._isCombo"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -662,12 +674,12 @@
                                             :readonly="true"
                                             :title="linkedOrderNewKotMessage"
                                             @click="notifyLinkedOrderUseNewKot"
-                                            class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
+                                            class="min-w-0 w-full h-7 border-b border-t bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white cursor-not-allowed"
                                             min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                         <button type="button" @click="handleLinkedIncreaseBlocked"
                                             :disabled="item._isCombo"
                                             :title="linkedOrderNewKotMessage"
-                                            class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative disabled:opacity-40 disabled:cursor-not-allowed">
+                                            class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md disabled:opacity-40 disabled:cursor-not-allowed">
                                             <svg class="w-2 h-2 text-gray-900 dark:text-white" aria-hidden="true"
                                                 xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                                 <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
@@ -680,8 +692,8 @@
                                 <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
-                                    {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
+                                <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                    {{ currencySymbol }} {{ formatPrice(lineTotalAmount(item)) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right">
                                     <!-- Legacy parity: combo lines cannot be individually removed;
@@ -790,7 +802,7 @@
                                 <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                     {{ currencySymbol }} {{ formatPrice(item.price) }}
                                 </td>
-                                <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
                                     {{ currencySymbol }} {{ formatPrice(item.price * item.quantity) }}
                                 </td>
                                 <td class="p-2 whitespace-nowrap text-right text-gray-400 text-xs">
@@ -804,7 +816,9 @@
                             class="hover:bg-gray-100 dark:hover:bg-gray-700">
                             <!-- Item Name, Note, and Add Note UI -->
                             <td class="flex flex-col p-2 lg:min-w-20 relative">
-                                <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell">
+                                <div class="text-xs text-gray-900 dark:text-white inline-flex items-center lg:table-cell"
+                                    :class="canEditItemPricing(group.item) ? 'cursor-pointer hover:text-skin-base hover:underline' : ''"
+                                    @click="openItemPricingModal(group.item)">
                                     {{ group.item.name }}
                                 </div>
                                 <!-- Modifier pills -->
@@ -819,6 +833,9 @@
                                             +{{ currencySymbol }}{{ formatPrice(modifierPillAmount(modId, qty)) }}
                                         </span>
                                     </div>
+                                </div>
+                                <div v-if="hasItemDiscount(group.item)" class="text-xs text-green-600 dark:text-green-400">
+                                    Discount: -{{ currencySymbol }} {{ formatPrice(computeItemDiscountAmount(group.item)) }}
                                 </div>
                                 <div class="inline-flex items-center relative group" v-cloak>
                                     <template v-if="group.item.note && !group.item._showNoteInput && !group.item._showNotePreview">
@@ -870,20 +887,20 @@
                             </td>
 
                             <!-- Quantity Control -->
-                            <td class="p-2 text-base text-gray-900 whitespace-nowrap text-center">
-                                <div class="relative flex items-center max-w-[8rem] mx-auto">
+                            <td class="p-1 text-center align-middle overflow-hidden">
+                                <div class="relative flex items-center w-full max-w-full mx-auto">
                                     <button type="button" @click="$emit('decrease-quantity', group.item.line_key || group.item.id)"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-s-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 2">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 1h16" />
                                         </svg>
                                     </button>
                                     <input type="text" v-model.lazy="group.item.quantity"
                                         @change="$emit('update-quantity', { line_key: group.item.line_key || group.item.id, id: group.item.id, quantity: group.item.quantity, variant_id: group.item.variant_id || 0, modifier_id: group.item.modifier_id || 0 })"
-                                        class="min-w-10 border-b border-t bg-white border-x-0 border-gray-300 h-8 text-center text-gray-900 text-sm block w-full py-2.5 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                        class="min-w-0 w-full h-7 border-b border-t bg-white border-x-0 border-gray-300 text-center text-gray-900 text-sm block py-0 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                         min="1" oninput="this.value = this.value.replace(/[^0-9]/g, '')" />
                                     <button type="button" @click="$emit('increase-quantity', group.item.line_key || group.item.id)"
-                                        class="bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md p-3 h-8 relative">
+                                        class="shrink-0 flex items-center justify-center h-7 w-7 p-0 bg-gray-50 dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600 hover:bg-gray-200 border border-gray-300 rounded-e-md">
                                         <svg class="w-2 h-2 text-gray-900 dark:text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 18 18">
                                             <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 1v16M1 9h16" />
                                         </svg>
@@ -894,8 +911,8 @@
                             <td class="p-2 text-xs font-medium text-gray-700 whitespace-nowrap dark:text-white text-right hidden lg:table-cell">
                                 {{ currencySymbol }} {{ formatPrice(group.item.price) }}
                             </td>
-                            <td class="p-2 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
-                                {{ currencySymbol }} {{ formatPrice(group.item.price * group.item.quantity) }}
+                            <td class="p-2 pl-1 text-xs font-medium text-gray-900 whitespace-nowrap dark:text-white text-right">
+                                {{ currencySymbol }} {{ formatPrice(lineTotalAmount(group.item)) }}
                             </td>
                             <td class="p-2 whitespace-nowrap text-right">
                                 <button
@@ -1186,18 +1203,15 @@
                     <!-- KOT buttons gated by kotModuleEnabled subscription -->
                     <div v-if="linkedLifecycleStatus === 'kot'" class="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <button v-if="canShowLinkedBillActions" class="rounded bg-skin-base text-white w-full p-2"
-                            @click="handleSaveOrder('bill')" :disabled="isSavingBill || anySaving"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBill || anySaving }">
+                            @click="handleSaveOrder('bill')">
                             Bill
                         </button>
                         <button v-if="canShowLinkedBillActions" class="rounded bg-green-500 text-white w-full p-2"
-                            @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment || anySaving"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment || anySaving }">
+                            @click="handleSaveOrder('bill', 'payment')">
                             Bill &amp; Payment
                         </button>
                         <button v-if="canShowLinkedBillActions" class="rounded bg-blue-500 text-white w-full p-2"
-                            @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint || anySaving"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint || anySaving }">
+                            @click="handleSaveOrder('bill', 'print')">
                             Bill &amp; Print
                         </button>
                         <button v-if="canShowLinkedNewKot && kotModuleEnabled"
@@ -1261,103 +1275,31 @@
                 </template>
                 <template v-else>
                     <div class="flex gap-3">
-                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled" @click="handleSaveOrder('kot')"
-                            :disabled="isSavingKot" :class="{ 'opacity-50 cursor-not-allowed': isSavingKot }">
-                            <span v-if="!isSavingKot">KOT</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-1 h-4 w-4 inline-flex text-white"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                KOT
-                            </span>
+                        <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled" @click="handleSaveOrder('kot')">
+                            KOT
                         </button>
                         <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled"
-                            @click="handleSaveOrder('kot', 'print')" :disabled="isSavingKotPrint"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingKotPrint }">
-                            <span v-if="!isSavingKotPrint">KOT &amp; Print</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                    fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                KOT &amp; Print
-                            </span>
+                            @click="handleSaveOrder('kot', 'print')">
+                            KOT &amp; Print
                         </button>
                         <button class="rounded bg-gray-700 text-white w-full p-2 relative" v-if="kotModuleEnabled"
-                            @click="handleSaveOrder('kot', 'bill', 'payment')" :disabled="isSavingKotBillPayment"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingKotBillPayment }">
-                            <span v-if="!isSavingKotBillPayment">KOT, Bill &amp; Payment</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin inline-flex -ml-1 mr-2 h-4 w-4 text-white"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                KOT, Bill &amp; Payment
-                            </span>
+                            @click="handleSaveOrder('kot', 'bill', 'payment')">
+                            KOT, Bill &amp; Payment
                         </button>
                     </div>
                     <!-- Legacy parity (kot_items.blade.php `@if (!$orderID)`): BILL row is hidden
                          on the New KOT screen — existing orders only expose the 3 KOT actions. -->
                     <div v-if="!isNewKotMode" class="flex gap-3 mt-3">
-                        <button class="rounded bg-skin-base text-white w-full p-2 relative" @click="handleSaveOrder('bill')"
-                            :disabled="isSavingBill" :class="{ 'opacity-50 cursor-not-allowed': isSavingBill }">
-                            <span v-if="!isSavingBill">BILL</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin inline-flex items-center -ml-1 mr-2 h-4 w-4 text-white"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                BILL
-                            </span>
+                        <button class="rounded bg-skin-base text-white w-full p-2 relative" @click="handleSaveOrder('bill')">
+                            BILL
                         </button>
                         <button class="rounded bg-green-500 text-white w-full p-2 relative"
-                            @click="handleSaveOrder('bill', 'payment')" :disabled="isSavingBillPayment"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPayment }">
-                            <span v-if="!isSavingBillPayment">Bill &amp; Payment</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline-flex items-center"
-                                    xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                Bill &amp; Payment
-                            </span>
+                            @click="handleSaveOrder('bill', 'payment')">
+                            Bill &amp; Payment
                         </button>
                         <button class="rounded bg-blue-500 text-white w-full p-2 relative"
-                            @click="handleSaveOrder('bill', 'print')" :disabled="isSavingBillPrint"
-                            :class="{ 'opacity-50 cursor-not-allowed': isSavingBillPrint }">
-                            <span v-if="!isSavingBillPrint">Bill &amp; Print</span>
-                            <span v-else class="inline-flex items-center">
-                                <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg"
-                                    fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                                    </circle>
-                                    <path class="opacity-75" fill="currentColor"
-                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                    </path>
-                                </svg>
-                                Bill &amp; Print
-                            </span>
+                            @click="handleSaveOrder('bill', 'print')">
+                            Bill &amp; Print
                         </button>
                     </div>
                 </template>
@@ -1366,6 +1308,14 @@
 
         <!-- Discount Modal -->
         <DiscountModal :show="showDiscountModal" @close="showDiscountModal = false" @save="handleApplyDiscount" />
+
+        <ItemPricingModal
+            :show="showItemPricingModal"
+            :item="activePricingItem"
+            :currency-symbol="currencySymbol"
+            @close="closeItemPricingModal"
+            @save="handleSaveItemPricing"
+        />
 
         <!-- Reward Points Redeem Modal -->
         <div v-if="showRewardRedeemModal" class="jetstream-modal fixed inset-0 overflow-y-auto px-4 py-6 sm:px-0 z-50" @click.self="showRewardRedeemModal = false">
@@ -1464,6 +1414,7 @@
 import { ref, computed, watch, onMounted, reactive, nextTick } from "vue";
 import axios from "axios";
 import DiscountModal from "./DiscountModal.vue";
+import ItemPricingModal from "./ItemPricingModal.vue";
 import TableAssignmentModal from "./TableAssignmentModal.vue";
 import RemovalReasonModal from "./RemovalReasonModal.vue";
 import { showPosAlert } from "../../utils/posAlerts.js";
@@ -1472,6 +1423,11 @@ import {
     notifyLinkedOrderUseNewKot,
     blockLinkedOrderItemAdds,
 } from "../../utils/linkedOrderGuards.js";
+import {
+    computeItemDiscountAmount,
+    hasItemDiscount,
+    lineTotalAmount,
+} from "../../utils/posItemPricing.js";
 
 const linkedOrderNewKotMessage = LINKED_ORDER_NEW_KOT_MESSAGE;
 
@@ -1524,9 +1480,9 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
-    savingAction: {
-        type: String,
-        default: null,
+    orderSaveInFlight: {
+        type: Boolean,
+        default: false,
     },
     discountAmount: {
         type: Number,
@@ -1762,6 +1718,7 @@ const emit = defineEmits([
     "update:deliveryFee",
     "update:extraCharges",
     "apply-discount",
+    "update-item-pricing",
     "update:selectedDeliveryApp",
     "update:setAsDefaultOrderType",
     "update:defaultOrderTypeId",
@@ -1785,6 +1742,8 @@ const emit = defineEmits([
 const localPax = ref(props.pax);
 const localWaiterId = ref(props.waiterId);
 const showDiscountModal = ref(false);
+const showItemPricingModal = ref(false);
+const activePricingItem = ref(null);
 const showRewardRedeemModal = ref(false);
 const redeemCustomPoints = ref(0);
 const showOrderTypeDropdown = ref(false);
@@ -2668,10 +2627,51 @@ const totalItems = computed(() => {
 
 const subTotal = computed(() => {
     return props.cartItems.reduce(
-        (sum, item) => sum + item.price * item.quantity,
+        (sum, item) => sum + lineTotalAmount(item),
         0
     );
 });
+
+const canEditItemPricing = (item) => {
+    if (!item || item._isCombo || item.combo_pack_id) {
+        return false;
+    }
+
+    return canManageLineItems.value;
+};
+
+const openItemPricingModal = (item) => {
+    if (!canEditItemPricing(item)) {
+        return;
+    }
+
+    activePricingItem.value = item;
+    showItemPricingModal.value = true;
+};
+
+const closeItemPricingModal = () => {
+    showItemPricingModal.value = false;
+    activePricingItem.value = null;
+};
+
+const pricingPayloadFor = (item, pricingData) => ({
+    id: item?.id,
+    line_key: item?.line_key || item?.id,
+    kot_item_id: item?.kot_item_id || null,
+    order_item_id: item?.order_item_id || null,
+    unit_price: Number(pricingData?.unit_price || 0),
+    discount_type: pricingData?.discount_type || null,
+    discount_value: pricingData?.discount_value ?? null,
+});
+
+const handleSaveItemPricing = (pricingData, done) => {
+    if (!activePricingItem.value) {
+        done?.(new Error("No item selected"));
+        return;
+    }
+
+    emit("update-item-pricing", pricingPayloadFor(activePricingItem.value, pricingData), done);
+};
 
 /** Pre-discount unit for combo lines (from API / preview); fallback matches legacy price + combo_discount. */
 const comboLineOriginalUnit = (item) => {
@@ -2829,16 +2829,8 @@ const total = computed(() => {
     return Math.max(0, calculatedTotal);
 });
 
-// Computed properties to check if each button is currently saving
-const isSavingKot = computed(() => props.savingAction === 'kot');
-const isSavingKotPrint = computed(() => props.savingAction === 'kot_print');
-const isSavingKotBillPayment = computed(() => props.savingAction === 'kot_bill_payment');
-const isSavingBill = computed(() => props.savingAction === 'bill');
-const isSavingBillPayment = computed(() => props.savingAction === 'bill_payment');
-const isSavingBillPrint = computed(() => props.savingAction === 'bill_print');
-
-// Check if ANY action is being saved (for overall disable state)
-const anySaving = computed(() => props.savingAction !== null);
+// Save buttons stay clickable for speed; duplicate clicks are ignored via orderSaveInFlight in PosApp.
+const anySaving = computed(() => props.orderSaveInFlight);
 
 const formatPrice = (price) => {
     return parseFloat(price).toFixed(2);
@@ -3122,6 +3114,10 @@ const handleKotRemovalConfirm = (reason) => {
 
 // Handle save order with validation
 const handleSaveOrder = (...actions) => {
+    if (props.orderSaveInFlight) {
+        return;
+    }
+
     // In linked-order mode, existing items are on the server — skip empty-cart guard
     if (!props.isLinkedOrderMode && (!props.cartItems || props.cartItems.length === 0)) {
         showPosAlert("error", "You need to add items to the order.");
@@ -3145,6 +3141,28 @@ const handleSaveOrder = (...actions) => {
 .pos-cart-items-scroll table {
     border-collapse: separate;
     border-spacing: 0;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(2) {
+    width: 6.5rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(3) {
+    width: 4rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(4) {
+    width: 5.5rem;
+}
+
+.pos-cart-items-scroll .pos-cart-table col:nth-child(5) {
+    width: 2.75rem;
+}
+
+@media (max-width: 1023px) {
+    .pos-cart-items-scroll .pos-cart-table col:nth-child(3) {
+        width: 0;
+    }
 }
 
 .pos-cart-items-scroll :deep(.pos-cart-items-thead th) {

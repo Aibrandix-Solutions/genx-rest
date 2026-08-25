@@ -48,21 +48,43 @@ class RoomType extends Model
     }
 
     /**
-     * Get price for specific date (considering dynamic pricing)
+     * Get price for specific date (considering dynamic pricing).
+     * Uses eager-loaded prices when available to avoid N+1 queries.
      */
-    public function getPriceForDate($date, $respectDynamicPricingSetting = true)
+    public function getPriceForDate($date, $respectDynamicPricingSetting = true, ?HotelSetting $setting = null)
     {
-        // Check if dynamic pricing is enabled from settings
         if ($respectDynamicPricingSetting) {
-            $setting = HotelSetting::where('branch_id', $this->branch_id)->first();
-            if ($setting && !$setting->enable_dynamic_pricing) {
+            $setting = $setting ?? HotelSetting::query()
+                ->where('branch_id', $this->branch_id)
+                ->first();
+
+            if ($setting && ! $setting->enable_dynamic_pricing) {
                 return $this->base_price;
             }
         }
 
+        $dateString = $date instanceof \Carbon\Carbon
+            ? $date->toDateString()
+            : \Carbon\Carbon::parse($date)->toDateString();
+
+        if ($this->relationLoaded('prices')) {
+            $dynamicPrice = $this->prices->first(function ($price) use ($dateString) {
+                $from = $price->date_from instanceof \Carbon\Carbon
+                    ? $price->date_from->toDateString()
+                    : (string) $price->date_from;
+                $to = $price->date_to instanceof \Carbon\Carbon
+                    ? $price->date_to->toDateString()
+                    : (string) $price->date_to;
+
+                return $from <= $dateString && $to >= $dateString;
+            });
+
+            return $dynamicPrice ? $dynamicPrice->price : $this->base_price;
+        }
+
         $dynamicPrice = $this->prices()
-            ->whereDate('date_from', '<=', $date)
-            ->whereDate('date_to', '>=', $date)
+            ->whereDate('date_from', '<=', $dateString)
+            ->whereDate('date_to', '>=', $dateString)
             ->first();
 
         return $dynamicPrice ? $dynamicPrice->price : $this->base_price;

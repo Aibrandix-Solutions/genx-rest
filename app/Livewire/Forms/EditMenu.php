@@ -1,13 +1,17 @@
 <?php
 namespace App\Livewire\Forms;
 
+use App\Livewire\Concerns\ManagesMenuBranchSelection;
 use App\Models\Menu;
+use App\Scopes\BranchScope;
+use App\Services\MenuBranchProvisioningService;
 use Jantinnerezo\LivewireAlert\LivewireAlert;
 use Livewire\Component;
 
 class EditMenu extends Component
 {
     use LivewireAlert;
+    use ManagesMenuBranchSelection;
 
     public $menuName;
     public $activeMenu;
@@ -15,12 +19,14 @@ class EditMenu extends Component
     public $currentLanguage;
     public $globalLocale;
     public $languages = [];
+    public array $linkedBranchNames = [];
 
     public function mount()
     {
         $this->languages = collect(languages())->pluck('language_name', 'language_code')->toArray();
         $this->globalLocale = global_setting()->locale;
         $this->currentLanguage = $this->globalLocale;
+        $this->initializeMenuBranchSelection();
         // Load existing translations
         $this->translations = $this->activeMenu->getTranslations('menu_name') ?? [];
 
@@ -32,13 +38,14 @@ class EditMenu extends Component
         }
 
         $this->menuName = $this->translations[$this->currentLanguage] ?? '';
+        $this->linkedBranchNames = $this->loadLinkedBranchNames();
     }
 
     public function submitForm()
     {
-        $this->validate([
+        $this->validate(array_merge([
             'translations.' . $this->globalLocale => 'required',
-        ], [
+        ], $this->additionalBranchSelectionRules()), [
             'translations.' . $this->globalLocale . '.required' => __('validation.menuNameRequired', ['language' => $this->languages[$this->globalLocale]]),
         ]);
 
@@ -52,6 +59,20 @@ class EditMenu extends Component
 
         $this->activeMenu->save();
 
+        $additional = array_values(array_diff(
+            array_map('intval', $this->additionalBranchIds),
+            [(int) $this->activeMenu->branch_id]
+        ));
+
+        if ($additional !== []) {
+            $groupUuid = app(MenuBranchProvisioningService::class)->ensureCatalogGroupUuid($this->activeMenu);
+            app(MenuBranchProvisioningService::class)->provisionMenus(
+                $this->activeMenu->getTranslations('menu_name'),
+                $additional,
+                $groupUuid
+            );
+        }
+
         $this->alert('success', __('messages.menuUpdated'), [
             'toast' => true,
             'position' => 'top-end',
@@ -60,6 +81,23 @@ class EditMenu extends Component
         ]);
 
         $this->dispatch('hideEditMenu');
+    }
+
+    protected function loadLinkedBranchNames(): array
+    {
+        if (! $this->activeMenu->catalog_group_uuid) {
+            return [$this->activeMenu->branch->name ?? branch()?->name];
+        }
+
+        return Menu::withoutGlobalScope(BranchScope::class)
+            ->where('catalog_group_uuid', $this->activeMenu->catalog_group_uuid)
+            ->with('branch:id,name')
+            ->get()
+            ->pluck('branch.name')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 
     public function updateTranslation()

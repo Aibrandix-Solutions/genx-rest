@@ -2,7 +2,6 @@
 
 namespace Modules\Inventory\Livewire\Stock;
 
-use App\Models\Branch;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -12,6 +11,7 @@ use Modules\Inventory\Entities\InventoryConsumption;
 use Modules\Inventory\Entities\InventoryDisposal;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Entities\InventoryStock;
+use Modules\Inventory\Entities\PurchaseLocation;
 
 class ConsumptionReport extends Component
 {
@@ -19,7 +19,7 @@ class ConsumptionReport extends Component
 
     public string $startDate = '';
     public string $endDate = '';
-    public string $branchFilter = 'all';
+    public string $locationFilter = 'all';
     public ?int $itemFilter = null;
     public string $search = '';
     public string $viewMode = 'summary'; // summary | detail
@@ -28,7 +28,7 @@ class ConsumptionReport extends Component
     protected $queryString = [
         'startDate' => ['except' => ''],
         'endDate' => ['except' => ''],
-        'branchFilter' => ['except' => 'all'],
+        'locationFilter' => ['except' => 'all'],
         'itemFilter' => ['except' => null],
         'search' => ['except' => ''],
         'viewMode' => ['except' => 'summary'],
@@ -42,15 +42,15 @@ class ConsumptionReport extends Component
 
     public function updatingStartDate(): void { $this->resetPage(); }
     public function updatingEndDate(): void { $this->resetPage(); }
-    public function updatingBranchFilter(): void { $this->resetPage(); }
+    public function updatingLocationFilter(): void { $this->resetPage(); }
     public function updatingItemFilter(): void { $this->resetPage(); }
     public function updatingSearch(): void { $this->resetPage(); }
     public function updatingViewMode(): void { $this->resetPage(); }
 
     public function clearFilters(): void
     {
-        $this->reset(['branchFilter', 'itemFilter', 'search']);
-        $this->branchFilter = 'all';
+        $this->reset(['locationFilter', 'itemFilter', 'search']);
+        $this->locationFilter = 'all';
         $this->startDate = Carbon::now()->startOfMonth()->format('Y-m-d');
         $this->endDate = Carbon::now()->format('Y-m-d');
         $this->resetPage();
@@ -70,8 +70,8 @@ class ConsumptionReport extends Component
         if ($this->endDate) {
             $query->whereDate('consumption_date', '<=', $this->endDate);
         }
-        if ($this->branchFilter !== 'all' && $this->branchFilter !== '') {
-            $query->where('branch_id', $this->branchFilter);
+        if ($this->locationFilter !== 'all' && $this->locationFilter !== '') {
+            $query->where('location_id', $this->locationFilter);
         }
         if (!empty($this->itemFilter)) {
             $query->where('inventory_item_id', $this->itemFilter);
@@ -169,7 +169,7 @@ class ConsumptionReport extends Component
     public function getDetailRowsProperty()
     {
         return $this->baseQuery()
-            ->with(['item.unit:id,symbol,name', 'branch:id,name', 'addedBy:id,name'])
+            ->with(['item.unit:id,symbol,name', 'location', 'addedBy:id,name'])
             ->orderByDesc('consumption_date')
             ->orderByDesc('id')
             ->paginate($this->perPage, ['*'], 'detailPage');
@@ -206,8 +206,8 @@ class ConsumptionReport extends Component
         if ($this->endDate) {
             $query->whereDate('disposal_date', '<=', $this->endDate);
         }
-        if ($this->branchFilter !== 'all' && $this->branchFilter !== '') {
-            $query->where('branch_id', $this->branchFilter);
+        if ($this->locationFilter !== 'all' && $this->locationFilter !== '') {
+            $query->where('location_id', $this->locationFilter);
         }
         if (!empty($this->itemFilter)) {
             $query->where('inventory_item_id', $this->itemFilter);
@@ -273,7 +273,7 @@ class ConsumptionReport extends Component
     public function getDisposalDetailRowsProperty()
     {
         return $this->disposalBaseQuery()
-            ->with(['item.unit:id,symbol,name', 'branch:id,name', 'addedBy:id,name'])
+            ->with(['item.unit:id,symbol,name', 'location', 'addedBy:id,name'])
             ->orderByDesc('disposal_date')
             ->orderByDesc('id')
             ->paginate($this->perPage, ['*'], 'disposalDetailPage');
@@ -292,11 +292,9 @@ class ConsumptionReport extends Component
         ];
     }
 
-    public function getBranchesProperty()
+    public function getLocationsProperty()
     {
-        return Branch::where('restaurant_id', restaurant()->id)
-            ->orderBy('name')
-            ->get(['id', 'name']);
+        return PurchaseLocation::getForRestaurant(restaurant()->id);
     }
 
     public function getItemsProperty()
@@ -316,7 +314,7 @@ class ConsumptionReport extends Component
             'summaryPaginator'     => $summary['paginator'],
             'detailRows'           => $this->detailRows,
             'totals'               => $this->totals,
-            'branches'             => $this->branches,
+            'locations'            => $this->locations,
             'items'                => $this->items,
             'disposalSummaryRows'  => $disposalSummary['rows'],
             'disposalSummaryPaginator' => $disposalSummary['paginator'],

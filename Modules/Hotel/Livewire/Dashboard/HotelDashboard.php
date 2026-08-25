@@ -5,13 +5,17 @@ namespace Modules\Hotel\Livewire\Dashboard;
 use Livewire\Component;
 use Modules\Hotel\Entities\Room;
 use Modules\Hotel\Entities\Reservation;
+use Modules\Hotel\Entities\RoomCharge;
 use Modules\Hotel\Entities\HousekeepingTask;
 use Modules\Hotel\Entities\HotelSetting;
+use Modules\Hotel\Entities\HotelExpense;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class HotelDashboard extends Component
 {
     public $selectedPeriod = 'today';
+    public $activityFilter = 'all';
     public $businessMode = 'restaurant_primary';
 
     public function mount()
@@ -25,10 +29,11 @@ class HotelDashboard extends Component
      */
     private function getPeriodRange(): array
     {
+        // Inclusive calendar bounds so Today / This Week / This Month match posted dates exactly.
         return match ($this->selectedPeriod) {
-            'week' => [Carbon::now()->startOfWeek(), Carbon::now()->endOfWeek()],
-            'month' => [Carbon::now()->startOfMonth(), Carbon::now()->endOfMonth()],
-            default => [Carbon::today(), Carbon::today()], // 'today'
+            'week' => [Carbon::now()->startOfWeek()->startOfDay(), Carbon::now()->endOfWeek()->endOfDay()],
+            'month' => [Carbon::now()->startOfMonth()->startOfDay(), Carbon::now()->endOfMonth()->endOfDay()],
+            default => [Carbon::today()->startOfDay(), Carbon::today()->endOfDay()],
         };
     }
 
@@ -44,7 +49,18 @@ class HotelDashboard extends Component
         };
     }
 
-    private function getRoomStats()
+    private function getPeriodDescription(): string
+    {
+        [$startDate, $endDate] = $this->getPeriodRange();
+
+        if ($startDate->isSameDay($endDate)) {
+            return $startDate->format('M d, Y');
+        }
+
+        return $startDate->format('M d') . ' – ' . $endDate->format('M d, Y');
+    }
+
+    private function getRoomStats(): array
     {
         $query = Room::query();
 
@@ -52,15 +68,15 @@ class HotelDashboard extends Component
             'total' => $query->count(),
             'available' => (clone $query)->where('status', Room::STATUS_AVAILABLE)->count(),
             'occupied' => (clone $query)->where('status', Room::STATUS_OCCUPIED)->count(),
+            'reserved' => (clone $query)->where('status', Room::STATUS_RESERVED)->count(),
             'cleaning' => (clone $query)->where('status', Room::STATUS_CLEANING)->count(),
             'maintenance' => (clone $query)->where('status', Room::STATUS_MAINTENANCE)->count(),
         ];
     }
 
-    private function getReservationStats()
+    private function getReservationStats(): array
     {
         $query = Reservation::query();
-
         [$startDate, $endDate] = $this->getPeriodRange();
 
         return [
@@ -68,9 +84,7 @@ class HotelDashboard extends Component
             'total_checked_in' => (clone $query)->where('status', Reservation::STATUS_CHECKED_IN)->count(),
             'check_ins_period' => (clone $query)
                 ->where(function ($q) use ($startDate, $endDate) {
-                    // Already checked in during this period
                     $q->whereBetween('actual_check_in', [$startDate, $endDate->copy()->endOfDay()])
-                      // OR still pending arrival for this period
                       ->orWhere(function ($q2) use ($startDate, $endDate) {
                           $q2->whereBetween('check_in_date', [$startDate, $endDate])
                               ->where('status', Reservation::STATUS_CONFIRMED);
@@ -79,23 +93,37 @@ class HotelDashboard extends Component
                 ->count(),
             'checkouts_period' => (clone $query)
                 ->where(function ($q) use ($startDate, $endDate) {
-                    // Already checked out during this period
                     $q->whereBetween('actual_checkout', [$startDate, $endDate->copy()->endOfDay()])
-                      // OR still pending departure for this period
                       ->orWhere(function ($q2) use ($startDate, $endDate) {
                           $q2->whereBetween('checkout_date', [$startDate, $endDate])
                               ->where('status', Reservation::STATUS_CHECKED_IN);
                       });
                 })
                 ->count(),
-            'arriving_next' => (clone $query)
+            'arriving_today' => Reservation::query()
+                ->whereDate('check_in_date', Carbon::today())
+                ->where('status', Reservation::STATUS_CONFIRMED)
+                ->count(),
+            'arriving_next' => Reservation::query()
                 ->whereDate('check_in_date', Carbon::today()->addDay())
                 ->where('status', Reservation::STATUS_CONFIRMED)
                 ->count(),
+            'departing_today' => Reservation::query()
+                ->whereDate('checkout_date', Carbon::today())
+                ->where('status', Reservation::STATUS_CHECKED_IN)
+                ->count(),
+            'no_shows_period' => (clone $query)
+                ->where('status', Reservation::STATUS_NO_SHOW)
+                ->whereBetween('check_in_date', [$startDate, $endDate])
+                ->count(),
+            'outstanding_balance' => (float) Reservation::query()
+                ->whereIn('status', [Reservation::STATUS_CONFIRMED, Reservation::STATUS_CHECKED_IN])
+                ->where('balance_due', '>', 0)
+                ->sum('balance_due'),
         ];
     }
 
-    private function getOccupancyRate()
+    private function getOccupancyRate(): float
     {
         [$startDate, $endDate] = $this->getPeriodRange();
         $daysInPeriod = max(1, $startDate->diffInDays($endDate) + 1);
@@ -109,30 +137,17 @@ class HotelDashboard extends Component
 
         $totalNights = Reservation::query()
             ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
-            ->where('check_in_date', '<', $endDate->copy()->addDay())
-            ->where('checkout_date', '>', $startDate)
+            ->where('check_in_date', '<=', $endDate)
+            ->where('checkout_date', '>=', $startDate)
             ->get()
-            ->sum(function (Reservation $reservation) use ($startDate, $endDate) {
-                if (!$reservation->check_in_date || !$reservation->checkout_date) {
-                    return 0;
-                }
-
-                $stayStart = $reservation->check_in_date->greaterThan($startDate)
-                    ? $reservation->check_in_date
-                    : $startDate->copy();
-                $stayEnd = $reservation->checkout_date->lessThan($endDate)
-                    ? $reservation->checkout_date
-                    : $endDate->copy()->addDay();
-
-                return max(0, $stayStart->diffInDays($stayEnd));
-            });
+            ->sum(fn (Reservation $reservation) => $reservation->countStayNightsInPeriod($startDate, $endDate));
 
         return $maxRoomNights > 0
             ? round(($totalNights / $maxRoomNights) * 100, 1)
             : 0;
     }
 
-    private function getTodaysArrivals()
+    private function getArrivals()
     {
         [$startDate, $endDate] = $this->getPeriodRange();
 
@@ -141,11 +156,11 @@ class HotelDashboard extends Component
             ->whereBetween('check_in_date', [$startDate, $endDate])
             ->orderBy('check_in_date')
             ->orderBy('check_in_time')
-            ->limit(10)
+            ->limit(15)
             ->get();
     }
 
-    private function getTodaysDepartures()
+    private function getDepartures()
     {
         [$startDate, $endDate] = $this->getPeriodRange();
 
@@ -154,7 +169,7 @@ class HotelDashboard extends Component
             ->whereBetween('checkout_date', [$startDate, $endDate])
             ->orderBy('checkout_date')
             ->orderBy('checkout_time')
-            ->limit(10)
+            ->limit(15)
             ->get();
     }
 
@@ -163,7 +178,7 @@ class HotelDashboard extends Component
         return Reservation::with(['guest', 'room.roomType'])
             ->where('status', Reservation::STATUS_CHECKED_IN)
             ->orderBy('checkout_date')
-            ->limit(10)
+            ->limit(15)
             ->get();
     }
 
@@ -179,87 +194,119 @@ class HotelDashboard extends Component
     /**
      * Restaurant quick stats — shown in hotel_primary & equal modes
      */
-    private function getRestaurantStats()
+    private function getRestaurantStats(): ?array
     {
+        if (! in_array($this->businessMode, ['hotel_primary', 'equal'], true)) {
+            return null;
+        }
+
         [$startDate, $endDate] = $this->getPeriodRange();
-
-        $orderQuery = \App\Models\Order::whereBetween('date_time', [$startDate, $endDate->endOfDay()]);
-
-        $orders = (clone $orderQuery)->count();
-        $earnings = (clone $orderQuery)->where('status', '!=', 'cancelled')->sum('total');
-        $customers = (clone $orderQuery)->distinct('customer_id')->count('customer_id');
+        $orderQuery = \App\Models\Order::whereBetween('date_time', [$startDate, $endDate]);
 
         return [
-            'orders' => $orders,
-            'earnings' => $earnings,
-            'customers' => $customers,
+            'orders' => (clone $orderQuery)->count(),
+            'earnings' => (clone $orderQuery)->where('status', '!=', 'cancelled')->sum('total'),
+            'customers' => (clone $orderQuery)->distinct('customer_id')->count('customer_id'),
         ];
     }
 
     /**
-     * Hotel revenue KPIs: ADR, RevPAR, total room revenue.
-     * Uses the selected period (today / this week / this month).
+     * Hotel revenue and expense KPIs for the selected period.
      */
-    private function getRevenueMetrics()
+    private function getRevenueMetrics(): array
     {
         [$startDate, $endDate] = $this->getPeriodRange();
         $daysInPeriod = max(1, $startDate->diffInDays($endDate) + 1);
 
-        // Total room revenue in the selected period
-        $roomRevenue = Reservation::query()
-            ->whereIn('status', [
-                Reservation::STATUS_CHECKED_IN,
-                Reservation::STATUS_CHECKED_OUT,
-            ])
-            ->where(function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('check_in_date', [$startDate, $endDate])
-                  ->orWhereBetween('checkout_date', [$startDate, $endDate]);
+        // Revenue from folio charges only — never count cancelled / no-show stays.
+        $charges = RoomCharge::query()
+            ->where('hotel_room_charges.branch_id', branch()->id)
+            ->whereDate('charge_date', '>=', $startDate)
+            ->whereDate('charge_date', '<=', $endDate)
+            ->whereHas('reservation', function ($q) {
+                $q->whereNotIn('status', [
+                    Reservation::STATUS_CANCELLED,
+                    Reservation::STATUS_NO_SHOW,
+                ]);
             })
-            ->sum('total_amount');
+            ->selectRaw('charge_type, SUM(amount) as total')
+            ->groupBy('charge_type')
+            ->pluck('total', 'charge_type');
 
-        // Rooms sold in the period (reservation count)
+        $roomRevenue = (float) ($charges[RoomCharge::TYPE_ROOM_NIGHT] ?? 0);
+        $otherRevenue = (float) $charges->except([RoomCharge::TYPE_ROOM_NIGHT])->sum();
+        $totalRevenue = $roomRevenue + $otherRevenue;
+
+        $expensesPaid = 0.0;
+        $expensesOutstanding = 0.0;
+        $expenses = 0.0;
+
+        if (user_can('view_hotel_expenses')) {
+            // Billed totals for the period; paid vs still-owed from payment ledger.
+            $expenseQuery = HotelExpense::query()
+                ->whereBetween('expense_date', [$startDate->toDateString(), $endDate->toDateString()])
+                ->where('status', '!=', HotelExpense::STATUS_CANCELLED);
+
+            $expenses = (float) (clone $expenseQuery)->sum(DB::raw('COALESCE(total_amount, amount)'));
+            $expensesPaid = (float) (clone $expenseQuery)->sum('amount_paid');
+            $expensesOutstanding = (float) (clone $expenseQuery)->sum('balance_due');
+        }
+
+        $net = user_can('view_hotel_expenses')
+            ? $totalRevenue - $expenses
+            : 0.0;
+
         $roomsSold = Reservation::query()
-            ->whereIn('status', [
-                Reservation::STATUS_CHECKED_IN,
-                Reservation::STATUS_CHECKED_OUT,
-            ])
-            ->where(function ($q) use ($startDate, $endDate) {
-                $q->whereBetween('check_in_date', [$startDate, $endDate])
-                  ->orWhereBetween('checkout_date', [$startDate, $endDate]);
-            })
-            ->count();
+            ->whereNotIn('status', [Reservation::STATUS_CANCELLED, Reservation::STATUS_NO_SHOW])
+            ->where('check_in_date', '<=', $endDate)
+            ->where('checkout_date', '>=', $startDate)
+            ->get()
+            ->sum(fn (Reservation $reservation) => $reservation->countStayNightsInPeriod($startDate, $endDate));
 
         $totalRooms = Room::count();
-
-        // ADR = Room Revenue / Rooms Sold
         $adr = $roomsSold > 0 ? $roomRevenue / $roomsSold : 0;
-
-        // RevPAR = Room Revenue / (Total Rooms × Days in Period)
         $totalRoomNights = $totalRooms * $daysInPeriod;
         $revPar = $totalRoomNights > 0 ? $roomRevenue / $totalRoomNights : 0;
 
         return [
-            'room_revenue' => $roomRevenue,
+            'total_revenue' => round($totalRevenue, 2),
+            'room_revenue' => round($roomRevenue, 2),
+            'other_revenue' => round($otherRevenue, 2),
+            'expenses' => round($expenses, 2),
+            'expenses_paid' => round($expensesPaid, 2),
+            'expenses_outstanding' => round($expensesOutstanding, 2),
+            // Keep legacy key for any stale views during deploy.
+            'expenses_pending' => round($expensesOutstanding, 2),
+            'net' => round($net, 2),
             'adr' => round($adr, 2),
             'rev_par' => round($revPar, 2),
-            'rooms_sold' => $roomsSold,
+            'rooms_sold' => (int) $roomsSold,
         ];
+    }
+
+    private function getHotelSettings(): ?HotelSetting
+    {
+        return HotelSetting::query()->first();
     }
 
     public function render()
     {
+        $hotelSettings = $this->getHotelSettings();
+
         return view('hotel::livewire.dashboard.hotel-dashboard', [
             'roomStats' => $this->getRoomStats(),
             'reservationStats' => $this->getReservationStats(),
             'occupancyRate' => $this->getOccupancyRate(),
-            'todaysArrivals' => $this->getTodaysArrivals(),
-            'todaysDepartures' => $this->getTodaysDepartures(),
-            'inHouseGuests' => $this->getInHouseGuests(),
-            'pendingHousekeeping' => $this->getPendingHousekeeping(),
+            'todaysArrivals' => user_can('view_hotel_reservations') ? $this->getArrivals() : collect(),
+            'todaysDepartures' => user_can('view_hotel_reservations') ? $this->getDepartures() : collect(),
+            'inHouseGuests' => user_can('view_hotel_reservations') ? $this->getInHouseGuests() : collect(),
+            'pendingHousekeeping' => user_can('view_hotel_housekeeping') ? $this->getPendingHousekeeping() : collect(),
             'businessMode' => $this->businessMode,
-            'restaurantStats' => in_array($this->businessMode, ['hotel_primary', 'equal']) ? $this->getRestaurantStats() : null,
+            'restaurantStats' => $this->getRestaurantStats(),
             'revenueMetrics' => $this->getRevenueMetrics(),
             'periodLabel' => $this->getPeriodLabel(),
+            'periodDescription' => $this->getPeriodDescription(),
+            'hotelSettings' => $hotelSettings,
         ])->layout('layouts.app');
     }
 }

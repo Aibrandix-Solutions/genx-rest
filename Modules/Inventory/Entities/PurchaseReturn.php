@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use App\Traits\HasBranch;
 use App\Models\Branch;
 use App\Models\User;
+use App\Scopes\BranchScope;
 
 class PurchaseReturn extends Model
 {
@@ -26,7 +27,7 @@ class PurchaseReturn extends Model
 
     public function purchaseOrder()
     {
-        return $this->belongsTo(PurchaseOrder::class);
+        return $this->belongsTo(PurchaseOrder::class)->withoutGlobalScope(BranchScope::class);
     }
 
     public function supplier()
@@ -74,6 +75,14 @@ class PurchaseReturn extends Model
         }
     }
     
+    public function resolveRouteBinding($value, $field = null)
+    {
+        return static::withoutGlobalScope(BranchScope::class)
+            ->where($field ?? $this->getRouteKeyName(), $value)
+            ->whereHas('supplier', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->first();
+    }
+
     protected static function boot()
     {
         parent::boot();

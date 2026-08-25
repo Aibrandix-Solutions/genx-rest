@@ -3,8 +3,9 @@
 namespace Modules\Inventory\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use App\Models\Branch;
+use App\Scopes\BranchScope;
 use Modules\Inventory\Entities\PurchaseOrder;
+use Modules\Inventory\Entities\PurchaseLocation;
 use Modules\Inventory\Entities\Supplier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -32,20 +33,19 @@ class PurchaseOrderController extends Controller
         abort_if(!in_array('Inventory', restaurant_modules()), 403);
         abort_if(!user_can('Show Purchase Order'), 403);
 
-        $showAdminView = user_can('View Admin Purchases');
         $search = (string) $request->query('search', '');
         $supplierId = $request->query('supplierId');
         $supplierId = is_numeric($supplierId) ? (int) $supplierId : null;
         $status = (string) $request->query('status', '');
         $startDate = $request->query('startDate');
         $endDate = $request->query('endDate');
-        $branchFilter = (string) $request->query('branchFilter', '');
+        $locationFilter = (string) $request->query('locationFilter', '');
 
-        $statsQuery = PurchaseOrder::query();
-        if (!$showAdminView) {
-            $statsQuery->where('branch_id', branch()->id);
-        } elseif ($branchFilter !== '') {
-            $statsQuery->where('branch_id', $branchFilter);
+        $statsQuery = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id));
+
+        if ($locationFilter !== '') {
+            $statsQuery->where('location_id', $locationFilter);
         }
 
         $stats = [
@@ -58,13 +58,11 @@ class PurchaseOrderController extends Controller
                 ->count(),
         ];
 
-        $purchaseOrders = PurchaseOrder::query()
-            ->with(['supplier', 'payments', 'branch'])
-            ->when(!$showAdminView, function ($query) {
-                $query->where('branch_id', branch()->id);
-            })
-            ->when($showAdminView && $branchFilter !== '', function ($query) use ($branchFilter) {
-                $query->where('branch_id', $branchFilter);
+        $purchaseOrders = PurchaseOrder::withoutGlobalScope(BranchScope::class)
+            ->with(['supplier', 'payments', 'branch', 'location'])
+            ->whereHas('branch', fn ($q) => $q->where('restaurant_id', restaurant()->id))
+            ->when($locationFilter !== '', function ($query) use ($locationFilter) {
+                $query->where('location_id', $locationFilter);
             })
             ->when($search !== '', function ($query) use ($search) {
                 $query->where(function ($query) use ($search) {
@@ -93,14 +91,9 @@ class PurchaseOrderController extends Controller
             'cancelled' => trans('inventory::modules.purchaseOrder.status.cancelled'),
         ];
 
-        $branchName = null;
-        if ($showAdminView) {
-            $branchName = $branchFilter !== ''
-                ? Branch::where('restaurant_id', restaurant()->id)->find($branchFilter)?->name
-                : trans('app.all');
-        } else {
-            $branchName = branch()->name;
-        }
+        $locationName = $locationFilter !== ''
+            ? PurchaseLocation::where('restaurant_id', restaurant()->id)->find($locationFilter)?->display_name
+            : trans('app.all');
 
         $supplierName = $supplierId
             ? Supplier::where('restaurant_id', restaurant()->id)->find($supplierId)?->name
@@ -115,8 +108,7 @@ class PurchaseOrderController extends Controller
             'statusFilter' => $status !== '' ? ($statuses[$status] ?? ucfirst($status)) : trans('inventory::modules.purchaseOrder.all_status'),
             'startDate' => $startDate,
             'endDate' => $endDate,
-            'branchName' => $branchName,
-            'showAdminView' => $showAdminView,
+            'locationName' => $locationName,
         ]);
     }
 
@@ -184,13 +176,10 @@ class PurchaseOrderController extends Controller
             403
         );
 
-        if (!user_can('View Admin Purchases')) {
-            abort_if($purchaseOrder->branch_id !== branch()->id, 403);
-        }
-
         $purchaseOrder->load([
             'supplier',
             'location.branch',
+            'items.unit',
             'items.inventoryItem.unit',
             'items.inventoryItem.category',
             'creator',
@@ -213,7 +202,10 @@ class PurchaseOrderController extends Controller
     {
         abort_if(!in_array('Inventory', restaurant_modules()), 403);
         abort_if(!(user_can('Update Purchase Order') || user_can('Edit Purchase Order')), 403);
-        abort_if($purchase->branch_id !== branch()->id, 403);
+        abort_unless(
+            $purchase->branch()->where('restaurant_id', restaurant()->id)->exists(),
+            403
+        );
 
         // Received purchases require special override permission
         if ($purchase->status === 'received') {

@@ -2,7 +2,7 @@
     <div class="flex items-start justify-between mb-6">
         <div class="space-y-1">
             <h2 class="text-2xl font-semibold tracking-tight leading-tight text-gray-900 dark:text-white">HRM - Departments</h2>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Manage departments for your restaurant</p>
+            <p class="text-sm text-gray-500 dark:text-gray-400">Manage departments by workplace (Restaurant{{ $showWorkplaceFilter ? ' / Hotel' : '' }})</p>
         </div>
 
         @can('Create Department')
@@ -11,8 +11,16 @@
     </div>
 
     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
-        <div class="flex items-center gap-2">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
             <x-input type="text" class="w-full" wire:model.live.debounce.300ms="search" placeholder="Search department" />
+            @if($showWorkplaceFilter)
+                <select wire:model.live="workplaceFilter" class="sm:w-48 border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white text-sm">
+                    <option value="all">All Workplaces</option>
+                    @foreach($workplaceOptions as $value => $label)
+                        <option value="{{ $value }}">{{ $label }}</option>
+                    @endforeach
+                </select>
+            @endif
         </div>
     </div>
 
@@ -22,6 +30,7 @@
                 <thead>
                     <tr class="text-left text-gray-600 dark:text-gray-300">
                         <th class="py-2 pr-4">Name</th>
+                        <th class="py-2 pr-4">Workplace</th>
                         <th class="py-2 pr-4">Description</th>
                         <th class="py-2 pr-4">Status</th>
                         <th class="py-2">Actions</th>
@@ -31,6 +40,15 @@
                     @forelse($departments as $d)
                         <tr class="text-gray-900 dark:text-gray-100">
                             <td class="py-2 pr-4 font-medium">{{ $d->name }}</td>
+                            <td class="py-2 pr-4">
+                                <span @class([
+                                    'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium',
+                                    'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300' => $d->workplace === 'hotel',
+                                    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' => $d->workplace !== 'hotel',
+                                ])>
+                                    {{ $d->workplace_label }}
+                                </span>
+                            </td>
                             <td class="py-2 pr-4 max-w-xl truncate" title="{{ $d->description }}">{{ $d->description ?? '—' }}</td>
                             <td class="py-2 pr-4">
                                 @if($d->is_active)
@@ -52,7 +70,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="4" class="py-6 text-center text-gray-500 dark:text-gray-400">No departments found</td>
+                            <td colspan="5" class="py-6 text-center text-gray-500 dark:text-gray-400">No departments found</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -70,6 +88,21 @@
 
         <x-slot name="content">
             <div class="space-y-4">
+                <div>
+                    <x-label value="Workplace" />
+                    @if(count($workplaceOptions) === 1)
+                        @php $onlyLabel = reset($workplaceOptions); @endphp
+                        <x-input type="text" class="w-full" value="{{ $onlyLabel }}" disabled />
+                    @else
+                        <x-select class="w-full" wire:model="workplace">
+                            @foreach($workplaceOptions as $value => $label)
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </x-select>
+                    @endif
+                    @error('workplace') <span class="text-sm text-rose-600">{{ $message }}</span> @enderror
+                </div>
+
                 <div>
                     <x-label value="Name" />
                     <x-input type="text" class="w-full" wire:model="name" />

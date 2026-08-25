@@ -44,7 +44,7 @@
             <OrderPanel class="w-full lg:basis-[30%] lg:max-w-[30%] min-w-0" :order-type="orderType"
                 :order-number="orderNumber" :current-table="currentTable" :pax="pax" :waiter-id="waiterId"
                 :waiters="waiters" :assigned-waiter-name="assignedWaiterName" :customer="customer" :order-types="orderTypes" :cart-items="cartItems" :taxes="taxes"
-                :saving-action="savingAction" :extra-charges="extraCharges" :discount-amount="discountAmount"
+                :order-save-in-flight="orderSaveInFlight" :extra-charges="extraCharges" :discount-amount="discountAmount"
                 :discount-type="discountType" :discount-value="discountValue" :is-online="isOnline"
                 :total-tax-amount="totalTaxAmount" :is-inclusive="false" :currency-symbol="currencySymbol"
                 :order-status="orderStatus" :delivery-platforms="deliveryPlatforms"
@@ -87,6 +87,7 @@
                 @new-kot="handleNewKot"
                 @request-cancel-order="handleRequestCancelOrder"
                 @update:extraCharges="extraCharges = $event" @apply-discount="handleApplyDiscount"
+                @update-item-pricing="handleUpdateItemPricing"
                 @remove-discount="handleRemoveDiscount"
                 @remove-extra-charge="handleRemoveExtraCharge"
                 @update:pickupDateTime="handlePickupDateTimeUpdate"
@@ -142,6 +143,10 @@ import RoomServiceSelectorModal from "./components/pos/RoomServiceSelectorModal.
 import { useOfflineMode } from "./composables/useOfflineMode.js";
 import { showPosAlert, showPosConfirm } from "./utils/posAlerts.js";
 import { blockLinkedOrderItemAdds } from "./utils/linkedOrderGuards.js";
+import {
+    lineTotalAmount,
+    normalizeItemDiscountFields,
+} from "./utils/posItemPricing.js";
 
 // Generate unique tab ID to avoid concurrent increment collisions
 const tabId = ref('tab_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9));
@@ -311,7 +316,8 @@ const currentUser = ref(null);
 const canEditWaiter = ref(true);
 const cartItems = ref([]);
 const taxes = ref([]);
-const savingAction = ref(null); // Track which action is being saved: 'kot', 'bill', 'bill_payment', etc.
+// Blocks duplicate save requests (double-click / overlapping KOT+Bill) while allowing immediate UI reset.
+const orderSaveInFlight = ref(false);
 const extraCharges = ref([]);
 const discountAmount = ref(0);
 const discountType = ref("");
@@ -1089,6 +1095,45 @@ const handleAddNote = async (noteData) => {
     }
 };
 
+const handleUpdateItemPricing = async (pricingData, done) => {
+    const activeOrderId = resolveActiveOrderId();
+    if (activeOrderId && pricingData?.order_item_id) {
+        try {
+            await axios.post(`/api/pos/orders/${activeOrderId}/items/pricing`, {
+                order_item_id: pricingData.order_item_id,
+                unit_price: Number(pricingData.unit_price || 0),
+                discount_type: pricingData.discount_type || null,
+                discount_value: pricingData.discount_value ?? null,
+            });
+            await loadOrderData(activeOrderId);
+            done?.();
+        } catch (error) {
+            const message = error?.response?.data?.message || "Failed to update item pricing.";
+            console.error("Error updating linked order item pricing:", error);
+            showPosAlert("error", message);
+            done?.(error);
+        }
+        return;
+    }
+
+    const cartItem = cartItems.value.find(
+        (item) => (item.line_key || item.id) === (pricingData.line_key || pricingData.id)
+    );
+
+    if (!cartItem) {
+        done?.(new Error("Cart item not found"));
+        return;
+    }
+
+    cartItem.price = Number(pricingData.unit_price || 0);
+    cartItem.base_unit_price = cartItem.price;
+    cartItem.discount_type = pricingData.discount_type || null;
+    cartItem.discount_value = pricingData.discount_value ?? null;
+    normalizeItemDiscountFields(cartItem);
+    saveCartToStorage(cartItems.value);
+    done?.();
+};
+
 const loadCancelReasons = async () => {
     try {
         const response = await axios.get("/api/pos/cancel-reasons");
@@ -1376,7 +1421,7 @@ const calculateDiscountAmount = () => {
     } else if (discountType.value === "percent") {
         // Percentage discount - calculate from subtotal
         const subTotal = cartItems.value.reduce(
-            (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+            (sum, item) => sum + lineTotalAmount(item),
             0
         );
         discountAmount.value = (subTotal * discountValue.value) / 100;
@@ -1397,7 +1442,7 @@ const calculateTaxes = () => {
 
     // Calculate subtotal from cart items
     const subTotal = cartItems.value.reduce(
-        (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+        (sum, item) => sum + lineTotalAmount(item),
         0
     );
 
@@ -1792,12 +1837,12 @@ const openOrderDetailInPlace = (id) => {
     });
 };
 
-const openBillPrintWindow = (id) => {
+const openBillPrintWindow = (id, existingWindow = null) => {
     if (!id) {
-        return;
+        return false;
     }
 
-    openPrintUrl(`/orders/print/${id}`);
+    return openPrintUrl(`/orders/print/${id}`, existingWindow);
 };
 
 /**
@@ -1861,6 +1906,56 @@ const openKotPrintWindows = (urls = []) => {
     triggerKotPrint({ links: { kot_print_urls: urls } });
 };
 
+const captureOrderDraftSnapshot = () => ({
+    cartItems: JSON.parse(JSON.stringify(cartItems.value)),
+    customer: customer.value ? { ...customer.value } : getEmptyCustomer(),
+    customerId: customerId.value,
+    orderNote: orderNote.value,
+    discountAmount: discountAmount.value,
+    discountType: discountType.value,
+    discountValue: discountValue.value,
+    extraCharges: JSON.parse(JSON.stringify(extraCharges.value)),
+    customExtras: JSON.parse(JSON.stringify(customExtras.value)),
+    selectedDeliveryExecutive: selectedDeliveryExecutive.value,
+    deliveryFee: deliveryFee.value,
+    waiterId: waiterId.value,
+    currentTable: currentTable.value,
+    currentTableId: currentTableId.value,
+    hotelReservationId: hotelReservationId.value,
+    hotelReservation: hotelReservation.value ? { ...hotelReservation.value } : null,
+    rewardPointsRedeemed: rewardPointsRedeemed.value,
+    rewardPointDiscount: rewardPointDiscount.value,
+    availableTaxes: JSON.parse(JSON.stringify(availableTaxes.value)),
+});
+
+const restoreOrderDraftSnapshot = (snapshot) => {
+    if (!snapshot) {
+        return;
+    }
+
+    cartItems.value = snapshot.cartItems;
+    saveCartToStorage(snapshot.cartItems);
+    customer.value = snapshot.customer;
+    customerId.value = snapshot.customerId;
+    orderNote.value = snapshot.orderNote;
+    discountAmount.value = snapshot.discountAmount;
+    discountType.value = snapshot.discountType;
+    discountValue.value = snapshot.discountValue;
+    extraCharges.value = snapshot.extraCharges;
+    customExtras.value = snapshot.customExtras;
+    selectedDeliveryExecutive.value = snapshot.selectedDeliveryExecutive;
+    deliveryFee.value = snapshot.deliveryFee;
+    waiterId.value = snapshot.waiterId;
+    currentTable.value = snapshot.currentTable;
+    currentTableId.value = snapshot.currentTableId;
+    hotelReservationId.value = snapshot.hotelReservationId;
+    hotelReservation.value = snapshot.hotelReservation;
+    rewardPointsRedeemed.value = snapshot.rewardPointsRedeemed;
+    rewardPointDiscount.value = snapshot.rewardPointDiscount;
+    availableTaxes.value = snapshot.availableTaxes;
+    calculateTaxes();
+};
+
 const clearCartAfterSave = () => {
     // Clear cart after successful order save (Speeder behavior)
     // This ensures fresh start for next order
@@ -1903,10 +1998,15 @@ const clearCartAfterSave = () => {
     resetRewardState();
 };
 
-const handleSaveOrder = async (...actions) => {
-    // Create action key for tracking which button is being pressed
-    const actionKey = actions.join("_") || "kot"; // e.g., "kot", "bill", "kot_print", "bill_payment", etc.
-    savingAction.value = actionKey;
+const handleSaveOrder = (...actions) => {
+    void runSaveOrder(...actions);
+};
+
+const runSaveOrder = async (...actions) => {
+    if (orderSaveInFlight.value) {
+        return;
+    }
+
     const actionList = Array.isArray(actions) ? actions : [];
     const wantsKotPrint =
         actionList.includes("kot") &&
@@ -1917,15 +2017,20 @@ const handleSaveOrder = async (...actions) => {
     // Open a tab synchronously on click so print is not blocked after await.
     let printPlaceholder =
         wantsKotPrint || wantsReceiptPrint ? window.open("about:blank", "_blank") : null;
+    let draftSnapshot = null;
+    let optimisticNewOrderClear = false;
+
     try {
         // Validate cart has items
         // In linked-order mode, existing items are on the server — cart may be empty if no NEW items are added
         if (!isLinkedOrderMode.value && (!cartItems.value || cartItems.value.length === 0)) {
             printPlaceholder?.close();
             showPosAlert("error", "Cart is empty. Please add items before saving.");
-            savingAction.value = null;
             return;
         }
+
+        orderSaveInFlight.value = true;
+
         const routeLinkedOrderId = params.orderId ? Number(params.orderId) : null;
         const effectiveOrderId = orderId.value
             ? Number(orderId.value)
@@ -1954,16 +2059,20 @@ const handleSaveOrder = async (...actions) => {
             if (!roomServiceEnabled.value) {
                 printPlaceholder?.close();
                 showPosAlert("error", "Room service is not available.");
-                savingAction.value = null;
                 return;
             }
             if (!hotelReservationId.value) {
                 printPlaceholder?.close();
                 showPosAlert("error", "Please select a room for room service.");
                 showRoomServiceModal.value = true;
-                savingAction.value = null;
                 return;
             }
+        }
+
+        optimisticNewOrderClear = !isExistingOrder && !isLinkedOrderMode.value;
+
+        if (optimisticNewOrderClear) {
+            draftSnapshot = captureOrderDraftSnapshot();
         }
 
         console.log("[POS DEBUG] saveOrder start", {
@@ -1982,7 +2091,7 @@ const handleSaveOrder = async (...actions) => {
         const lines = cartItems.value.map((item) => {
             const unitPrice = Number(item.price || 0);
             const quantity = Number(item.quantity || 1);
-            const amount = unitPrice * quantity; // qty × price
+            const amount = lineTotalAmount(item);
 
             return {
                 menu_item_id: Number(item.menu_item_id || item.id),
@@ -1990,8 +2099,10 @@ const handleSaveOrder = async (...actions) => {
                     ? Number(item.variant_id)
                     : null,
                 qty: quantity,
-                amount: amount, // Include calculated amount
-                unit_price: unitPrice, // Include unit price for backend validation
+                amount: amount,
+                unit_price: unitPrice,
+                discount_type: item.discount_type || null,
+                discount_value: item.discount_value ?? null,
                 note: item.note || null,
                 modifier_option_quantities:
                     item.modifier_option_quantities || {},
@@ -2073,6 +2184,16 @@ const handleSaveOrder = async (...actions) => {
                     : null,
         };
 
+        if (optimisticNewOrderClear) {
+            clearCartAfterSave();
+
+            if (isOnline.value) {
+                void fetchNewOrderNumber();
+            } else {
+                void incrementOrderNumberOffline();
+            }
+        }
+
         console.log("Order data being sent:", {
             orderData: orderData,
             selectedOrderType: selectedOrderType,
@@ -2101,7 +2222,7 @@ const handleSaveOrder = async (...actions) => {
             if (isExistingOrder) {
                 // Existing linked orders should preserve current cart/view state.
                 showPosAlert("info", "Order update queued and will sync when online.");
-            } else {
+            } else if (!optimisticNewOrderClear) {
                 // Clear draft state after queueing for sync (new-order flow)
                 clearCartAfterSave();
 
@@ -2135,8 +2256,11 @@ const handleSaveOrder = async (...actions) => {
             if (shouldPrintKot) {
                 triggerKotPrint(resultPayload, printPlaceholder);
                 printPlaceholder = null;
-            } else {
+            } else if (!shouldPrintReceipt) {
+                // Keep the placeholder open for Bill & Print — browsers block a new
+                // tab after await unless we reuse the one opened on click.
                 printPlaceholder?.close();
+                printPlaceholder = null;
             }
 
             console.log("[POS DEBUG] saveOrder decoded response", {
@@ -2172,51 +2296,55 @@ const handleSaveOrder = async (...actions) => {
                 // freshly appended KOT instead of an empty "New KOT" screen. KOT+print
                 // fires the kitchen print windows first, then redirects.
                 if (isNewKotMode.value && action === "kot" && !shouldOpenPayment) {
+                    printPlaceholder?.close();
                     navigateToLinkedOrderDetail(resolvedOrderId);
                     return;
                 }
 
                 if (shouldOpenPayment) {
                     console.log("[POS DEBUG] existing order -> payment", { resolvedOrderId });
+                    printPlaceholder?.close();
                     const openedPayment = openPaymentInPlace(resolvedOrderId);
 
                     if (!openedPayment) {
                         navigateToPayment(resolvedOrderId);
                     } else {
-                        // Keep linked cart/footer in sync with billed status after in-place modal open.
-                        await loadOrderData(resolvedOrderId);
+                        // Non-blocking refresh — don't delay the payment modal on a second GET.
+                        scheduleLinkedOrderRefresh(resolvedOrderId);
                     }
                     return;
                 }
 
                 if (shouldPrintReceipt && actionList.includes("bill")) {
                     console.log("[POS DEBUG] existing order -> bill print", { resolvedOrderId });
-                    openBillPrintWindow(resolvedOrderId);
+                    openBillPrintWindow(resolvedOrderId, printPlaceholder);
+                    printPlaceholder = null;
 
                     if (shouldShowOrderDetail) {
                         navigateToLinkedOrderDetail(resolvedOrderId);
                         return;
                     }
 
-                    await loadOrderData(resolvedOrderId);
+                    scheduleLinkedOrderRefresh(resolvedOrderId);
                     return;
                 }
 
                 if (shouldShowOrderDetail) {
                     console.log("[POS DEBUG] existing order -> bill detail", { resolvedOrderId });
+                    printPlaceholder?.close();
 
                     const openedOrderDetail = openOrderDetailInPlace(resolvedOrderId);
                     if (!openedOrderDetail) {
                         navigateToLinkedOrderDetail(resolvedOrderId);
                     } else {
-                        // Legacy immediately reflects billed footer state; mirror that by rehydrating.
-                        await loadOrderData(resolvedOrderId);
+                        scheduleLinkedOrderRefresh(resolvedOrderId);
                     }
                     return;
                 }
 
                 // Preserve linked order context and refresh in-place for non-navigating actions.
-                await loadOrderData(resolvedOrderId);
+                printPlaceholder?.close();
+                scheduleLinkedOrderRefresh(resolvedOrderId);
                 return;
             }
 
@@ -2227,14 +2355,47 @@ const handleSaveOrder = async (...actions) => {
                     resultPayload,
                 });
 
+                printPlaceholder?.close();
                 if (effectiveOrderId) {
-                    await loadOrderData(effectiveOrderId);
+                    scheduleLinkedOrderRefresh(effectiveOrderId);
                 }
                 return;
             }
 
+            // Bill receipt print BEFORE clearing cart / opening panels — reuse the
+            // click-time placeholder so the print preview is not blocked.
+            if (shouldPrintReceipt && actionList.includes("bill")) {
+                const printUrl =
+                    resultPayload.links?.bill ||
+                    (orderIdToOpen ? `/orders/print/${orderIdToOpen}` : null);
+
+                console.log("[POS DEBUG] bill print decision", {
+                    actionList,
+                    orderIdToOpen,
+                    printUrl,
+                });
+
+                if (printUrl) {
+                    openPrintUrl(printUrl, printPlaceholder);
+                    printPlaceholder = null;
+                } else {
+                    printPlaceholder?.close();
+                    printPlaceholder = null;
+                    console.warn("[POS DEBUG] Bill print URL not available in response", {
+                        actionList,
+                        orderIdToOpen,
+                        resultPayload,
+                    });
+                }
+            } else {
+                printPlaceholder?.close();
+                printPlaceholder = null;
+            }
+
             // Clear cart after successful save (new-order flow)
-            clearCartAfterSave();
+            if (!optimisticNewOrderClear) {
+                clearCartAfterSave();
+            }
 
             if (shouldOpenPayment && orderIdToOpen) {
                 console.log("[POS DEBUG] new order -> bill payment", { orderIdToOpen });
@@ -2252,29 +2413,6 @@ const handleSaveOrder = async (...actions) => {
                 }
             }
 
-            // Bill receipt print (KOT print handled above via triggerKotPrint)
-            if (shouldPrintReceipt && actionList.includes("bill")) {
-                const printUrl =
-                    resultPayload.links?.bill ||
-                    (orderIdToOpen ? `/orders/print/${orderIdToOpen}` : null);
-
-                console.log("[POS DEBUG] bill print decision", {
-                    actionList,
-                    orderIdToOpen,
-                    printUrl,
-                });
-
-                if (printUrl) {
-                    setTimeout(() => openPrintUrl(printUrl), 500);
-                } else {
-                    console.warn("[POS DEBUG] Bill print URL not available in response", {
-                        actionList,
-                        orderIdToOpen,
-                        resultPayload,
-                    });
-                }
-            }
-
             if (!orderIdToOpen) {
                 console.warn("[POS DEBUG] Missing orderIdToOpen after save", {
                     actionList,
@@ -2282,12 +2420,13 @@ const handleSaveOrder = async (...actions) => {
                 });
             }
 
-            // Fetch new order number when online
-            if (isOnline.value) {
-                await fetchNewOrderNumber();
-            } else {
-                // If somehow we're offline but order was saved, increment offline
-                await incrementOrderNumberOffline();
+            // Fetch new order number when online (skip if already prefetched optimistically)
+            if (!optimisticNewOrderClear) {
+                if (isOnline.value) {
+                    await fetchNewOrderNumber();
+                } else {
+                    await incrementOrderNumberOffline();
+                }
             }
         }
     } catch (error) {
@@ -2302,6 +2441,10 @@ const handleSaveOrder = async (...actions) => {
             fullError: error
         });
 
+        if (optimisticNewOrderClear && draftSnapshot && cartItems.value.length === 0) {
+            restoreOrderDraftSnapshot(draftSnapshot);
+        }
+
         // Legacy alert style: keep the message simple and direct
         if (Object.keys(errors).length > 0) {
             const firstError = Object.values(errors)
@@ -2311,10 +2454,15 @@ const handleSaveOrder = async (...actions) => {
                 .join("\n");
             showPosAlert("error", firstError || errorMessage);
         } else {
-            showPosAlert("error", errorMessage);
+            showPosAlert(
+                "error",
+                optimisticNewOrderClear && cartItems.value.length > 0
+                    ? `Previous order failed to save: ${errorMessage}`
+                    : errorMessage
+            );
         }
     } finally {
-        savingAction.value = null;
+        orderSaveInFlight.value = false;
     }
 };
 
@@ -2946,7 +3094,7 @@ let posLivewireListenersRegistered = false;
 
 const scheduleLinkedOrderRefresh = (targetId = null) => {
     const id = targetId ?? orderId.value;
-    if (!id || !isLinkedOrderMode.value) {
+    if (!id) {
         return;
     }
 
@@ -3133,6 +3281,9 @@ const applyOrderPayload = (payload, activeOrderId) => {
                     : null,
             modifier_option_quantities:
                 line.modifier_option_quantities || {},
+            discount_type: line.discount_type || null,
+            discount_value: line.discount_value ?? null,
+            item_discount_amount: line.item_discount_amount ?? null,
             line_key:
                 line.order_item_id !== undefined && line.order_item_id !== null
                     ? `order_item_${line.order_item_id}`
