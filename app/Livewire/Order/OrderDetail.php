@@ -17,6 +17,7 @@ use App\Models\KotCancelReason;
 use App\Models\DeliveryExecutive;
 use App\Models\Kot;
 use App\Models\KotItem;
+use App\Models\KotPlace;
 use App\Models\User;
 use App\Scopes\BranchScope;
 use App\Support\KotAdjustmentLogger;
@@ -894,42 +895,16 @@ class OrderDetail extends Component
         if ($value === 'confirmed') {
             // If this order came from customer site and was held for staff confirmation,
             // it may not have KOTs yet. Generate them now so kitchen can start.
+            // Must set kitchen_place_id (same as POS) or tickets only appear under "All kitchens".
             if ($this->order->kot()->count() === 0) {
-                $transactionId = uniqid('TXN_', true) . '_' . random_int(100000, 999999);
-
-                $kot = Kot::create([
-                    'branch_id' => $this->order->branch_id,
-                    'kot_number' => (Kot::generateKotNumber($this->order->branch) + 1),
-                    'order_id' => $this->order->id,
-                    'order_type_id' => $this->order->order_type_id,
-                    'token_number' => Kot::generateTokenNumber($this->order->branch_id, $this->order->order_type_id),
-                    'note' => $this->order->note ?? null,
-                    'transaction_id' => $transactionId,
-                ]);
-
-                foreach ($this->order->items as $orderItem) {
-                    $kotItem = KotItem::create([
-                        'kot_id' => $kot->id,
-                        'menu_item_id' => $orderItem->menu_item_id,
-                        'menu_item_variation_id' => $orderItem->menu_item_variation_id,
-                        'quantity' => $orderItem->quantity,
-                        'transaction_id' => $transactionId,
-                        'note' => $orderItem->note,
-                    ]);
-
-                    $sync = [];
-                    foreach ($orderItem->modifierOptions as $modifier) {
-                        $qty = (int) ($modifier->pivot->quantity ?? 1);
-                        $sync[$modifier->id] = ['quantity' => max(1, $qty)];
-                    }
-                    if (!empty($sync)) {
-                        $kotItem->modifierOptions()->sync($sync);
-                    }
-                }
-
+                $this->createKitchenTicketsFromOrderItems();
                 $this->order->update(['status' => 'kot']);
+            } else {
+                // Repair legacy customer-site confirms that created KOTs without a kitchen.
+                $this->repairMissingKotKitchenAssignments();
             }
 
+            $this->order->unsetRelation('kot');
             $this->order->kot->each(function ($kot) {
                 $kot->update(['status' => 'in_kitchen']);
             });
@@ -938,6 +913,132 @@ class OrderDetail extends Component
         $this->dispatch('posOrderSuccess');
         $this->dispatch('refreshOrders');
         $this->dispatch('refreshPos');
+    }
+
+    /**
+     * Create KOTs from order items, grouped by kitchen (matches POS / shop auto-confirm).
+     */
+    private function createKitchenTicketsFromOrderItems(): void
+    {
+        $transactionId = uniqid('TXN_', true) . '_' . random_int(100000, 999999);
+        $defaultKotPlaceId = $this->defaultKotPlaceIdForOrderBranch();
+        $groupedItems = [];
+
+        foreach ($this->order->items as $orderItem) {
+            $menuItem = $orderItem->menuItem ?? MenuItem::find($orderItem->menu_item_id);
+            $kitchenIds = $menuItem ? $menuItem->getKitchenPlaceIds() : [];
+            $isMultiKitchen = count($kitchenIds) > 1;
+
+            if (empty($kitchenIds)) {
+                $kotPlaceId = $menuItem->kot_place_id ?? $defaultKotPlaceId;
+                if ($kotPlaceId) {
+                    $kitchenIds = [$kotPlaceId];
+                }
+            }
+
+            if (empty($kitchenIds)) {
+                continue;
+            }
+
+            $primaryKitchenId = $kitchenIds[0];
+            $groupedItems[$primaryKitchenId][] = [
+                'orderItem' => $orderItem,
+                'is_multi_kitchen' => $isMultiKitchen,
+            ];
+        }
+
+        // Fallback: keep previous single-KOT behavior if nothing could be routed
+        if (empty($groupedItems) && $this->order->items->isNotEmpty()) {
+            $fallbackKitchenId = $defaultKotPlaceId;
+            $groupedItems[$fallbackKitchenId] = $this->order->items->map(fn ($orderItem) => [
+                'orderItem' => $orderItem,
+                'is_multi_kitchen' => false,
+            ])->all();
+        }
+
+        foreach ($groupedItems as $kotPlaceId => $items) {
+            $kot = Kot::create([
+                'branch_id' => $this->order->branch_id,
+                'kot_number' => (Kot::generateKotNumber($this->order->branch) + 1),
+                'order_id' => $this->order->id,
+                'order_type_id' => $this->order->order_type_id,
+                'kitchen_place_id' => $kotPlaceId,
+                'token_number' => Kot::generateTokenNumber($this->order->branch_id, $this->order->order_type_id),
+                'note' => $this->order->note ?? null,
+                'transaction_id' => $transactionId,
+            ]);
+
+            foreach ($items as $item) {
+                $orderItem = $item['orderItem'];
+                $kotItem = KotItem::create([
+                    'kot_id' => $kot->id,
+                    'menu_item_id' => $orderItem->menu_item_id,
+                    'menu_item_variation_id' => $orderItem->menu_item_variation_id,
+                    'quantity' => $orderItem->quantity,
+                    'transaction_id' => $transactionId,
+                    'note' => $orderItem->note,
+                    'is_multi_kitchen' => $item['is_multi_kitchen'],
+                ]);
+
+                $sync = [];
+                foreach ($orderItem->modifierOptions as $modifier) {
+                    $qty = (int) ($modifier->pivot->quantity ?? 1);
+                    $sync[$modifier->id] = ['quantity' => max(1, $qty)];
+                }
+                if (!empty($sync)) {
+                    $kotItem->modifierOptions()->sync($sync);
+                }
+            }
+        }
+    }
+
+    /**
+     * Assign kitchen_place_id on KOTs that were created without one (staff-confirm bug).
+     */
+    private function repairMissingKotKitchenAssignments(): void
+    {
+        $defaultKotPlaceId = $this->defaultKotPlaceIdForOrderBranch();
+
+        $this->order->kot()
+            ->whereNull('kitchen_place_id')
+            ->with('items.menuItem.kotPlaces')
+            ->get()
+            ->each(function (Kot $kot) use ($defaultKotPlaceId) {
+                $kitchenId = null;
+
+                foreach ($kot->items as $kotItem) {
+                    $menuItem = $kotItem->menuItem;
+                    if (!$menuItem) {
+                        continue;
+                    }
+                    $kitchenIds = $menuItem->getKitchenPlaceIds();
+                    if (!empty($kitchenIds)) {
+                        $kitchenId = $kitchenIds[0];
+                        break;
+                    }
+                    if ($menuItem->kot_place_id) {
+                        $kitchenId = $menuItem->kot_place_id;
+                        break;
+                    }
+                }
+
+                $kot->update([
+                    'kitchen_place_id' => $kitchenId ?? $defaultKotPlaceId,
+                ]);
+            });
+    }
+
+    private function defaultKotPlaceIdForOrderBranch(): ?int
+    {
+        $defaultKotPlaceId = KotPlace::where('branch_id', $this->order->branch_id)
+            ->where('is_default', true)
+            ->value('id');
+
+        if (!$defaultKotPlaceId) {
+            $defaultKotPlaceId = KotPlace::where('branch_id', $this->order->branch_id)->value('id');
+        }
+
+        return $defaultKotPlaceId ? (int) $defaultKotPlaceId : null;
     }
 
     public function saveOrder($action)
