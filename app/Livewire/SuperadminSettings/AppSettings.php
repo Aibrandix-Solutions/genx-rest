@@ -34,6 +34,13 @@ class AppSettings extends Component
     public $filteredPhoneCodes;
     public $timezone;
     public $timezones;
+    public bool $showReceiptFooter;
+    public $receiptFooterText;
+    public $receiptFooterPhone;
+    public $receiptFooterPhoneCode;
+    public $receiptFooterPhoneCodeSearch = '';
+    public $receiptFooterPhoneCodeIsOpen = false;
+    public $receiptFooterFilteredPhoneCodes;
 
     public function mount()
     {
@@ -56,6 +63,35 @@ class AppSettings extends Component
         // Timezone
         $this->timezone = $this->settings->timezone ?? 'UTC';
         $this->timezones = DateTimeZone::listIdentifiers();
+
+        $this->showReceiptFooter = (bool) ($this->settings->show_receipt_footer ?? false);
+        $this->receiptFooterText = $this->settings->receipt_footer_text;
+        $this->receiptFooterPhone = $this->settings->receipt_footer_phone;
+        $this->receiptFooterPhoneCode = $this->settings->receipt_footer_phone_code ?? '';
+        $this->receiptFooterFilteredPhoneCodes = $this->allPhoneCodes;
+    }
+
+    public function updatedReceiptFooterPhoneCodeIsOpen($value)
+    {
+        if (! $value) {
+            $this->reset(['receiptFooterPhoneCodeSearch']);
+            $this->updatedReceiptFooterPhoneCodeSearch();
+        }
+    }
+
+    public function updatedReceiptFooterPhoneCodeSearch()
+    {
+        $this->receiptFooterFilteredPhoneCodes = $this->allPhoneCodes->filter(function ($phonecode) {
+            return str_contains($phonecode, $this->receiptFooterPhoneCodeSearch);
+        })->values();
+    }
+
+    public function selectReceiptFooterPhoneCode($phonecode)
+    {
+        $this->receiptFooterPhoneCode = $phonecode;
+        $this->receiptFooterPhoneCodeIsOpen = false;
+        $this->receiptFooterPhoneCodeSearch = '';
+        $this->updatedReceiptFooterPhoneCodeSearch();
     }
 
     public function updatedPhoneCodeIsOpen($value)
@@ -106,6 +142,12 @@ class AppSettings extends Component
             $validationRules['privacyPolicyLink'] = 'required|url';
         }
 
+        if ($this->showReceiptFooter) {
+            $validationRules['receiptFooterText'] = 'required|string|max:255';
+            $validationRules['receiptFooterPhone'] = 'nullable|regex:/^[0-9\s]{8,20}$/';
+            $validationRules['receiptFooterPhoneCode'] = 'nullable|required_with:receiptFooterPhone';
+        }
+
         $this->validate($validationRules);
 
         $this->settings->name = $this->appName;
@@ -117,6 +159,10 @@ class AppSettings extends Component
         $this->settings->show_privacy_consent_checkbox = $this->showPrivacyConsentCheckbox;
         $this->settings->session_driver = $this->sessionDriver ?? null;
         $this->settings->timezone = $this->timezone;
+        $this->settings->show_receipt_footer = $this->showReceiptFooter;
+        $this->settings->receipt_footer_text = $this->showReceiptFooter ? $this->receiptFooterText : null;
+        $this->settings->receipt_footer_phone = $this->showReceiptFooter ? $this->receiptFooterPhone : null;
+        $this->settings->receipt_footer_phone_code = $this->showReceiptFooter ? $this->receiptFooterPhoneCode : null;
         // Save phone_number and phone_code to the User table for the current user
         user()->update([
             'phone_number' => $this->phoneNumber,
@@ -148,6 +194,7 @@ class AppSettings extends Component
     {
         return view('livewire.superadmin-settings.app-settings', [
             'phonecodes' => $this->filteredPhoneCodes,
+            'receiptFooterPhonecodes' => $this->receiptFooterFilteredPhoneCodes,
             'timezones' => $this->timezones,
         ]);
     }

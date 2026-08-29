@@ -217,6 +217,86 @@
                 </x-label>
             </div>
 
+            <div class="pt-2 border-t border-gray-200 dark:border-gray-700">
+                <h4 class="mb-4 text-lg font-semibold text-gray-900 dark:text-white">@lang('modules.settings.receiptFooterBranding')</h4>
+
+                <div class="mb-4">
+                    <x-label for="showReceiptFooter">
+                        <div class="flex items-start space-x-4 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors duration-200 dark:border-gray-700 dark:hover:bg-gray-700/50">
+                            <div class="flex-shrink-0">
+                                <x-checkbox
+                                    class="mt-1 h-5 w-5 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700"
+                                    name="showReceiptFooter"
+                                    id="showReceiptFooter"
+                                    wire:model.live="showReceiptFooter"
+                                />
+                            </div>
+                            <div class="flex-1">
+                                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                                    @lang('modules.settings.showReceiptFooter')
+                                </h3>
+                                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    @lang('modules.settings.showReceiptFooterHelp')
+                                </p>
+                            </div>
+                        </div>
+                    </x-label>
+                </div>
+
+                <div x-show="$wire.showReceiptFooter" x-transition class="grid gap-6 lg:grid-cols-2">
+                    <div>
+                        <x-label for="receiptFooterText" value="{{ __('modules.settings.receiptFooterText') }}" />
+                        <x-input id="receiptFooterText" class="block mt-1 w-full" type="text" wire:model="receiptFooterText" placeholder="{{ __('placeholders.receiptFooterCompanyName') }}" />
+                        <x-input-error for="receiptFooterText" class="mt-2" />
+                    </div>
+
+                    <div>
+                        <x-label for="receiptFooterPhone" value="{{ __('modules.settings.receiptFooterPhone') }}" />
+                        <div class="flex gap-2 mt-2">
+                            <div x-data="{ isOpen: @entangle('receiptFooterPhoneCodeIsOpen').live }" @click.away="isOpen = false" class="relative w-32">
+                                <div @click="isOpen = !isOpen"
+                                    class="p-2 bg-gray-100 border rounded cursor-pointer dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                                    <div class="flex items-center justify-between">
+                                        <span class="text-sm">
+                                            @if ($receiptFooterPhoneCode)
+                                                +{{ $receiptFooterPhoneCode }}
+                                            @else
+                                                {{ __('modules.settings.select') }}
+                                            @endif
+                                        </span>
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                        </svg>
+                                    </div>
+                                </div>
+                                <ul x-show="isOpen" x-transition
+                                    class="absolute z-10 w-full mt-1 overflow-auto bg-white rounded-lg shadow-lg max-h-72 ring-1 ring-black ring-opacity-5 focus:outline-none sm:text-sm dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+                                    <li class="sticky top-0 px-3 bg-white dark:bg-gray-900 z-10">
+                                        <x-input wire:model.live.debounce.300ms="receiptFooterPhoneCodeSearch" class="block w-full" type="text" placeholder="{{ __('placeholders.search') }}" />
+                                    </li>
+                                    @forelse ($receiptFooterPhonecodes as $phonecode)
+                                        <li @click="$wire.selectReceiptFooterPhoneCode('{{ $phonecode }}'); isOpen = false;"
+                                            wire:key="receipt-footer-phone-code-{{ $phonecode }}"
+                                            class="relative py-2 pl-3 pr-9 text-gray-900 transition-colors duration-150 cursor-pointer select-none hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-300"
+                                            role="option">
+                                            <span class="block text-sm whitespace-nowrap">+{{ $phonecode }}</span>
+                                        </li>
+                                    @empty
+                                        <li class="relative py-2 pl-3 pr-9 text-gray-500 cursor-default select-none dark:text-gray-400">
+                                            {{ __('modules.settings.noPhoneCodesFound') }}
+                                        </li>
+                                    @endforelse
+                                </ul>
+                            </div>
+                            <x-input id="receiptFooterPhone" class="block w-full" type="tel" wire:model="receiptFooterPhone" placeholder="1234567890" />
+                        </div>
+                        <x-input-error for="receiptFooterPhoneCode" class="mt-2" />
+                        <x-input-error for="receiptFooterPhone" class="mt-2" />
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">@lang('modules.settings.receiptFooterPhoneHelp')</p>
+                    </div>
+                </div>
+            </div>
+
             <div>
                 <x-button>@lang('app.save')</x-button>
             </div>

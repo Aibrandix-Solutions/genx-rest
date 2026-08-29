@@ -329,6 +329,41 @@ if (!function_exists('global_setting')) {
     }
 }
 
+if (!function_exists('receipt_footer_branding')) {
+
+    /**
+     * Platform receipt footer (superadmin branding). Returns null when disabled or empty.
+     *
+     * @return array{text: string, phone: string}|null
+     */
+    function receipt_footer_branding(): ?array
+    {
+        $settings = global_setting();
+
+        if (! $settings || ! ($settings->show_receipt_footer ?? false)) {
+            return null;
+        }
+
+        $text = trim((string) ($settings->receipt_footer_text ?? ''));
+        $phone = trim((string) ($settings->receipt_footer_phone ?? ''));
+        $phoneCode = trim((string) ($settings->receipt_footer_phone_code ?? ''));
+
+        $formattedPhone = '';
+        if ($phone !== '') {
+            $formattedPhone = '+' . ltrim($phoneCode, '+') . ' ' . $phone;
+        }
+
+        if ($text === '' && $formattedPhone === '') {
+            return null;
+        }
+
+        return [
+            'text' => $text,
+            'phone' => $formattedPhone,
+        ];
+    }
+}
+
 if (!function_exists('restaurantOrGlobalSetting')) {
 
     function restaurantOrGlobalSetting()

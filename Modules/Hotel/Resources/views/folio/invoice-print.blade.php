@@ -176,6 +176,7 @@
             border-top: 1px dashed #000;
         }
 
+
         .refund {
             color: #000;
         }
@@ -368,6 +369,7 @@
 
         <div class="footer">
             <p>@lang('hotel::modules.invoice.thankYou')</p>
+            @include('receipt.partials.footer-branding', ['withBorder' => false])
         </div>
     </div>
 

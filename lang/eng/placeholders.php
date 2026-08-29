@@ -16,6 +16,7 @@ return array (
   'searchStaffmember' => 'Search by name or email',
   'searchPackages' => 'Search your package here',
   'restaurantNamePlaceHolder' => 'e.g., The Midtown Cafe',
+  'receiptFooterCompanyName' => 'e.g., Powered by DigiPartner',
   'searchPayments' => 'Search payments by amount, method, TX ID',
   'searchDuePayments' => 'Search payments by amount or order #',
   'searchOrdersById' => 'Search by order ID',

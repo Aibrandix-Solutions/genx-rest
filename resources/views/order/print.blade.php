@@ -199,6 +199,7 @@
                 size: 80mm auto;
             }
         }
+
     </style>
 </head>
 
@@ -653,6 +654,7 @@
             @endif
         </div>
 
+        @include('receipt.partials.footer-branding')
 
     </div>
 

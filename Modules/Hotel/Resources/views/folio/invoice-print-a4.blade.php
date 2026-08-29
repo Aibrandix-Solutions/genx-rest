@@ -280,6 +280,7 @@
             color: #666;
         }
 
+
         @page {
             size: A4;
             margin: 10mm;
@@ -474,6 +475,7 @@
 
         <div class="footer">
             <p>@lang('hotel::modules.invoice.thankYou')</p>
+            @include('receipt.partials.footer-branding', ['withBorder' => false])
         </div>
     </div>
 

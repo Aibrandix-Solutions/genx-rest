@@ -190,6 +190,7 @@
             color: #000;
         }
 
+
         .qr_code {
             margin: 15px 0;
             text-align: center;
@@ -652,6 +653,8 @@
                     <p>@lang('modules.settings.scanQrCode')</p>
                 </div>
             @endif
+
+            @include('receipt.partials.footer-branding', ['withBorder' => false])
         </div>
     </div>
 </body>
