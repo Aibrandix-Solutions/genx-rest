@@ -3,6 +3,7 @@
 namespace App\Livewire\Pos;
 
 use App\Events\NewOrderCreated;
+use Modules\Inventory\Services\InventoryOrderStockService;
 use App\Livewire\Customer\AddCustomer;
 use App\Models\Customer;
 use App\Models\DeliveryExecutive;
@@ -3181,6 +3182,8 @@ class Pos extends Component
             $orderTypeName = $orderType->order_type_name ?? $orderTypeName;
         }
 
+        $inventoryStatusBeforeSave = null;
+
         if ((! $this->tableOrderID && ! $this->orderID) || ($this->tableOrderID && ! $this->tableOrder->activeOrder)) {
 
             $orderNumberData = Order::generateOrderNumber(branch());
@@ -3255,6 +3258,7 @@ class Pos extends Component
             }
 
             $order = ($this->tableOrderID ? $this->tableOrder->activeOrder : $this->orderDetail);
+            $inventoryStatusBeforeSave = (string) ($order->status ?? '');
             $order->update([
                 'date_time' => now(),
                 'order_type' => $this->orderType,
@@ -3439,6 +3443,15 @@ class Pos extends Component
                 // loaded in-memory. In that case, keep previous order_items and append only
                 // the newly added lines instead of deleting historical rows.
                 if (! $this->orderID || ! $appendOnlyKotSave) {
+                    $billedLifecycle = ['billed', 'paid', 'payment_due'];
+                    if (in_array((string) $inventoryStatusBeforeSave, $billedLifecycle, true)) {
+                        $existingItems = $order->items()->with('modifierOptions')->get();
+                        if ($existingItems->isNotEmpty()) {
+                            $order->setRelation('items', $existingItems);
+                            app(InventoryOrderStockService::class)->restoreForOrder($order);
+                        }
+                    }
+
                     $order->items()->delete();
                 }
 
@@ -3577,6 +3590,14 @@ class Pos extends Component
                 // Then show the payment modal
                 $this->dispatch('showPaymentModal', id: $order->id);
 
+                $billedLifecycle = ['billed', 'paid', 'payment_due'];
+                $shouldDeductInventory = ($order->placed_via == null || $order->placed_via == 'pos')
+                    && ! in_array((string) $inventoryStatusBeforeSave, $billedLifecycle, true);
+
+                if ($shouldDeductInventory) {
+                    NewOrderCreated::dispatch($order->fresh(['items.modifierOptions']));
+                }
+
                 $this->printKot($order, $kot);
                 $this->printOrder($order);
                 $this->resetPos();
@@ -3586,6 +3607,16 @@ class Pos extends Component
         }
 
         if ($status == 'billed') {
+            $billedLifecycle = ['billed', 'paid', 'payment_due'];
+            $wasAlreadyBilled = in_array((string) $inventoryStatusBeforeSave, $billedLifecycle, true);
+
+            if ($wasAlreadyBilled) {
+                $existingItems = $order->items()->with('modifierOptions')->get();
+                if ($existingItems->isNotEmpty()) {
+                    $order->setRelation('items', $existingItems);
+                    app(InventoryOrderStockService::class)->restoreForOrder($order);
+                }
+            }
 
             $order->items()->delete();
             $order->taxes()->delete();
@@ -3747,7 +3778,9 @@ class Pos extends Component
             }
 
             if ($order->placed_via == null || $order->placed_via == 'pos') {
-                NewOrderCreated::dispatch($order);
+                // Always deduct after bill recreate. If this was a re-bill of an
+                // already-billed order, stock was restored just before items()->delete().
+                NewOrderCreated::dispatch($order->fresh(['items.modifierOptions']));
             }
 
             // Do NOT call $this->resetPos() here!

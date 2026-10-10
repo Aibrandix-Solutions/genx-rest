@@ -44,6 +44,7 @@ database/maxmind/
 public/css/app-custom.css
 public/css/theme-custom.css
 
+/.kiro
 lang/*
 !lang/eng/
 /qa_build/

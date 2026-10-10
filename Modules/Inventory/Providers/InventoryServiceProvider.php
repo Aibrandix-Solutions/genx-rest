@@ -26,6 +26,7 @@ use Modules\Inventory\Livewire\Setting\LocationManager;
 use Modules\Inventory\Console\CreateAutoPurchaseOrder;
 use Modules\Inventory\Console\ActivateModuleCommand;
 use Modules\Inventory\Console\ReallocateOrphanSupplierPayments;
+use Modules\Inventory\Console\TestRetailItemFlow;
 use Illuminate\Console\Scheduling\Schedule;
 use Modules\Inventory\Entities\InventoryItem;
 use Modules\Inventory\Observers\InventoryItemObserver;
@@ -113,6 +114,7 @@ class InventoryServiceProvider extends ServiceProvider
             CreateAutoPurchaseOrder::class,
             ActivateModuleCommand::class,
             ReallocateOrphanSupplierPayments::class,
+            TestRetailItemFlow::class,
         ]);
     }
 

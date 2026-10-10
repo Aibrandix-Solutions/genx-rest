@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\NewOrderCreated;
 use App\Http\Controllers\Controller;
+use Modules\Inventory\Services\InventoryOrderStockService;
 use App\Services\OrderPaymentBalanceSync;
 use App\Services\Pos\OrderItemLinePricing;
 use App\Models\ComboPack;
@@ -571,7 +573,20 @@ class PosVueOrderController extends Controller
                 //   - On `kot` in APPEND mode (New KOT flow from /pos/kot/{id}), everything is
                 //     preserved and only the delta lines are appended + new KOT created below.
                 if (! $appendKot) {
-                    foreach ($order->items()->with('modifierOptions')->get() as $existingOrderItem) {
+                    $existingItems = $order->items()->with('modifierOptions')->get();
+
+                    // Replacing lines on an already-billed order: restock first so
+                    // replace/KOT demotion does not leave orphaned deductions.
+                    $billedLifecycleStatuses = ['billed', 'paid', 'payment_due'];
+                    if (
+                        in_array($statusBeforeSave, $billedLifecycleStatuses, true)
+                        && $existingItems->isNotEmpty()
+                    ) {
+                        $order->setRelation('items', $existingItems);
+                        app(InventoryOrderStockService::class)->restoreForOrder($order);
+                    }
+
+                    foreach ($existingItems as $existingOrderItem) {
                         $existingOrderItem->modifierOptions()->detach();
                     }
 
@@ -1142,6 +1157,7 @@ class PosVueOrderController extends Controller
                 'kot_ids' => $kotIds,
                 'kot_print_targets' => $kotPrintTargets,
                 'is_update' => $isUpdate,
+                'status_before_save' => $statusBeforeSave ?? null,
             ];
         });
 
@@ -1169,6 +1185,31 @@ class PosVueOrderController extends Controller
                     ->where('id', $persistedTableId)
                     ->where('branch_id', $branch->id)
                     ->update(['available_status' => $tableStatus]);
+            }
+        }
+
+        // Legacy parity (Pos.php::saveOrder billed block): deduct inventory on bill.
+        $billedLifecycle = ['billed', 'paid', 'payment_due'];
+        $statusBefore = (string) ($result['status_before_save'] ?? '');
+        $orderForInventory = $result['order']->fresh(['items.modifierOptions']);
+        $placedViaPos = $orderForInventory->placed_via === null || $orderForInventory->placed_via === 'pos';
+        $isBillAction = $action === 'bill' || $billAfterKot;
+        $isBilledNow = in_array((string) $orderForInventory->status, $billedLifecycle, true);
+        $wasAlreadyBilled = in_array($statusBefore, $billedLifecycle, true);
+        $newOrderItemIds = array_values(array_filter(array_map('intval', $result['order_item_ids'] ?? [])));
+
+        if ($placedViaPos && $isBilledNow) {
+            if ($isBillAction && ! $wasAlreadyBilled) {
+                // First transition into billed: deduct all current lines.
+                NewOrderCreated::dispatch($orderForInventory);
+            } elseif ($appendKot && $wasAlreadyBilled && $newOrderItemIds !== []) {
+                // Append on an already-billed order (bill or KOT that stays billed):
+                // deduct only newly appended lines.
+                NewOrderCreated::dispatch($orderForInventory, $newOrderItemIds);
+            } elseif ($isBillAction && ! $appendKot && $wasAlreadyBilled) {
+                // Full cart replace on already-billed order: stock was restored before
+                // delete; deduct the recreated lines.
+                NewOrderCreated::dispatch($orderForInventory);
             }
         }
 

@@ -16,9 +16,9 @@ class NewOrderCreated
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     /**
-     * Create a new event instance.
+     * @param  array<int>|null  $orderItemIds  When set, inventory deducts only these order item IDs (append/delta bills).
      */
-    public function __construct(public Order $order)
+    public function __construct(public Order $order, public ?array $orderItemIds = null)
     {
         //
     }
